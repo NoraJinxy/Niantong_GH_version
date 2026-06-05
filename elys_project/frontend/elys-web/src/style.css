@@ -1036,58 +1036,8 @@ code, kbd {
 .flex-1 { flex: 1; min-width: 0; }
 .flex-shrink-0 { flex-shrink: 0; }
 
-/* ====== Task progress bar (bottom dock) ====== */
-.task-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
-  background: rgba(255, 255, 255, .95);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid var(--c-border);
-  box-shadow: 0 -4px 14px rgba(27, 41, 64, .06);
-}
-.task-dock__head {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: 10px var(--s-5);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--c-text-2);
-}
-.task-dock__head .pulse {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--c-primary);
-  box-shadow: 0 0 0 0 rgba(63, 94, 143, .45);
-  animation: pulse 1.6s infinite;
-}
-.task-dock__list {
-  padding: 0 var(--s-5) var(--s-3);
-  display: none;
-  gap: var(--s-2);
-  flex-direction: column;
-}
-.task-dock.is-open .task-dock__list { display: flex; }
-.task-dock-item {
-  display: grid;
-  grid-template-columns: 1fr 1fr 80px;
-  align-items: center;
-  gap: var(--s-3);
-  padding: 8px var(--s-3);
-  border-radius: var(--r);
-  background: var(--c-bg-soft);
-  font-size: 12px;
-}
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(63, 94, 143, .5); }
-  70% { box-shadow: 0 0 0 8px rgba(63, 94, 143, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(63, 94, 143, 0); }
-}
+/* （已删除未使用的 .task-dock 底部任务条 + 其专用 @keyframes pulse
+   —— 2026-06-05 死 CSS 清理：全仓 grep 零引用；各页 pulse 动画均用自己 scoped 的 keyframe）*/
 
 /* ====== Empty / dropzone ====== */
 .empty {

@@ -12,20 +12,25 @@
 
 </div>
 
+!!! warning "实现现状（2026-06 核对）"
+    本页是**设计/策略页**。当前代码（`backend/app/routers/datasets.py`）只实现了 **§2.1 纯数据库逻辑视图**：导入时把 `raw_bids_data` 等 `dataset_files` 行的 `storage_uri` 直接指向原始上传文件，**不复制、不建硬链接/reflink、不重写格式头**。
+
+    以下均为**规划、尚未实现**：§2.2 硬链接 / reflink 混合视图、§2.3 `storage_objects` 物理对象表（该表当前不存在，`dataset_files` 也没有 `storage_object_id` / `dataset_asset_id` 列）、§3 的 EDF/BrainVision/EEGLAB 链接与 `.vhdr/.vmrk` 重写、§4 第 3–4 步的零复制构建、§6 对 EDF/BDF 硬链接的建议。读本页时请把"硬链接/reflink/对象引用"理解为目标方案而非现状。
+
 ## 1. 核心判断
 
 `raw_bids` 不应该被删除。它是 Dataset 的标准原始数据入口，决定数据能否被共享、验证、导出和长期解释。
 
-但 `raw_bids` 不必总是物理复制一份大文件。它可以是：
+但 `raw_bids` 不必总是物理复制一份大文件。它可以是（仅第一项已落地，其余为规划）：
 
-- 数据库中的逻辑 BIDS 路径。
-- 文件系统中的硬链接或 reflink。
-- 对象存储中的同一 object 多个逻辑引用。
-- `storage_objects` + `dataset_files` 的多对一映射。
+- **（已落地）** 数据库中的逻辑 BIDS 路径。
+- **（规划）** 文件系统中的硬链接或 reflink。
+- **（规划）** 对象存储中的同一 object 多个逻辑引用。
+- **（规划）** `storage_objects` + `dataset_files` 的多对一映射。
 
 ## 2. 三种实现层级
 
-### 2.1 逻辑视图
+### 2.1 逻辑视图（已落地）
 
 服务器上只保存：
 
@@ -45,9 +50,9 @@ dataset_files
 
 优点是最省空间；缺点是目录上没有真实 Raw BIDS 文件树，导出时需要临时组装。
 
-### 2.2 混合视图
+### 2.2 混合视图（规划，未实现）
 
-推荐 MVP 采用。目录上真的有 `raw_bids/`，但大文件用硬链接或 reflink，小文件由平台生成。
+目录上真的有 `raw_bids/`，但大文件用硬链接或 reflink，小文件由平台生成。
 
 ```text
 sourcedata/original_uploads/upload-0001/
@@ -72,9 +77,9 @@ ln original.edf sub-001_ses-01_task-rest_run-01_eeg.edf
 cp --reflink=auto original.edf sub-001_ses-01_task-rest_run-01_eeg.edf
 ```
 
-### 2.3 物理对象 + 逻辑文件
+### 2.3 物理对象 + 逻辑文件（规划，未实现）
 
-正式平台建议引入 `storage_objects`：
+正式平台建议引入 `storage_objects`（当前 schema 中无此表）：
 
 ```text
 storage_objects

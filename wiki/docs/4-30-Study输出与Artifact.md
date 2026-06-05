@@ -19,8 +19,8 @@ Study 层保存“为了这个研究问题跑出来的东西”。Study 不复�
 标准目录：
 
 ```text
-studies/st-202605000001/
-  study.json
+studies/202605000001/
+  .elys_study.json
   executions/
     execution-uuid-001/
       execution_manifest.json
@@ -28,7 +28,7 @@ studies/st-202605000001/
         load-data.log
         filter.log
         error.log
-  artifacts/
+  derived/
     ab/
       abcdef123456.../
         payload.fif
@@ -38,7 +38,6 @@ studies/st-202605000001/
       preview.json
       figure.png
   temp/
-    execution-uuid-001/
   exports/
     report-20260521.zip
 ```
@@ -47,7 +46,7 @@ studies/st-202605000001/
 |---|---|
 | `executions/{execution_id}/execution_manifest.json` | 本次执行的输入、参数、软件版本、输出索引摘要 |
 | `executions/{execution_id}/logs/` | 节点日志、错误日志、运行尾日志 |
-| `artifacts/` | clean raw、epochs、ERP、表格、图片、报告、缓存 |
+| `derived/{sha256[:2]}/{sha256}/` | DerivedDataset 内容寻址输出：clean raw、epochs、ERP、表格、图片、报告、缓存 |
 | `previews/` | 前端快速预览用的小文件或缩略图 |
 | `temp/` | 运行中的临时文件 |
 | `exports/` | 用户导出的报告、数据包、复现包 |
@@ -58,8 +57,8 @@ Execution 运行时先写临时目录，成功后再原子发布为 Artifact。
 
 ```mermaid
 flowchart LR
-  Temp[temp/{execution_id}] --> Hash[计算 sha256/content_hash]
-  Hash --> Publish[移动到 artifacts/{hash_prefix}/{content_hash}]
+  Temp[temp/] --> Hash[计算 sha256/content_hash]
+  Hash --> Publish[移动到 derived/{sha256[:2]}/{sha256}]
   Publish --> Derived[(derived_datasets)]
   Derived --> Manifest[更新 execution_manifest.json]
   Derived --> Status[current/pinned/cached]
@@ -106,7 +105,7 @@ flowchart LR
 ```json
 {
   "execution_id": "uuid",
-  "study_id": "st-202605000001",
+  "study_id": "202605000001",
   "pipeline_id": 12,
   "pipeline_version": 3,
   "inputs": [
@@ -121,8 +120,8 @@ flowchart LR
   ],
   "outputs": [
     {
-      "artifact_id": "uuid",
-      "storage_uri": "elys://studies/st-202605000001/artifacts/ab/abcdef...",
+      "derived_dataset_id": "uuid",
+      "storage_uri": "elys://studies/202605000001/derived/ab/abcdef...",
       "sha256": "...",
       "retention_status": "current"
     }
@@ -140,7 +139,7 @@ Manifest 的作用不是代替数据库，而是让一次执行可以被导出�
 Pipeline 本质是数据库定义，不拥有数据文件。文件系统最多保存可导出的快照：
 
 ```text
-studies/st-202605000001/
+studies/202605000001/
   pipeline_snapshots/
     pipeline-12/
       v0003/
@@ -153,7 +152,7 @@ Execution 创建时仍以 `pipeline_executions.definition_snapshot` 为事实源
 
 | 当前实现 | 标准设计中的位置 | 调整建议 |
 |---|---|---|
-| `pipeline_runs/{execution_id}/nodes/{node_id}` | `studies/{study_id}/executions` + `artifacts` | 旧输出兼容读取；新 Artifact 写入 Study content-addressed 目录 |
+| 旧 `pipeline_runs/{execution_id}/nodes/{node_id}` | `studies/{study_id}/executions` + `derived/{sha256[:2]}/{sha256}` | 旧输出兼容读取；新派生数据写入 Study content-addressed `derived/` 目录 |
 | 旧 `storage_path` 字段 | `derived_datasets.storage_uri` | 统一为 `storage_uri`，使用 `elys://studies/...` |
 | `checksum` | `sha256` | 新写入双写；旧字段继续兼容 |
 | `retention_status` | 输出保留状态 | 新 Artifact 默认 `current`，缓存复用可写 `cached`，清理任务处理 `temporary/cached` |
@@ -167,7 +166,7 @@ Execution 创建时仍以 `pipeline_executions.definition_snapshot` 为事实源
 - `deleted` DerivedDataset 默认不在列表展示，预览返回 409。
 - 清理策略当前只改变 `retention_status` / `deleted_at`，不能让 Execution 记录消失，也不会物理删除文件。
 - pin/unpin/hide 与兼容 retention patch 都写入 `audit_events`；hide/delete 复用同一依赖 blocker。
-- Execution 完成、失败、等待用户输入或取消时生成 `execution_manifest.json`；旧 Execution 可用 backfill 工具补生成。
+- Execution 完成、失败、等待用户输入或取消时生成 `execution_manifest.json`（调试期无 backfill 工具，旧 Execution 不回填）。
 - 下游依赖会阻止 Artifact 标记为 `deleted`，清理任务必须复用同一依赖检查。
 
 ## 8. 相关页面
