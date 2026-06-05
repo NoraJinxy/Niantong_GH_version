@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>登录 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+  /* Login-only tab swap */
+  .auth-tabs { display: flex; border-bottom: 1px solid var(--c-border); margin-bottom: var(--s-5); }
+  .auth-tabs__item {
+    flex: 1; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none;
+    color: var(--c-text-2);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-weight: 500;
+  }
+  .auth-tabs__item.is-active { color: var(--c-primary); border-bottom-color: var(--c-primary); }
+  .pane-hidden { display: none; }
+  .password-wrap { position: relative; }
+  .password-wrap .eye { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--c-text-3); cursor: pointer; }
+  .sso-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin-top: var(--s-3); }
+  .sep { display: flex; align-items: center; gap: var(--s-3); margin: var(--s-4) 0; color: var(--c-text-3); font-size: 12px; }
+  .sep::before, .sep::after { content: ""; flex: 1; height: 1px; background: var(--c-border); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+  .helper-row { display: flex; justify-content: space-between; font-size: 12px; }
+</style>
+</head>
+<body>
+<main class="auth-stage">
+  <div style="position:absolute;top:24px;left:24px;">
+    <a href="index.html" class="row gap-2" style="font-size:13px;color:var(--c-text-2);text-decoration:none;">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      返回首页
+    </a>
+  </div>
+
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="logo"></div>
+      <h1>念析 <small style="font-weight:400;font-size:14px;color:var(--c-text-3);">ELYS</small></h1>
+      <small>念隐于微，析显于明</small>
+    </div>
+
+    <div class="auth-tabs" data-tab-root>
+      <div class="tabs__item auth-tabs__item is-active" data-target="login">登录</div>
+      <div class="tabs__item auth-tabs__item" data-target="register">注册</div>
+      <div class="tabs__item auth-tabs__item" data-target="sso">SSO</div>
+    </div>
+
+    <!-- 登录 -->
+    <form data-pane="login" onsubmit="event.preventDefault(); window.location.href='dashboard.html';">
+      <div class="field">
+        <label class="field__label">用户名 / 邮箱</label>
+        <input class="input" type="text" placeholder="zhangsan@hospital.com" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label class="field__label">密码</label>
+        <div class="password-wrap">
+          <input class="input" type="password" placeholder="请输入密码" autocomplete="current-password" />
+          <span class="eye" title="显示/隐藏">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </span>
+        </div>
+      </div>
+      <div class="helper-row mb-4">
+        <label class="checkbox"><input type="checkbox" /><span>记住此设备</span></label>
+        <a href="#">忘记密码?</a>
+      </div>
+      <button class="btn btn--primary btn--block btn--lg" type="submit">登 录</button>
+
+      <div class="sep">或使用第三方账号</div>
+      <div class="sso-row">
+        <button type="button" class="btn">
+          <svg class="ico" viewBox="0 0 24 24" fill="#A6CE39"><path d="M12 0a12 12 0 1 0 0 24A12 12 0 0 0 12 0zM7.4 17.4H5.5V7.4h1.9v10zM6.4 6.6a1.1 1.1 0 1 1 0-2.3 1.1 1.1 0 0 1 0 2.3zm12 10.8h-1.8v-4.9c0-1.4-.5-2.4-1.7-2.4-.8 0-1.4.7-1.6 1.4-.1.2-.1.5-.1.8v5.1h-1.8s.0-8.4 0-9.1h1.8v1.3a3 3 0 0 1 2.7-1.5c2 0 3.5 1.3 3.5 4v5.3z"/></svg>
+          ORCID
+        </button>
+        <button type="button" class="btn">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 21V8l7-5 7 5v13"/><path d="M9 21v-7h6v7"/></svg>
+          机构账号
+        </button>
+      </div>
+      <div class="helper-row mt-4 muted">还没有账号？<span data-target="register" class="tabs__item" style="padding:0;color:var(--c-primary);font-weight:600;cursor:pointer;">注册新账号 →</span></div>
+    </form>
+
+    <!-- 注册 -->
+    <form data-pane="register" class="pane-hidden" style="display:none;" onsubmit="event.preventDefault();">
+      <div class="field">
+        <label class="field__label">用户名 <span style="color:var(--c-danger)">*</span></label>
+        <input class="input" placeholder="3-20 位字母数字" />
+      </div>
+      <div class="field">
+        <label class="field__label">邮箱 <span style="color:var(--c-danger)">*</span></label>
+        <input class="input" type="email" placeholder="email@domain.com" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label class="field__label">密码 *</label>
+          <input class="input" type="password" placeholder="≥ 8 位" />
+        </div>
+        <div class="field">
+          <label class="field__label">确认密码 *</label>
+          <input class="input" type="password" placeholder="重复密码" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label class="field__label">全名</label>
+          <input class="input" placeholder="选填" />
+        </div>
+        <div class="field">
+          <label class="field__label">机构</label>
+          <input class="input" placeholder="选填" />
+        </div>
+      </div>
+      <button class="btn btn--primary btn--block btn--lg" type="submit">注 册</button>
+      <div class="alert alert--info mt-4">
+        <svg class="alert__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h0"/></svg>
+        <div>
+          <div class="alert__title">注册后请验证邮箱</div>
+          <div class="alert__body">系统会向您的邮箱发送验证链接，请在 24 小时内完成验证。</div>
+        </div>
+      </div>
+      <div class="helper-row muted">已有账号？<span data-target="login" class="tabs__item" style="padding:0;color:var(--c-primary);font-weight:600;cursor:pointer;">返回登录</span></div>
+    </form>
+
+    <!-- SSO -->
+    <div data-pane="sso" class="pane-hidden" style="display:none;">
+      <div class="alert alert--info">
+        <svg class="alert__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h0"/></svg>
+        <div>
+          <div class="alert__title">机构单点登录</div>
+          <div class="alert__body">点击下方按钮跳转到您所在机构的认证页面，完成认证后将自动返回念析。</div>
+        </div>
+      </div>
+      <button class="btn btn--block btn--lg mb-3" type="button" onclick="window.location.href='dashboard.html'">
+        使用 ORCID 登录
+      </button>
+      <button class="btn btn--block btn--lg mb-3" type="button" onclick="window.location.href='dashboard.html'">
+        使用 中国科学院 单点登录
+      </button>
+      <button class="btn btn--block btn--lg" type="button" onclick="window.location.href='dashboard.html'">
+        其他机构 (输入域名)
+      </button>
+    </div>
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

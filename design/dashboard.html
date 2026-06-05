@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-steel">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工作台 — 念析 ELYS</title>
+  <!--
+    静态稿说明：
+    · 结构 1:1 沿用 Dashboard.vue 的类名（page-stat / dashboard-panel / study-row /
+      run-row / activity-line …），方便日后原样 port 回 Vue。
+    · 样式全部来自 elys-design-system.css（标准版），不内联魔法数字。
+    · 示例数据比截图略丰富，好让「列表/队列/时间线/统计」这些模式真正显出来；
+      整体仍走「无异常」happy path——故不渲染状态 pill 与 attention-banner。
+    · 每处带 ★ 的注释 = 相对现有 Dashboard 的一条改动（对应「Dashboard 逐块意见」）。
+  -->
+  <link rel="stylesheet" href="elys-design-system.css" />
+  <link rel="stylesheet" href="themes.css" />
+</head>
+<body>
+
+<!-- ════════ 图标精灵（统一图标：一处定义，全站 <use> 引用）════════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/><path d="M18 10a6 6 0 0 1-6 6H6"/><path d="M6 8v8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-bars" viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="14"/><line x1="12" y1="20" x2="12" y2="9"/><line x1="18" y1="20" x2="18" y2="4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L21 11l-6.8 2.7L12 20l-2.2-6.3L3 11l6.8-2.7L12 2Z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
+
+<!-- ════════ 顶栏 ════════ -->
+<header class="topbar">
+  <!-- ★ 统一后的 logo：行内「念析 ELYS」（与首页/登录一致，原 dashboard 的 NIANXI EEG 堆叠已废）-->
+  <a class="topbar__brand" href="#" title="返回首页">
+    <span class="logo">析</span>
+    <span class="topbar__brand-text">念析 <small>ELYS</small></span>
+  </a>
+
+  <nav class="topbar__nav">
+    <a href="#" class="is-active"><svg class="icon" width="16" height="16"><use href="#i-grid"/></svg>工作台</a>
+    <a href="#"><svg class="icon" width="16" height="16"><use href="#i-database"/></svg>数据集</a>
+    <a href="#"><svg class="icon" width="16" height="16"><use href="#i-folder"/></svg>研究项</a>
+    <a href="#"><svg class="icon" width="16" height="16"><use href="#i-branch"/></svg>工作流</a>
+    <a href="#"><svg class="icon" width="16" height="16"><use href="#i-layers"/></svg>派生数据</a>
+    <!-- 预览模块：尚未接后端，灰化（6-01 §1.2 状态诚实）-->
+    <a href="#" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="#i-eye"/></svg>观察</a>
+    <a href="#" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="#i-bars"/></svg>统计</a>
+    <a href="#" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="#i-image"/></svg>作图</a>
+    <a href="#" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="#i-cpu"/></svg>机器学习</a>
+  </nav>
+
+  <span class="topbar__spacer"></span>
+
+  <div class="topbar__right">
+    <button class="btn btn--ghost btn--icon" type="button" title="搜索"><svg class="icon" width="18" height="18"><use href="#i-search"/></svg></button>
+    <button class="btn btn--ghost btn--icon" type="button" title="智能助手"><svg class="icon" width="18" height="18"><use href="#i-spark"/></svg></button>
+    <span class="topbar__user"><span class="avatar">系</span>系统管理员</span>
+    <button class="btn btn--ghost btn--icon" type="button" title="退出登录"><svg class="icon" width="18" height="18"><use href="#i-logout"/></svg></button>
+  </div>
+</header>
+
+<!-- ════════ 主内容 ════════ -->
+<main class="page">
+
+  <div class="page__header">
+    <div>
+      <h1 class="page__title">中午好，系统管理员</h1>
+      <p class="dashboard-date">2026 年 6 月 5 日 · 周五</p>
+      <!-- ★ 状态 pill「工作台状态正常」已移除：无事时不显示，安静=可信。
+           仅当有「失败/待确认」时，此处才出现 .dashboard-status / .attention-banner。 -->
+    </div>
+    <div class="dashboard-actions">
+      <!-- ★ 刷新降级为幽灵图标按钮，不与主 CTA 抢眼（一屏一高亮）-->
+      <button class="btn btn--ghost btn--icon" type="button" title="刷新"><svg class="icon" width="16" height="16"><use href="#i-refresh"/></svg></button>
+      <a class="btn btn--primary" href="#" style="min-width:136px"><svg class="icon" width="16" height="16"><use href="#i-branch"/></svg>进入工作流</a>
+    </div>
+  </div>
+
+  <div class="dashboard-sections">
+
+    <!-- ──── 统计卡 ──── -->
+    <!-- ★ hint 全部人话，且只显非零项（杜绝原来的 working 1 · active 0 · error 0）-->
+    <section class="page-stat-strip" aria-label="核心对象摘要">
+      <a class="page-stat" href="#">
+        <span class="page-stat__label">数据集</span>
+        <strong class="page-stat__value">3<small>个</small></strong>
+        <span class="page-stat__hint">2 个处理中 · 1 个已发布</span>
+      </a>
+      <a class="page-stat" href="#">
+        <span class="page-stat__label">研究项</span>
+        <strong class="page-stat__value">2<small>个</small></strong>
+        <span class="page-stat__hint">2 个活跃</span>
+      </a>
+      <a class="page-stat" href="#">
+        <span class="page-stat__label">工作流</span>
+        <strong class="page-stat__value">4<small>个</small></strong>
+        <span class="page-stat__hint">3 个已启用 · 1 个草稿</span>
+      </a>
+      <a class="page-stat" href="#">
+        <span class="page-stat__label">运行记录</span>
+        <strong class="page-stat__value">6<small>条</small></strong>
+        <span class="page-stat__hint">2 个运行中 · 4 个已完成</span>
+      </a>
+    </section>
+
+    <!-- ──── 最近研究项 / 处理队列 ──── -->
+    <section class="dashboard-grid">
+
+      <div class="dashboard-panel">
+        <div class="section-head">
+          <div>
+            <h2>最近研究项</h2>
+            <p>继续最近研究项，快速回到数据、流程和待处理任务。</p>
+          </div>
+          <!-- ★「查看全部」从实心按钮降级为文字链接（次要操作不该长得像按钮）-->
+          <a class="btn btn--link" href="#">查看全部</a>
+        </div>
+
+        <div class="study-list">
+          <a class="study-row" href="#">
+            <span class="status-dot is-active"></span>
+            <div class="study-row__content">
+              <div class="study-row__title">
+                <strong>sub093 ERP</strong>
+                <span class="study-code">sub093-erp</span>
+              </div>
+              <p>静息态闭眼 ERP 分析</p>
+              <div class="study-metrics">
+                <span><b>2</b> 工作流</span>
+                <span><b>5</b> 运行</span>
+                <span><b>0</b> 需处理</span>
+              </div>
+            </div>
+            <div class="study-row__meta">
+              <span class="state-badge is-active">活跃</span>
+              <span>06/05 03:24</span>
+            </div>
+          </a>
+
+          <a class="study-row" href="#">
+            <span class="status-dot is-active"></span>
+            <div class="study-row__content">
+              <div class="study-row__title">
+                <strong>Resting Alpha</strong>
+                <span class="study-code">rest-alpha</span>
+              </div>
+              <p>α 节律功率谱组间比较</p>
+              <div class="study-metrics">
+                <span><b>1</b> 工作流</span>
+                <span><b>3</b> 运行</span>
+                <span><b>0</b> 需处理</span>
+              </div>
+            </div>
+            <div class="study-row__meta">
+              <span class="state-badge is-active">活跃</span>
+              <span>06/04 21:10</span>
+            </div>
+          </a>
+
+          <a class="study-row" href="#">
+            <span class="status-dot is-archived"></span>
+            <div class="study-row__content">
+              <div class="study-row__title">
+                <strong>Sleep Stage N2</strong>
+                <span class="study-code">sleep-n2</span>
+              </div>
+              <p>睡眠分期纺锤波检测</p>
+              <div class="study-metrics">
+                <span><b>1</b> 工作流</span>
+                <span><b>0</b> 运行</span>
+                <span><b>0</b> 需处理</span>
+              </div>
+            </div>
+            <div class="study-row__meta">
+              <span class="state-badge is-archived">已归档</span>
+              <span>05/28 14:02</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      <aside class="dashboard-panel live-runs">
+        <div class="section-head">
+          <div>
+            <h2><span class="live-dot"></span>处理队列</h2>
+            <p>2 个运行中 · 1 个排队中</p>
+          </div>
+          <button class="btn btn--link" type="button">收起</button>
+        </div>
+
+        <div class="run-list">
+          <a class="run-row" href="#">
+            <span class="run-row__dot is-running"></span>
+            <div class="run-row__body">
+              <div class="run-row__title">
+                <strong>sub093 ERP basic</strong>
+                <span>运行 #5</span>
+              </div>
+              <p>运行中 · ICA 分解</p>
+              <div class="run-progress" aria-hidden="true"><span></span></div>
+            </div>
+            <span class="run-row__time">03:24</span>
+          </a>
+
+          <a class="run-row" href="#">
+            <span class="run-row__dot is-running"></span>
+            <div class="run-row__body">
+              <div class="run-row__title">
+                <strong>Resting Alpha PSD</strong>
+                <span>运行 #3</span>
+              </div>
+              <p>运行中 · 功率谱估计</p>
+              <div class="run-progress" aria-hidden="true"><span></span></div>
+            </div>
+            <span class="run-row__time">03:10</span>
+          </a>
+
+          <a class="run-row" href="#">
+            <span class="run-row__dot is-queued"></span>
+            <div class="run-row__body">
+              <div class="run-row__title">
+                <strong>sub093 ERP basic</strong>
+                <span>运行 #6</span>
+              </div>
+              <p>排队中 · 试跑</p>
+            </div>
+            <span class="run-row__time">03:25</span>
+          </a>
+        </div>
+        <!-- 空态时改用安静态：<div class="empty empty--quiet">…</div>，别比内容抢眼 -->
+      </aside>
+    </section>
+
+    <!-- ──── 最近活动 ──── -->
+    <section class="dashboard-panel">
+      <div class="section-head">
+        <div>
+          <h2>最近活动</h2>
+          <p>数据、研究、工作流和执行的最新变化。</p>
+        </div>
+      </div>
+
+      <!-- ★ 实体 chip 一律中性灰；颜色只落在左侧 mark = 状态/严重度。
+           ★「归属 X」只在研究项切换时显示一次，连续同研究项不再行行重复。
+           ★ 时间用真实相对时间（刚刚 / N 分钟前 …），不再全是「8 小时前」。 -->
+      <div class="activity-timeline">
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-success"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">运行记录</span>
+              <strong class="activity-line__title">sub093 ERP basic</strong>
+              <span class="activity-line__meta">· 第 5 次运行</span>
+              <span class="activity-line__action">运行完成</span>
+              <span class="activity-line__time" title="2026-06-05 12:38:02">刚刚</span>
+            </div>
+            <div class="activity-line__sub">
+              <span class="activity-line__chip">归属 <strong>sub093 ERP</strong></span>
+            </div>
+          </div>
+        </a>
+
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-info"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">工作流</span>
+              <strong class="activity-line__title">sub093 ERP basic</strong>
+              <span class="activity-line__action">已创建</span>
+              <span class="activity-line__time" title="2026-06-05 12:26:00">12 分钟前</span>
+            </div>
+            <!-- 同属 sub093 ERP，归属省略 -->
+          </div>
+        </a>
+
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-info"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">数据集</span>
+              <strong class="activity-line__title">批量导入 8 条采集记录</strong>
+              <span class="activity-line__action">导入完成</span>
+              <span class="activity-line__time" title="2026-06-05 11:40:00">1 小时前</span>
+            </div>
+            <div class="activity-line__sub">
+              <span class="activity-line__summary">包括 sub-093 task-erp、sub-094 task-erp 等</span>
+            </div>
+          </div>
+        </a>
+
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-info"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">研究项</span>
+              <strong class="activity-line__title">Resting Alpha</strong>
+              <span class="activity-line__action">已创建</span>
+              <span class="activity-line__time" title="2026-06-05 09:30:00">3 小时前</span>
+            </div>
+            <div class="activity-line__sub">
+              <span class="activity-line__chip">归属 <strong>Resting Alpha</strong></span>
+            </div>
+          </div>
+        </a>
+
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-info"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">数据集</span>
+              <strong class="activity-line__title">rest-alpha</strong>
+              <span class="activity-line__action">导入完成</span>
+              <span class="activity-line__time" title="2026-06-05 07:50:00">5 小时前</span>
+            </div>
+            <!-- 同属 Resting Alpha，归属省略 -->
+          </div>
+        </a>
+
+        <a class="activity-line" href="#">
+          <span class="activity-line__mark is-sev-success"></span>
+          <div class="activity-line__body">
+            <div class="activity-line__main">
+              <span class="activity-line__type">运行记录</span>
+              <strong class="activity-line__title">Sleep Stage basic</strong>
+              <span class="activity-line__meta">· 第 2 次运行</span>
+              <span class="activity-line__action">运行完成</span>
+              <span class="activity-line__time" title="2026-06-05 04:35:00">8 小时前</span>
+            </div>
+            <div class="activity-line__sub">
+              <span class="activity-line__chip">归属 <strong>Sleep Stage N2</strong></span>
+            </div>
+          </div>
+        </a>
+      </div>
+    </section>
+
+  </div><!-- /.dashboard-sections -->
+</main>
+
+<!-- 预览用主题切换（开发工具，可删）。生产环境用 localStorage 记住用户选择即可。 -->
+<div class="theme-switch" role="group" aria-label="预览主题切换">
+  <button type="button" data-theme="">蓝绿·原始</button>
+  <button type="button" data-theme="theme-steel" data-active>浅色·钢蓝</button>
+  <button type="button" data-theme="theme-mono">单色·石墨</button>
+</div>
+<script>
+  (function () {
+    var btns = document.querySelectorAll('.theme-switch button');
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        document.documentElement.className = b.dataset.theme;
+        btns.forEach(function (x) { x.removeAttribute('data-active'); });
+        b.setAttribute('data-active', '');
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

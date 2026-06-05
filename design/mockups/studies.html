@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-steel">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>研究项 — 念析 ELYS</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/elys-design-system.css" />
+  <link rel="stylesheet" href="assets/colors_and_type.css" />
+  <link rel="stylesheet" href="assets/themes.css" />
+  <link rel="stylesheet" href="assets/kit.css" />
+</head>
+<body>
+
+<!-- ░░░ 顶栏：所有「工作台型」页面统一，照抄勿改；只把当前页对应的 nav 项加 class="is-active"（并从工作台移除）░░░ -->
+<header class="topbar">
+  <a class="topbar__brand" href="dashboard.html" title="返回工作台">
+    <span class="logomark" style="width:30px;height:30px;border-radius:8px">
+      <svg width="19" height="19" viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg>
+    </span>
+    <span class="topbar__brand-text">念析 <small>ELYS</small></span>
+  </a>
+  <nav class="topbar__nav">
+    <a href="dashboard.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-grid"/></svg>工作台</a>
+    <a href="datasets.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-database"/></svg>数据集</a>
+    <a href="studies.html" class="is-active"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-folder"/></svg>研究项</a>
+    <a href="pipeline.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-branch"/></svg>工作流</a>
+    <a href="results.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-layers"/></svg>派生数据</a>
+    <a href="erp.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-eye"/></svg>观察</a>
+    <a href="statistics.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-bars"/></svg>统计</a>
+    <a href="figures.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>作图</a>
+    <a href="ml.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-cpu"/></svg>机器学习</a>
+  </nav>
+  <span class="topbar__spacer"></span>
+  <div class="topbar__right">
+    <button class="btn btn--ghost btn--icon" type="button" title="搜索"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-search"/></svg></button>
+    <button class="btn btn--ghost btn--icon" type="button" title="智能助手"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-spark"/></svg></button>
+    <span class="topbar__user"><span class="avatar">系</span>系统管理员</span>
+    <button class="btn btn--ghost btn--icon" type="button" title="退出登录"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-logout"/></svg></button>
+  </div>
+</header>
+
+<!-- ░░░ 页面主体 ░░░ -->
+<main class="page">
+
+  <div class="page__header">
+    <div>
+      <h1 class="page__title">研究项</h1>
+      <p class="page__subtitle">研究项把数据集、工作流与运行记录归到一处。数据集作为独立资产挂载进来，这里只看每个研究项当前能不能继续往下处理 · 共 8 个</p>
+    </div>
+    <div class="dashboard-actions">
+      <button class="btn btn--ghost btn--icon" type="button" title="刷新列表"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-refresh"/></svg></button>
+      <button class="btn btn--primary" type="button">
+        <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-plus"/></svg>新建研究项
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== 摘要统计：四张卡，hint 只写非零项 ===== -->
+  <section class="dashboard-sections">
+
+    <div class="page-stat-strip">
+      <article class="stat-card">
+        <div class="stat-card__top">
+          <span class="stat-card__label">活跃研究项</span>
+          <span class="stat-card__chip"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-folder"/></svg></span>
+        </div>
+        <span class="stat-card__value">7</span>
+        <span class="stat-card__hint">1 个已归档不在此列</span>
+      </article>
+      <article class="stat-card">
+        <div class="stat-card__top">
+          <span class="stat-card__label">可进入处理</span>
+          <span class="stat-card__chip"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-check-circle"/></svg></span>
+        </div>
+        <span class="stat-card__value">4</span>
+        <span class="stat-card__hint">数据与工作流均已就绪</span>
+      </article>
+      <article class="stat-card">
+        <div class="stat-card__top">
+          <span class="stat-card__label">需导入数据</span>
+          <span class="stat-card__chip"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-database"/></svg></span>
+        </div>
+        <span class="stat-card__value">2</span>
+        <span class="stat-card__hint">尚无可处理的数据引用</span>
+      </article>
+      <article class="stat-card">
+        <div class="stat-card__top">
+          <span class="stat-card__label">进行中的运行</span>
+          <span class="stat-card__chip"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-activity"/></svg></span>
+        </div>
+        <span class="stat-card__value">3</span>
+        <span class="stat-card__hint">分布在 2 个研究项</span>
+      </article>
+    </div>
+
+    <!-- ===== 研究项目录面板 ===== -->
+    <section class="dashboard-panel">
+      <div class="section-head">
+        <div>
+          <h2>研究项目录</h2>
+          <p>显示 8 / 8 个 · 选中一行即可查看处理入口、数据摘要与治理动作</p>
+        </div>
+        <div class="tabs" style="margin-bottom:0;border-bottom:0">
+          <button class="tab is-active" type="button">活跃</button>
+          <button class="tab" type="button">回收站<span class="tab__count">1</span></button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <label class="search">
+          <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-search"/></svg>
+          <input type="search" placeholder="搜索名称、code 或描述" />
+        </label>
+        <span class="toolbar__spacer"></span>
+        <div class="seg">
+          <button class="is-active" type="button">全部状态</button>
+          <button type="button">需导入数据</button>
+          <button type="button">需配置工作流</button>
+          <button type="button">运行进行中</button>
+          <button type="button">可继续处理</button>
+        </div>
+      </div>
+
+      <div class="study-list">
+
+        <!-- 可继续处理：数据 + 工作流就绪，且有运行进行中 -->
+        <a class="srow2" href="pipeline.html" title="静息态闭眼 ERP 分析">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>静息态闭眼 ERP 分析</strong>
+              <span class="srow2__code">resting-erp</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">闭眼静息 8 分钟，α 节律与 ERP 成分对照</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>负责人</b></span>
+              <span class="sep">·</span>
+              <span class="m">被试 <b>32</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>5</b></span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>3</b></span>
+              <span class="sep">·</span>
+              <span class="m attn">运行 <b>2</b> 进行中</span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-05 03:24">12 分钟前</span>
+          </span>
+        </a>
+
+        <!-- 可继续处理：就绪，无运行 -->
+        <a class="srow2" href="pipeline.html" title="听觉 oddball P300">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>听觉 oddball P300</strong>
+              <span class="srow2__code">aud-oddball</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">标准/偏差刺激 80:20，提取 P300 峰值与潜伏期</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>编辑</b></span>
+              <span class="sep">·</span>
+              <span class="m">被试 <b>24</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>4</b></span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>2</b></span>
+              <span class="sep">·</span>
+              <span class="m">运行 <b>9</b></span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-05 01:10">2 小时前</span>
+          </span>
+        </a>
+
+        <!-- 需配置工作流：有数据无工作流 -->
+        <a class="srow2" href="pipeline.html" title="视觉工作记忆 N-back">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>视觉工作记忆 N-back</strong>
+              <span class="srow2__code">vwm-nback</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">2-back 与 0-back 对照，关注额顶 θ 同步</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>负责人</b></span>
+              <span class="sep">·</span>
+              <span class="m">被试 <b>18</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>3</b></span>
+              <span class="sep">·</span>
+              <span class="m attn">工作流 <b>0</b> 待配置</span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-04 21:48">昨天</span>
+          </span>
+        </a>
+
+        <!-- 可继续处理：就绪，无运行 -->
+        <a class="srow2" href="pipeline.html" title="情绪面孔诱发电位">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>情绪面孔诱发电位</strong>
+              <span class="srow2__code">emo-face-erp</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">正性/负性/中性面孔，N170 与 LPP 成分分析</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>查看</b></span>
+              <span class="sep">·</span>
+              <span class="m">被试 <b>40</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>6</b></span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>4</b></span>
+              <span class="sep">·</span>
+              <span class="m">运行 <b>15</b></span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-04 16:02">昨天</span>
+          </span>
+        </a>
+
+        <!-- 运行进行中 -->
+        <a class="srow2" href="pipeline.html" title="运动想象 BCI 范式">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>运动想象 BCI 范式</strong>
+              <span class="srow2__code">mi-bci</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">左右手运动想象，CSP 特征与在线解码评估</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>编辑</b></span>
+              <span class="sep">·</span>
+              <span class="m">被试 <b>15</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>2</b></span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>2</b></span>
+              <span class="sep">·</span>
+              <span class="m attn">运行 <b>1</b> 进行中</span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-05 03:09">27 分钟前</span>
+          </span>
+        </a>
+
+        <!-- 需导入数据 -->
+        <a class="srow2" href="datasets.html" title="睡眠分期多导联">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>睡眠分期多导联</strong>
+              <span class="srow2__code">sleep-psg</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">暂无描述</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>负责人</b></span>
+              <span class="sep">·</span>
+              <span class="m attn">数据 <b>0</b> 待导入</span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>0</b></span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-06-03 10:31">2 天前</span>
+          </span>
+        </a>
+
+        <!-- 需导入数据 -->
+        <a class="srow2" href="datasets.html" title="儿童注意力发展队列">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>儿童注意力发展队列</strong>
+              <span class="srow2__code">child-attn</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">学龄前注意力纵向追踪，待挂载首批静息态数据</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>管理员</b></span>
+              <span class="sep">·</span>
+              <span class="m attn">数据 <b>0</b> 待导入</span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>1</b></span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 ok"><i></i>活跃</span>
+            <span class="srow2__time" title="2026-05-29 14:20">上周</span>
+          </span>
+        </a>
+
+        <!-- 已归档 -->
+        <a class="srow2" href="studies.html" title="预实验：电极阻抗对比">
+          <span class="srow2__main">
+            <span class="srow2__title">
+              <strong>预实验：电极阻抗对比</strong>
+              <span class="srow2__code">pilot-impedance</span>
+            </span>
+            <span class="srow2__meta">
+              <span class="desc">干电极与湿电极信号质量比较，结论已归档</span>
+              <span class="sep">·</span>
+              <span class="m">角色 <b>负责人</b></span>
+              <span class="sep">·</span>
+              <span class="m">数据 <b>2</b></span>
+              <span class="sep">·</span>
+              <span class="m">工作流 <b>1</b></span>
+              <span class="sep">·</span>
+              <span class="m">运行 <b>6</b></span>
+            </span>
+          </span>
+          <span class="srow2__right">
+            <span class="tag2 warn"><i></i>已归档</span>
+            <span class="srow2__time" title="2026-05-12 09:05">3 周前</span>
+          </span>
+        </a>
+
+      </div>
+    </section>
+
+  </section>
+
+</main>
+
+</body>
+</html>

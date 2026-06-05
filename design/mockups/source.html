@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-steel">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>源定位 — 念析 ELYS</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/elys-design-system.css" />
+  <link rel="stylesheet" href="assets/colors_and_type.css" />
+  <link rel="stylesheet" href="assets/themes.css" />
+  <link rel="stylesheet" href="assets/kit.css" />
+  <style>
+    /* ── 本页专属布局：观察工作台「源定位」三栏。仅用设计令牌，不引入新色/新圆角/新间距 ── */
+    .page--obs { max-width: 1320px; }
+
+    .obs-grid {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr) 304px;
+      gap: var(--s-4);
+      align-items: start;
+    }
+
+    /* 左右侧栏块 */
+    .obs-pane { display: flex; flex-direction: column; gap: var(--s-4); }
+    .obs-block {
+      background: var(--c-surface);
+      border: 1px solid var(--c-border);
+      border-radius: var(--r-md);
+      box-shadow: var(--shadow-sm);
+      padding: var(--s-4);
+    }
+    .obs-block__head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--s-2); margin-bottom: var(--s-3);
+    }
+    .obs-block__head h3 {
+      font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 700;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .obs-block__count {
+      padding: 0 6px; border-radius: var(--r-pill);
+      background: var(--c-bg-tint); color: var(--c-text-3);
+      font-family: var(--ff-mono); font-size: var(--fs-micro); font-weight: 600;
+    }
+    .obs-field-label {
+      font-size: var(--fs-caption); color: var(--c-text-3);
+      margin: var(--s-3) 0 6px;
+    }
+    .obs-field-label:first-child { margin-top: 0; }
+
+    /* 数据集勾选树 */
+    .ck-tree { display: grid; gap: 4px; }
+    .ck-node {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 7px; border-radius: var(--r-sm);
+      font-size: 13px; color: var(--c-text);
+    }
+    .ck-node:hover { background: var(--c-bg-soft); }
+    .ck-node.is-child { padding-left: 22px; }
+    .ck-node .ck-name { font-weight: 600; }
+    .ck-node.is-child .ck-name { font-weight: 500; color: var(--c-text-2); font-family: var(--ff-mono); font-size: var(--fs-micro); }
+    .ck-node input { accent-color: var(--c-primary); }
+
+    /* 溯源方法卡 */
+    .method-list { display: grid; gap: 6px; }
+    .method-card {
+      display: grid; grid-template-columns: 1fr auto; gap: 3px 8px;
+      padding: 8px 10px; border-radius: var(--r);
+      background: var(--c-bg-soft); border: 1px solid var(--c-border);
+      cursor: pointer; transition: border-color var(--t-fast), background var(--t-fast);
+    }
+    .method-card:hover { border-color: var(--c-border-strong); }
+    .method-card.is-on { border-color: var(--c-primary); background: var(--c-primary-soft); }
+    .method-card__nm { font-size: 13px; font-weight: 600; color: var(--c-text); }
+    .method-card.is-on .method-card__nm { color: var(--c-primary); }
+    .method-card__tag {
+      align-self: center; padding: 1px 7px; border-radius: var(--r-pill);
+      background: var(--c-bg-tint); color: var(--c-text-3);
+      font-size: var(--fs-micro); font-weight: 600;
+    }
+    .method-card__desc { grid-column: 1 / -1; font-size: var(--fs-micro); color: var(--c-text-3); }
+
+    /* 通用表单控件（沿用按钮的尺寸语言） */
+    .obs-select, .obs-input {
+      height: 32px; width: 100%; padding: 0 10px;
+      border: 1px solid var(--c-border); border-radius: var(--r);
+      background: var(--c-surface); color: var(--c-text);
+      font: inherit; font-size: 13px;
+      transition: border-color var(--t-fast);
+    }
+    .obs-select:focus, .obs-input:focus { outline: 0; border-color: var(--c-primary); }
+    .obs-input.is-mono { font-family: var(--ff-mono); text-align: center; }
+
+    /* 时窗输入 */
+    .range-row { display: flex; align-items: center; gap: 7px; }
+    .range-row .obs-input { width: 60px; }
+    .range-row .arrow { color: var(--c-text-3); }
+    .range-row .unit { color: var(--c-text-3); font-size: var(--fs-micro); }
+
+    /* 阈值滑杆 */
+    .thr-line { display: flex; align-items: baseline; justify-content: space-between; font-size: var(--fs-caption); color: var(--c-text-3); margin-bottom: 7px; }
+    .thr-line b { color: var(--c-primary); font-family: var(--ff-mono); font-weight: 700; }
+    input[type="range"] { width: 100%; accent-color: var(--c-primary); }
+
+    /* 复选行 */
+    .ck-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; font-size: 13px; color: var(--c-text-2); cursor: pointer;
+    }
+    .ck-row input { accent-color: var(--c-primary); }
+
+    /* ── 中栏 ── */
+    .obs-main { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+
+    /* 子分析 tab 旁的上下文标注 */
+    .obs-tabs-row { display: flex; align-items: center; gap: var(--s-4); border-bottom: 1px solid var(--c-border); }
+    .obs-tabs-row .tabs { border-bottom: 0; margin-bottom: 0; }
+    .obs-context { margin-left: auto; padding-bottom: 8px; color: var(--c-text-3); font-family: var(--ff-mono); font-size: var(--fs-micro); }
+
+    /* 视图工具条 */
+    .viz-toolbar {
+      display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-3);
+      padding: 10px 12px;
+      background: var(--c-surface); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+    }
+    .viz-toolbar__lbl { font-size: var(--fs-caption); color: var(--c-text-3); }
+    .viz-toolbar .obs-input { width: 64px; }
+    .viz-toolbar .obs-select { width: auto; min-width: 96px; }
+    .viz-toolbar .vsep { width: 1px; align-self: stretch; background: var(--c-border); }
+    .viz-toolbar__spacer { flex: 1; }
+    .coord-tag {
+      font-family: var(--ff-mono); font-size: var(--fs-micro);
+      background: var(--c-bg-tint); color: var(--c-text-2);
+      padding: 3px 8px; border-radius: var(--r-sm);
+    }
+
+    /* 可视化卡 */
+    .viz-card {
+      background: var(--c-surface); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+      padding: var(--s-4);
+      display: flex; flex-direction: column; gap: var(--s-3);
+    }
+    .viz-card__cap { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-caption); color: var(--c-text-2); font-weight: 600; }
+    .viz-card__cap b { color: var(--c-text); }
+    .viz-card__cap span { color: var(--c-text-3); font-weight: 500; }
+
+    /* 皮层 5 视角占位 */
+    .cortex-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .cortex-cell {
+      position: relative; text-align: center;
+      background: var(--c-bg-soft); border: 1px solid var(--c-border);
+      border-radius: var(--r-sm); padding: 8px;
+    }
+    .cortex-cell .vlbl { display: block; font-size: var(--fs-micro); color: var(--c-text-3); margin-bottom: 4px; }
+    .cortex-cell svg { width: 100%; height: auto; }
+
+    /* 三正交切片占位（深色容器，仪器观感） */
+    .slice-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .slice-cell {
+      position: relative; overflow: hidden;
+      border-radius: var(--r-sm); border: 1px solid var(--c-border);
+    }
+    .slice-cell svg { width: 100%; height: auto; display: block; }
+    .slice-cell .vname { position: absolute; top: 7px; left: 8px; color: #E6ECF5; font-size: var(--fs-micro); z-index: 2; }
+    .slice-cell .vcoord {
+      position: absolute; top: 7px; right: 8px; z-index: 2;
+      font-family: var(--ff-mono); font-size: var(--fs-micro); color: #E6ECF5;
+      background: rgba(255,255,255,.14); padding: 2px 6px; border-radius: var(--r-sm);
+    }
+    .slice-cell .vmethod { position: absolute; bottom: 7px; left: 8px; z-index: 2; font-size: var(--fs-micro); color: rgba(230,236,245,.7); }
+
+    /* 色标 */
+    .cbar-card { padding: var(--s-4) var(--s-5); }
+    .cbar-top { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-caption); color: var(--c-text-3); }
+    .cbar-top .unit { font-family: var(--ff-mono); color: var(--c-text-2); }
+    .cbar {
+      height: 14px; margin: 8px 0 5px; border-radius: var(--r-sm);
+      background: linear-gradient(90deg,
+        var(--c-info) 0%, var(--c-accent) 28%,
+        var(--c-success) 50%, var(--c-warning) 74%, var(--c-danger) 100%);
+    }
+    .cbar-ticks { display: flex; justify-content: space-between; font-family: var(--ff-mono); font-size: var(--fs-micro); color: var(--c-text-3); }
+
+    /* ── 右栏 ── */
+    .peak-card { display: grid; gap: 7px; padding: 11px; border-radius: var(--r); background: var(--c-primary-soft); }
+    .peak-card .prow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: var(--fs-caption); }
+    .peak-card .pk { color: var(--c-text-2); }
+    .peak-card .pv { font-family: var(--ff-mono); font-weight: 600; color: var(--c-text); }
+    .peak-card .pv.is-big { font-family: var(--ff-display); font-size: 22px; font-weight: 700; color: var(--c-primary); font-variant-numeric: tabular-nums; }
+
+    .roi-list { display: grid; gap: 6px; }
+    .roi-row {
+      padding: 8px 10px; border-radius: var(--r);
+      background: var(--c-bg-soft); border: 1px solid var(--c-border);
+    }
+    .roi-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .roi-row__top strong { font-size: 13px; font-weight: 600; color: var(--c-text); }
+    .roi-row__val { font-family: var(--ff-mono); font-size: var(--fs-micro); color: var(--c-text-2); font-variant-numeric: tabular-nums; }
+    .roi-row__desc { margin-top: 2px; font-size: var(--fs-micro); color: var(--c-text-3); }
+
+    .edu-card {
+      padding: 9px 11px; border-radius: var(--r);
+      background: var(--c-bg-soft); border: 1px solid var(--c-border);
+      border-left: 3px solid var(--c-accent);
+    }
+    .edu-card__ttl { font-size: var(--fs-caption); font-weight: 700; color: var(--c-text); margin-bottom: 4px; }
+    .edu-card__body { font-size: var(--fs-micro); line-height: 1.6; color: var(--c-text-2); }
+    .edu-card__body code { font-family: var(--ff-mono); font-size: 10px; color: var(--c-primary); background: var(--c-surface); padding: 1px 5px; border-radius: var(--r-sm); }
+
+    .export-stack { display: grid; gap: 8px; }
+
+    @media (max-width: 1200px) {
+      .obs-grid { grid-template-columns: 1fr; }
+      .cortex-row { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ░░░ 顶栏：工作台型统一，仅把「观察」设为当前页 ░░░ -->
+<header class="topbar">
+  <a class="topbar__brand" href="dashboard.html" title="返回工作台">
+    <span class="logomark" style="width:30px;height:30px;border-radius:8px">
+      <svg width="19" height="19" viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg>
+    </span>
+    <span class="topbar__brand-text">念析 <small>ELYS</small></span>
+  </a>
+  <nav class="topbar__nav">
+    <a href="dashboard.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-grid"/></svg>工作台</a>
+    <a href="datasets.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-database"/></svg>数据集</a>
+    <a href="studies.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-folder"/></svg>研究项</a>
+    <a href="pipeline.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-branch"/></svg>工作流</a>
+    <a href="results.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-layers"/></svg>派生数据</a>
+    <a href="erp.html" class="is-active is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-eye"/></svg>观察</a>
+    <a href="statistics.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-bars"/></svg>统计</a>
+    <a href="figures.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>作图</a>
+    <a href="ml.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-cpu"/></svg>机器学习</a>
+  </nav>
+  <span class="topbar__spacer"></span>
+  <div class="topbar__right">
+    <button class="btn btn--ghost btn--icon" type="button" title="搜索"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-search"/></svg></button>
+    <button class="btn btn--ghost btn--icon" type="button" title="智能助手"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-spark"/></svg></button>
+    <span class="topbar__user"><span class="avatar">系</span>系统管理员</span>
+    <button class="btn btn--ghost btn--icon" type="button" title="退出登录"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-logout"/></svg></button>
+  </div>
+</header>
+
+<main class="page page--obs">
+
+  <!-- 面包屑 + 页头 -->
+  <div class="crumb">
+    <a href="dashboard.html">观察</a>
+    <svg class="icon" width="14" height="14"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+    <b>源定位</b>
+  </div>
+
+  <div class="page__header">
+    <div>
+      <div class="page__title-row">
+        <h1 class="page__title">源定位</h1>
+        <span class="tag2 neu"><i></i>预览模块</span>
+      </div>
+      <p class="page__subtitle">把头皮电位逆向投影到皮层，估计活动的脑区来源（逆问题求解）。</p>
+    </div>
+    <div class="dashboard-actions">
+      <button class="btn btn--ghost" type="button"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-refresh"/></svg>重置视角</button>
+      <button class="btn" type="button"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-download"/></svg>导出</button>
+      <button class="btn btn--primary" type="button"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>运行溯源</button>
+    </div>
+  </div>
+
+  <div class="obs-grid">
+
+    <!-- ═══════════ 左栏：数据与参数 ═══════════ -->
+    <aside class="obs-pane">
+
+      <!-- 数据集 -->
+      <section class="obs-block">
+        <div class="obs-block__head">
+          <h3>数据集 <span class="obs-block__count">2</span></h3>
+        </div>
+        <div class="ck-tree">
+          <label class="ck-node"><input type="checkbox" checked /><span class="ck-name">stroke-mi-rehab</span></label>
+          <label class="ck-node is-child"><input type="checkbox" checked /><span class="ck-name">sub-03 · MI · target</span></label>
+          <label class="ck-node is-child"><input type="checkbox" /><span class="ck-name">sub-03 · MI · standard</span></label>
+          <label class="ck-node"><input type="checkbox" /><span class="ck-name">p300-bci-spelling</span></label>
+        </div>
+      </section>
+
+      <!-- 溯源方法 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>溯源方法</h3></div>
+        <div class="method-list">
+          <label class="method-card is-on">
+            <span class="method-card__nm">sLORETA</span>
+            <span class="method-card__tag">推荐</span>
+            <span class="method-card__desc">标准化低分辨率 · 假设源平滑</span>
+          </label>
+          <label class="method-card">
+            <span class="method-card__nm">eLORETA</span>
+            <span class="method-card__tag">改进</span>
+            <span class="method-card__desc">无偏估计的精确版</span>
+          </label>
+          <label class="method-card">
+            <span class="method-card__nm">dSPM</span>
+            <span class="method-card__tag">F-stat</span>
+            <span class="method-card__desc">噪声归一化 MNE</span>
+          </label>
+          <label class="method-card">
+            <span class="method-card__nm">MNE</span>
+            <span class="method-card__tag">基础</span>
+            <span class="method-card__desc">最小范数估计</span>
+          </label>
+          <label class="method-card">
+            <span class="method-card__nm">Beamformer (LCMV)</span>
+            <span class="method-card__tag">空间</span>
+            <span class="method-card__desc">线性约束最小方差</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- 解剖图谱 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>解剖图谱</h3></div>
+        <select class="obs-select">
+          <option>Desikan-Killiany · 68 ROI</option>
+          <option>Destrieux · 148 ROI</option>
+          <option>HCP-MMP1.0 · 360 ROI</option>
+          <option>Brodmann · 44 区</option>
+        </select>
+        <div class="obs-field-label">头模板</div>
+        <select class="obs-select">
+          <option>MNI152（默认）</option>
+          <option>fsaverage5</option>
+          <option>个体 MRI</option>
+        </select>
+      </section>
+
+      <!-- 分析时窗 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>分析时窗</h3></div>
+        <div class="range-row">
+          <input class="obs-input is-mono" value="280" />
+          <span class="arrow">→</span>
+          <input class="obs-input is-mono" value="420" />
+          <span class="unit">ms</span>
+        </div>
+        <div class="obs-field-label">频段</div>
+        <select class="obs-select">
+          <option>Mu (8–13 Hz)</option>
+          <option>Alpha (8–13 Hz)</option>
+          <option>Beta (13–30 Hz)</option>
+          <option>Gamma (30–50 Hz)</option>
+        </select>
+      </section>
+
+      <!-- 阈值 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>阈值 / Log F-ratio</h3></div>
+        <div class="thr-line">最小显示 <b>0.620</b></div>
+        <input type="range" min="0" max="124" value="62" />
+        <label class="ck-row"><input type="checkbox" checked />FDR 校正后</label>
+        <label class="ck-row"><input type="checkbox" />仅显示 cluster</label>
+      </section>
+
+      <!-- 显示控制 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>显示控制</h3></div>
+        <label class="ck-row"><input type="checkbox" checked />皮层折叠</label>
+        <label class="ck-row"><input type="checkbox" />皮层充气（inflated）</label>
+        <label class="ck-row"><input type="checkbox" checked />MRI 切片背景</label>
+        <label class="ck-row"><input type="checkbox" checked />十字光标联动</label>
+        <label class="ck-row"><input type="checkbox" checked />ROI 轮廓</label>
+      </section>
+
+    </aside>
+
+    <!-- ═══════════ 中栏：视图 ═══════════ -->
+    <section class="obs-main">
+
+      <!-- 观察子分析 tab -->
+      <div class="obs-tabs-row">
+        <div class="tabs">
+          <button class="tab" type="button">ERP 波形</button>
+          <button class="tab" type="button">时频</button>
+          <button class="tab" type="button">地形图</button>
+          <button class="tab is-active" type="button">源定位</button>
+          <button class="tab" type="button">连接性</button>
+        </div>
+        <span class="obs-context">sub-03 · MI target · sLORETA · μ band · 280–420 ms</span>
+      </div>
+
+      <!-- 视图工具条 -->
+      <div class="viz-toolbar">
+        <span class="viz-toolbar__lbl">峰值时刻</span>
+        <input class="obs-input is-mono" value="342" />
+        <span class="viz-toolbar__lbl">ms</span>
+        <div class="vsep"></div>
+        <span class="viz-toolbar__lbl">坐标 (mm)</span>
+        <span class="coord-tag">[X, Y, Z] = [−6, −28, +51]</span>
+        <div class="vsep"></div>
+        <span class="viz-toolbar__lbl">体素</span>
+        <select class="obs-select"><option>3 mm³</option><option>5 mm³</option><option>10 mm³</option></select>
+        <span class="viz-toolbar__lbl">投影</span>
+        <select class="obs-select"><option>固定方向</option><option>自由方向</option></select>
+        <span class="viz-toolbar__spacer"></span>
+        <button class="btn btn--sm" type="button">2D 截图</button>
+      </div>
+
+      <!-- A 皮层表面渲染 -->
+      <div class="viz-card">
+        <div class="viz-card__cap"><b>A</b> 皮层表面渲染 <span>· 5 视角 · 阈值化激活叠加</span></div>
+        <div class="cortex-row">
+          <!-- Left Lateral -->
+          <div class="cortex-cell">
+            <span class="vlbl">Left Lateral</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="左外侧视角占位">
+              <defs>
+                <radialGradient id="cg1" cx="42%" cy="44%" r="52%">
+                  <stop offset="0%" stop-color="var(--c-warning-soft)"/>
+                  <stop offset="55%" stop-color="var(--c-warning)"/>
+                  <stop offset="100%" stop-color="var(--c-danger)"/>
+                </radialGradient>
+              </defs>
+              <ellipse cx="100" cy="104" rx="76" ry="80" fill="var(--c-bg-tint)" stroke="var(--c-border-2)" stroke-width="1.5"/>
+              <path d="M40 100 Q60 62 100 70 T160 100 Q160 148 100 162 Q40 148 40 100 Z" fill="var(--c-bg-soft)" stroke="var(--c-border-2)" stroke-width="0.7" opacity="0.7"/>
+              <circle cx="80" cy="92" r="27" fill="url(#cg1)" opacity="0.88"/>
+              <circle cx="52" cy="128" r="15" fill="url(#cg1)" opacity="0.6"/>
+              <line x1="100" y1="22" x2="100" y2="186" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+              <line x1="24" y1="104" x2="176" y2="104" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Top -->
+          <div class="cortex-cell">
+            <span class="vlbl">Top (axial)</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="顶视角占位">
+              <ellipse cx="100" cy="104" rx="76" ry="80" fill="var(--c-bg-tint)" stroke="var(--c-border-2)" stroke-width="1.5"/>
+              <path d="M40 100 Q60 62 100 70 T160 100 Q160 148 100 162 Q40 148 40 100 Z" fill="var(--c-bg-soft)" stroke="var(--c-border-2)" stroke-width="0.7" opacity="0.7"/>
+              <circle cx="94" cy="100" r="29" fill="url(#cg1)" opacity="0.86"/>
+              <circle cx="128" cy="72" r="13" fill="url(#cg1)" opacity="0.55"/>
+              <line x1="100" y1="22" x2="100" y2="186" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+              <line x1="24" y1="104" x2="176" y2="104" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Right Lateral -->
+          <div class="cortex-cell">
+            <span class="vlbl">Right Lateral</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="右外侧视角占位">
+              <ellipse cx="100" cy="104" rx="76" ry="80" fill="var(--c-bg-tint)" stroke="var(--c-border-2)" stroke-width="1.5"/>
+              <path d="M40 100 Q60 62 100 70 T160 100 Q160 148 100 162 Q40 148 40 100 Z" fill="var(--c-bg-soft)" stroke="var(--c-border-2)" stroke-width="0.7" opacity="0.7"/>
+              <circle cx="128" cy="96" r="21" fill="url(#cg1)" opacity="0.7"/>
+              <line x1="100" y1="22" x2="100" y2="186" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+              <line x1="24" y1="104" x2="176" y2="104" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Left Medial -->
+          <div class="cortex-cell">
+            <span class="vlbl">Left Medial</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="左内侧视角占位">
+              <ellipse cx="100" cy="104" rx="76" ry="80" fill="var(--c-bg-tint)" stroke="var(--c-border-2)" stroke-width="1.5"/>
+              <path d="M40 100 Q60 62 100 70 T160 100 Q160 148 100 162 Q40 148 40 100 Z" fill="var(--c-bg-soft)" stroke="var(--c-border-2)" stroke-width="0.7" opacity="0.7"/>
+              <circle cx="94" cy="106" r="19" fill="url(#cg1)" opacity="0.66"/>
+              <line x1="100" y1="22" x2="100" y2="186" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+              <line x1="24" y1="104" x2="176" y2="104" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Right Medial -->
+          <div class="cortex-cell">
+            <span class="vlbl">Right Medial</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="右内侧视角占位">
+              <ellipse cx="100" cy="104" rx="76" ry="80" fill="var(--c-bg-tint)" stroke="var(--c-border-2)" stroke-width="1.5"/>
+              <path d="M40 100 Q60 62 100 70 T160 100 Q160 148 100 162 Q40 148 40 100 Z" fill="var(--c-bg-soft)" stroke="var(--c-border-2)" stroke-width="0.7" opacity="0.7"/>
+              <circle cx="104" cy="114" r="17" fill="url(#cg1)" opacity="0.6"/>
+              <line x1="100" y1="22" x2="100" y2="186" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+              <line x1="24" y1="104" x2="176" y2="104" stroke="var(--c-border-2)" stroke-width="0.6" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- B 三正交切片 -->
+      <div class="viz-card">
+        <div class="viz-card__cap"><b>B</b> 三正交切片 <span>· 十字光标定位 · MNI 模板</span></div>
+        <div class="slice-row">
+          <!-- Axial -->
+          <div class="slice-cell">
+            <span class="vname">Axial</span>
+            <span class="vcoord">Z = +51</span>
+            <span class="vmethod">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="横断面切片占位">
+              <rect width="220" height="220" fill="var(--c-text)"/>
+              <ellipse cx="110" cy="110" rx="90" ry="80" fill="#33415A"/>
+              <ellipse cx="110" cy="110" rx="70" ry="62" fill="#2A3850"/>
+              <ellipse cx="110" cy="110" rx="40" ry="36" fill="#222F45"/>
+              <circle cx="110" cy="110" r="18" fill="var(--c-warning)" opacity="0.85"/>
+              <circle cx="110" cy="110" r="6" fill="var(--c-warning-soft)"/>
+              <line x1="0" y1="110" x2="220" y2="110" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+              <line x1="110" y1="0" x2="110" y2="220" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Sagittal -->
+          <div class="slice-cell">
+            <span class="vname">Sagittal</span>
+            <span class="vcoord">X = −6</span>
+            <span class="vmethod">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="矢状面切片占位">
+              <rect width="220" height="220" fill="var(--c-text)"/>
+              <ellipse cx="110" cy="110" rx="80" ry="90" fill="#33415A"/>
+              <ellipse cx="110" cy="110" rx="60" ry="70" fill="#2A3850"/>
+              <ellipse cx="110" cy="110" rx="32" ry="40" fill="#222F45"/>
+              <circle cx="110" cy="110" r="18" fill="var(--c-warning)" opacity="0.85"/>
+              <circle cx="110" cy="110" r="6" fill="var(--c-warning-soft)"/>
+              <line x1="0" y1="110" x2="220" y2="110" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+              <line x1="110" y1="0" x2="110" y2="220" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+          <!-- Coronal -->
+          <div class="slice-cell">
+            <span class="vname">Coronal</span>
+            <span class="vcoord">Y = −28</span>
+            <span class="vmethod">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="冠状面切片占位">
+              <rect width="220" height="220" fill="var(--c-text)"/>
+              <ellipse cx="110" cy="110" rx="92" ry="80" fill="#33415A"/>
+              <ellipse cx="110" cy="110" rx="72" ry="62" fill="#2A3850"/>
+              <ellipse cx="110" cy="110" rx="38" ry="34" fill="#222F45"/>
+              <circle cx="110" cy="110" r="18" fill="var(--c-warning)" opacity="0.85"/>
+              <circle cx="110" cy="110" r="6" fill="var(--c-warning-soft)"/>
+              <line x1="0" y1="110" x2="220" y2="110" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+              <line x1="110" y1="0" x2="110" y2="220" stroke="var(--c-info)" stroke-width="0.8" stroke-dasharray="2 3"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- C 色标 -->
+      <div class="viz-card cbar-card">
+        <div class="cbar-top">
+          <span>激活强度</span>
+          <span class="unit">Log F-ratio</span>
+        </div>
+        <div class="cbar"></div>
+        <div class="cbar-ticks">
+          <span>0.000</span><span>0.207</span><span>0.413</span><span>0.620</span><span>0.827</span><span>1.033</span><span>1.240</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ═══════════ 右栏：读数与导出 ═══════════ -->
+    <aside class="obs-pane">
+
+      <!-- 选中体素 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>选中体素</h3></div>
+        <div class="peak-card">
+          <div class="prow"><span class="pk">激活峰</span><span class="pv is-big">1.18</span></div>
+          <div class="prow"><span class="pk">坐标 (mm)</span><span class="pv">[−6, −28, +51]</span></div>
+          <div class="prow"><span class="pk">解剖位置</span><span class="pv">L Postcentral G.</span></div>
+          <div class="prow"><span class="pk">峰值时刻</span><span class="pv">342 ms</span></div>
+          <div class="prow"><span class="pk">所属 cluster</span><span class="pv">M1 sensorimotor</span></div>
+        </div>
+      </section>
+
+      <!-- 显著 ROI -->
+      <section class="obs-block">
+        <div class="obs-block__head">
+          <h3>显著 ROI</h3>
+          <span class="tag2 ok"><i></i>FDR 通过</span>
+        </div>
+        <div class="roi-list">
+          <div class="roi-row">
+            <div class="roi-row__top"><strong>L Postcentral G.</strong><span class="roi-row__val">1.18</span></div>
+            <div class="roi-row__desc">中央后回 · 感觉运动区</div>
+          </div>
+          <div class="roi-row">
+            <div class="roi-row__top"><strong>L Precentral G.</strong><span class="roi-row__val">0.97</span></div>
+            <div class="roi-row__desc">中央前回 · M1</div>
+          </div>
+          <div class="roi-row">
+            <div class="roi-row__top"><strong>L Sup. Parietal L.</strong><span class="roi-row__val">0.74</span></div>
+            <div class="roi-row__desc">上顶小叶 · 运动想象</div>
+          </div>
+          <div class="roi-row">
+            <div class="roi-row__top"><strong>R Postcentral G.</strong><span class="roi-row__val">0.68</span></div>
+            <div class="roi-row__desc">对侧感觉运动区</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 方法说明 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>方法说明</h3></div>
+        <div class="edu-card">
+          <div class="edu-card__ttl">sLORETA</div>
+          <div class="edu-card__body">
+            Standardized LOw Resolution brain Electromagnetic TomogrAphy —— 假设源平滑分布，给出零定位误差的统计估计。结果以 <code>Log F-ratio</code> 表示偏离背景的程度。
+          </div>
+        </div>
+      </section>
+
+      <!-- 导出 -->
+      <section class="obs-block">
+        <div class="obs-block__head"><h3>导出</h3></div>
+        <div class="export-stack">
+          <a class="btn btn--block" href="figures.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>发送到作图</a>
+          <a class="btn btn--block" href="statistics.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-bars"/></svg>发送到统计</a>
+          <button class="btn btn--block" type="button"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-download"/></svg>导出 sources.stc</button>
+        </div>
+      </section>
+
+    </aside>
+
+  </div>
+</main>
+
+</body>
+</html>

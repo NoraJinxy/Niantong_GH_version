@@ -1,0 +1,42 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/epoch/segment",
+  "title": "Epoch",
+  "category": "epoch",
+  "phase": "phase1",
+  "description": "按事件切分 Epochs。",
+  "tags": ["epoch", "events", "erp"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "event_id", "label": "Event ID", "type": "event_select", "default": "", "required": true},
+    {"name": "tmin", "label": "Tmin", "type": "number", "unit": "s", "default": -0.2},
+    {"name": "tmax", "label": "Tmax", "type": "number", "unit": "s", "default": 1.0},
+    {"name": "baseline_start", "label": "Baseline Start", "type": "number", "unit": "s", "default": -0.2},
+    {"name": "baseline_end", "label": "Baseline End", "type": "number", "unit": "s", "default": 0.0},
+    {"name": "split_by", "label": "输出拆分", "type": "select", "default": "none", "options": [{"value": "none", "label": "合并 (一个数据集含所有 condition)"}, {"value": "condition", "label": "按 condition 拆分"}]}
+  ],
+  "backend": {
+    "module": "app.engine.analysis.epoching",
+    "function": "run_epoch_segment",
+    "save_descriptor": "epo",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "epoch",
+    "auto_tags": ["step:epoch", "type:epochs"],
+    "dynamic_tags_when_split": ["cond:{condition}"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "name_template_default_split": "{subject}_{task}_{condition}_{node_title}",
+    "split_supported": true,
+    "data_type": "epochs"
+  },
+  "cache": {"enabled": true, "strategy": "content_hash"},
+  "ui": {"color": "#059669", "default_size": [190, 110], "preview_type": "epochs"}
+}

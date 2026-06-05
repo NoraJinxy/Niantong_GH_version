@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>时频分析 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+<style>
+  body { background: #f1f5f9; overflow: hidden; }
+  .obs-layout { display: grid; grid-template-columns: 244px 1fr 288px; gap: 14px; height: calc(100vh - 56px); padding: 14px; overflow: hidden; }
+
+  /* ─── Tabs ─── */
+  .obs-tabs { display: flex; align-items: center; gap: 2px; padding: 0 8px; height: 38px; background: #fff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,.04); }
+  .obs-tab { height: 30px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #5b6e8c; font-weight: 500; text-decoration: none; border-radius: 20px; transition: all .15s; }
+  .obs-tab:hover { color: #1e4b6e; background: #f1f5f9; }
+  .obs-tab.is-active { color: #fff; background: var(--c-primary); font-weight: 600; box-shadow: 0 4px 14px rgba(46,107,255,.25); }
+  .obs-tab svg { width: 14px; height: 14px; }
+
+  /* ─── Left ─── */
+  .selector-panel { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .sel-section { padding: 14px 16px; background: #fff; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.03); border: 1px solid rgba(203,213,225,.4); }
+  .sel-section h4 { font-size: 10px; font-weight: 600; color: #4b5e7c; letter-spacing: .8px; text-transform: uppercase; margin: 0 0 10px; }
+  .ch-tag { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 16px; font-size: 11px; font-family: var(--ff-mono); font-weight: 600; background: #eef2ff; color: var(--c-primary); cursor: pointer; transition: all .15s; }
+  .ch-tag.is-on { background: var(--c-primary); color: #fff; }
+  .cond-pill { padding: 4px 10px; border-radius: 20px; border: 1.5px solid #e2e8f0; font-size: 11px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all .15s; background: #f8fafc; color: #5b6e8c; }
+  .cond-pill:hover { border-color: #b9c8e0; }
+  .cond-pill.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+
+  /* ─── Center ─── */
+  .obs-main { overflow: hidden; display: flex; flex-direction: column; gap: 14px; }
+
+  /* toolbar */
+  .obs-toolbar { padding: 8px 14px; background: #fff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,.04); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; border: 1px solid rgba(203,213,225,.4); }
+  .obs-toolbar select { height: 28px; padding: 0 10px; font-size: 11px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; color: #1e2b3c; cursor: pointer; }
+  .tool-lbl { font-size: 11px; color: #5b6e8c; font-weight: 500; }
+  .divider-h { width: 1px; height: 20px; background: #e2e8f0; margin: 0 6px; }
+
+  /* TFR plot card (replaces tfr-card) */
+  .tfr-plot-card {
+    flex: 1;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.06);
+    border: 1px solid rgba(203,213,225,.4);
+    overflow: hidden;
+  }
+  .tfr-plot-card .header {
+    padding: 12px 20px 8px 20px;
+    border-bottom: 1px solid #eef2f6;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .tfr-plot-card .header h2 {
+    font-weight: 600; font-size: 1.1rem; letter-spacing: -.3px;
+    background: linear-gradient(135deg, #1e2b3c, #2c4c6e);
+    background-clip: text; -webkit-background-clip: text; color: transparent;
+  }
+  .tfr-plot-card .header p { font-size: .78rem; color: #5b6e8c; margin-top: 2px; }
+  .tfr-plot-card .header .badges { display: flex; gap: 8px; }
+  .tfr-plot-card .header .badge {
+    background: #eef2ff; padding: 5px 12px; border-radius: 40px;
+    font-size: .72rem; font-weight: 500; color: #1e4b6e;
+  }
+  #timefreq-heatmap { width: 100%; height: 100%; }
+
+  /* ─── Right ─── */
+  .stats-panel { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .st-section { padding: 14px 16px; background: #fff; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.03); border: 1px solid rgba(203,213,225,.4); }
+  .st-section h4 { font-size: 10px; font-weight: 600; color: #4b5e7c; letter-spacing: .6px; text-transform: uppercase; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .st-section h4 i { color: #3b7cbf; font-size: 12px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .stat-card { background: #f9fbfe; border-radius: 16px; padding: 10px 8px; text-align: center; }
+  .stat-label { font-size: .65rem; font-weight: 500; text-transform: uppercase; color: #5b6d89; letter-spacing: .3px; }
+  .stat-value { font-size: 1.2rem; font-weight: 700; color: #1f4662; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .unit { font-size: .62rem; font-weight: 400; color: #6c7f9b; }
+  .stats-panel .btn { width: 100%; justify-content: flex-start; margin-bottom: 5px; height: 32px; font-size: 12px; border-radius: 18px; }
+  .stats-panel .btn svg { width: 14px; height: 14px; }
+  .band-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .band-tag { background: #f1f5f9; padding: 4px 10px; border-radius: 20px; font-size: .65rem; font-weight: 500; color: #31567e; }
+  .band-tag.on { background: #dfe9f5; border-left: 3px solid #3b82f6; font-weight: 600; }
+
+  @media (max-width: 1200px) { .obs-layout { grid-template-columns: 210px 1fr 260px; } }
+  @media (max-width: 960px) { .obs-layout { grid-template-columns: 1fr; } .selector-panel, .stats-panel { display: none; } }
+</style>
+</head>
+<body>
+
+<div id="topbar-mount"></div>
+
+<div class="obs-layout">
+
+  <!-- ═══ Left ═══ -->
+  <aside class="selector-panel">
+    <div class="sel-section">
+      <h4>通道</h4>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <span class="ch-tag">Fz</span><span class="ch-tag is-on" data-ch="Cz">Cz</span>
+        <span class="ch-tag">C3</span><span class="ch-tag">C4</span><span class="ch-tag">Pz</span>
+        <span class="ch-tag">Oz</span>
+      </div>
+    </div>
+    <div class="sel-section">
+      <h4>条件</h4>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <span class="cond-pill is-on">Left MI</span>
+        <span class="cond-pill">Right MI</span>
+        <span class="cond-pill">Rest</span>
+      </div>
+    </div>
+    <div class="sel-section">
+      <h4>色标</h4>
+      <select id="cmapSelect" style="width:100%;height:30px;padding:0 10px;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;font-size:12px;color:#1e2b3c;cursor:pointer">
+        <option value="RdBu">RdBu (ERSP 经典)</option>
+        <option value="Viridis" selected>Viridis (色觉友好)</option>
+        <option value="Jet">Jet</option>
+        <option value="Cividis">Cividis</option>
+      </select>
+    </div>
+    <div class="sel-section">
+      <h4>归一化</h4>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#4b5e7c;padding:3px 0;cursor:pointer"><input type="radio" name="norm" checked style="accent-color:var(--c-primary)">dB (相对基线)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#4b5e7c;padding:3px 0;cursor:pointer"><input type="radio" name="norm" style="accent-color:var(--c-primary)">Z-score</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#4b5e7c;padding:3px 0;cursor:pointer"><input type="radio" name="norm" style="accent-color:var(--c-primary)">% 变化</label>
+    </div>
+  </aside>
+
+  <!-- ═══ Center ═══ -->
+  <main class="obs-main">
+    <div class="obs-tabs">
+      <a class="obs-tab" href="view-erp.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>时域</a>
+      <a class="obs-tab" href="view-psd.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>频域</a>
+      <a class="obs-tab is-active" href="view-tfr.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>时频 TFR</a>
+      <a class="obs-tab" href="view-connectivity.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="20" cy="18" r="2"/><circle cx="4" cy="18" r="2"/></svg>网络</a>
+      <a class="obs-tab" href="view-microstate.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>微状态</a>
+      <div style="flex:1"></div>
+      <span style="font-size:11px;color:#8a95a8;font-family:var(--ff-mono)">Cz · Left MI · 1000 Hz</span>
+    </div>
+
+    <div class="obs-toolbar">
+      <span class="tool-lbl">色阶 (dB)</span>
+      <input class="input input--xs" id="zminInput" value="-3" style="width:48px;font-family:var(--ff-mono);text-align:center">
+      <span style="color:#8a95a8">→</span>
+      <input class="input input--xs" id="zmaxInput" value="+3" style="width:48px;font-family:var(--ff-mono);text-align:center">
+      <div class="divider-h"></div>
+      <span class="tool-lbl">方法</span>
+      <select id="methodSelect"><option>Morlet Wavelet</option><option>STFT</option><option>Hilbert</option></select>
+      <div class="divider-h"></div>
+      <span class="tool-lbl">通道</span>
+      <select id="chSelect"><option selected>Cz</option><option>Fz</option><option>Pz</option><option>Oz</option></select>
+      <div style="flex:1"></div>
+      <button class="btn btn--sm" id="resetBtn"><svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M4 9a9 9 0 0113-2.6M20 15a9 9 0 01-13 2.6"/></svg>重置</button>
+      <button class="btn btn--sm btn--primary" id="refreshBtn"><svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="5 3 19 12 5 21 5 3"/></svg>刷新</button>
+    </div>
+
+    <div class="tfr-plot-card">
+      <div class="header">
+        <div>
+          <h2>时频分析 · Cz · ERSP</h2>
+          <p>Morlet Wavelet · 对数频率 1–50 Hz · 基线 [−0.5, 0] s · dB re. baseline</p>
+        </div>
+        <div class="badges">
+          <span class="badge">高密度时频</span>
+          <span class="badge">悬停 / 缩放</span>
+        </div>
+      </div>
+      <div id="timefreq-heatmap"></div>
+    </div>
+  </main>
+
+  <!-- ═══ Right ═══ -->
+  <aside class="stats-panel">
+    <div class="st-section">
+      <h4>频带功率变化</h4>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">&alpha; (8–12 Hz)</div><div class="stat-value" id="alphaStat">--<span class="unit"> dB</span></div></div>
+        <div class="stat-card"><div class="stat-label">&beta; (12–30 Hz)</div><div class="stat-value" id="betaStat">--<span class="unit"> dB</span></div></div>
+        <div class="stat-card"><div class="stat-label">&theta; (4–8 Hz)</div><div class="stat-value" id="thetaStat">--<span class="unit"> dB</span></div></div>
+        <div class="stat-card"><div class="stat-label">&gamma; (30–50 Hz)</div><div class="stat-value" id="gammaStat">--<span class="unit"> dB</span></div></div>
+      </div>
+      <div class="stat-card" style="text-align:left;padding:10px 14px;margin-bottom:8px">
+        <div class="stat-label">峰值 ERD</div>
+        <div class="stat-value" id="peakStat" style="font-size:1rem;margin-top:2px">--<span class="unit"> dB @ -- ms</span></div>
+      </div>
+      <div class="band-tags">
+        <span class="band-tag on">&delta; 1–4</span>
+        <span class="band-tag on">&theta; 4–8</span>
+        <span class="band-tag on">&alpha; 8–12</span>
+        <span class="band-tag on">&beta; 12–30</span>
+        <span class="band-tag on">&gamma; 30–50</span>
+      </div>
+      <div style="font-size:.65rem;color:#8a95a8;margin-top:6px;text-align:center">基线 [−0.5, 0] s mean</div>
+    </div>
+    <div class="st-section">
+      <h4>导出</h4>
+      <button class="btn" onclick="location='figures.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>发送到作图</button>
+      <button class="btn" onclick="location='statistics.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/></svg>发送到统计</button>
+      <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>导出 (.npy)</button>
+    </div>
+  </aside>
+</div>
+
+<script src="assets/icons.js"></script>
+<script src="assets/topbar.js"></script>
+<script>renderTopbar('observe');</script>
+<script src="assets/app.js"></script>
+
+<script>
+/* ====== Plotly TFR — EEGLAB / MNE 风格 ====== */
+(function () {
+  const FREQ_MIN = 1, FREQ_MAX = 50;
+  const TIME_MIN = -0.5, TIME_MAX = 1.5;
+  const N_TIME = 240, N_FREQ = 64;
+  const CHANNEL_PROFILES = {
+    Fz: { alpha:0.2, beta:0.5, theta:0.85, gamma:0.3 },
+    Cz: { alpha:0.5, beta:0.9, theta:0.3, gamma:0.5 },
+    Pz: { alpha:0.6, beta:0.7, theta:0.5, gamma:0.4 },
+    Oz: { alpha:1.3, beta:0.2, theta:0.2, gamma:0.25 },
+  };
+  const BANDS = [
+    { name:'δ', lo:1, hi:4, color:'#6482b9' },
+    { name:'θ', lo:4, hi:8, color:'#4d8f7a' },
+    { name:'α', lo:8, hi:12, color:'#2e7d64' },
+    { name:'β', lo:12, hi:30, color:'#b68b40' },
+    { name:'γ', lo:30, hi:50, color:'#b95f89' },
+  ];
+
+  let currentChannel = 'Cz';
+  let currentCmap = 'Viridis';
+  let plotEl = null;
+
+  function generateERSP(ch, seed) {
+    const t = Array.from({length:N_TIME},(_,i)=>TIME_MIN+(i/(N_TIME-1))*(TIME_MAX-TIME_MIN));
+    const f = Array.from({length:N_FREQ},(_,i)=>FREQ_MIN+(i/(N_FREQ-1))*(FREQ_MAX-FREQ_MIN));
+    const prof = CHANNEL_PROFILES[ch] || CHANNEL_PROFILES.Cz;
+    const rnd = (s=0.06)=>1+(Math.sin(seed)*0.05+(Math.random()-.5)*s);
+
+    let power = Array(N_FREQ).fill().map(()=>Array(N_TIME).fill(0));
+    for (let iF=0;iF<N_FREQ;iF++) {
+      const bg=1/Math.pow(f[iF],0.6);
+      for (let iT=0;iT<N_TIME;iT++) power[iF][iT]=bg*(0.8+0.4*Math.random());
+    }
+    for (let iF=0;iF<N_FREQ;iF++) {
+      const freq=f[iF];
+      for (let iT=0;iT<N_TIME;iT++) {
+        const ts=t[iT]; let mod=1;
+        if (freq>=7&&freq<=13){
+          mod-=prof.alpha*0.9*Math.exp(-Math.pow((ts-0.45)/0.28,2))*Math.exp(-Math.pow((freq-10)/2.5,2));
+        }
+        if (freq>=13&&freq<=30){
+          mod+=prof.beta*0.8*Math.exp(-Math.pow((ts-0.28)/0.2,2))*Math.exp(-Math.pow((freq-20)/6,2));
+        }
+        if (freq>=4&&freq<=8&&ch!=='Oz'){
+          mod+=prof.theta*0.7*Math.exp(-Math.pow((ts-0.22)/0.18,2));
+        }
+        if (freq>=30&&freq<=48){
+          mod+=prof.gamma*0.9*Math.exp(-Math.pow((ts-0.16)/0.09,2));
+        }
+        if (ts<0) mod=1+(Math.sin(freq*0.7+ts*8)*0.03);
+        power[iF][iT]*=Math.max(0.3,mod)*rnd(0.06);
+      }
+    }
+    // baseline normalize to dB
+    let ersp=Array(N_FREQ).fill().map(()=>Array(N_TIME).fill(0));
+    const baseN=t.filter(ti=>ti<0).length;
+    for (let iF=0;iF<N_FREQ;iF++){
+      let sum=0; for(let iT=0;iT<baseN;iT++)sum+=power[iF][iT];
+      const base=sum/baseN||0.001;
+      for(let iT=0;iT<N_TIME;iT++)ersp[iF][iT]=Math.max(-3.2,Math.min(3.5,10*Math.log10(power[iF][iT]/base)));
+    }
+    return {z:ersp, x:t, y:f};
+  }
+
+  function updateStats(ersp, f, t) {
+    const post = t.map((v,i)=>v>=0.1&&v<=0.8?i:-1).filter(i=>i>=0);
+    const bandMean=(lo,hi)=>{
+      let s=0,c=0;
+      for(let iF=0;iF<N_FREQ;iF++)if(f[iF]>=lo&&f[iF]<=hi)for(let iT of post){s+=ersp[iF][iT];c++;}
+      return c?s/c:0;
+    };
+    let peak=-Infinity,peakT=0,peakF=0;
+    for(let iF=0;iF<N_FREQ;iF++)for(let iT of post)if(ersp[iF][iT]<peak){peak=ersp[iF][iT];peakT=t[iT];peakF=f[iF];}
+    setVal('alphaStat',bandMean(8,12),'dB');
+    setVal('betaStat',bandMean(12,30),'dB');
+    setVal('thetaStat',bandMean(4,8),'dB');
+    setVal('gammaStat',bandMean(30,50),'dB');
+    setVal('peakStat',peak,'dB',` @ ${Math.round(peakT*1000)} ms`);
+  }
+  function setVal(id,v,unit,suffix='') {
+    const el=document.getElementById(id);
+    if(el) el.innerHTML=v.toFixed(2)+`<span class="unit"> ${unit}</span>`+suffix;
+  }
+
+  function buildLayout(cmap) {
+    let shapes=[], annotations=[];
+    shapes.push({type:'line',x0:0,x1:0,y0:FREQ_MIN,y1:FREQ_MAX,line:{color:'#d43f34',width:2,dash:'dot'},layer:'above'});
+    BANDS.forEach(b=>{
+      shapes.push({type:'line',x0:TIME_MIN,x1:TIME_MAX,y0:b.lo,y1:b.lo,line:{color:'#7c8ea0',width:.8,dash:'dash'},opacity:.45});
+      annotations.push({x:TIME_MAX-.08,y:(b.lo+b.hi)/2,xref:'x',yref:'y',text:b.name,showarrow:false,font:{size:10,color:'#577190',family:'Inter'},bgcolor:'rgba(255,255,245,.65)',borderpad:2});
+    });
+    return {
+      title:{text:`<b>时频表示 (ERSP)</b> | 电极 ${currentChannel} | dB re. baseline`,font:{size:13,family:'Inter',weight:'500'},x:.02},
+      xaxis:{title:{text:'时间 (s)',font:{size:11}},showgrid:true,gridcolor:'#e6edf4',zeroline:true,zerolinecolor:'#bbccdd',range:[TIME_MIN,TIME_MAX]},
+      yaxis:{title:{text:'频率 (Hz)',font:{size:11}},showgrid:true,gridcolor:'#e6edf4',range:[FREQ_MIN,FREQ_MAX],type:'linear'},
+      shapes,annotations,
+      colorbar:{title:{text:'dB',side:'right',font:{size:11}},thickness:16,len:.78},
+      hoverlabel:{bgcolor:'#1f2e3a',font:{size:11,color:'#f0f4fa'}},
+      margin:{l:56,r:64,t:52,b:48},
+      plot_bgcolor:'#fdfdfe',paper_bgcolor:'#fff',
+      font:{family:'Inter,system-ui',color:'#1f3b4c'}
+    };
+  }
+
+  function render() {
+    const seed=Math.random()*10;
+    const data=generateERSP(currentChannel,seed);
+    updateStats(data.z, data.y, data.x);
+    const layout=buildLayout(currentCmap);
+    const trace={z:data.z,x:data.x,y:data.y,type:'heatmap',colorscale:currentCmap,zmid:0,zsmooth:'best',
+      hovertemplate:'t: %{x:.3f} s<br>f: %{y:.1f} Hz<br>%{z:.2f} dB<extra></extra>'};
+    const cfg={responsive:true,scrollZoom:true,modeBarButtonsToRemove:['lasso2d','select2d'],displaylogo:false};
+    if (plotEl) Plotly.react('timefreq-heatmap',[trace],layout,cfg);
+    else { Plotly.newPlot('timefreq-heatmap',[trace],layout,cfg); plotEl=document.getElementById('timefreq-heatmap'); }
+  }
+
+  // events
+  document.getElementById('refreshBtn').addEventListener('click',render);
+  document.getElementById('resetBtn').addEventListener('click',()=>{
+    if(plotEl) Plotly.relayout(plotEl,{'xaxis.range':[TIME_MIN,TIME_MAX],'yaxis.range':[FREQ_MIN,FREQ_MAX]});
+  });
+  document.getElementById('chSelect').addEventListener('change',function(){currentChannel=this.value;render();});
+  document.getElementById('cmapSelect').addEventListener('change',function(){currentCmap=this.value;render();});
+  document.querySelectorAll('.ch-tag').forEach(el=>el.addEventListener('click',function(){
+    const ch=this.dataset.ch; if(!ch)return;
+    document.querySelectorAll('.ch-tag').forEach(t=>t.classList.remove('is-on'));
+    this.classList.add('is-on');
+    currentChannel=ch; document.getElementById('chSelect').value=ch; render();
+  }));
+
+  render();
+})();
+</script>
+</body>
+</html>

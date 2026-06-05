@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LiteGraph 节点 · 保留状态表征方案演示</title>
+<style>
+  * { box-sizing: border-box; }
+
+  :root {
+    --c-bg-page: #F5F7FA;
+    --c-bg-canvas: #F8FAFC;
+    --c-grid-line: #E2E8F0;
+    --c-text: #1F2A37;
+    --c-text-2: #475569;
+    --c-text-3: #94A3B8;
+    --c-border: #D4DDE8;
+    --c-node-bg: #FFFFFF;
+    --c-title-bg: #F0F4F9;
+    --c-accent: #2F5F8F;
+    --c-leaf: #10B981;
+    --c-leaf-deep: #047857;
+    --c-leaf-soft: rgba(16, 185, 129, 0.12);
+    --c-success-bg: rgba(16, 185, 129, 0.12);
+    --c-success-fg: #047857;
+    --c-cached-bg: rgba(99, 102, 241, 0.12);
+    --c-cached-fg: #4338CA;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    color: var(--c-text);
+    background: var(--c-bg-page);
+  }
+
+  body {
+    padding: 24px 32px 80px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+
+  .subtitle {
+    color: var(--c-text-2);
+    font-size: 13px;
+    margin: 0 0 24px;
+    line-height: 1.6;
+  }
+
+  .subtitle code {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .variant {
+    margin-bottom: 36px;
+    background: var(--c-bg-canvas);
+    background-image:
+      linear-gradient(var(--c-grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--c-grid-line) 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-position: -1px -1px;
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+    padding: 32px;
+    position: relative;
+  }
+
+  .variant.recommended {
+    border-color: var(--c-leaf);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.08);
+  }
+
+  .variant__head {
+    margin-bottom: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .variant__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--c-accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .variant__title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--c-text);
+  }
+
+  .variant__desc {
+    color: var(--c-text-2);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 11px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .badge--rec {
+    background: var(--c-leaf-soft);
+    color: var(--c-leaf-deep);
+  }
+
+  .badge--current {
+    background: rgba(99, 102, 241, 0.12);
+    color: #4338CA;
+  }
+
+  .nodes-row {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  /* === LiteGraph 节点拟真样式 === */
+
+  .node {
+    width: 220px;
+    background: var(--c-node-bg);
+    border: 1px solid var(--c-border);
+    border-radius: 7px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    font-size: 12px;
+    position: relative;
+  }
+
+  .node--selected {
+    border-color: var(--c-accent);
+    box-shadow: 0 0 0 3px rgba(47, 95, 143, 0.16), 0 1px 3px rgba(15, 23, 42, 0.06);
+  }
+
+  .node-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    background: var(--c-title-bg);
+    border-bottom: 1px solid var(--c-border);
+  }
+
+  .node-title__text {
+    font-weight: 700;
+    color: var(--c-text);
+    font-size: 12px;
+  }
+
+  .node-status {
+    padding: 1px 8px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--c-success-bg);
+    color: var(--c-success-fg);
+  }
+
+  .node-status--cached {
+    background: var(--c-cached-bg);
+    color: var(--c-cached-fg);
+  }
+
+  .node-body {
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .node-port {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--c-text-2);
+    height: 18px;
+  }
+
+  .node-port__in,
+  .node-port__out {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .node-port__in::before,
+  .node-port__out::after {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--c-accent);
+  }
+
+  .node-port__in::before {
+    margin-left: -4px;
+  }
+
+  .node-port__out::after {
+    margin-right: -4px;
+  }
+
+  .node-port__out {
+    margin-left: auto;
+  }
+
+  /* === 变体 1：基线（3px 实绿 / 3px 灰虚线）=== */
+
+  .v1 .node--leaf::after {
+    content: '';
+    display: block;
+    height: 3px;
+    background: var(--c-leaf);
+  }
+
+  .v1 .node--inter::after {
+    content: '';
+    display: block;
+    height: 3px;
+    background: repeating-linear-gradient(90deg, var(--c-text-3) 0 4px, transparent 4px 7px);
+  }
+
+  /* === 变体 2：只标记 leaf · 5px 实绿（推荐）=== */
+
+  .v2 .node--leaf::after {
+    content: '';
+    display: block;
+    height: 5px;
+    background: var(--c-leaf);
+  }
+
+  /* === 变体 3：只标记 leaf · 6px 内嵌"永久"文字 === */
+
+  .v3 .node--leaf::after {
+    content: '永久保留';
+    display: block;
+    height: 18px;
+    background: var(--c-leaf);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+    line-height: 18px;
+    letter-spacing: 0.5px;
+  }
+
+  /* === 变体 4：只标记 leaf · 6px 渐变（精致风）=== */
+
+  .v4 .node--leaf::after {
+    content: '';
+    display: block;
+    height: 6px;
+    background: linear-gradient(90deg,
+      rgba(16, 185, 129, 0.5) 0%,
+      var(--c-leaf) 18%,
+      var(--c-leaf-deep) 50%,
+      var(--c-leaf) 82%,
+      rgba(16, 185, 129, 0.5) 100%);
+  }
+
+  /* === 变体 5：只标记 leaf · 5px + 左侧 6px 锚点 === */
+
+  .v5 .node--leaf {
+    position: relative;
+  }
+
+  .v5 .node--leaf::after {
+    content: '';
+    display: block;
+    height: 5px;
+    background: var(--c-leaf);
+  }
+
+  .v5 .node--leaf::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--c-leaf);
+  }
+
+  /* === 变体 6：胶囊色块（圆角内缩）=== */
+
+  .v6 .node--leaf {
+    padding-bottom: 9px;
+  }
+
+  .v6 .node--leaf::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 3px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--c-leaf);
+  }
+
+  /* === 变体 7：节点本身底色微染（无明显色条）=== */
+
+  .v7 .node--leaf {
+    background: linear-gradient(180deg, #fff 0%, #fff calc(100% - 24px), rgba(16, 185, 129, 0.10) 100%);
+    border-bottom: 2px solid var(--c-leaf);
+  }
+
+  /* === 注释行 === */
+
+  .node-label {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--c-text-3);
+    line-height: 1.4;
+  }
+
+  .node-label strong {
+    color: var(--c-text-2);
+    font-weight: 600;
+  }
+
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    height: 18px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.04);
+    font-size: 10px;
+    color: var(--c-text-2);
+  }
+
+  .legend--leaf {
+    background: var(--c-leaf-soft);
+    color: var(--c-leaf-deep);
+  }
+
+  .legend__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* === 顶部图例 === */
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 12px 16px;
+    background: #fff;
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+  }
+
+  .topbar__title {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .topbar__hint {
+    color: var(--c-text-2);
+    font-size: 12px;
+    margin-left: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>LiteGraph 节点 · 保留状态表征方案</h1>
+<p class="subtitle">
+  概念澄清：节点产物只有 <strong>"保留"</strong> 一种状态（leaf 节点 → 用户保留的最终产物）。
+  中间节点（intermediate）只是为下游计算而存在，<strong>不是另一种"保存"</strong>，不需要刻意标记。
+  下方变体只在 leaf 节点上画底部色条，intermediate 节点保持干净。
+</p>
+
+<div class="topbar">
+  <span class="topbar__title">📖 图例</span>
+  <span class="legend legend--leaf"><span class="legend__dot"></span>leaf · 末端节点 · 产物保留</span>
+  <span class="legend"><span class="legend__dot"></span>intermediate · 中间节点 · 不刻意标记</span>
+  <span class="topbar__hint">点击节点边框观察 selected 态</span>
+</div>
+
+<!-- 变体 1 - 基线 -->
+<section class="variant v1">
+  <div class="variant__head">
+    <span class="variant__num">1</span>
+    <span class="variant__title">基线（当前实现）</span>
+    <span class="variant__desc">leaf · 3px 实绿 / intermediate · 3px 灰虚线 — 两种都标，色条太细</span>
+    <span class="badge badge--current">当前实现</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 2 - 推荐：5px 实绿，仅 leaf -->
+<section class="variant v2 recommended">
+  <div class="variant__head">
+    <span class="variant__num">2</span>
+    <span class="variant__title">5px 实绿，仅 leaf</span>
+    <span class="variant__desc">把粗细从 3px 加到 5px，intermediate 节点完全不画 — 视觉负担最低，语义最清晰</span>
+    <span class="badge badge--rec">⭐ 推荐</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · 有色条）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate · 干净）</div>
+    </div>
+
+    <div>
+      <div class="node node--leaf node--selected">
+        <div class="node-title">
+          <span class="node-title__text">ERP Average</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">Epochs</span><span class="node-port__out">ERP</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>ERP Average</strong>（leaf · selected）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 3 - 内嵌文字 -->
+<section class="variant v3">
+  <div class="variant__head">
+    <span class="variant__num">3</span>
+    <span class="variant__title">18px 高 ribbon + 内嵌"永久保留"文字</span>
+    <span class="variant__desc">最显眼、语义最清楚 — 但占节点高度 ~18px，画布稍拥挤</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · 带文字 ribbon）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate · 干净）</div>
+    </div>
+
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">ERP Average</span>
+          <span class="node-status node-status--cached">已缓存</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">Epochs</span><span class="node-port__out">ERP</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>ERP Average</strong>（cache 命中）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 4 - 渐变色条 -->
+<section class="variant v4">
+  <div class="variant__head">
+    <span class="variant__num">4</span>
+    <span class="variant__title">6px 渐变色条（精致风）</span>
+    <span class="variant__desc">两端淡出 → 中心深 — 比实色更柔和、视觉重心居中</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 5 - L 形角标 -->
+<section class="variant v5">
+  <div class="variant__head">
+    <span class="variant__num">5</span>
+    <span class="variant__title">L 形：底部 5px + 左侧 3px 竖条</span>
+    <span class="variant__desc">L 形覆盖左下两边 — 视线最容易扫到的角落、信息冗余</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · L 形）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 6 - 胶囊色块 -->
+<section class="variant v6">
+  <div class="variant__head">
+    <span class="variant__num">6</span>
+    <span class="variant__title">圆角胶囊色块（4px 高 + 两边内缩 14px）</span>
+    <span class="variant__desc">不贴边、圆角端 — 现代 UI 风格（类似 toast 指示）</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · 胶囊）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 变体 7 - 节点底色微染 -->
+<section class="variant v7">
+  <div class="variant__head">
+    <span class="variant__num">7</span>
+    <span class="variant__title">节点底色微染 + 底边色 2px</span>
+    <span class="variant__desc">leaf 节点整体下半部分微微染绿、底边粗色边框 — 最不打扰但语义最隐晦</span>
+  </div>
+  <div class="nodes-row">
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · 渐变背景）</div>
+    </div>
+
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate）</div>
+    </div>
+  </div>
+</section>
+
+<!-- 综合对比：一个 pipeline 全景 -->
+<section class="variant" style="background: var(--c-bg-canvas);">
+  <div class="variant__head">
+    <span class="variant__num">★</span>
+    <span class="variant__title">综合对比 · 一个完整 pipeline 用变体 2 表征</span>
+    <span class="variant__desc">LoadData → Butter → Epoch (leaf) → ERP (leaf) — 一眼能扫到两个产出点</span>
+  </div>
+  <div class="nodes-row v2" style="align-items: center;">
+    <!-- LoadData：无图标（source 节点白名单内） -->
+    <div>
+      <div class="node">
+        <div class="node-title">
+          <span class="node-title__text">LoadData</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__out" style="margin-left:auto;">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>LoadData</strong>（source · 无标记）</div>
+    </div>
+
+    <!-- Butter：intermediate -->
+    <div>
+      <div class="node node--inter">
+        <div class="node-title">
+          <span class="node-title__text">Butter</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">EEG Data</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Butter</strong>（intermediate · 干净）</div>
+    </div>
+
+    <!-- Epoch leaf -->
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">Epoch</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">EEG Data</span><span class="node-port__out">Epochs</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>Epoch</strong>（leaf · 绿色条）</div>
+    </div>
+
+    <!-- ERP leaf -->
+    <div>
+      <div class="node node--leaf">
+        <div class="node-title">
+          <span class="node-title__text">ERP Average</span>
+          <span class="node-status">成功</span>
+        </div>
+        <div class="node-body">
+          <div class="node-port"><span class="node-port__in">Epochs</span><span class="node-port__out">ERP</span></div>
+        </div>
+      </div>
+      <div class="node-label"><strong>ERP Average</strong>（leaf · 绿色条）</div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

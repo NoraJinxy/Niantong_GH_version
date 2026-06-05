@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>脑网络观察 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+/* ===== view-connectivity 局部样式（参考多图脑网络配置：a/b 脑顶视图 + c Circos 主图 + d/e/f 种子子图） ===== */
+body { background: var(--c-bg-soft); overflow: hidden; }
+
+.obs-layout {
+  display: grid;
+  grid-template-columns: 248px 1fr 304px;
+  height: calc(100vh - var(--header-h));
+  overflow: hidden;
+}
+
+/* ── 子页 Tab ── */
+.obs-tabs {
+  position: sticky; top: 0; z-index: 5;
+  height: 38px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  display: flex; align-items: center;
+  padding: 0 var(--s-4);
+}
+.obs-tab {
+  padding: 0 14px; height: 38px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--c-text-2);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.obs-tab:hover { color: var(--c-text); }
+.obs-tab.is-active { color: var(--c-primary); border-bottom-color: var(--c-primary); font-weight: 600; }
+.obs-tab svg { width: 14px; height: 14px; }
+
+/* ── 左侧选择器 ── */
+.selector-panel {
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.sel-section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.sel-section h4 {
+  font-size: 11px; font-weight: 600;
+  color: var(--c-text-3); letter-spacing: .8px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sel-section h4 .count {
+  background: var(--c-primary); color: #fff;
+  font-size: 10px; padding: 1px 6px;
+  border-radius: 10px;
+  font-family: var(--ff-mono); font-weight: 700;
+}
+
+.checkbox-tree { display: flex; flex-direction: column; gap: 1px; }
+.ck-node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; cursor: pointer;
+  border-radius: 4px; font-size: 12px;
+}
+.ck-node:hover { background: var(--c-bg-tint); }
+.ck-node input { accent-color: var(--c-primary); margin: 0; flex-shrink: 0; }
+.ck-node .name { flex: 1; }
+.ck-node.indent-1 { padding-left: 22px; }
+
+.cond-pill {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--c-border);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  transition: all var(--t-fast);
+}
+.cond-pill:hover { border-color: var(--c-border-strong); }
+.cond-pill.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input[type=range] { flex: 1; accent-color: var(--c-primary); height: 4px; }
+.range-val {
+  font-size: 11px; font-family: var(--ff-mono);
+  color: var(--c-primary); font-weight: 700;
+  min-width: 50px; text-align: right;
+}
+
+.checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--c-text-2);
+  padding: 4px 0; cursor: pointer;
+}
+.checkbox-row input { accent-color: var(--c-primary); margin: 0; }
+
+.cmap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cmap-card {
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--t-fast);
+}
+.cmap-card:hover { border-color: var(--c-border-strong); }
+.cmap-card.is-on { border-color: var(--c-primary); background: var(--c-primary-soft); }
+.cmap-bar {
+  height: 10px; border-radius: 3px;
+  margin-bottom: 4px;
+}
+.cmap-card .lbl { font-size: 10px; color: var(--c-text-2); }
+.cmap-card.is-on .lbl { color: var(--c-primary); font-weight: 600; }
+.cmap-bar.YlOrRd { background: linear-gradient(90deg, #FFC107 0%, #FF9800 30%, #FF5722 60%, #C62828 100%); }
+.cmap-bar.RdBu   { background: linear-gradient(90deg, #2E6BFF, #fff, #EF4444); }
+.cmap-bar.Spec   { background: linear-gradient(90deg, #5E4FA2, #3288BD, #66C2A5, #ABDDA4, #E6F598, #FEE08B, #FDAE61, #F46D43, #D53E4F); }
+.cmap-bar.Vir    { background: linear-gradient(90deg, #440154, #3b528b, #21918c, #5ec962, #fde725); }
+
+/* ── 中央画布 ── */
+.obs-main {
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  background: var(--c-bg-soft);
+}
+
+.obs-toolbar {
+  padding: 8px 14px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap;
+}
+.tool-lbl { font-size: 11px; color: var(--c-text-3); margin-right: 2px; }
+.obs-toolbar select {
+  height: 28px; padding: 0 8px;
+  font-size: 11px; font-family: var(--ff-mono);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface); color: var(--c-text);
+}
+.divider-h {
+  width: 1px; height: 22px;
+  background: var(--c-border);
+  margin: 0 6px;
+}
+
+/* 主画布栅格：a/b 左 · c 中(主) · d/e/f 右 */
+.viz-grid {
+  flex: 1;
+  padding: 12px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: 220px 1fr 200px;
+  grid-template-rows: 1fr 1fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+.viz-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+.viz-card .cap {
+  position: absolute; top: 6px; left: 8px;
+  font-family: 'Times New Roman', serif;
+  font-size: 12px; font-weight: 700;
+  color: var(--c-text);
+  z-index: 2;
+}
+.viz-card .cap em {
+  margin-left: 4px; font-style: normal;
+  color: var(--c-text-3); font-size: 11px; font-weight: 500;
+}
+.viz-card .body { flex: 1; min-height: 0; }
+.viz-card svg { width: 100%; height: 100%; display: block; }
+
+#vc-a { grid-column: 1; grid-row: 1 / span 1; }
+#vc-b { grid-column: 1; grid-row: 2 / span 2; }
+#vc-c { grid-column: 2; grid-row: 1 / span 3; }
+#vc-d { grid-column: 3; grid-row: 1; }
+#vc-e { grid-column: 3; grid-row: 2; }
+#vc-f { grid-column: 3; grid-row: 3; }
+
+/* 色阶条 */
+.cbar-strip {
+  position: absolute; bottom: 6px; left: 8px; right: 8px;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--ff-mono); font-size: 10px;
+  color: var(--c-text-3);
+  z-index: 2;
+}
+.cbar-strip .grad {
+  flex: 1; height: 8px;
+  background: linear-gradient(90deg, #FFC107, #FF9800 35%, #FF5722 65%, #C62828);
+  border-radius: 2px;
+}
+
+/* ── 右侧统计 ── */
+.stats-panel {
+  background: var(--c-surface);
+  border-left: 1px solid var(--c-border);
+  overflow-y: auto;
+}
+.st-section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.st-section h4 {
+  font-size: 11px; font-weight: 600;
+  color: var(--c-text-3); letter-spacing: .8px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.metric-cell {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 8px;
+}
+.metric-cell .k { font-size: 10px; color: var(--c-text-3); }
+.metric-cell .v {
+  font-size: 18px; font-weight: 700;
+  font-family: var(--ff-mono);
+  color: var(--c-text);
+  margin-top: 2px;
+}
+.metric-cell .v.pos { color: var(--c-success); }
+.metric-cell .v.warn { color: var(--c-warning); }
+.metric-cell .sub { font-size: 9px; color: var(--c-text-3); }
+
+.seed-list {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.seed-item {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 6px; align-items: center;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+.seed-item:hover { border-color: var(--c-border-strong); }
+.seed-item.is-on {
+  background: var(--c-primary-soft);
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+.seed-item .swatch {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+.seed-item .name { font-family: var(--ff-mono); }
+.seed-item .deg { font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-3); }
+
+.edu-card {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--c-accent);
+}
+.edu-card .ttl {
+  font-size: 11px; font-weight: 700;
+  margin-bottom: 4px; color: var(--c-text);
+}
+.edu-card .body { font-size: 11px; color: var(--c-text-2); line-height: 1.5; }
+.edu-card code {
+  font-family: var(--ff-mono); font-size: 10px;
+  background: var(--c-surface);
+  padding: 1px 5px; border-radius: 3px;
+  color: var(--c-primary);
+}
+
+.btn-block {
+  width: 100%; height: 30px;
+  display: inline-flex; align-items: center; justify-content: flex-start;
+  gap: 6px; padding: 0 10px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 5px;
+  color: var(--c-text-2);
+}
+.btn-block:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.btn-block svg { width: 14px; height: 14px; }
+
+@media (max-width: 1300px) {
+  .obs-layout { grid-template-columns: 220px 1fr 280px; }
+  .viz-grid { grid-template-columns: 200px 1fr 180px; }
+}
+@media (max-width: 1024px) {
+  .obs-layout { grid-template-columns: 1fr; }
+  .selector-panel, .stats-panel { display: none; }
+  .viz-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+}
+</style>
+</head>
+<body>
+
+<div id="topbar-mount"></div>
+
+<div class="obs-layout">
+
+  <!-- ════════════ 左：选择器 ════════════ -->
+  <aside class="selector-panel">
+
+    <div class="sel-section">
+      <h4>数据集 <span class="count">2</span></h4>
+      <div class="checkbox-tree">
+        <div class="ck-node"><input type="checkbox" checked /><span class="name" style="font-weight:500">depri-affective-network</span></div>
+        <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name" style="font-family:var(--ff-mono);font-size:11px">MDD · n=24 · resting</span></div>
+        <div class="ck-node indent-1"><input type="checkbox" /><span class="name" style="font-family:var(--ff-mono);font-size:11px">HC · n=22 · resting</span></div>
+        <div class="ck-node"><input type="checkbox" /><span class="name" style="font-weight:500">stroke-mi-rehab</span></div>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>频段 <span class="count">5</span></h4>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <span class="cond-pill">δ</span>
+        <span class="cond-pill">θ</span>
+        <span class="cond-pill is-on">α</span>
+        <span class="cond-pill">β</span>
+        <span class="cond-pill">γ</span>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>连接方法</h4>
+      <select class="input" style="width:100%;height:30px;font-size:12px">
+        <option>wPLI (加权相位滞后)</option>
+        <option>PLV (相位锁定值)</option>
+        <option>Coherence (相干性)</option>
+        <option>dPLI (有向 PLI)</option>
+        <option>PSI (相位斜率)</option>
+        <option>Granger 因果</option>
+      </select>
+      <div style="margin-top:8px;font-size:11px;color:var(--c-text-2)">参考（脑解剖）</div>
+      <select class="input" style="width:100%;height:30px;font-size:12px;margin-top:4px">
+        <option>AAL · 90 ROI</option>
+        <option>Desikan-Killiany · 68</option>
+        <option>HCP-MMP1.0 · 360</option>
+      </select>
+    </div>
+
+    <div class="sel-section">
+      <h4>边阈值</h4>
+      <div style="font-size:11px;color:var(--c-text-2);margin-bottom:4px">显示连接强度前 <strong style="color:var(--c-primary)" id="thr-pct">12%</strong></div>
+      <div class="range-row">
+        <input type="range" min="2" max="40" step="1" value="12" id="thr-range" />
+        <span class="range-val" id="thr-val">12%</span>
+      </div>
+      <label class="checkbox-row" style="margin-top:6px"><input type="checkbox" checked />FDR 校正后</label>
+      <label class="checkbox-row"><input type="checkbox" />仅跨半球边</label>
+    </div>
+
+    <div class="sel-section">
+      <h4>渲染配色</h4>
+      <div class="cmap-grid">
+        <div class="cmap-card is-on"><div class="cmap-bar YlOrRd"></div><span class="lbl">YlOrRd</span></div>
+        <div class="cmap-card"><div class="cmap-bar RdBu"></div><span class="lbl">RdBu_r</span></div>
+        <div class="cmap-card"><div class="cmap-bar Spec"></div><span class="lbl">Spectral</span></div>
+        <div class="cmap-card"><div class="cmap-bar Vir"></div><span class="lbl">viridis</span></div>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>显示控制</h4>
+      <label class="checkbox-row"><input type="checkbox" checked />脑半透明</label>
+      <label class="checkbox-row"><input type="checkbox" checked />节点填充按度</label>
+      <label class="checkbox-row"><input type="checkbox" checked />边宽按权重</label>
+      <label class="checkbox-row"><input type="checkbox" />仅显示显著边</label>
+      <label class="checkbox-row"><input type="checkbox" checked />ROI 标签</label>
+    </div>
+
+  </aside>
+
+  <!-- ════════════ 中：画布 ════════════ -->
+  <main class="obs-main">
+
+    <!-- 子页 Tab -->
+    <div class="obs-tabs">
+      <a class="obs-tab" href="view-erp.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>时域 ERP
+      </a>
+      <a class="obs-tab" href="view-psd.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>频域 PSD
+      </a>
+      <a class="obs-tab" href="view-tfr.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>时频 TFR
+      </a>
+      <a class="obs-tab is-active" href="view-connectivity.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="20" cy="18" r="2"/><circle cx="4" cy="18" r="2"/><line x1="6" y1="6" x2="10" y2="11"/><line x1="18" y1="6" x2="14" y2="11"/><line x1="18" y1="18" x2="14" y2="13"/><line x1="6" y1="18" x2="10" y2="13"/></svg>脑网络
+      </a>
+      <a class="obs-tab" href="view-microstate.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>微状态
+      </a>
+      <a class="obs-tab" href="view-source.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 00-8 8c0 4.4 4 7 4 9h8c0-2 4-4.6 4-9a8 8 0 00-8-8z"/></svg>溯源
+      </a>
+      <div style="flex:1"></div>
+      <span style="font-size:11px;color:var(--c-text-3)">depri-affective-network · α 频段 · wPLI · 36 ROI</span>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="obs-toolbar">
+      <span class="tool-lbl">视图</span>
+      <select><option>俯视 (轴状)</option><option>侧视 (左)</option><option>侧视 (右)</option></select>
+      <div class="divider-h"></div>
+      <span class="tool-lbl">布局</span>
+      <select><option>解剖位置</option><option>圆形</option><option>力导向</option><option>层次</option></select>
+      <div class="divider-h"></div>
+      <span class="tool-lbl">种子</span>
+      <select id="seed-sel"><option value="L_inf_PCUN">L inf PCUN (默认)</option></select>
+      <div class="divider-h"></div>
+      <label class="checkbox-row" style="font-size:11px"><input type="checkbox" checked />分组色化</label>
+      <label class="checkbox-row" style="font-size:11px"><input type="checkbox" />模块化检测</label>
+      <div style="flex:1"></div>
+      <button class="btn-block" style="width:auto;margin:0;padding:0 10px;height:28px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.5-4.5"/></svg>
+        查找 ROI
+      </button>
+      <button class="btn-block" style="width:auto;margin:0;padding:0 10px;height:28px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>
+        导出
+      </button>
+    </div>
+
+    <!-- 主画布栅格 -->
+    <div class="viz-grid">
+
+      <!-- a) 脑顶视全连接 -->
+      <div class="viz-card" id="vc-a">
+        <span class="cap">a <em>俯视 · α 频段全网络</em></span>
+        <div class="body"><svg id="brain-a" viewBox="0 0 220 240" preserveAspectRatio="xMidYMid meet"></svg></div>
+        <div class="cbar-strip">
+          <span>Low</span><div class="grad"></div><span>wPLI High</span>
+        </div>
+      </div>
+
+      <!-- b) 脑顶视种子聚焦 -->
+      <div class="viz-card" id="vc-b">
+        <span class="cap">b <em>种子聚焦 · L inf PCUN</em></span>
+        <div class="body"><svg id="brain-b" viewBox="0 0 220 360" preserveAspectRatio="xMidYMid meet"></svg></div>
+        <div class="cbar-strip">
+          <span>Low</span><div class="grad"></div><span>High</span>
+        </div>
+      </div>
+
+      <!-- c) Circos 大图 -->
+      <div class="viz-card" id="vc-c">
+        <span class="cap">c <em>Circos · 36 ROI · 全连接</em></span>
+        <div class="body"><svg id="circos-main" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"></svg></div>
+      </div>
+
+      <!-- d/e/f 三种子小图 -->
+      <div class="viz-card" id="vc-d">
+        <span class="cap">d <em>seed: L SPL</em></span>
+        <div class="body"><svg id="circos-d" viewBox="0 0 280 280" preserveAspectRatio="xMidYMid meet"></svg></div>
+      </div>
+      <div class="viz-card" id="vc-e">
+        <span class="cap">e <em>seed: L inf PCUN</em></span>
+        <div class="body"><svg id="circos-e" viewBox="0 0 280 280" preserveAspectRatio="xMidYMid meet"></svg></div>
+      </div>
+      <div class="viz-card" id="vc-f">
+        <span class="cap">f <em>seed: R AMYG</em></span>
+        <div class="body"><svg id="circos-f" viewBox="0 0 280 280" preserveAspectRatio="xMidYMid meet"></svg></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ════════════ 右：统计 ════════════ -->
+  <aside class="stats-panel">
+
+    <div class="st-section">
+      <h4>选中节点</h4>
+      <div style="background:var(--c-primary-soft);padding:10px;border-radius:var(--r);display:flex;align-items:center;gap:10px;margin-bottom: 8px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:#C62828;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;font-family:var(--ff-mono)">12</div>
+        <div>
+          <div style="font-weight:600;font-size:12px">L inf PCUN</div>
+          <div style="font-size:10px;color:var(--c-text-3)">Left Inferior Precuneus · MNI [-12, -64, 32]</div>
+        </div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-cell"><div class="k">度 (degree)</div><div class="v">12</div><div class="sub">/ 35 可能</div></div>
+        <div class="metric-cell"><div class="k">介数中心性</div><div class="v">0.28</div><div class="sub">排名 4 / 36</div></div>
+        <div class="metric-cell"><div class="k">聚类系数</div><div class="v">0.42</div><div class="sub">局部密度</div></div>
+        <div class="metric-cell"><div class="k">所属模块</div><div class="v" style="font-size:14px">M1·DMN</div><div class="sub">共 9 节点</div></div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>全局图论指标 · α 频段</h4>
+      <div class="metric-grid">
+        <div class="metric-cell"><div class="k">全局效率</div><div class="v pos">0.71</div><div class="sub">信息整合好</div></div>
+        <div class="metric-cell"><div class="k">特征路径</div><div class="v">2.4</div><div class="sub">L</div></div>
+        <div class="metric-cell"><div class="k">聚类系数</div><div class="v">0.38</div><div class="sub">C</div></div>
+        <div class="metric-cell"><div class="k">小世界 σ</div><div class="v pos">2.15</div><div class="sub">σ &gt; 1 即小世界</div></div>
+        <div class="metric-cell"><div class="k">模块化 Q</div><div class="v pos">0.45</div><div class="sub">4 个模块</div></div>
+        <div class="metric-cell"><div class="k">同配性</div><div class="v warn">+0.07</div><div class="sub">弱正同配</div></div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>种子节点列表 (按度排序)</h4>
+      <div class="seed-list">
+        <div class="seed-item is-on">
+          <span class="swatch" style="background:#C62828"></span>
+          <span class="name">L inf PCUN</span>
+          <span class="deg">deg 12</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#E53935"></span>
+          <span class="name">L SPL</span>
+          <span class="deg">10</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#F57C00"></span>
+          <span class="name">R AMYG</span>
+          <span class="deg">9</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#FB8C00"></span>
+          <span class="name">L MFG</span>
+          <span class="deg">8</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#FBC02D"></span>
+          <span class="name">M MB</span>
+          <span class="deg">7</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#FFD600"></span>
+          <span class="name">L sup FP</span>
+          <span class="deg">6</span>
+        </div>
+        <div class="seed-item">
+          <span class="swatch" style="background:#FFC107"></span>
+          <span class="name">R post SFG</span>
+          <span class="deg">5</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>解读提示</h4>
+      <div class="edu-card">
+        <div class="ttl">小世界系数 σ</div>
+        <div class="body">
+          <code>σ = (C/Crand) / (L/Lrand)</code><br/>
+          σ &gt; 1 → 高聚类 + 短路径 = <strong>小世界网络</strong><br/>
+          您的实测值 σ=2.15，符合典型大脑模式
+        </div>
+      </div>
+      <div class="edu-card" style="border-left-color:var(--c-warning)">
+        <div class="ttl">阈值与稳定性</div>
+        <div class="body">
+          阈值过低（&lt; 5%）边数太少，图论指标不稳定；过高（&gt; 25%）失去稀疏性，建议在 <code>10%–15%</code> 内多次扫描验证。
+        </div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>导出</h4>
+      <button class="btn-block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>
+        导出邻接矩阵 (.npy)
+      </button>
+      <button class="btn-block" onclick="window.location='figures.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        发送到作图模块
+      </button>
+      <button class="btn-block" onclick="window.location='statistics.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        发送到统计 (NBS)
+      </button>
+    </div>
+
+  </aside>
+
+</div>
+
+<script src="assets/icons.js"></script>
+<script src="assets/topbar.js"></script>
+<script>renderTopbar('observe');</script>
+<script src="assets/app.js"></script>
+<script>
+/* ====================================================================
+ * 脑网络可视化生成脚本
+ * 1. 36 个 ROI 标签（仿 AAL/Desikan）+ 圆周位置
+ * 2. 半结构 + 半随机连接矩阵（让结果像真实数据）
+ * 3. Circos 大图 c：所有边
+ * 4. 三个种子小图 d/e/f：单源
+ * 5. 脑顶视图 a/b：用 EEG 风格散点 + 曲线边
+ * ==================================================================== */
+
+const ROIS = [
+  // 顺序：从顶部 12 点位置顺时针，按解剖分组
+  // 前额（顶）
+  { name: 'M mid med OFC', side: 'M', region: 'OFC' },
+  { name: 'L sup FP',      side: 'L', region: 'FP'  },
+  { name: 'L lat sup LOC', side: 'L', region: 'LOC' },
+  { name: 'L mid sup LOC', side: 'L', region: 'LOC' },
+  { name: 'L inf LOC',     side: 'L', region: 'LOC' },
+  { name: 'L sup PoG',     side: 'L', region: 'PoG' },
+  { name: 'L MFG',         side: 'L', region: 'MFG' },
+  { name: 'L SMA',         side: 'L', region: 'SMA' },
+  { name: 'L post SFG',    side: 'L', region: 'SFG' },
+  { name: 'L SPL',         side: 'L', region: 'SPL' },
+  { name: 'L inf PCUN',    side: 'L', region: 'PCUN'},
+  { name: 'L AMYG',        side: 'L', region: 'AMYG'},
+  { name: 'L ITGtp',       side: 'L', region: 'ITG' },
+  { name: 'L pOC',         side: 'L', region: 'pOC' },
+  { name: 'L cOC',         side: 'L', region: 'cOC' },
+  { name: 'M MB',          side: 'M', region: 'MB'  },
+  { name: 'L OP',          side: 'L', region: 'OP'  },
+  { name: 'L poG',         side: 'L', region: 'PoG' },
+  // 右侧
+  { name: 'R OP',          side: 'R', region: 'OP'  },
+  { name: 'R cOC',         side: 'R', region: 'cOC' },
+  { name: 'R pOC',         side: 'R', region: 'pOC' },
+  { name: 'R inf PCUN',    side: 'R', region: 'PCUN'},
+  { name: 'R sup PoG',     side: 'R', region: 'PoG' },
+  { name: 'R inf LOC',     side: 'R', region: 'LOC' },
+  { name: 'R MFGto',       side: 'R', region: 'MFG' },
+  { name: 'R ITGto',       side: 'R', region: 'ITG' },
+  { name: 'R inf SMG',     side: 'R', region: 'IPL' },
+  { name: 'R post SFG',    side: 'R', region: 'SFG' },
+  { name: 'R sup PrG',     side: 'R', region: 'PrG' },
+  { name: 'R lat sup LOC', side: 'R', region: 'LOC' },
+  { name: 'R sup PoG',     side: 'R', region: 'PoG' },
+  { name: 'R inf MFG',     side: 'R', region: 'MFG' },
+  { name: 'R SMA',         side: 'R', region: 'SMA' },
+  { name: 'R SPL',         side: 'R', region: 'SPL' },
+  { name: 'R sup FP',      side: 'R', region: 'FP'  },
+  { name: 'M MFG',         side: 'M', region: 'MFG' }
+];
+const N = ROIS.length;
+
+/* ----- 颜色映射 YlOrRd ----- */
+const STOPS = [
+  [0.00, [255,193,7]],
+  [0.30, [255,152,0]],
+  [0.55, [255,87,34]],
+  [0.80, [229,57,53]],
+  [1.00, [183,28,28]]
+];
+function ylorrd(t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < STOPS.length - 1; i++) {
+    const [a, ca] = STOPS[i], [b, cb] = STOPS[i + 1];
+    if (t >= a && t <= b) {
+      const u = (t - a) / (b - a);
+      return `rgb(${(ca[0]+(cb[0]-ca[0])*u)|0},${(ca[1]+(cb[1]-ca[1])*u)|0},${(ca[2]+(cb[2]-ca[2])*u)|0})`;
+    }
+  }
+  return `rgb(${STOPS.at(-1)[1].join(',')})`;
+}
+
+/* ----- 生成连接矩阵：随机 + 半球内偏好 + 几个 hub ----- */
+const HUBS = ['L inf PCUN', 'L SPL', 'R AMYG', 'L MFG', 'M MB'];
+function genMatrix() {
+  const W = Array.from({length: N}, () => new Float32Array(N));
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      let w = Math.random() * 0.25;
+      // 同侧偏好
+      if (ROIS[i].side === ROIS[j].side) w += Math.random() * 0.2;
+      // hub 中心性
+      if (HUBS.includes(ROIS[i].name) || HUBS.includes(ROIS[j].name)) w += Math.random() * 0.4;
+      // 同区域偏好
+      if (ROIS[i].region === ROIS[j].region) w += Math.random() * 0.3;
+      W[i][j] = w;
+      W[j][i] = w;
+    }
+  }
+  return W;
+}
+const W = genMatrix();
+
+/* ----- 阈值 → 边列表 ----- */
+function topEdges(W, pct) {
+  const edges = [];
+  for (let i = 0; i < N; i++)
+    for (let j = i + 1; j < N; j++)
+      edges.push({ i, j, w: W[i][j] });
+  edges.sort((a, b) => b.w - a.w);
+  const k = Math.max(8, Math.floor(edges.length * pct / 100));
+  const top = edges.slice(0, k);
+  const wmax = top[0].w, wmin = top[k - 1].w;
+  top.forEach(e => e.t = (e.w - wmin) / (wmax - wmin + 1e-9));
+  return top;
+}
+
+/* ─────────────────── Circos 主图 ─────────────────── */
+function drawCircos(svg, edges, opts = {}) {
+  const { highlight = null, dimNonHighlight = false, radius = 220, cx = 300, cy = 300, fontSize = 9, labelOff = 12 } = opts;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const angle = (i) => (i / N) * Math.PI * 2 - Math.PI / 2;
+  const pos = (i, r = radius) => [cx + Math.cos(angle(i)) * r, cy + Math.sin(angle(i)) * r];
+
+  /* tick + label */
+  ROIS.forEach((roi, i) => {
+    const [x, y] = pos(i, radius);
+    const [lx, ly] = pos(i, radius + labelOff);
+    // tick
+    const t = document.createElementNS(NS, 'line');
+    const [tx2, ty2] = pos(i, radius - 4);
+    t.setAttribute('x1', x); t.setAttribute('y1', y);
+    t.setAttribute('x2', tx2); t.setAttribute('y2', ty2);
+    t.setAttribute('stroke', highlight && (highlight === roi.name) ? '#C62828' : '#999');
+    t.setAttribute('stroke-width', highlight && highlight === roi.name ? 2 : 0.8);
+    svg.appendChild(t);
+
+    const text = document.createElementNS(NS, 'text');
+    text.setAttribute('x', lx);
+    text.setAttribute('y', ly);
+    text.setAttribute('font-size', fontSize);
+    text.setAttribute('font-family', 'monospace');
+    const a = angle(i) * 180 / Math.PI;
+    let anchor = 'start', rot = a;
+    if (a > 90 || a < -90) { anchor = 'end'; rot = a + 180; }
+    text.setAttribute('text-anchor', anchor);
+    text.setAttribute('transform', `rotate(${rot} ${lx} ${ly})`);
+    text.setAttribute('alignment-baseline', 'middle');
+    text.setAttribute('fill', dimNonHighlight ? '#aaa' : (highlight === roi.name ? '#C62828' : '#333'));
+    text.setAttribute('font-weight', highlight === roi.name ? 700 : 400);
+    text.textContent = roi.name;
+    svg.appendChild(text);
+  });
+
+  /* edges as cubic bezier through center */
+  // 先画暗边再画亮边
+  const sorted = [...edges].sort((a, b) => a.t - b.t);
+  sorted.forEach(e => {
+    const [x1, y1] = pos(e.i);
+    const [x2, y2] = pos(e.j);
+    const path = document.createElementNS(NS, 'path');
+    const d = `M ${x1.toFixed(1)},${y1.toFixed(1)} Q ${cx},${cy} ${x2.toFixed(1)},${y2.toFixed(1)}`;
+    path.setAttribute('d', d);
+    let stroke, opacity, sw;
+    const isSeed = highlight && (ROIS[e.i].name === highlight || ROIS[e.j].name === highlight);
+    if (dimNonHighlight && !isSeed) {
+      stroke = '#d6d6d6'; opacity = 0.45; sw = 0.5;
+    } else {
+      stroke = ylorrd(e.t); opacity = 0.55 + e.t * 0.4; sw = 0.6 + e.t * 1.6;
+    }
+    path.setAttribute('stroke', stroke);
+    path.setAttribute('stroke-width', sw);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('opacity', opacity);
+    svg.appendChild(path);
+  });
+}
+
+/* ─────────────────── 脑顶视图 ─────────────────── */
+function drawBrain(svg, edges, opts = {}) {
+  const { width = 220, height = 240, highlight = null, dimNonHighlight = false } = opts;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // 大脑半透明轮廓（前向上，后向下；俯视）
+  const brain = document.createElementNS(NS, 'path');
+  // 类大脑形状（左右对称，前窄后宽）
+  const cx = width / 2, top = 14, bot = height - 16;
+  const left = 16, right = width - 16;
+  const d = `
+    M ${cx} ${top}
+    C ${cx + 30} ${top + 6}, ${right - 4} ${top + 36}, ${right} ${cx * 0.8}
+    C ${right + 2} ${bot - 80}, ${right - 14} ${bot}, ${cx} ${bot}
+    C ${left + 14} ${bot}, ${left - 2} ${bot - 80}, ${left} ${cx * 0.8}
+    C ${left + 4} ${top + 36}, ${cx - 30} ${top + 6}, ${cx} ${top}
+    Z
+  `;
+  brain.setAttribute('d', d);
+  brain.setAttribute('fill', 'rgba(220,220,220,0.5)');
+  brain.setAttribute('stroke', '#bbb');
+  brain.setAttribute('stroke-width', 1);
+  svg.appendChild(brain);
+
+  // 中线
+  const mid = document.createElementNS(NS, 'line');
+  mid.setAttribute('x1', cx); mid.setAttribute('y1', top + 6);
+  mid.setAttribute('x2', cx); mid.setAttribute('y2', bot - 6);
+  mid.setAttribute('stroke', '#bbb');
+  mid.setAttribute('stroke-width', 0.6);
+  mid.setAttribute('stroke-dasharray', '3 4');
+  svg.appendChild(mid);
+
+  // 节点位置：把每个 ROI 投到 brain 大致解剖位置
+  function brainPos(roi, idx) {
+    // 简化：左右半球分两组，前后按 region 排
+    const isLeft = roi.side === 'L', isMid = roi.side === 'M';
+    const xJitter = (Math.random() - 0.5) * 8;
+    const yJitter = (Math.random() - 0.5) * 8;
+    let yRel = 0.5;
+    const r = roi.region;
+    if (r === 'FP' || r === 'OFC') yRel = 0.10;
+    else if (r === 'MFG' || r === 'SFG') yRel = 0.25;
+    else if (r === 'PrG' || r === 'SMA') yRel = 0.40;
+    else if (r === 'PoG' || r === 'OP')  yRel = 0.50;
+    else if (r === 'SPL' || r === 'IPL') yRel = 0.62;
+    else if (r === 'PCUN')               yRel = 0.70;
+    else if (r === 'AMYG' || r === 'MB') yRel = 0.55;
+    else if (r === 'ITG')                yRel = 0.78;
+    else if (r === 'LOC')                yRel = 0.82;
+    else if (r === 'pOC' || r === 'cOC') yRel = 0.92;
+    const y = top + 8 + (bot - top - 16) * yRel + yJitter;
+    let x;
+    if (isMid) x = cx + xJitter * 0.6;
+    else if (isLeft) x = left + 12 + (cx - left - 24) * (0.5 + (Math.sin(idx) * 0.4)) + xJitter;
+    else x = cx + 12 + (right - cx - 24) * (0.5 + (Math.cos(idx) * 0.4)) + xJitter;
+    return [x, y];
+  }
+  // 用固定种子保证每次相同位置（伪固定）
+  const seedRand = (() => { let s = 7; return () => (s = (s * 9301 + 49297) % 233280) / 233280; })();
+  const positions = ROIS.map((roi, i) => {
+    // 使用 seed 替代纯 Math.random 让位置稳定
+    const r1 = seedRand(), r2 = seedRand();
+    const xJ = (r1 - 0.5) * 7, yJ = (r2 - 0.5) * 7;
+    let yRel = 0.5;
+    const reg = roi.region;
+    if (reg === 'FP' || reg === 'OFC') yRel = 0.10;
+    else if (reg === 'MFG' || reg === 'SFG') yRel = 0.25;
+    else if (reg === 'PrG' || reg === 'SMA') yRel = 0.40;
+    else if (reg === 'PoG' || reg === 'OP')  yRel = 0.50;
+    else if (reg === 'SPL' || reg === 'IPL') yRel = 0.62;
+    else if (reg === 'PCUN')                 yRel = 0.70;
+    else if (reg === 'AMYG' || reg === 'MB') yRel = 0.55;
+    else if (reg === 'ITG')                  yRel = 0.78;
+    else if (reg === 'LOC')                  yRel = 0.82;
+    else if (reg === 'pOC' || reg === 'cOC') yRel = 0.92;
+    const y = top + 12 + (bot - top - 24) * yRel + yJ;
+    let x;
+    if (roi.side === 'M') x = cx + xJ * 0.5;
+    else if (roi.side === 'L') x = left + 12 + (cx - left - 24) * (0.45 + (seedRand() * 0.5)) + xJ;
+    else x = cx + 12 + (right - cx - 24) * (0.45 + (seedRand() * 0.5)) + xJ;
+    return [x, y];
+  });
+
+  // 边
+  edges.forEach(e => {
+    const [x1, y1] = positions[e.i];
+    const [x2, y2] = positions[e.j];
+    const isSeed = highlight && (ROIS[e.i].name === highlight || ROIS[e.j].name === highlight);
+    const path = document.createElementNS(NS, 'path');
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    // 轻微凸起
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const px = mx - dy / len * 8, py = my + dx / len * 8;
+    path.setAttribute('d', `M ${x1} ${y1} Q ${px} ${py} ${x2} ${y2}`);
+    if (dimNonHighlight && !isSeed) {
+      path.setAttribute('stroke', '#ddd');
+      path.setAttribute('stroke-width', 0.5);
+      path.setAttribute('opacity', 0.3);
+    } else {
+      path.setAttribute('stroke', ylorrd(e.t));
+      path.setAttribute('stroke-width', 0.8 + e.t * 1.6);
+      path.setAttribute('opacity', 0.7 + e.t * 0.25);
+    }
+    path.setAttribute('fill', 'none');
+    svg.appendChild(path);
+  });
+
+  // 节点
+  ROIS.forEach((roi, i) => {
+    const [x, y] = positions[i];
+    const isHigh = highlight === roi.name;
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', x);
+    c.setAttribute('cy', y);
+    c.setAttribute('r', isHigh ? 5 : 3);
+    // 节点颜色：按是否参与多条边/hub
+    const isHub = HUBS.includes(roi.name);
+    let fill = isHigh ? '#C62828' : (isHub ? '#FF9800' : '#FFC107');
+    if (dimNonHighlight && !isHigh && !edges.some(e => ROIS[e.i].name === roi.name || ROIS[e.j].name === roi.name)) {
+      fill = '#ccc';
+    }
+    c.setAttribute('fill', fill);
+    c.setAttribute('stroke', '#fff');
+    c.setAttribute('stroke-width', 0.6);
+    svg.appendChild(c);
+  });
+}
+
+/* ────────── 触发渲染 ────────── */
+let currentPct = 12;
+function rerender() {
+  const edges = topEdges(W, currentPct);
+
+  // c) 主 circos
+  drawCircos(document.getElementById('circos-main'), edges, { radius: 220, cx: 300, cy: 300, fontSize: 9, labelOff: 8 });
+
+  // d/e/f 三种子小图
+  drawCircos(document.getElementById('circos-d'), edges, { highlight: 'L SPL',      dimNonHighlight: true, radius: 100, cx: 140, cy: 140, fontSize: 6, labelOff: 6 });
+  drawCircos(document.getElementById('circos-e'), edges, { highlight: 'L inf PCUN', dimNonHighlight: true, radius: 100, cx: 140, cy: 140, fontSize: 6, labelOff: 6 });
+  drawCircos(document.getElementById('circos-f'), edges, { highlight: 'R AMYG',     dimNonHighlight: true, radius: 100, cx: 140, cy: 140, fontSize: 6, labelOff: 6 });
+
+  drawBrain(document.getElementById('brain-a'), edges, { width: 220, height: 240 });
+  drawBrain(document.getElementById('brain-b'), edges, { width: 220, height: 360, highlight: 'L inf PCUN', dimNonHighlight: true });
+}
+rerender();
+
+/* 阈值滑块联动 */
+const thrRange = document.getElementById('thr-range');
+const thrVal = document.getElementById('thr-val');
+const thrPct = document.getElementById('thr-pct');
+if (thrRange) {
+  thrRange.addEventListener('input', e => {
+    currentPct = +e.target.value;
+    thrVal.textContent = currentPct + '%';
+    thrPct.textContent = currentPct + '%';
+    rerender();
+  });
+}
+
+/* 种子列表点击切换 */
+document.querySelectorAll('.seed-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.seed-item').forEach(o => o.classList.remove('is-on'));
+    item.classList.add('is-on');
+  });
+});
+</script>
+</body>
+</html>

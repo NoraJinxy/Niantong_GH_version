@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>溯源观察 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+/* ===== view-source 局部样式（参考 sLORETA 多视角皮层 + 三正交切片 + hot 色阶） ===== */
+body { background: var(--c-bg-soft); overflow: hidden; }
+
+.obs-layout {
+  display: grid;
+  grid-template-columns: 256px 1fr 320px;
+  height: calc(100vh - var(--header-h));
+  overflow: hidden;
+}
+
+/* 子页 Tab */
+.obs-tabs {
+  position: sticky; top: 0; z-index: 5;
+  height: 38px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  display: flex; align-items: center;
+  padding: 0 var(--s-4);
+}
+.obs-tab {
+  padding: 0 14px; height: 38px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--c-text-2);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.obs-tab:hover { color: var(--c-text); }
+.obs-tab.is-active { color: var(--c-primary); border-bottom-color: var(--c-primary); font-weight: 600; }
+.obs-tab svg { width: 14px; height: 14px; }
+
+/* 左侧选择器 */
+.selector-panel {
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.sel-section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.sel-section h4 {
+  font-size: 11px; font-weight: 600;
+  color: var(--c-text-3); letter-spacing: .8px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sel-section h4 .count {
+  background: var(--c-primary); color: #fff;
+  font-size: 10px; padding: 1px 6px;
+  border-radius: 10px;
+  font-family: var(--ff-mono); font-weight: 700;
+}
+
+.checkbox-tree { display: flex; flex-direction: column; gap: 1px; }
+.ck-node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; cursor: pointer;
+  border-radius: 4px; font-size: 12px;
+}
+.ck-node:hover { background: var(--c-bg-tint); }
+.ck-node input { accent-color: var(--c-primary); margin: 0; flex-shrink: 0; }
+.ck-node .name { flex: 1; }
+.ck-node.indent-1 { padding-left: 22px; }
+
+.method-card {
+  display: grid; grid-template-columns: 1fr auto;
+  gap: 4px; align-items: center;
+  padding: 8px 10px;
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+  cursor: pointer;
+  font-size: 12px;
+  margin-bottom: 4px;
+  transition: all var(--t-fast);
+}
+.method-card:hover { border-color: var(--c-border-strong); }
+.method-card.is-on {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+.method-card .nm { font-weight: 600; color: var(--c-text); }
+.method-card .desc { grid-column: 1/3; font-size: 10px; color: var(--c-text-3); margin-top: 2px; }
+.method-card .badge {
+  font-size: 9px; font-family: var(--ff-mono);
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--c-bg-tint); color: var(--c-text-3);
+}
+.method-card.is-on .badge { background: var(--c-primary); color: #fff; }
+
+.cmap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cmap-card {
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 6px;
+  cursor: pointer;
+  text-align: center;
+}
+.cmap-card.is-on { border-color: var(--c-primary); background: var(--c-primary-soft); }
+.cmap-bar {
+  height: 10px; border-radius: 3px; margin-bottom: 4px;
+}
+.cmap-card .lbl { font-size: 10px; color: var(--c-text-2); }
+.cmap-card.is-on .lbl { color: var(--c-primary); font-weight: 600; }
+.cmap-bar.hot { background: linear-gradient(90deg, #000 0%, #5a0000 25%, #ff4500 50%, #ffa500 70%, #ffff00 90%, #fff 100%); }
+.cmap-bar.viridis { background: linear-gradient(90deg, #440154, #3b528b, #21918c, #5ec962, #fde725); }
+.cmap-bar.RdBu { background: linear-gradient(90deg, #2E6BFF, #fff, #EF4444); }
+.cmap-bar.Spec { background: linear-gradient(90deg, #5E4FA2, #66C2A5, #FEE08B, #F46D43, #D53E4F); }
+
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input[type=range] { flex: 1; accent-color: var(--c-primary); height: 4px; }
+.range-val {
+  font-size: 11px; font-family: var(--ff-mono);
+  color: var(--c-primary); font-weight: 700;
+  min-width: 50px; text-align: right;
+}
+
+.checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--c-text-2);
+  padding: 4px 0; cursor: pointer;
+}
+.checkbox-row input { accent-color: var(--c-primary); margin: 0; }
+
+/* 中央画布 */
+.obs-main {
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  background: var(--c-bg-soft);
+}
+
+.obs-toolbar {
+  padding: 8px 14px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap;
+}
+.tool-lbl { font-size: 11px; color: var(--c-text-3); margin-right: 2px; }
+.obs-toolbar select {
+  height: 28px; padding: 0 8px;
+  font-size: 11px; font-family: var(--ff-mono);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface); color: var(--c-text);
+}
+.divider-h { width: 1px; height: 22px; background: var(--c-border); margin: 0 6px; }
+
+.canvas-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex; flex-direction: column;
+  gap: 10px;
+}
+
+/* 卡片通用 */
+.viz-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 12px;
+}
+.viz-card .cap {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'Times New Roman', serif;
+  font-size: 13px; font-weight: 700;
+  color: var(--c-text);
+  margin-bottom: 6px;
+}
+.viz-card .cap em {
+  font-style: normal;
+  font-size: 11px; font-weight: 400;
+  color: var(--c-text-3);
+}
+
+/* 皮层视图：5 个并列 */
+.cortex-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.cortex-cell {
+  background: linear-gradient(180deg, #E8ECF1, #D9DEE6);
+  border-radius: var(--r);
+  aspect-ratio: 1;
+  position: relative;
+  overflow: hidden;
+}
+.cortex-cell svg { width: 100%; height: 100%; display: block; }
+.cortex-cell .vlbl {
+  position: absolute; top: 4px; left: 6px;
+  font-size: 10px;
+  font-family: 'Times New Roman', serif;
+  color: var(--c-text);
+  background: rgba(255,255,255,.7);
+  padding: 1px 6px; border-radius: 3px;
+}
+.cortex-cell .vlbl.dark {
+  color: #fff; background: rgba(0,0,0,.6);
+}
+
+/* 三正交切片：黑底 */
+.slice-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.slice-cell {
+  background: #1a1a1a;
+  border-radius: var(--r);
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1.05;
+}
+.slice-cell svg { width: 100%; height: 100%; display: block; }
+.slice-cell .axis-lbl {
+  position: absolute;
+  font-size: 10px;
+  font-family: var(--ff-mono);
+  color: #fff;
+  pointer-events: none;
+}
+.slice-cell .vname {
+  position: absolute; top: 4px; left: 6px;
+  font-size: 10px;
+  font-family: 'Times New Roman', serif;
+  color: #fff;
+  background: rgba(255,255,255,.15);
+  padding: 1px 6px; border-radius: 3px;
+}
+.slice-cell .coord-tag {
+  position: absolute; top: 4px; right: 6px;
+  font-size: 10px;
+  font-family: var(--ff-mono);
+  color: #FFEB3B;
+  background: rgba(0,0,0,.6);
+  padding: 1px 6px; border-radius: 3px;
+}
+.slice-cell .method-tag {
+  position: absolute; bottom: 4px; right: 6px;
+  font-size: 10px;
+  font-family: 'Times New Roman', serif;
+  color: #ffeb3b;
+  font-style: italic;
+}
+
+/* 颜色条卡 */
+.cbar-card {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+}
+.cbar {
+  height: 18px;
+  background: linear-gradient(90deg,
+    #000 0%,
+    #1a0000 8%,
+    #4a0000 18%,
+    #8b0000 32%,
+    #cc1a00 48%,
+    #ff5500 62%,
+    #ff8c00 75%,
+    #ffd700 88%,
+    #ffff66 96%,
+    #ffffff 100%
+  );
+  border-radius: 2px;
+  border: 1px solid var(--c-border-strong);
+}
+.cbar-ticks {
+  display: flex; justify-content: space-between;
+  font-family: var(--ff-mono); font-size: 11px;
+  color: var(--c-text-2);
+  margin-top: 2px;
+  padding: 0 1px;
+}
+.cbar-title {
+  font-family: 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 12px; font-weight: 600;
+  color: var(--c-text);
+  align-self: flex-end;
+}
+
+/* 右侧 stats */
+.stats-panel {
+  background: var(--c-surface);
+  border-left: 1px solid var(--c-border);
+  overflow-y: auto;
+}
+.st-section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.st-section h4 {
+  font-size: 11px; font-weight: 600;
+  color: var(--c-text-3); letter-spacing: .8px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.peak-card {
+  background: linear-gradient(135deg, #1a1a1a, #2a1f00);
+  color: #FFEB3B;
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-family: var(--ff-mono);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.peak-card .k { color: #FFA500; font-size: 10px; }
+.peak-card .v { color: #fff; font-weight: 700; }
+.peak-card .v.large { font-size: 18px; color: #FFEB3B; }
+
+.roi-tbl {
+  width: 100%; border-collapse: collapse;
+  font-size: 11px;
+}
+.roi-tbl th, .roi-tbl td {
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+}
+.roi-tbl th {
+  font-size: 10px; color: var(--c-text-3);
+  font-weight: 600; letter-spacing: .4px;
+  background: var(--c-bg-soft);
+}
+.roi-tbl td.v {
+  font-family: var(--ff-mono);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.roi-tbl tr:last-child td { border-bottom: 0; }
+.roi-tbl tr:hover td { background: var(--c-bg-soft); }
+.roi-tbl .heat-mini {
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.ts-card {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 8px;
+}
+.ts-card svg { width: 100%; height: 80px; display: block; }
+
+.edu-card {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--c-accent);
+}
+.edu-card .ttl {
+  font-size: 11px; font-weight: 700;
+  margin-bottom: 4px; color: var(--c-text);
+}
+.edu-card .body {
+  font-size: 11px; color: var(--c-text-2); line-height: 1.5;
+}
+.edu-card code {
+  font-family: var(--ff-mono); font-size: 10px;
+  background: var(--c-surface);
+  padding: 1px 5px; border-radius: 3px;
+  color: var(--c-primary);
+}
+
+.btn-block {
+  width: 100%; height: 30px;
+  display: inline-flex; align-items: center; justify-content: flex-start;
+  gap: 6px; padding: 0 10px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 5px;
+  color: var(--c-text-2);
+}
+.btn-block:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.btn-block svg { width: 14px; height: 14px; }
+
+@media (max-width: 1300px) {
+  .obs-layout { grid-template-columns: 220px 1fr 280px; }
+  .cortex-row { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1024px) {
+  .obs-layout { grid-template-columns: 1fr; }
+  .selector-panel, .stats-panel { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="topbar-mount"></div>
+
+<div class="obs-layout">
+
+  <!-- ════════════ 左：选择器 ════════════ -->
+  <aside class="selector-panel">
+
+    <div class="sel-section">
+      <h4>数据集 <span class="count">2</span></h4>
+      <div class="checkbox-tree">
+        <div class="ck-node"><input type="checkbox" checked /><span class="name" style="font-weight:500">stroke-mi-rehab</span></div>
+        <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name" style="font-family:var(--ff-mono);font-size:11px">sub-03 · MI · target</span></div>
+        <div class="ck-node indent-1"><input type="checkbox" /><span class="name" style="font-family:var(--ff-mono);font-size:11px">sub-03 · MI · standard</span></div>
+        <div class="ck-node"><input type="checkbox" /><span class="name" style="font-weight:500">p300-bci-spelling</span></div>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>溯源方法</h4>
+      <div class="method-card is-on">
+        <span class="nm">sLORETA</span>
+        <span class="badge">推荐</span>
+        <span class="desc">标准化低分辨率 · 假设源平滑</span>
+      </div>
+      <div class="method-card">
+        <span class="nm">eLORETA</span>
+        <span class="badge">改进</span>
+        <span class="desc">无偏估计的精确版</span>
+      </div>
+      <div class="method-card">
+        <span class="nm">dSPM</span>
+        <span class="badge">F-stat</span>
+        <span class="desc">噪声归一化 MNE</span>
+      </div>
+      <div class="method-card">
+        <span class="nm">MNE</span>
+        <span class="badge">基础</span>
+        <span class="desc">最小范数估计</span>
+      </div>
+      <div class="method-card">
+        <span class="nm">Beamformer (LCMV)</span>
+        <span class="badge">空间</span>
+        <span class="desc">线性约束最小方差</span>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>解剖图谱</h4>
+      <select class="input" style="width:100%;height:30px;font-size:12px">
+        <option>Desikan-Killiany · 68 ROI</option>
+        <option>Destrieux · 148 ROI</option>
+        <option>HCP-MMP1.0 · 360 ROI</option>
+        <option>Brodmann · 44 区</option>
+        <option>AAL · 116 ROI</option>
+      </select>
+      <div style="font-size:11px;color:var(--c-text-2);margin-top:8px;margin-bottom:4px">头模板</div>
+      <select class="input" style="width:100%;height:28px;font-size:12px">
+        <option>MNI152 (默认)</option>
+        <option>fsaverage5</option>
+        <option>个体 MRI</option>
+      </select>
+    </div>
+
+    <div class="sel-section">
+      <h4>分析时窗</h4>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="input input--xs" value="280" style="width:60px;font-family:var(--ff-mono);text-align:center" />
+        <span style="color:var(--c-text-3)">→</span>
+        <input class="input input--xs" value="420" style="width:60px;font-family:var(--ff-mono);text-align:center" />
+        <span style="color:var(--c-text-3);font-size:11px">ms</span>
+      </div>
+      <div style="font-size:11px;color:var(--c-text-2);margin-top:10px;margin-bottom:4px">频段</div>
+      <select class="input" style="width:100%;height:28px;font-size:12px">
+        <option>Mu (8-13 Hz)</option>
+        <option>Alpha (8-13 Hz)</option>
+        <option>Beta (13-30 Hz)</option>
+        <option>Gamma (30-50 Hz)</option>
+      </select>
+    </div>
+
+    <div class="sel-section">
+      <h4>阈值 / Log F-ratio</h4>
+      <div style="font-size:11px;color:var(--c-text-2);margin-bottom:4px">最小显示 <strong style="color:var(--c-primary)" id="thr-pct">0.620</strong></div>
+      <div class="range-row">
+        <input type="range" id="thr-range" min="0" max="124" value="62" step="1" />
+        <span class="range-val" id="thr-val">0.620</span>
+      </div>
+      <label class="checkbox-row" style="margin-top:6px"><input type="checkbox" checked />FDR 校正后</label>
+      <label class="checkbox-row"><input type="checkbox" />仅显示 cluster</label>
+    </div>
+
+    <div class="sel-section">
+      <h4>渲染配色</h4>
+      <div class="cmap-grid">
+        <div class="cmap-card is-on"><div class="cmap-bar hot"></div><span class="lbl">Hot (黑→白)</span></div>
+        <div class="cmap-card"><div class="cmap-bar viridis"></div><span class="lbl">viridis</span></div>
+        <div class="cmap-card"><div class="cmap-bar Spec"></div><span class="lbl">Spectral</span></div>
+        <div class="cmap-card"><div class="cmap-bar RdBu"></div><span class="lbl">RdBu_r</span></div>
+      </div>
+    </div>
+
+    <div class="sel-section">
+      <h4>显示控制</h4>
+      <label class="checkbox-row"><input type="checkbox" checked />皮层折叠</label>
+      <label class="checkbox-row"><input type="checkbox" />皮层充气 (inflated)</label>
+      <label class="checkbox-row"><input type="checkbox" checked />MRI 切片背景</label>
+      <label class="checkbox-row"><input type="checkbox" checked />十字光标联动</label>
+      <label class="checkbox-row"><input type="checkbox" checked />ROI 轮廓</label>
+    </div>
+
+  </aside>
+
+  <!-- ════════════ 中：画布 ════════════ -->
+  <main class="obs-main">
+
+    <!-- 子页 Tab -->
+    <div class="obs-tabs">
+      <a class="obs-tab" href="view-erp.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>时域 ERP
+      </a>
+      <a class="obs-tab" href="view-psd.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>频域 PSD
+      </a>
+      <a class="obs-tab" href="view-tfr.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>时频 TFR
+      </a>
+      <a class="obs-tab" href="view-connectivity.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="20" cy="18" r="2"/><circle cx="4" cy="18" r="2"/></svg>脑网络
+      </a>
+      <a class="obs-tab" href="view-microstate.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>微状态
+      </a>
+      <a class="obs-tab is-active" href="view-source.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 00-8 8c0 4.4 4 7 4 9h8c0-2 4-4.6 4-9a8 8 0 00-8-8z"/></svg>溯源
+      </a>
+      <div style="flex:1"></div>
+      <span style="font-size:11px;color:var(--c-text-3)">sub-03 · MI target · sLORETA · μ band · 280-420 ms</span>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="obs-toolbar">
+      <span class="tool-lbl">峰值时刻</span>
+      <input class="input input--xs" value="342" style="width:62px;font-family:var(--ff-mono);text-align:center" />
+      <span style="color:var(--c-text-3);font-size:11px">ms</span>
+
+      <div class="divider-h"></div>
+      <span class="tool-lbl">坐标 (mm)</span>
+      <span style="font-family:var(--ff-mono);font-size:11px;background:var(--c-bg-tint);padding:3px 8px;border-radius:4px">[X, Y, Z] = [−6, −28, +51]</span>
+
+      <div class="divider-h"></div>
+      <span class="tool-lbl">体素</span>
+      <select><option>3 mm³</option><option>5 mm³</option><option>10 mm³</option></select>
+
+      <span class="tool-lbl">投影</span>
+      <select><option>固定方向</option><option>自由方向</option></select>
+
+      <div class="divider-h"></div>
+      <label class="checkbox-row" style="font-size:11px"><input type="checkbox" checked />显著区轮廓</label>
+      <label class="checkbox-row" style="font-size:11px;margin-left:6px"><input type="checkbox" checked />ROI 标签</label>
+
+      <div style="flex:1"></div>
+      <button class="btn-block" style="width:auto;margin:0;padding:0 10px;height:28px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l16 16M4 4h6M4 4v6M20 20h-6M20 20v-6"/></svg>
+        重置视角
+      </button>
+      <button class="btn-block" style="width:auto;margin:0;padding:0 10px;height:28px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>
+        导出
+      </button>
+    </div>
+
+    <div class="canvas-area">
+
+      <!-- 皮层视图：5 个并列 -->
+      <div class="viz-card">
+        <div class="cap">A <em>皮层表面渲染 · 5 视角 · 阈值化激活叠加</em></div>
+        <div class="cortex-row">
+
+          <div class="cortex-cell">
+            <span class="vlbl">Left Lateral</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" id="cx-ll"></svg>
+          </div>
+
+          <div class="cortex-cell">
+            <span class="vlbl">Top (axial)</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" id="cx-top"></svg>
+          </div>
+
+          <div class="cortex-cell">
+            <span class="vlbl">Right Lateral</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" id="cx-rl"></svg>
+          </div>
+
+          <div class="cortex-cell">
+            <span class="vlbl">Left Medial</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" id="cx-lm"></svg>
+          </div>
+
+          <div class="cortex-cell">
+            <span class="vlbl">Right Medial</span>
+            <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" id="cx-rm"></svg>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 切片视图 -->
+      <div class="viz-card">
+        <div class="cap">B <em>三正交切片 · 十字光标定位 · MNI 模板</em></div>
+        <div class="slice-row">
+
+          <div class="slice-cell">
+            <span class="vname">Axial</span>
+            <span class="coord-tag">Z = +51</span>
+            <span class="method-tag">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" id="sl-ax"></svg>
+          </div>
+
+          <div class="slice-cell">
+            <span class="vname">Sagittal</span>
+            <span class="coord-tag">X = −6</span>
+            <span class="method-tag">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" id="sl-sa"></svg>
+          </div>
+
+          <div class="slice-cell">
+            <span class="vname">Coronal</span>
+            <span class="coord-tag">Y = −28</span>
+            <span class="method-tag">sLORETA</span>
+            <svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" id="sl-co"></svg>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 颜色条 -->
+      <div class="viz-card cbar-card">
+        <div class="row row--between" style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:11px;color:var(--c-text-3);font-family:'Times New Roman',serif">激活强度</span>
+          <span class="cbar-title">Log F-ratio</span>
+        </div>
+        <div class="cbar"></div>
+        <div class="cbar-ticks">
+          <span>0.000</span>
+          <span>0.207</span>
+          <span>0.413</span>
+          <span>0.620</span>
+          <span>0.827</span>
+          <span>1.033</span>
+          <span>1.240</span>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ════════════ 右：选中体素 + ROI ════════════ -->
+  <aside class="stats-panel">
+
+    <div class="st-section">
+      <h4>选中体素</h4>
+      <div class="peak-card">
+        <span class="k">激活峰</span><span class="v large">1.18</span>
+        <span class="k">坐标 (mm)</span><span class="v">[−6, −28, +51]</span>
+        <span class="k">区域</span><span class="v">L Postcentral SMA</span>
+        <span class="k">体积</span><span class="v">1,248 mm³</span>
+        <span class="k">校正 p</span><span class="v">0.0021 ⋆⋆</span>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>ROI 激活排行</h4>
+      <table class="roi-tbl">
+        <thead>
+          <tr><th></th><th>ROI</th><th>F</th><th>峰时</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="heat-mini" style="background:#FFEB3B"></span></td><td><strong>L SMA</strong></td><td class="v">1.180</td><td class="v">342</td></tr>
+          <tr><td><span class="heat-mini" style="background:#FFA500"></span></td><td>L SPL</td><td class="v">1.052</td><td class="v">348</td></tr>
+          <tr><td><span class="heat-mini" style="background:#FF6F00"></span></td><td>R SMA</td><td class="v">0.892</td><td class="v">356</td></tr>
+          <tr><td><span class="heat-mini" style="background:#E64A19"></span></td><td>L Precuneus</td><td class="v">0.732</td><td class="v">338</td></tr>
+          <tr><td><span class="heat-mini" style="background:#BF360C"></span></td><td>L Pre-CG</td><td class="v">0.621</td><td class="v">350</td></tr>
+          <tr><td><span class="heat-mini" style="background:#7B2900"></span></td><td>R SPL</td><td class="v">0.541</td><td class="v">358</td></tr>
+          <tr><td><span class="heat-mini" style="background:#4A1500"></span></td><td>R Precuneus</td><td class="v">0.402</td><td class="v">362</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="st-section">
+      <h4>L SMA · 时间序列</h4>
+      <div class="ts-card">
+        <svg viewBox="0 0 280 80" preserveAspectRatio="none" id="ts-svg"></svg>
+        <div style="display:flex;justify-content:space-between;font-size:9px;font-family:var(--ff-mono);color:var(--c-text-3);margin-top:2px">
+          <span>−200</span><span>0</span><span>342</span><span>800 ms</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>解读提示</h4>
+      <div class="edu-card">
+        <div class="ttl">Log F-ratio</div>
+        <div class="body">
+          F = (信号 + 噪声) / 噪声 → 取对数；>0 表示该体素激活显著高于基线。<br/>
+          阈值 ≈ 0.620 对应 <code>p &lt; .05</code>
+        </div>
+      </div>
+      <div class="edu-card" style="border-left-color:var(--c-warning)">
+        <div class="ttl">EEG 溯源不确定性</div>
+        <div class="body">
+          逆问题非唯一解：sLORETA ≈ 1 cm 误差；建议结合个体 MRI + 头模板，并 ROI 化对比稳定性。
+        </div>
+      </div>
+      <div class="edu-card">
+        <div class="ttl">方法选择</div>
+        <div class="body">
+          ▸ <code>sLORETA</code> 平滑解，适合可视化<br/>
+          ▸ <code>dSPM</code> 给统计量，便于阈值<br/>
+          ▸ <code>LCMV</code> 单一源最优
+        </div>
+      </div>
+    </div>
+
+    <div class="st-section">
+      <h4>导出</h4>
+      <button class="btn-block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>
+        导出 NIfTI (.nii)
+      </button>
+      <button class="btn-block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>
+        发送到 BrainNet Viewer
+      </button>
+      <button class="btn-block" onclick="window.location='figures.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        发送到作图模块
+      </button>
+      <button class="btn-block" onclick="window.location='statistics.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        发送到统计模块
+      </button>
+    </div>
+
+  </aside>
+
+</div>
+
+<script src="assets/icons.js"></script>
+<script src="assets/topbar.js"></script>
+<script>renderTopbar('observe');</script>
+<script src="assets/app.js"></script>
+<script>
+/* =====================================================================
+ * 溯源可视化生成
+ * 1. 5 个皮层视图：左侧 / 顶 / 右侧 / 左内 / 右内 — 半透明脑形 + 热区叠加
+ * 2. 3 正交切片：黑底 + MNI 灰阶椭圆 + 十字光标 + 热区
+ * 3. 时间序列：负-正-激活峰
+ * 颜色：hot colormap (黑→红→橙→黄→白)
+ * ===================================================================== */
+const NS = 'http://www.w3.org/2000/svg';
+function mk(tag, attrs = {}) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+/* hot colormap: t ∈ [0,1] → rgb */
+function hot(t) {
+  t = Math.max(0, Math.min(1, t));
+  if (t < 0.33) {
+    // black → red
+    const u = t / 0.33;
+    return `rgb(${(255 * u) | 0}, 0, 0)`;
+  } else if (t < 0.66) {
+    // red → yellow
+    const u = (t - 0.33) / 0.33;
+    return `rgb(255, ${(255 * u) | 0}, 0)`;
+  } else {
+    // yellow → white
+    const u = (t - 0.66) / 0.34;
+    return `rgb(255, 255, ${(255 * u) | 0})`;
+  }
+}
+
+/* ─────────── 1. 皮层视图 ─────────── */
+function defsHot(svg, idPrefix, hotspots) {
+  const defs = mk('defs');
+  hotspots.forEach((h, i) => {
+    const g = mk('radialGradient', { id: `${idPrefix}-h${i}`, cx: '50%', cy: '50%', r: '50%' });
+    // hot 渐变多 stops
+    g.appendChild(mk('stop', { offset: '0%',  'stop-color': '#fff',     'stop-opacity': h.intensity }));
+    g.appendChild(mk('stop', { offset: '15%', 'stop-color': '#FFEB3B',  'stop-opacity': h.intensity * .9 }));
+    g.appendChild(mk('stop', { offset: '35%', 'stop-color': '#FFA500',  'stop-opacity': h.intensity * .75 }));
+    g.appendChild(mk('stop', { offset: '60%', 'stop-color': '#E53935',  'stop-opacity': h.intensity * .55 }));
+    g.appendChild(mk('stop', { offset: '85%', 'stop-color': '#7B2900',  'stop-opacity': h.intensity * .25 }));
+    g.appendChild(mk('stop', { offset: '100%','stop-color': '#000',     'stop-opacity': 0 }));
+    defs.appendChild(g);
+  });
+  svg.appendChild(defs);
+}
+
+function drawCortex(svgId, viewType, hotspots) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  defsHot(svg, svgId, hotspots);
+
+  // 设定脑形路径
+  let brainPath, brainFill = '#F5F2ED';
+  if (viewType === 'lateral-left' || viewType === 'lateral-right') {
+    // 侧视图：豆形（前下，后上稍微）
+    brainPath = 'M 30 100 C 30 60, 70 30, 110 30 C 160 30, 175 70, 178 100 C 178 130, 165 165, 130 170 C 100 173, 60 165, 40 145 C 28 130, 30 110, 30 100 Z';
+  } else if (viewType === 'top') {
+    // 顶视图：椭圆 + 中线
+    brainPath = 'M 100 25 C 60 28, 30 75, 32 100 C 32 130, 60 175, 100 175 C 140 175, 168 130, 168 100 C 168 75, 140 28, 100 25 Z';
+  } else { // medial
+    // 内侧视图：脑半球内侧
+    brainPath = 'M 35 90 C 35 50, 75 25, 115 28 C 155 30, 175 60, 175 100 C 175 130, 165 160, 130 170 C 100 173, 65 165, 45 145 C 30 125, 35 105, 35 90 Z';
+  }
+
+  // 主脑形
+  svg.appendChild(mk('path', { d: brainPath, fill: brainFill, stroke: '#888', 'stroke-width': 0.7 }));
+
+  // 装饰性沟回（轻线）
+  const sulci = [];
+  if (viewType === 'lateral-left' || viewType === 'lateral-right') {
+    sulci.push(
+      'M 40 95 Q 80 60, 130 70 Q 160 80, 170 100',
+      'M 45 110 Q 85 95, 130 100 Q 165 110, 170 120',
+      'M 50 130 Q 80 125, 120 130 Q 150 132, 165 140',
+      'M 70 50 Q 85 70, 110 80'
+    );
+  } else if (viewType === 'top') {
+    sulci.push(
+      'M 100 25 L 100 175', // 中线
+      'M 60 70 Q 100 80, 140 70',
+      'M 60 100 Q 100 105, 140 100',
+      'M 60 130 Q 100 135, 140 130',
+      'M 80 40 Q 100 50, 120 40'
+    );
+  } else { // medial
+    sulci.push(
+      'M 35 100 Q 95 80, 165 100', // cingulum
+      'M 50 130 Q 100 110, 150 130',
+      'M 80 60 Q 100 80, 130 60'
+    );
+  }
+  sulci.forEach(d => svg.appendChild(mk('path', { d, stroke: '#bbb', 'stroke-width': 0.6, fill: 'none', opacity: .8 })));
+
+  // 内侧专属：胼胝体/脑干提示
+  if (viewType === 'medial-left' || viewType === 'medial-right' || viewType === 'medial') {
+    svg.appendChild(mk('ellipse', { cx: 95, cy: 110, rx: 35, ry: 12, fill: 'none', stroke: '#bbb', 'stroke-width': 0.6 }));
+    svg.appendChild(mk('path', { d: 'M 95 145 Q 100 165, 110 175', stroke: '#bbb', 'stroke-width': 0.6, fill: 'none' }));
+  }
+
+  // 热区叠加（剪切到脑形内）
+  const clipId = svgId + '-clip';
+  const clip = mk('clipPath', { id: clipId });
+  clip.appendChild(mk('path', { d: brainPath }));
+  svg.appendChild(clip);
+
+  hotspots.forEach((h, i) => {
+    svg.appendChild(mk('circle', {
+      cx: h.x, cy: h.y, r: h.r,
+      fill: `url(#${svgId}-h${i})`,
+      'clip-path': `url(#${clipId})`
+    }));
+  });
+
+  // 边框再描一次确保清晰
+  svg.appendChild(mk('path', { d: brainPath, fill: 'none', stroke: '#888', 'stroke-width': 0.8 }));
+}
+
+/* 5 个视图的热点位置（针对 SMA / SPL μ-band 激活模式） */
+drawCortex('cx-ll', 'lateral-left', [
+  { x: 100, y: 90, r: 30, intensity: .9 },
+  { x: 75,  y: 105, r: 22, intensity: .7 }
+]);
+drawCortex('cx-top', 'top', [
+  { x: 90, y: 90, r: 28, intensity: .95 },
+  { x: 110, y: 95, r: 22, intensity: .65 },
+  { x: 95, y: 115, r: 20, intensity: .5 }
+]);
+drawCortex('cx-rl', 'lateral-right', [
+  { x: 110, y: 95, r: 22, intensity: .65 },
+  { x: 130, y: 110, r: 18, intensity: .45 }
+]);
+drawCortex('cx-lm', 'medial-left', [
+  { x: 100, y: 80, r: 32, intensity: 1.0 },
+  { x: 80, y: 100, r: 16, intensity: .55 }
+]);
+drawCortex('cx-rm', 'medial-right', [
+  { x: 95, y: 95, r: 22, intensity: .55 },
+  { x: 110, y: 80, r: 16, intensity: .35 }
+]);
+
+/* ─────────── 2. 三正交切片（黑底） ─────────── */
+function drawSlice(svgId, axis, focus) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const W = 220, H = 220;
+  const cx = W / 2, cy = H / 2;
+
+  // 黑底已是 cell 背景，这里画"脑切片"灰阶
+  const defs = mk('defs');
+  // 切片大致脑形：椭圆梯度
+  const brainGrad = mk('radialGradient', { id: svgId + '-brain', cx: '50%', cy: '50%', r: '50%' });
+  brainGrad.appendChild(mk('stop', { offset: '0%',  'stop-color': '#888' }));
+  brainGrad.appendChild(mk('stop', { offset: '70%', 'stop-color': '#555' }));
+  brainGrad.appendChild(mk('stop', { offset: '95%', 'stop-color': '#222' }));
+  brainGrad.appendChild(mk('stop', { offset: '100%','stop-color': '#1a1a1a' }));
+  defs.appendChild(brainGrad);
+
+  // 热斑 hot
+  const hotG = mk('radialGradient', { id: svgId + '-hot', cx: '50%', cy: '50%', r: '50%' });
+  hotG.appendChild(mk('stop', { offset: '0%',  'stop-color': '#fff', 'stop-opacity': 1.0 }));
+  hotG.appendChild(mk('stop', { offset: '15%', 'stop-color': '#FFEB3B', 'stop-opacity': .95 }));
+  hotG.appendChild(mk('stop', { offset: '35%', 'stop-color': '#FFA500', 'stop-opacity': .75 }));
+  hotG.appendChild(mk('stop', { offset: '60%', 'stop-color': '#E53935', 'stop-opacity': .50 }));
+  hotG.appendChild(mk('stop', { offset: '85%', 'stop-color': '#5a0000', 'stop-opacity': .15 }));
+  hotG.appendChild(mk('stop', { offset: '100%','stop-color': '#000', 'stop-opacity': 0 }));
+  defs.appendChild(hotG);
+  svg.appendChild(defs);
+
+  // 灰格（坐标）
+  for (let i = 1; i < 6; i++) {
+    const x = (i / 6) * W;
+    const y = (i / 6) * H;
+    svg.appendChild(mk('line', { x1: x, y1: 0, x2: x, y2: H, stroke: '#444', 'stroke-width': 0.4 }));
+    svg.appendChild(mk('line', { x1: 0, y1: y, x2: W, y2: y, stroke: '#444', 'stroke-width': 0.4 }));
+  }
+
+  // 脑切片轮廓
+  let brainShape;
+  if (axis === 'axial') {
+    brainShape = `M ${cx-80},${cy-30}
+      Q ${cx-90},${cy-70} ${cx-50},${cy-90}
+      Q ${cx},${cy-100} ${cx+50},${cy-90}
+      Q ${cx+90},${cy-70} ${cx+80},${cy-30}
+      Q ${cx+90},${cy+50} ${cx+30},${cy+85}
+      Q ${cx},${cy+90} ${cx-30},${cy+85}
+      Q ${cx-90},${cy+50} ${cx-80},${cy-30} Z`;
+  } else if (axis === 'sagittal') {
+    brainShape = `M ${cx-90},${cy-40}
+      Q ${cx-90},${cy-80} ${cx-30},${cy-90}
+      Q ${cx+50},${cy-95} ${cx+80},${cy-50}
+      Q ${cx+95},${cy} ${cx+80},${cy+30}
+      Q ${cx+50},${cy+50} ${cx+20},${cy+45}
+      Q ${cx-20},${cy+90} ${cx-70},${cy+70}
+      Q ${cx-95},${cy+30} ${cx-90},${cy-40} Z`;
+  } else { // coronal
+    brainShape = `M ${cx-95},${cy-20}
+      Q ${cx-95},${cy-70} ${cx-50},${cy-90}
+      Q ${cx},${cy-100} ${cx+50},${cy-90}
+      Q ${cx+95},${cy-70} ${cx+95},${cy-20}
+      Q ${cx+85},${cy+50} ${cx+30},${cy+75}
+      L ${cx+10},${cy+90}
+      L ${cx-10},${cy+90}
+      Q ${cx-30},${cy+85} ${cx-30},${cy+75}
+      Q ${cx-85},${cy+50} ${cx-95},${cy-20} Z`;
+  }
+
+  svg.appendChild(mk('path', {
+    d: brainShape,
+    fill: `url(#${svgId}-brain)`,
+    stroke: '#666',
+    'stroke-width': 0.6
+  }));
+
+  // 内部一些低对比纹理（散点）
+  const seed = (() => { let s = 7 + axis.length; return () => (s = (s * 9301 + 49297) % 233280) / 233280; })();
+  for (let k = 0; k < 24; k++) {
+    const r = 12 + seed() * 16;
+    const ang = seed() * Math.PI * 2;
+    const px = cx + Math.cos(ang) * (40 + seed() * 30);
+    const py = cy + Math.sin(ang) * (30 + seed() * 30);
+    svg.appendChild(mk('circle', {
+      cx: px, cy: py, r: r * 0.4,
+      fill: 'rgba(140,140,140,0.15)'
+    }));
+  }
+
+  // 多个热斑叠加，主峰位于 focus 处
+  // 生成像素感的小方块矩阵，模拟体素
+  const voxR = focus.r;
+  const grid = 14;
+  for (let gi = -grid; gi <= grid; gi++) {
+    for (let gj = -grid; gj <= grid; gj++) {
+      const dist = Math.sqrt(gi * gi + gj * gj);
+      if (dist > grid) continue;
+      const t = Math.exp(-Math.pow(dist / (grid * 0.6), 2));
+      if (t < 0.15) continue;
+      const px = focus.x + gi * 3;
+      const py = focus.y + gj * 3;
+      const c = hot(t);
+      svg.appendChild(mk('rect', {
+        x: px - 1.5, y: py - 1.5,
+        width: 3, height: 3,
+        fill: c,
+        opacity: t * 0.85
+      }));
+    }
+  }
+
+  // 主热斑模糊光晕（径向渐变）
+  svg.appendChild(mk('circle', {
+    cx: focus.x, cy: focus.y, r: focus.r * 1.4,
+    fill: `url(#${svgId}-hot)`,
+    opacity: 0.5
+  }));
+
+  // 十字光标
+  svg.appendChild(mk('line', { x1: focus.x, y1: 0, x2: focus.x, y2: H, stroke: '#fff', 'stroke-width': 0.6, 'stroke-dasharray': '3 3' }));
+  svg.appendChild(mk('line', { x1: 0, y1: focus.y, x2: W, y2: focus.y, stroke: '#fff', 'stroke-width': 0.6, 'stroke-dasharray': '3 3' }));
+  svg.appendChild(mk('circle', { cx: focus.x, cy: focus.y, r: 3, fill: 'none', stroke: '#fff', 'stroke-width': 1 }));
+
+  // 三角箭头标定（顶部 / 左侧）
+  svg.appendChild(mk('path', { d: `M ${focus.x - 4} 0 L ${focus.x + 4} 0 L ${focus.x} 6 Z`, fill: '#fff' }));
+  svg.appendChild(mk('path', { d: `M 0 ${focus.y - 4} L 0 ${focus.y + 4} L 6 ${focus.y} Z`, fill: '#fff' }));
+
+  // 坐标轴标签
+  let labels;
+  if (axis === 'axial') {
+    labels = [
+      { x: 10, y: 14, t: 'L' }, { x: W - 14, y: 14, t: 'R' },
+      { x: cx - 4, y: 14, t: '(Y)' },
+      { x: W - 28, y: H - 8, t: '+5 cm' }, { x: 4, y: H - 8, t: '−5  (X)' },
+      { x: W - 16, y: cy - 60, t: '+5' }, { x: W - 16, y: cy + 60, t: '−5' }
+    ];
+  } else if (axis === 'sagittal') {
+    labels = [
+      { x: 10, y: 14, t: 'A' }, { x: W - 14, y: 14, t: 'P' },
+      { x: cx - 30, y: 14, t: '[X,Y,Z]=[−6,−28,51] [mm]' },
+      { x: W - 14, y: cy - 60, t: '+5  (Z)' }, { x: W - 14, y: cy + 60, t: '−5' },
+      { x: 4, y: H - 8, t: '+5  (Y)' }, { x: W - 32, y: H - 8, t: '−10' }
+    ];
+  } else {
+    labels = [
+      { x: 10, y: 14, t: 'L' }, { x: W - 14, y: 14, t: 'R' },
+      { x: cx - 4, y: 14, t: '(Z)' },
+      { x: 4, y: H - 8, t: '−5' }, { x: W - 26, y: H - 8, t: '+5 cm  (X)' },
+      { x: W - 14, y: cy - 60, t: '+5' }, { x: W - 14, y: cy + 60, t: '−5' }
+    ];
+  }
+  labels.forEach(l => {
+    const t = mk('text', { x: l.x, y: l.y, fill: '#fff', 'font-size': 9, 'font-family': 'monospace', opacity: .85 });
+    t.textContent = l.t;
+    svg.appendChild(t);
+  });
+}
+
+drawSlice('sl-ax', 'axial',    { x: 95,  y: 100, r: 18 });   // 左偏中央
+drawSlice('sl-sa', 'sagittal', { x: 100, y: 95,  r: 18 });
+drawSlice('sl-co', 'coronal',  { x: 95,  y: 100, r: 18 });
+
+/* ─────────── 3. 时间序列 ─────────── */
+(function () {
+  const svg = document.getElementById('ts-svg');
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const W = 280, H = 80;
+
+  // 网格
+  for (let v = 0; v < 5; v++) {
+    const y = (v / 4) * H;
+    svg.appendChild(mk('line', { x1: 0, y1: y, x2: W, y2: y, stroke: '#E5E9F2', 'stroke-width': 0.4, 'stroke-dasharray': '2 3' }));
+  }
+  // 刺激 0
+  const x0 = (200 / 1000) * W;
+  svg.appendChild(mk('line', { x1: x0, y1: 0, x2: x0, y2: H, stroke: '#EF4444', 'stroke-width': 0.8, 'stroke-dasharray': '3 3' }));
+  // 焦点 t=342
+  const xPeak = ((200 + 342) / 1000) * W;
+  svg.appendChild(mk('line', { x1: xPeak, y1: 0, x2: xPeak, y2: H, stroke: '#FFA500', 'stroke-width': 0.8 }));
+
+  // 曲线：基线低 → 峰 1.18 在 342ms
+  let d = '';
+  for (let x = 0; x <= W; x += 2) {
+    const ms = -200 + (x / W) * 1000;
+    let v = (Math.random() - 0.5) * 0.06 + 0.05;
+    if (ms > 0) {
+      v += 1.18 * Math.exp(-Math.pow((ms - 342) / 110, 2));
+    }
+    const y = H - v / 1.4 * H;
+    d += (x === 0 ? 'M' : 'L') + x + ',' + y.toFixed(1) + ' ';
+  }
+  svg.appendChild(mk('path', { d, stroke: '#F4511E', 'stroke-width': 1.6, fill: 'none' }));
+  // 填充
+  const fill = d + ` L ${W} ${H} L 0 ${H} Z`;
+  svg.appendChild(mk('path', { d: fill, fill: 'rgba(244,81,30,0.18)' }));
+
+  // 峰值标注
+  svg.appendChild(mk('circle', { cx: xPeak, cy: H - 1.18 / 1.4 * H, r: 3, fill: '#FFEB3B', stroke: '#000', 'stroke-width': 0.6 }));
+  const peakT = mk('text', { x: xPeak + 4, y: H - 1.18 / 1.4 * H - 3, fill: '#000', 'font-size': 9, 'font-family': 'monospace' });
+  peakT.textContent = '1.18 @342';
+  svg.appendChild(peakT);
+})();
+
+/* 阈值 / 配色卡片交互 */
+const thrRange = document.getElementById('thr-range');
+if (thrRange) {
+  thrRange.addEventListener('input', e => {
+    const v = (+e.target.value / 100).toFixed(3);
+    document.getElementById('thr-val').textContent = v;
+    document.getElementById('thr-pct').textContent = v;
+  });
+}
+document.querySelectorAll('.cmap-card').forEach(c => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('.cmap-card').forEach(o => o.classList.remove('is-on'));
+    c.classList.add('is-on');
+  });
+});
+document.querySelectorAll('.method-card').forEach(c => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('.method-card').forEach(o => o.classList.remove('is-on'));
+    c.classList.add('is-on');
+  });
+});
+</script>
+</body>
+</html>

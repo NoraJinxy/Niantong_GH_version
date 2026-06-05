@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-steel">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工作流 — 念析 ELYS</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/elys-design-system.css" />
+  <link rel="stylesheet" href="assets/colors_and_type.css" />
+  <link rel="stylesheet" href="assets/themes.css" />
+  <link rel="stylesheet" href="assets/kit.css" />
+</head>
+<body>
+
+<!-- ░░░ 顶栏：所有「工作台型」页面统一，照抄勿改；只把当前页对应的 nav 项加 class="is-active"（并从工作台移除）░░░ -->
+<header class="topbar">
+  <a class="topbar__brand" href="dashboard.html" title="返回工作台">
+    <span class="logomark" style="width:30px;height:30px;border-radius:8px">
+      <svg width="19" height="19" viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg>
+    </span>
+    <span class="topbar__brand-text">念析 <small>ELYS</small></span>
+  </a>
+  <nav class="topbar__nav">
+    <a href="dashboard.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-grid"/></svg>工作台</a>
+    <a href="datasets.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-database"/></svg>数据集</a>
+    <a href="studies.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-folder"/></svg>研究项</a>
+    <a href="pipeline.html" class="is-active"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-branch"/></svg>工作流</a>
+    <a href="results.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-layers"/></svg>派生数据</a>
+    <a href="erp.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-eye"/></svg>观察</a>
+    <a href="statistics.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-bars"/></svg>统计</a>
+    <a href="figures.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>作图</a>
+    <a href="ml.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-cpu"/></svg>机器学习</a>
+  </nav>
+  <span class="topbar__spacer"></span>
+  <div class="topbar__right">
+    <button class="btn btn--ghost btn--icon" type="button" title="搜索"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-search"/></svg></button>
+    <button class="btn btn--ghost btn--icon" type="button" title="智能助手"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-spark"/></svg></button>
+    <span class="topbar__user"><span class="avatar">系</span>系统管理员</span>
+    <button class="btn btn--ghost btn--icon" type="button" title="退出登录"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-logout"/></svg></button>
+  </div>
+</header>
+
+<!-- ░░░ 页面主体 ░░░ -->
+<main class="page">
+  <div class="page__header">
+    <div>
+      <div class="page__title-row">
+        <h1 class="page__title">工作流</h1>
+        <span class="study-code">sub093-erp</span>
+      </div>
+      <p class="page__subtitle">面向研究项的可复用分析流程 · 共 5 个工作流 · 当前研究项 静息态闭眼 ERP 分析</p>
+    </div>
+    <div class="dashboard-actions">
+      <button class="btn" type="button">
+        <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-upload"/></svg>导入流程
+      </button>
+      <button class="btn btn--primary" type="button">
+        <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-plus"/></svg>新建工作流
+      </button>
+    </div>
+  </div>
+
+  <div class="dashboard-sections">
+
+    <!-- ═══ 流程编辑器 chrome：工具条 + 节点库 + 画布占位 + 参数面板 ═══ -->
+    <section class="dashboard-panel">
+      <div class="section-head">
+        <div>
+          <h2><span class="live-dot"></span>流程编辑器</h2>
+          <p>静息态闭眼 ERP 分析 v3 · 9 节点 · 8 连线 · 草稿，保存后可创建运行</p>
+        </div>
+        <div class="dashboard-actions">
+          <span class="tag2 neu"><i></i>草稿</span>
+          <span class="srow2__time" title="2026-06-05 03:24">更新于 12 分钟前</span>
+        </div>
+      </div>
+
+      <!-- 工具条：研究项 / 工作流 选择 + 名称 + 保存/校验/运行 -->
+      <div class="toolbar">
+        <div class="seg">
+          <button type="button" class="is-active">研究项 · 静息态闭眼 ERP 分析</button>
+          <button type="button">工作流 · v3</button>
+        </div>
+        <span class="toolbar__spacer"></span>
+        <button class="btn btn--sm" type="button">
+          <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-check"/></svg>保存
+        </button>
+        <button class="btn btn--sm" type="button">校验</button>
+        <button class="btn btn--sm" type="button">
+          <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>运行
+        </button>
+        <button class="btn btn--sm" type="button" title="查看最近运行详情">运行 #14</button>
+      </div>
+
+      <!-- 三栏：节点库（左）· 画布占位（中）· 参数面板（右） -->
+      <div style="display:grid; grid-template-columns:248px minmax(0,1fr) 304px; gap:var(--s-3); align-items:stretch">
+
+        <!-- 左：节点库 -->
+        <div class="dashboard-panel" style="padding:var(--s-4); display:flex; flex-direction:column; gap:var(--s-3); min-width:0">
+          <div class="section-head" style="margin-bottom:0">
+            <div><h2 style="font-size:var(--fs-h3)">节点库</h2></div>
+            <span class="study-code">42 种</span>
+          </div>
+          <div class="search">
+            <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-search"/></svg>
+            <input type="search" placeholder="搜索节点" />
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:var(--s-3)">
+            <div>
+              <div class="srow2__meta" style="margin:0 0 8px"><b style="color:var(--c-text-2)">数据加载</b><span class="sep">·</span><span>3</span></div>
+              <div style="display:grid; gap:6px">
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>加载数据集</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/load_data</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>挑选数据文件</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/select_files</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="srow2__meta" style="margin:0 0 8px"><b style="color:var(--c-text-2)">预处理</b><span class="sep">·</span><span>11</span></div>
+              <div style="display:grid; gap:6px">
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>带通滤波</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/filter</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>陷波滤波</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/notch_filter</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>重参考</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/set_reference</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="srow2__meta" style="margin:0 0 8px"><b style="color:var(--c-text-2)">ICA 去伪迹</b><span class="sep">·</span><span>4</span></div>
+              <div style="display:grid; gap:6px">
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>ICA 分解</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/ica/fit</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>剔除成分</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/ica/apply</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="srow2__meta" style="margin:0 0 8px"><b style="color:var(--c-text-2)">分段与叠加</b><span class="sep">·</span><span>6</span></div>
+              <div style="display:grid; gap:6px">
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>事件分段</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/epoch</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>基线校正</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/baseline</span></div>
+                  </div>
+                </div>
+                <div class="srow2" style="padding:9px 11px; cursor:grab">
+                  <div class="srow2__main">
+                    <div class="srow2__title"><strong>叠加平均</strong></div>
+                    <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">eeg/average</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 中：画布占位 -->
+        <div class="empty empty--quiet" style="position:relative; align-items:stretch; justify-content:flex-start; min-height:420px; padding:0; overflow:hidden">
+          <!-- 画布顶部浮层：节点/连线计数 + 视图工具 -->
+          <div style="display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px dashed var(--c-border)">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong style="font-size:var(--fs-caption); color:var(--c-text-2)">LiteGraph 画布</strong>
+            <span class="srow2__time">9 节点 · 8 连线</span>
+            <span class="toolbar__spacer"></span>
+            <button class="btn btn--ghost btn--sm" type="button">居中</button>
+            <button class="btn btn--ghost btn--sm" type="button">100%</button>
+          </div>
+
+          <!-- 画布主体：步骤芯片示意（流程顺序） -->
+          <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:var(--s-6) var(--s-5)">
+            <div class="pipeline" style="max-width:560px; justify-content:center">
+              <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">2</span>带通滤波</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">3</span>陷波滤波</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">4</span>重参考</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">5</span>ICA 分解</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">6</span>剔除成分</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">7</span>事件分段</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">8</span>基线校正</span>
+              <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+              <span class="pstep"><span class="pstep__n">9</span>叠加平均</span>
+            </div>
+          </div>
+
+          <!-- 画布底部提示 -->
+          <div style="padding:13px 14px; border-top:1px dashed var(--c-border); display:flex; align-items:center; gap:10px; color:var(--c-text-3); font-size:var(--fs-caption)">
+            <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-plus"/></svg>
+            从左侧拖入节点，再从输出端口拖到下一个节点的输入端口建立连线
+          </div>
+        </div>
+
+        <!-- 右：参数面板（选中 重参考 节点） -->
+        <div class="dashboard-panel" style="padding:var(--s-4); display:flex; flex-direction:column; gap:var(--s-3); min-width:0">
+          <div class="section-head" style="margin-bottom:0">
+            <div>
+              <h2 style="font-size:var(--fs-h3)">重参考</h2>
+              <p>eeg/set_reference · 把脑电信号统一到参考电极</p>
+            </div>
+            <button class="btn btn--ghost btn--icon btn--sm" type="button" title="关闭面板">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-x"/></svg>
+            </button>
+          </div>
+
+          <!-- 最近运行小结 -->
+          <div class="meta-list">
+            <div class="meta-list__row"><span class="meta-list__k">最近运行</span><span class="meta-list__v"><span class="tag2 ok"><i></i>成功</span></span></div>
+            <div class="meta-list__row"><span class="meta-list__k">耗时</span><span class="meta-list__v mono">2.4 s</span></div>
+            <div class="meta-list__row"><span class="meta-list__k">产物</span><span class="meta-list__v">1 个派生数据</span></div>
+          </div>
+
+          <!-- 参数 -->
+          <div>
+            <div class="srow2__meta" style="margin:0 0 10px"><b style="color:var(--c-text-2)">参数</b></div>
+            <div class="meta-list">
+              <div class="meta-list__row"><span class="meta-list__k">参考方式</span><span class="meta-list__v">共同平均参考</span></div>
+              <div class="meta-list__row"><span class="meta-list__k">参考通道</span><span class="meta-list__v mono">64 / 64</span></div>
+              <div class="meta-list__row"><span class="meta-list__k">排除坏导</span><span class="meta-list__v">是</span></div>
+              <div class="meta-list__row"><span class="meta-list__k">投影方式</span><span class="meta-list__v">REST 投影</span></div>
+            </div>
+          </div>
+
+          <!-- 保存设置（折叠区表现为只读元信息） -->
+          <div>
+            <div class="srow2__meta" style="margin:0 0 10px"><b style="color:var(--c-text-2)">保存设置</b><span class="sep">·</span><span class="tag2 neu" style="padding:2px 8px"><i></i>缓存 7 天</span></div>
+            <div class="meta-list">
+              <div class="meta-list__row"><span class="meta-list__k">step_label</span><span class="meta-list__v mono">reref</span></div>
+              <div class="meta-list__row"><span class="meta-list__k">data_type</span><span class="meta-list__v mono">raw</span></div>
+              <div class="meta-list__row"><span class="meta-list__k">保留策略</span><span class="meta-list__v">cached</span></div>
+            </div>
+          </div>
+
+          <!-- 连接 -->
+          <div>
+            <div class="srow2__meta" style="margin:0 0 10px"><b style="color:var(--c-text-2)">已连接的上游</b></div>
+            <div style="display:grid; gap:6px">
+              <div class="srow2" style="padding:8px 11px">
+                <div class="srow2__main">
+                  <div class="srow2__title"><strong style="font-size:13px">陷波滤波</strong></div>
+                  <div class="srow2__meta"><span class="desc" style="font-family:var(--ff-mono)">raw → 输入</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态条：仅显非零提示 -->
+      <div class="toolbar" style="margin:var(--s-4) 0 0">
+        <span class="tag2 ok"><i></i>校验通过</span>
+        <span class="srow2__time">最近运行 #14 已完成 · 9 节点 · 6 数据集</span>
+        <span class="toolbar__spacer"></span>
+        <span class="srow2__time">2 个产物已固定 · 1 个缓存</span>
+      </div>
+    </section>
+
+    <!-- ═══ 工作流卡列表 ═══ -->
+    <section class="dashboard-panel">
+      <div class="section-head">
+        <div>
+          <h2>研究项工作流</h2>
+          <p>可复用的分析流程 · 共 5 个 · 4 已启用 · 1 草稿</p>
+        </div>
+        <div class="dashboard-actions">
+          <div class="search" style="width:220px">
+            <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-search"/></svg>
+            <input type="search" placeholder="搜索工作流" />
+          </div>
+          <button class="btn" type="button">
+            <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-filter"/></svg>筛选
+          </button>
+        </div>
+      </div>
+
+      <div class="dashboard-sections" style="gap:var(--s-3)">
+
+        <!-- 工作流 1：当前编辑中 -->
+        <div class="wf-card">
+          <div class="wf-card__head">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong>静息态闭眼 ERP 分析</strong>
+            <span class="study-code">erp-resting v3</span>
+            <span style="flex:1"></span>
+            <span class="tag2 neu"><i></i>草稿</span>
+          </div>
+          <div class="pipeline">
+            <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">2</span>带通滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">3</span>陷波滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">4</span>重参考</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">5</span>ICA 分解</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">6</span>剔除成分</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">7</span>事件分段</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">8</span>基线校正</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">9</span>叠加平均</span>
+          </div>
+          <div class="wf-card__foot">
+            <span><b>14</b> 运行</span>
+            <span><b>9</b> 步骤</span>
+            <span>更新 <span style="font-family:var(--ff-mono)" title="2026-06-05 03:24">12 分钟前</span></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--ghost btn--sm" type="button">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>试跑
+            </button>
+          </div>
+        </div>
+
+        <!-- 工作流 2：已启用 -->
+        <div class="wf-card">
+          <div class="wf-card__head">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong>听觉 oddball P300 流程</strong>
+            <span class="study-code">p300-oddball v2</span>
+            <span style="flex:1"></span>
+            <span class="tag2 ok"><i></i>已启用</span>
+          </div>
+          <div class="pipeline">
+            <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">2</span>带通滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">3</span>重参考</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">4</span>事件分段</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">5</span>基线校正</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">6</span>叠加平均</span>
+          </div>
+          <div class="wf-card__foot">
+            <span><b>27</b> 运行</span>
+            <span><b>6</b> 步骤</span>
+            <span>更新 <span style="font-family:var(--ff-mono)" title="2026-06-04 17:08">1 天前</span></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--ghost btn--sm" type="button">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>试跑
+            </button>
+          </div>
+        </div>
+
+        <!-- 工作流 3：已启用 -->
+        <div class="wf-card">
+          <div class="wf-card__head">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong>静息态功率谱（PSD）</strong>
+            <span class="study-code">resting-psd v4</span>
+            <span style="flex:1"></span>
+            <span class="tag2 ok"><i></i>已启用</span>
+          </div>
+          <div class="pipeline">
+            <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">2</span>带通滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">3</span>重参考</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">4</span>分段为定长窗</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">5</span>计算功率谱</span>
+          </div>
+          <div class="wf-card__foot">
+            <span><b>41</b> 运行</span>
+            <span><b>5</b> 步骤</span>
+            <span>更新 <span style="font-family:var(--ff-mono)" title="2026-06-02 09:36">3 天前</span></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--ghost btn--sm" type="button">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>试跑
+            </button>
+          </div>
+        </div>
+
+        <!-- 工作流 4：已启用 -->
+        <div class="wf-card">
+          <div class="wf-card__head">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong>预处理质检（QC）</strong>
+            <span class="study-code">preproc-qc v1</span>
+            <span style="flex:1"></span>
+            <span class="tag2 ok"><i></i>已启用</span>
+          </div>
+          <div class="pipeline">
+            <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">2</span>检测坏导</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">3</span>陷波滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">4</span>生成质检报告</span>
+          </div>
+          <div class="wf-card__foot">
+            <span><b>8</b> 运行</span>
+            <span><b>4</b> 步骤</span>
+            <span>更新 <span style="font-family:var(--ff-mono)" title="2026-05-28 14:12">8 天前</span></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--ghost btn--sm" type="button">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>试跑
+            </button>
+          </div>
+        </div>
+
+        <!-- 工作流 5：已归档 -->
+        <div class="wf-card">
+          <div class="wf-card__head">
+            <svg class="icon" width="16" height="16" style="color:var(--c-text-3)"><use href="assets/elys-icons.svg#i-branch"/></svg>
+            <strong>时频分析（旧版）</strong>
+            <span class="study-code">tfr-legacy v2</span>
+            <span style="flex:1"></span>
+            <span class="tag2 warn"><i></i>已归档</span>
+          </div>
+          <div class="pipeline">
+            <span class="pstep"><span class="pstep__n">1</span>加载数据集</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">2</span>带通滤波</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">3</span>事件分段</span>
+            <svg class="icon sep"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+            <span class="pstep"><span class="pstep__n">4</span>小波时频变换</span>
+          </div>
+          <div class="wf-card__foot">
+            <span><b>19</b> 运行</span>
+            <span><b>4</b> 步骤</span>
+            <span>更新 <span style="font-family:var(--ff-mono)" title="2026-04-19 11:02">归档于 04/19</span></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--ghost btn--sm" type="button">
+              <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-play"/></svg>试跑
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+</main>
+
+</body>
+</html>

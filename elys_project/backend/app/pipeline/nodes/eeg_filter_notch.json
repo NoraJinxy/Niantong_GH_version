@@ -1,0 +1,37 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/filter/notch",
+  "title": "Notch Filter",
+  "category": "preprocessing",
+  "phase": "phase1",
+  "description": "工频陷波（notch）——剔除 50/60Hz 工频干扰及其谐波，输出写入 derivatives，不改写 fifdata。",
+  "tags": ["filter", "notch", "powerline", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Filtered EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "freq", "label": "Line Frequency", "type": "number", "unit": "Hz", "default": 50.0, "min": 0, "required": true, "description": "工频基频：中国 / 欧洲 50Hz，北美 / 日本东部 60Hz。"},
+    {"name": "harmonics", "label": "Harmonics", "type": "integer", "default": 3, "min": 1, "max": 20, "description": "连同前 N 次谐波一并陷波（如 50, 100, 150Hz）。"},
+    {"name": "freqs", "label": "Explicit Freqs", "type": "text", "default": "", "description": "可选：逗号分隔的显式频点（如 \"50, 100\"），填了就覆盖上面的基频 + 谐波。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.filters",
+    "function": "run_notch_filter",
+    "save_descriptor": "notch",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "notch",
+    "auto_tags": ["step:notch", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "cache": {"enabled": true, "strategy": "content_hash"},
+  "ui": {"color": "#00A5A8", "default_size": [190, 100], "preview_type": "time_series"}
+}

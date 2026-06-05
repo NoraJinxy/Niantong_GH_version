@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>机器学习工作台 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+  body { background: var(--c-bg); }
+  .ml-toolbar { height: 56px; display: flex; align-items: center; gap: var(--s-3); padding: 0 var(--s-4); border-bottom: 1px solid var(--c-border); background: rgba(255,255,255,.92); }
+  .ml-shell { display: grid; grid-template-columns: 220px 1fr 320px; height: calc(100vh - 56px - 56px); }
+  .ml-shell > section { padding: var(--s-3); overflow-y: auto; }
+  .ml-shell > section + section { border-left: 1px solid var(--c-border); }
+  .palette-cat { font-size: 11px; font-weight: 600; color: var(--c-text-3); text-transform: uppercase; padding: 8px 4px 4px; }
+  .canvas-host { background: var(--c-bg-soft); padding: 0; position: relative; overflow: auto; min-height: 540px; }
+  .conf-mat { display: grid; grid-template-columns: 50px repeat(2, 1fr); gap: 1px; background: var(--c-border); border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
+  .conf-mat > div { background: #fff; padding: 8px; text-align: center; font-size: 12px; }
+  .conf-mat .head { background: var(--c-bg-soft); font-weight: 600; }
+  .roc {
+    background: linear-gradient(180deg, #fff, var(--c-bg-soft));
+    border: 1px solid var(--c-border); border-radius: 8px; padding: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="topbar-mount"></div>
+
+<div class="ml-toolbar">
+  <span class="text-mono muted">📂</span>
+  <input class="input" value="P300 分类器 — SVM-RBF" style="width:240px;height:32px;" />
+  <span class="badge badge--success">已训练</span>
+  <div style="flex:1"></div>
+  <span class="muted text-sm">最近训练：</span>
+  <span class="text-sm">11:42 · 45.2s · LOSO-CV · 30 被试</span>
+</div>
+
+<div class="ml-shell">
+  <!-- 左：节点面板 -->
+  <section>
+    <div class="palette-cat">▾ 数据</div>
+    <div class="node-item cat-data"><span class="swatch"></span>📂 LoadData</div>
+    <div class="node-item cat-data"><span class="swatch"></span>📤 Export</div>
+
+    <div class="palette-cat">▾ 特征提取</div>
+    <div class="node-item cat-prep"><span class="swatch"></span>时域 (Hjorth/熵)</div>
+    <div class="node-item cat-prep"><span class="swatch"></span>频域 (Bandpower)</div>
+    <div class="node-item cat-prep"><span class="swatch"></span>时频 (TFR)</div>
+    <div class="node-item cat-prep"><span class="swatch"></span>空间 (CSP / PCA)</div>
+
+    <div class="palette-cat">▾ 模型</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>🧠 SVM</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>🌳 Random Forest</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>⚡ XGBoost</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>📍 k-NN</div>
+
+    <div class="palette-cat">▾ 深度学习</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>🧬 EEGNet</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>🧠 CNN</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>↻ LSTM</div>
+    <div class="node-item cat-ml"><span class="swatch"></span>🤖 Transformer</div>
+
+    <div class="palette-cat">▾ 评估</div>
+    <div class="node-item cat-stat"><span class="swatch"></span>CrossVal</div>
+    <div class="node-item cat-stat"><span class="swatch"></span>Metrics</div>
+
+    <div class="palette-cat">▾ 可解释性</div>
+    <div class="node-item cat-viz"><span class="swatch"></span>🔍 SHAP</div>
+    <div class="node-item cat-viz"><span class="swatch"></span>🎯 LIME</div>
+    <div class="node-item cat-viz"><span class="swatch"></span>👁 Saliency</div>
+
+    <div class="palette-cat">▾ AutoML</div>
+    <div class="node-item cat-analyse"><span class="swatch"></span>🔭 Optuna 搜索</div>
+  </section>
+
+  <!-- 中：画布 -->
+  <section class="canvas-host">
+    <div class="canvas-bg" style="position: absolute; inset: 0;">
+      <div class="pl-node is-success" style="left:30px;top:60px;">
+        <div class="pl-node__head">📂 LoadData</div>
+        <div class="pl-node__body">SSVEP · 18 sub · 4 类</div>
+        <span class="pl-node__port out"></span>
+      </div>
+      <div class="pl-node is-success" style="left:220px;top:60px;">
+        <div class="pl-node__head">🔧 Feature</div>
+        <div class="pl-node__body">CSP + Bandpower</div>
+        <span class="pl-node__port in"></span><span class="pl-node__port out"></span>
+      </div>
+      <div class="pl-node is-success is-active" style="left:410px;top:60px;">
+        <div class="pl-node__head">🧠 SVM</div>
+        <div class="pl-node__body">RBF · C=1.0 · γ=scale</div>
+        <span class="pl-node__port in"></span><span class="pl-node__port out"></span>
+      </div>
+      <div class="pl-node is-success" style="left:600px;top:60px;">
+        <div class="pl-node__head">📊 Evaluate</div>
+        <div class="pl-node__body">LOSO-CV · 18 折</div>
+        <span class="pl-node__port in"></span><span class="pl-node__port out"></span>
+      </div>
+      <div class="pl-node is-success" style="left:790px;top:60px;">
+        <div class="pl-node__head">🔍 SHAP</div>
+        <div class="pl-node__body">100 样本</div>
+        <span class="pl-node__port in"></span>
+      </div>
+
+      <div class="pl-node" style="left:220px;top:200px;">
+        <div class="pl-node__head">🔭 Optuna</div>
+        <div class="pl-node__body">TPE · 100 试验</div>
+        <span class="pl-node__port in"></span><span class="pl-node__port out"></span>
+      </div>
+
+      <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--c-success)"/></marker></defs>
+        <path stroke="var(--c-success)" stroke-width="1.6" fill="none" d="M162 90 L220 90" marker-end="url(#ar)"/>
+        <path stroke="var(--c-success)" stroke-width="1.6" fill="none" d="M352 90 L410 90" marker-end="url(#ar)"/>
+        <path stroke="var(--c-success)" stroke-width="1.6" fill="none" d="M542 90 L600 90" marker-end="url(#ar)"/>
+        <path stroke="var(--c-success)" stroke-width="1.6" fill="none" d="M732 90 L790 90" marker-end="url(#ar)"/>
+        <path stroke="var(--c-text-3)" stroke-width="1.4" stroke-dasharray="4 3" fill="none" d="M352 90 C 380 130, 200 180, 220 230" marker-end="url(#ar)"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- 右：结果面板 (训练已完成) -->
+  <section>
+    <h3 class="mb-3" style="margin:0 0 var(--s-3)">📊 训练结果</h3>
+    <div class="card mb-3" style="padding:var(--s-3);background: linear-gradient(135deg,#ECFAF3,#fff);border-color:var(--c-success);">
+      <div class="muted text-sm">SVM (RBF) · LOSO-CV</div>
+      <div class="row gap-3 mt-2">
+        <div><div class="muted text-sm">准确率</div><div style="font-size:24px;font-weight:700">0.823<span style="font-size:12px;color:var(--c-text-3)"> ± 0.045</span></div></div>
+        <div><div class="muted text-sm">AUC</div><div style="font-size:24px;font-weight:700;color:var(--c-success)">0.891</div></div>
+      </div>
+    </div>
+
+    <div class="card mb-3" style="padding:var(--s-3)">
+      <strong style="display:block;margin-bottom: var(--s-2)">分类指标</strong>
+      <table class="table table--compact" style="margin:0;font-size:12px">
+        <tr><td>精确率</td><td>0.851</td></tr>
+        <tr><td>召回率</td><td>0.796</td></tr>
+        <tr><td>F1 分数</td><td>0.822</td></tr>
+        <tr><td>AUC-ROC</td><td><strong>0.891</strong></td></tr>
+        <tr><td>耗时</td><td>45.2 s</td></tr>
+      </table>
+    </div>
+
+    <div class="card mb-3" style="padding:var(--s-3)">
+      <strong style="display:block;margin-bottom: var(--s-2)">混淆矩阵</strong>
+      <div class="conf-mat">
+        <div></div><div class="head">P̂ Target</div><div class="head">P̂ Standard</div>
+        <div class="head">Target</div><div style="background:#ECFAF3;color:var(--c-success);font-weight:700">241</div><div>59</div>
+        <div class="head">Standard</div><div>48</div><div style="background:#ECFAF3;color:var(--c-success);font-weight:700">252</div>
+      </div>
+    </div>
+
+    <div class="card mb-3" style="padding:var(--s-3)">
+      <strong style="display:block;margin-bottom: var(--s-2)">ROC 曲线</strong>
+      <div class="roc">
+        <svg viewBox="0 0 200 200" style="width:100%">
+          <line x1="0" y1="200" x2="200" y2="0" stroke="var(--c-text-3)" stroke-dasharray="3 3"/>
+          <path d="M0 200 Q20 80 50 50 Q90 30 130 20 L200 0" stroke="var(--c-primary)" stroke-width="2" fill="none"/>
+          <path d="M0 200 Q20 80 50 50 Q90 30 130 20 L200 0 L200 200 L0 200z" fill="var(--c-primary-soft)"/>
+          <text x="100" y="180" font-size="10" text-anchor="middle">AUC = 0.891</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card" style="padding:var(--s-3)">
+      <strong style="display:block;margin-bottom: var(--s-2)">SHAP 特征重要性</strong>
+      <div style="font-family: var(--ff-mono); font-size: 11px;">
+        <div class="row mb-2"><span style="width:140px;color:var(--c-text-2)">Cz_θ_power</span><div style="background:var(--c-primary);height:10px;width:80%;border-radius:4px;"></div><span style="color:var(--c-text-2);margin-left:6px">.42</span></div>
+        <div class="row mb-2"><span style="width:140px;color:var(--c-text-2)">Fz_α_power</span><div style="background:var(--c-primary);height:10px;width:62%;border-radius:4px;"></div><span style="color:var(--c-text-2);margin-left:6px">.31</span></div>
+        <div class="row mb-2"><span style="width:140px;color:var(--c-text-2)">Pz_Hjorth_mob</span><div style="background:var(--c-primary);height:10px;width:48%;border-radius:4px;"></div><span style="color:var(--c-text-2);margin-left:6px">.24</span></div>
+        <div class="row mb-2"><span style="width:140px;color:var(--c-text-2)">Pz_β_power</span><div style="background:var(--c-primary);height:10px;width:36%;border-radius:4px;"></div><span style="color:var(--c-text-2);margin-left:6px">.18</span></div>
+        <div class="row mb-2"><span style="width:140px;color:var(--c-text-2)">CSP_comp_1</span><div style="background:var(--c-primary);height:10px;width:30%;border-radius:4px;"></div><span style="color:var(--c-text-2);margin-left:6px">.15</span></div>
+      </div>
+    </div>
+
+    <details class="mt-3">
+      <summary style="cursor:pointer;color:var(--c-primary);font-size:13px;">显著性图 (Saliency Map)</summary>
+      <div class="muted text-sm mt-2">时间×通道热图，亮处=模型关注的判别区域</div>
+      <svg viewBox="0 0 240 80" style="width:100%;background:#fff;border:1px solid var(--c-border);border-radius:6px;margin-top:6px">
+        <g>
+          <rect x="0" y="0" width="240" height="20" fill="rgba(46,107,255,.15)"/>
+          <rect x="80" y="0" width="80" height="20" fill="rgba(46,107,255,.7)"/>
+          <text x="-2" y="14" font-size="9" fill="var(--c-text-2)" text-anchor="end" transform="translate(20,0)">Fz</text>
+
+          <rect x="0" y="20" width="240" height="20" fill="rgba(46,107,255,.2)"/>
+          <rect x="60" y="20" width="120" height="20" fill="rgba(46,107,255,.85)"/>
+          <text x="-2" y="34" font-size="9" fill="var(--c-text-2)" text-anchor="end" transform="translate(20,0)">Cz</text>
+
+          <rect x="0" y="40" width="240" height="20" fill="rgba(46,107,255,.18)"/>
+          <rect x="80" y="40" width="80" height="20" fill="rgba(46,107,255,.7)"/>
+          <text x="-2" y="54" font-size="9" fill="var(--c-text-2)" text-anchor="end" transform="translate(20,0)">Pz</text>
+
+          <rect x="0" y="60" width="240" height="20" fill="rgba(46,107,255,.1)"/>
+          <text x="-2" y="74" font-size="9" fill="var(--c-text-2)" text-anchor="end" transform="translate(20,0)">Oz</text>
+        </g>
+      </svg>
+      <div class="row row--between text-sm muted mt-1"><span>0 ms</span><span>500</span><span>1000 ms</span></div>
+    </details>
+
+    <div class="alert alert--info mt-3">
+      <svg class="alert__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h0"/></svg>
+      <div>
+        <div class="alert__title">推荐：尝试 AutoML</div>
+        <div class="alert__body">使用 Optuna TPE 搜索 100 次，可能进一步提升 2-5% 准确率。</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- 底部进度（占位空闲） -->
+<div class="task-dock" style="position:fixed">
+  <div class="task-dock__head">
+    <span style="color:var(--c-success)">✓</span>
+    <strong>SVM 训练已完成 · 11:42</strong>
+    <span class="muted text-sm">输出 1 个模型 / SHAP 解释 · 评估指标见右栏</span>
+    <div style="flex:1"></div>
+    <button class="btn btn--sm">查看日志</button>
+    <button class="btn btn--sm">下载 .pkl 模型</button>
+    <button class="btn btn--sm btn--primary">部署到推理服务</button>
+  </div>
+</div>
+
+<script src="assets/icons.js"></script>
+<script src="assets/topbar.js"></script>
+<script>renderTopbar('ai');</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

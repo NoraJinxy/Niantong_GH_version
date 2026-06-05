@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-steel">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>观察 · 时域波形 — 念析 ELYS</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/elys-design-system.css" />
+  <link rel="stylesheet" href="assets/colors_and_type.css" />
+  <link rel="stylesheet" href="assets/themes.css" />
+  <link rel="stylesheet" href="assets/kit.css" />
+
+  <!-- 本页专属：时域波形详情。仅基于设计系统令牌组合，不引入新色板 / 新圆角 / 新间距 -->
+  <style>
+    .wf-page { max-width: 1480px; }
+
+    /* 两栏：左通道列表 + 右绘图区，铺满内容区宽度 */
+    .wf-layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      gap: var(--s-4);
+      align-items: start;
+    }
+
+    /* ── 顶部工具条（窗口 / 缩放 / 叠加）：复用 toolbar 外观 ── */
+    .wf-bar {
+      display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2);
+      padding: var(--s-3) var(--s-4);
+      background: var(--c-surface); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+      margin-bottom: var(--s-4);
+    }
+    .wf-bar__lbl { font-size: var(--fs-caption); font-weight: 600; color: var(--c-text-2); white-space: nowrap; }
+    .wf-bar__div { width: 1px; height: 22px; background: var(--c-border); margin: 0 2px; }
+    /* 数字输入占位：mono、等宽数字 */
+    .wf-in {
+      display: inline-flex; align-items: center; justify-content: flex-end;
+      width: 58px; height: 32px; padding: 0 8px;
+      background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--r);
+      font-family: var(--ff-mono); font-size: 13px; color: var(--c-text); font-variant-numeric: tabular-nums;
+    }
+    .wf-in.is-wide { width: 70px; }
+    .wf-dash { color: var(--c-text-3); }
+    /* 步进按钮：上一段 / 下一段 */
+    .wf-step {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 32px; flex: 0 0 auto;
+      background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--r);
+      color: var(--c-text-2);
+    }
+    .wf-step[aria-disabled="true"] { color: var(--c-border-strong); }
+    /* 下拉占位 */
+    .wf-field {
+      display: inline-flex; align-items: center; gap: 8px;
+      height: 32px; padding: 0 8px 0 10px;
+      background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--r);
+      font-size: 13px; color: var(--c-text); white-space: nowrap;
+    }
+    .wf-field .mono { font-family: var(--ff-mono); }
+    .wf-field svg { color: var(--c-text-3); }
+    .wf-field .muted { color: var(--c-text-3); }
+    /* 复选叠加项：网格 / 基线 */
+    .wf-chk {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 13px; color: var(--c-text-2); white-space: nowrap;
+    }
+    .wf-chk .box {
+      width: 15px; height: 15px; flex: 0 0 auto; border-radius: 3px;
+      border: 1.5px solid var(--c-border-2); background: var(--c-surface);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .wf-chk .box.on { background: var(--c-primary); border-color: var(--c-primary); }
+    .wf-chk .box.on svg { color: #fff; }
+
+    /* ── 左：通道列表 ── */
+    .wf-chanbox {
+      background: var(--c-surface); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+      padding: var(--s-4);
+      display: flex; flex-direction: column; gap: var(--s-3);
+    }
+    .wf-chanbox__head { display: flex; align-items: center; gap: 8px; }
+    .wf-chanbox__head strong { font-size: var(--fs-caption); font-weight: 700; color: var(--c-text); }
+    .wf-chanbox__count {
+      padding: 0 7px; border-radius: var(--r-pill);
+      background: var(--c-bg-tint); color: var(--c-text-3);
+      font-family: var(--ff-mono); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .wf-chanbox__links { margin-left: auto; display: inline-flex; gap: 6px; }
+    .wf-chanlist {
+      display: grid; gap: 1px;
+      max-height: 460px; overflow-y: auto;
+      border: 1px solid var(--c-border); border-radius: var(--r); background: var(--c-bg-soft);
+      padding: 4px;
+    }
+    .wf-chanitem {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 8px; border-radius: var(--r-sm);
+      border-left: 3px solid transparent;
+      font-family: var(--ff-mono); font-size: 12px; color: var(--c-text-2);
+    }
+    .wf-chanitem .dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 999px; }
+    .wf-chanitem .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wf-chanitem.is-sel {
+      background: var(--c-primary-soft); border-left-color: var(--c-primary);
+      color: var(--c-primary); font-weight: 600;
+    }
+    .wf-chanitem.is-off .nm { color: var(--c-text-3); }
+    .wf-chanitem.is-off .dot { opacity: .4; }
+    .wf-chanbox__hint { font-size: 11px; color: var(--c-text-3); line-height: 1.5; }
+    .wf-chanbox__hint kbd {
+      font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-2);
+      background: var(--c-bg-tint); border: 1px solid var(--c-border); border-radius: 4px;
+      padding: 0 4px;
+    }
+
+    /* ── 右：绘图区 ── */
+    .wf-plotcard {
+      background: var(--c-surface); border: 1px solid var(--c-border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+      padding: var(--s-4);
+      display: flex; flex-direction: column; gap: var(--s-3);
+    }
+    /* 读数条：游标处各通道幅值 */
+    .wf-readout {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+      padding: 7px 10px;
+      background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: var(--r);
+      font-size: 12px;
+    }
+    .wf-readout__x { font-family: var(--ff-mono); font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; }
+    .wf-readout__sep { color: var(--c-border-2); }
+    .wf-readout__v { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
+    .wf-readout__v i { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
+    .wf-readout__more { font-family: var(--ff-mono); color: var(--c-text-3); }
+    .wf-readout__unit { color: var(--c-text-3); margin-left: auto; }
+
+    .wf-plot { width: 100%; height: auto; display: block; background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: var(--r); }
+    .wf-axis { font-family: var(--ff-mono); font-size: 10px; fill: var(--c-text-3); }
+    .wf-axis-unit { font-size: 10px; fill: var(--c-text-2); }
+    .wf-stim { font-family: var(--ff-mono); font-size: 9px; fill: var(--c-danger); }
+
+    /* ── 底部摘要：度量芯片 + 取数说明 ── */
+    .wf-metrics { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+    .wf-metric {
+      display: inline-flex; align-items: baseline; gap: 6px;
+      padding: 5px 11px;
+      border: 1px solid var(--c-border); border-radius: var(--r); background: var(--c-surface);
+      font-size: var(--fs-caption);
+    }
+    .wf-metric .k { color: var(--c-text-3); }
+    .wf-metric .v { font-family: var(--ff-mono); font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; }
+    .wf-note { font-size: 11px; color: var(--c-text-3); line-height: 1.6; }
+    .wf-note code {
+      font-family: var(--ff-mono); background: var(--c-bg-tint); padding: 1px 5px; border-radius: 4px;
+      color: var(--c-text-2);
+    }
+
+    /* 头部数据来源说明 chip（中性，非状态色） */
+    .wf-src { display: inline-flex; align-items: center; gap: 6px; }
+
+    @media (max-width: 1080px) {
+      .wf-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ░░░ 顶栏：所有「工作台型」页面统一，照抄勿改；当前页 = 观察（is-active）░░░ -->
+<header class="topbar">
+  <a class="topbar__brand" href="dashboard.html" title="返回工作台">
+    <span class="logomark" style="width:30px;height:30px;border-radius:8px">
+      <svg width="19" height="19" viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg>
+    </span>
+    <span class="topbar__brand-text">念析 <small>ELYS</small></span>
+  </a>
+  <nav class="topbar__nav">
+    <a href="dashboard.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-grid"/></svg>工作台</a>
+    <a href="datasets.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-database"/></svg>数据集</a>
+    <a href="studies.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-folder"/></svg>研究项</a>
+    <a href="pipeline.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-branch"/></svg>工作流</a>
+    <a href="results.html"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-layers"/></svg>派生数据</a>
+    <a href="erp.html" class="is-active is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-eye"/></svg>观察</a>
+    <a href="statistics.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-bars"/></svg>统计</a>
+    <a href="figures.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>作图</a>
+    <a href="ml.html" class="is-preview" title="预览模块，尚未接入真实数据"><svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-cpu"/></svg>机器学习</a>
+  </nav>
+  <span class="topbar__spacer"></span>
+  <div class="topbar__right">
+    <button class="btn btn--ghost btn--icon" type="button" title="搜索"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-search"/></svg></button>
+    <button class="btn btn--ghost btn--icon" type="button" title="智能助手"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-spark"/></svg></button>
+    <span class="topbar__user"><span class="avatar">系</span>系统管理员</span>
+    <button class="btn btn--ghost btn--icon" type="button" title="退出登录"><svg class="icon" width="18" height="18"><use href="assets/elys-icons.svg#i-logout"/></svg></button>
+  </div>
+</header>
+
+<main class="page wf-page">
+  <!-- 面包屑 -->
+  <nav class="crumb">
+    <a href="dashboard.html">工作台</a>
+    <svg class="icon"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+    <a href="results.html">派生数据</a>
+    <svg class="icon"><use href="assets/elys-icons.svg#i-chevron-right"/></svg>
+    <b>时域波形</b>
+  </nav>
+
+  <!-- 页头：类型 chip + 名称 + 数据来源 + 刷新 -->
+  <header class="page__header">
+    <div>
+      <div class="page__title-row">
+        <h1 class="page__title">时域波形</h1>
+        <span class="tag2 neu"><i></i>分段 epochs</span>
+        <span class="tag2 neu"><i></i><span class="wf-src"><svg class="icon" width="12" height="12"><use href="assets/elys-icons.svg#i-check-circle"/></svg>真实时域数据</span></span>
+      </div>
+      <p class="page__subtitle">
+        <span style="font-family:var(--ff-mono)">sub093-erp</span> · 静息态闭眼 ERP 分析 ·
+        派生数据 <span style="font-family:var(--ff-mono)">dd-7af3c2…</span> · 条件 <span style="font-family:var(--ff-mono)">Standard</span>
+      </p>
+    </div>
+    <div class="dashboard-actions">
+      <button class="btn btn--sm" type="button">
+        <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-refresh"/></svg>刷新
+      </button>
+      <a class="btn btn--primary btn--sm" href="figures.html">
+        <svg class="icon" width="16" height="16"><use href="assets/elys-icons.svg#i-image"/></svg>发送到作图
+      </a>
+    </div>
+  </header>
+
+  <!-- 观察子模块切换（与 ERP / 时频 / 微状态同级） -->
+  <div class="tabs">
+    <button class="tab is-active" type="button">时域</button>
+    <button class="tab" type="button">ERP</button>
+    <button class="tab" type="button">时频</button>
+    <button class="tab" type="button">连接性</button>
+    <button class="tab" type="button">微状态</button>
+  </div>
+
+  <!-- ░░ 顶部工具条：段 / 时间窗 / Y 幅值 / 叠加项 ░░ -->
+  <div class="wf-bar">
+    <!-- 段（epoch / 条件）选择 -->
+    <span class="wf-bar__lbl">条件</span>
+    <span class="wf-step" aria-disabled="true" title="上一个"><svg class="icon" width="15" height="15" style="transform:rotate(180deg)"><use href="assets/elys-icons.svg#i-chevron-right"/></svg></span>
+    <span class="wf-field">
+      <span class="mono">Standard</span><span class="muted">12 / 40</span>
+      <svg class="icon" width="14" height="14"><use href="assets/elys-icons.svg#i-chevron-down"/></svg>
+    </span>
+    <span class="wf-step" title="下一个"><svg class="icon" width="15" height="15"><use href="assets/elys-icons.svg#i-chevron-right"/></svg></span>
+
+    <span class="wf-bar__div"></span>
+
+    <!-- X 时间窗（epochs → ms） -->
+    <span class="wf-bar__lbl">时间窗 (ms)</span>
+    <span class="wf-in">-200</span>
+    <span class="wf-dash">–</span>
+    <span class="wf-in">800</span>
+    <button class="btn btn--sm" type="button">应用</button>
+    <button class="btn btn--ghost btn--sm" type="button">重置</button>
+
+    <span class="wf-bar__div"></span>
+
+    <!-- Y 幅值缩放 -->
+    <span class="wf-bar__lbl">Y (μV)</span>
+    <span class="wf-field">
+      <span class="mono">±20</span>
+      <svg class="icon" width="14" height="14"><use href="assets/elys-icons.svg#i-chevron-down"/></svg>
+    </span>
+
+    <span class="wf-bar__div"></span>
+
+    <!-- 叠加项 -->
+    <label class="wf-chk"><span class="box on"><svg class="icon" width="10" height="10"><use href="assets/elys-icons.svg#i-check"/></svg></span>网格</label>
+    <label class="wf-chk"><span class="box on"><svg class="icon" width="10" height="10"><use href="assets/elys-icons.svg#i-check"/></svg></span>基线 / 起始</label>
+  </div>
+
+  <div class="wf-layout">
+
+    <!-- ░░ 左：通道列表 / 选择 ░░ -->
+    <aside class="wf-chanbox">
+      <div class="wf-chanbox__head">
+        <strong>通道</strong>
+        <span class="wf-chanbox__count">8 / 64</span>
+        <span class="wf-chanbox__links">
+          <button class="btn--link" type="button" style="font-size:11px">全选</button>
+          <button class="btn--link" type="button" style="font-size:11px">清空</button>
+        </span>
+      </div>
+
+      <div class="wf-chanlist" tabindex="0" role="listbox" aria-label="通道列表">
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(0,62%,47%)"></span><span class="nm">Fz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(138,62%,47%)"></span><span class="nm">FCz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(275,62%,47%)"></span><span class="nm">Cz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(53,62%,47%)"></span><span class="nm">CPz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(191,62%,47%)"></span><span class="nm">Pz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(329,62%,47%)"></span><span class="nm">POz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(66,62%,47%)"></span><span class="nm">Oz</span></div>
+        <div class="wf-chanitem is-sel"><span class="dot" style="background:hsl(204,62%,47%)"></span><span class="nm">Fp1</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(342,62%,47%)"></span><span class="nm">Fp2</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(80,62%,47%)"></span><span class="nm">F3</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(217,62%,47%)"></span><span class="nm">F4</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(355,62%,47%)"></span><span class="nm">F7</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(93,62%,47%)"></span><span class="nm">F8</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(230,62%,47%)"></span><span class="nm">FC1</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(8,62%,47%)"></span><span class="nm">FC2</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(146,62%,47%)"></span><span class="nm">C3</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(284,62%,47%)"></span><span class="nm">C4</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(61,62%,47%)"></span><span class="nm">T7</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(199,62%,47%)"></span><span class="nm">T8</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(337,62%,47%)"></span><span class="nm">CP1</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(74,62%,47%)"></span><span class="nm">CP2</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(212,62%,47%)"></span><span class="nm">P3</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(350,62%,47%)"></span><span class="nm">P4</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(88,62%,47%)"></span><span class="nm">P7</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(225,62%,47%)"></span><span class="nm">P8</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(3,62%,47%)"></span><span class="nm">O1</span></div>
+        <div class="wf-chanitem is-off"><span class="dot" style="background:hsl(141,62%,47%)"></span><span class="nm">O2</span></div>
+      </div>
+
+      <p class="wf-chanbox__hint">单击 · <kbd>Ctrl</kbd> 加减 · <kbd>Shift</kbd> 连选 · <kbd>Ctrl</kbd>+<kbd>A</kbd> 全选</p>
+      <p class="wf-chanbox__hint">仅列出前 27 / 64 通道</p>
+    </aside>
+
+    <!-- ░░ 右：绘图区 ░░ -->
+    <section class="wf-plotcard">
+      <!-- 游标读数（悬停某时刻各通道幅值；静态稿示意 t = 300 ms 处） -->
+      <div class="wf-readout">
+        <span class="wf-readout__x">300 ms</span>
+        <span class="wf-readout__sep">·</span>
+        <span class="wf-readout__v" style="color:hsl(0,62%,47%)"><i style="background:hsl(0,62%,47%)"></i>Fz 4.82</span>
+        <span class="wf-readout__v" style="color:hsl(138,62%,47%)"><i style="background:hsl(138,62%,47%)"></i>FCz 6.11</span>
+        <span class="wf-readout__v" style="color:hsl(275,62%,47%)"><i style="background:hsl(275,62%,47%)"></i>Cz 7.45</span>
+        <span class="wf-readout__v" style="color:hsl(53,62%,47%)"><i style="background:hsl(53,62%,47%)"></i>CPz 8.93</span>
+        <span class="wf-readout__v" style="color:hsl(191,62%,47%)"><i style="background:hsl(191,62%,47%)"></i>Pz 9.27</span>
+        <span class="wf-readout__v" style="color:hsl(329,62%,47%)"><i style="background:hsl(329,62%,47%)"></i>POz 5.18</span>
+        <span class="wf-readout__more">+2</span>
+        <span class="wf-readout__unit">μV</span>
+      </div>
+
+      <!-- SVG 波形占位：坐标轴 + 基线/0ms + 多通道曲线 + 游标 -->
+      <svg class="wf-plot" viewBox="0 0 940 460" preserveAspectRatio="xMidYMid meet" role="img" aria-label="时域波形占位">
+        <!-- 绘图框 -->
+        <rect x="60" y="22" width="854" height="396" fill="#fff" stroke="var(--c-border)" />
+
+        <!-- Y 网格 + 刻度（±20 μV） -->
+        <g>
+          <line x1="60" y1="58" x2="914" y2="58" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="52" y="61" class="wf-axis" text-anchor="end">20</text>
+          <line x1="60" y1="138" x2="914" y2="138" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="52" y="141" class="wf-axis" text-anchor="end">10</text>
+          <!-- 0 基线（深一档） -->
+          <line x1="60" y1="220" x2="914" y2="220" stroke="var(--c-border-2)" />
+          <text x="52" y="223" class="wf-axis" text-anchor="end">0</text>
+          <line x1="60" y1="302" x2="914" y2="302" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="52" y="305" class="wf-axis" text-anchor="end">-10</text>
+          <line x1="60" y1="382" x2="914" y2="382" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="52" y="385" class="wf-axis" text-anchor="end">-20</text>
+          <text x="14" y="34" class="wf-axis-unit">μV</text>
+        </g>
+
+        <!-- X 网格 + 刻度（-200 → 800 ms） -->
+        <g>
+          <line x1="60"  y1="22" x2="60"  y2="418" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="60"  y="436" class="wf-axis" text-anchor="middle">-200</text>
+          <line x1="231" y1="22" x2="231" y2="418" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="231" y="436" class="wf-axis" text-anchor="middle">0</text>
+          <line x1="402" y1="22" x2="402" y2="418" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="402" y="436" class="wf-axis" text-anchor="middle">200</text>
+          <line x1="572" y1="22" x2="572" y2="418" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="572" y="436" class="wf-axis" text-anchor="middle">400</text>
+          <line x1="743" y1="22" x2="743" y2="418" stroke="var(--c-border)" stroke-dasharray="3 3" />
+          <text x="743" y="436" class="wf-axis" text-anchor="middle">600</text>
+          <text x="914" y="436" class="wf-axis" text-anchor="middle">800</text>
+          <text x="914" y="452" class="wf-axis-unit" text-anchor="end">时间 (ms)</text>
+        </g>
+
+        <!-- 起始 / 刺激 0 ms 标记线 -->
+        <line x1="231" y1="22" x2="231" y2="418" stroke="var(--c-danger)" stroke-width="1.1" stroke-dasharray="4 3" />
+        <text x="235" y="34" class="wf-stim">0</text>
+
+        <!-- 多通道曲线（占位示意：基线前平稳，0 后出现 P1/N1/P2/P300 类成分） -->
+        <g clip-path="url(#wf-clip)">
+          <!-- Fz -->
+          <path d="M60 222 L150 220 L231 221 L300 210 L360 232 L420 196 L500 215 L572 188 L660 214 L743 209 L820 216 L914 213" stroke="hsl(0,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- FCz -->
+          <path d="M60 221 L150 222 L231 220 L300 204 L360 236 L420 190 L500 210 L572 178 L660 209 L743 205 L820 213 L914 211" stroke="hsl(138,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- Cz -->
+          <path d="M60 220 L150 221 L231 219 L300 200 L360 240 L420 184 L500 206 L572 170 L660 205 L743 203 L820 211 L914 210" stroke="hsl(275,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- CPz -->
+          <path d="M60 219 L150 220 L231 218 L300 196 L360 243 L420 178 L500 200 L572 158 L660 200 L743 200 L820 209 L914 208" stroke="hsl(53,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- Pz（P300 最大） -->
+          <path d="M60 220 L150 219 L231 219 L300 194 L360 245 L420 174 L500 196 L572 152 L660 197 L743 198 L820 208 L914 207" stroke="hsl(191,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- POz -->
+          <path d="M60 221 L150 220 L231 220 L300 206 L360 234 L420 192 L500 212 L572 186 L660 212 L743 207 L820 214 L914 212" stroke="hsl(329,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- Oz -->
+          <path d="M60 222 L150 221 L231 221 L300 214 L360 228 L420 202 L500 220 L572 200 L660 218 L743 212 L820 217 L914 215" stroke="hsl(66,62%,47%)" stroke-width="1.5" fill="none" />
+          <!-- Fp1 -->
+          <path d="M60 223 L150 222 L231 222 L300 216 L360 226 L420 206 L500 222 L572 210 L660 220 L743 215 L820 218 L914 217" stroke="hsl(204,62%,47%)" stroke-width="1.5" fill="none" />
+        </g>
+        <clipPath id="wf-clip"><rect x="60" y="22" width="854" height="396" /></clipPath>
+
+        <!-- 游标（t = 300 ms ≈ x 487） -->
+        <g>
+          <line x1="487" y1="22" x2="487" y2="418" stroke="var(--c-text-3)" stroke-width="1" stroke-dasharray="2 2" />
+          <circle cx="487" cy="201" r="2.6" fill="hsl(0,62%,47%)"   stroke="#fff" stroke-width="1.2" />
+          <circle cx="487" cy="190" r="2.6" fill="hsl(138,62%,47%)" stroke="#fff" stroke-width="1.2" />
+          <circle cx="487" cy="178" r="2.6" fill="hsl(275,62%,47%)" stroke="#fff" stroke-width="1.2" />
+          <circle cx="487" cy="166" r="2.6" fill="hsl(53,62%,47%)"  stroke="#fff" stroke-width="1.2" />
+          <circle cx="487" cy="159" r="2.6" fill="hsl(191,62%,47%)" stroke="#fff" stroke-width="1.2" />
+          <circle cx="487" cy="196" r="2.6" fill="hsl(329,62%,47%)" stroke="#fff" stroke-width="1.2" />
+        </g>
+      </svg>
+
+      <!-- 底部摘要：来自 timeseries 接口的元数据 -->
+      <div class="wf-metrics">
+        <span class="wf-metric"><span class="k">类型</span><span class="v">epochs</span></span>
+        <span class="wf-metric"><span class="k">sfreq</span><span class="v">1000 Hz</span></span>
+        <span class="wf-metric"><span class="k">通道</span><span class="v">27 / 64</span></span>
+        <span class="wf-metric"><span class="k">窗口</span><span class="v">-200–800 ms</span></span>
+        <span class="wf-metric"><span class="k">条件</span><span class="v">12 / 40</span></span>
+        <span class="wf-metric"><span class="k">可用</span><span class="v">-200–1000 ms</span></span>
+      </div>
+      <p class="wf-note">
+        数据来自 <code>GET /studies/{id}/derived-datasets/{dd}/timeseries</code>，按时间窗 / 段 / 通道下采样（每通道最多 800 点、最多 64 通道）。
+      </p>
+    </section>
+
+  </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,163 @@
+site_name: 念析 ELYS 文档
+site_description: 念析 ELYS EEG 数据分析平台文档
+site_author: 念析 ELYS
+site_url: https://huanggan.site/elys_doc/
+
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+strict: false
+
+theme:
+  name: material
+  language: zh
+  font: false
+  logo: assets/elys-logo.svg
+  favicon: assets/elys-logo.svg
+  palette:
+    - scheme: default
+      primary: blue
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - scheme: slate
+      primary: blue
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
+  features:
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.select
+    - content.tooltips
+
+extra_css:
+  - assets/stylesheets/elys.css
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - sane_lists
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+exclude_docs: |
+  _*.md
+  drafts/**
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: ignore
+
+nav:
+  - 首页: index.md
+  - 0 协作规范:
+      - 协作规范总览: 0-00-协作规范总览.md
+      - 术语与统一约束: 0-10-术语与统一约束.md
+      - 文档编写规范: 0-20-文档编写规范.md
+      - 人机协作规则: 0-30-人机协作规则.md
+      - 冲突处理与权威来源: 0-40-冲突处理与权威来源.md
+  - 1 需求分析:
+      - 需求分析总览: 1-00-需求分析总览.md
+      - 项目背景与产品定位: 1-10-项目背景与产品定位.md
+      - 用户角色与使用场景: 1-20-用户角色与使用场景.md
+      - 功能需求矩阵: 1-30-功能需求矩阵.md
+      - 非功能需求: 1-40-非功能需求.md
+      - 阶段路线图: 1-50-阶段路线图.md
+      - 产品边界: 1-60-产品边界.md
+  - 2 系统架构:
+      - 系统架构总览: 2-00-系统架构总览.md
+      - 部署架构与网络拓扑: 2-10-部署架构与网络拓扑.md
+      - 服务分层设计: 2-20-服务分层设计.md
+      - 文件系统与数据目录: 2-40-文件系统与数据目录.md
+      - API设计总览: 2-50-API设计总览.md
+      - 任务队列与异步架构: 2-60-任务队列与异步架构.md
+      - 安全边界与合规设计: 2-70-安全边界与合规设计.md
+      - 代码工程结构: 2-80-代码工程结构.md
+  - 3 数据库设计:
+      - 数据库设计总览: 3-00-数据库设计总览.md
+      - 数据库模块与功能关联: 3-05-数据库模块与功能关联.md
+      - 数据库原则与对象关系: 3-10-数据库原则与对象关系.md
+      - Dataset 与采集记录表: 3-20-Dataset与采集记录表.md
+      - 数据集生命周期与发布机制: 3-25-数据集生命周期与发布机制.md
+      - Study 与 Pipeline 表: 3-30-Study与Pipeline表.md
+      - Execution 与 Artifact 追溯表: 3-40-Execution与Artifact追溯表.md
+      - 派生数据集（DerivedDataset）: 3-45-DerivedDataset.md
+      - 协作权限、状态与迁移: 3-50-协作权限状态与迁移.md
+  - 4 文件管理:
+      - 文件管理总览: 4-00-文件管理总览.md
+      - 存储原则与后端选择: 4-10-存储原则与后端选择.md
+      - Dataset 文件与导入转换: 4-20-Dataset文件与导入转换.md
+      - Study 输出与 Artifact: 4-30-Study输出与Artifact.md
+      - 数据选择器与文件索引: 4-40-数据选择器与文件索引.md
+      - 清理策略与迁移: 4-50-清理策略与迁移.md
+      - raw_bids 视图与零复制策略: 4-60-raw_bids视图与零复制策略.md
+      - 文件角色、URI 与追溯关系: 4-70-文件角色URI与追溯关系.md
+  - 5 研究管理:
+      - 研究管理总览: 5-00-研究管理总览.md
+      - Study 研究项管理: 5-10-Study研究项管理.md
+      - Pipeline 工作流管理: 5-20-Pipeline工作流管理.md
+      - 工作流节点路线图: 5-25-工作流节点路线图.md
+      - Execution 管理: 5-30-Execution管理.md
+  - 6 前端页面:
+      - 前端页面总览: 6-00-前端页面总览.md
+      - 设计原则与 UI 约定: 6-01-设计原则与UI约定.md
+      - 信息分级与领域语言: 6-05-信息分级与领域语言.md
+      - 展示与认证: 6-10-展示与认证.md
+      - 研究项与数据管理: 6-20-研究项与数据管理.md
+      - 工作流与执行: 6-30-工作流与执行.md
+      - 预处理与观察: 6-40-预处理与观察.md
+      - 输出与智能: 6-50-输出与智能.md
+  - 7 后端架构:
+      - 后端架构总览: 7-00-后端架构总览.md
+      - 后端工程结构与启动入口: 7-10-后端工程结构与启动入口.md
+      - 后端 API 设计与三端调用模型: 7-20-后端API设计与三端调用模型.md
+      - 后端分层与数据契约: 7-30-后端分层与数据契约.md
+      - 工作流执行与后台任务: 7-40-工作流执行与后台任务.md
+  - 8 功能模块:
+      - 功能模块总览: 8-00-功能模块总览.md
+  - 9 更新日志:
+      - 周报总览: 9-00-更新日志.md
+      - 2026 年 5 月: 9-01-2026年5月.md
+      - 2026 年 6 月: 9-02-2026年6月.md

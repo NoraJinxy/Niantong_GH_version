@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>念析 ELYS · 科研级脑电数据分析平台</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+  .hero {
+    position: relative;
+    padding: 96px var(--s-6) 64px;
+    background:
+      radial-gradient(900px 500px at 85% 0%, #E8F0FF 0%, transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, #DEF7F2 0%, transparent 55%),
+      var(--c-bg);
+    overflow: hidden;
+  }
+  .hero__inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1.1fr 1fr; gap: var(--s-7); align-items: center; }
+  .hero h1 { font-size: 44px; line-height: 1.1; margin: 0 0 var(--s-3); letter-spacing: -.02em; }
+  .hero h1 .grad { background: linear-gradient(90deg, var(--c-primary), var(--c-accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { font-size: 16px; color: var(--c-text-2); max-width: 540px; }
+  .hero__cta { margin-top: var(--s-5); display: flex; gap: var(--s-3); flex-wrap: wrap; }
+  .hero__quote { margin-top: var(--s-5); padding: var(--s-3) var(--s-4); border-left: 3px solid var(--c-primary); color: var(--c-text-2); background: var(--c-primary-soft); border-radius: 0 var(--r) var(--r) 0; font-size: 13px; max-width: 520px; }
+  .hero__visual {
+    background: #fff;
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+    padding: var(--s-4);
+    min-height: 360px;
+  }
+  .pipeline-mock { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--s-2); align-items: center; margin-bottom: var(--s-4); }
+  .pipeline-mock .pl-node { position: static; width: 100%; min-width: 0; }
+  .pipeline-mock .arrow { color: var(--c-text-3); text-align: center; font-size: 18px; }
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-3); margin-top: var(--s-4); }
+  .feature-grid { max-width: 1200px; margin: 0 auto; padding: var(--s-7) var(--s-6); display: grid; gap: var(--s-4); grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 960px) { .hero__inner { grid-template-columns: 1fr; } .feature-grid { grid-template-columns: 1fr; } }
+  .feat { padding: var(--s-5); border: 1px solid var(--c-border); border-radius: var(--r-md); background: #fff; transition: all var(--t); }
+  .feat:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--c-primary); }
+  .feat__icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--c-primary-soft); color: var(--c-primary); margin-bottom: var(--s-3); }
+  .feat--accent .feat__icon { background: var(--c-accent-soft); color: var(--c-accent); }
+  .feat--warn .feat__icon { background: var(--c-warning-soft); color: var(--c-warning); }
+  .map-section { background: var(--c-bg-soft); padding: var(--s-7) var(--s-6); }
+  .map-section__inner { max-width: 1200px; margin: 0 auto; }
+  .nav-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-4); margin-top: var(--s-5); }
+  @media (max-width: 1100px) { .nav-cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .nav-cards { grid-template-columns: 1fr; } }
+  .nav-card {
+    background: #fff;
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    padding: var(--s-4) var(--s-5);
+    text-decoration: none;
+    color: inherit;
+    display: flex; flex-direction: column; gap: 4px;
+    transition: all var(--t);
+  }
+  .nav-card:hover { border-color: var(--c-primary); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .nav-card__title { font-weight: 600; color: var(--c-text); display: flex; align-items: center; gap: 8px; }
+  .nav-card__hint { color: var(--c-text-3); font-size: 12px; }
+  .nav-card__num { font-family: var(--ff-mono); color: var(--c-text-3); font-size: 11px; }
+  .nav-card .ico { color: var(--c-primary); }
+</style>
+</head>
+<body data-page="home">
+
+<header class="app-header">
+  <div class="app-header__brand">
+    <div class="logo"></div>
+    <div>念析 <small>ELYS</small></div>
+  </div>
+  <div class="app-header__spacer"></div>
+  <nav class="row gap-3" style="font-size: 13px;">
+    <a href="#features" class="muted" style="color: var(--c-text-2)">功能</a>
+    <a href="#sitemap" class="muted" style="color: var(--c-text-2)">页面导航</a>
+    <a href="dashboard.html" class="muted" style="color: var(--c-text-2)">演示</a>
+  </nav>
+  <div class="app-header__right" style="margin-left: var(--s-4);">
+    <a class="btn btn--sm" href="login.html">登录</a>
+    <a class="btn btn--sm btn--primary" href="dashboard.html">进入工作台</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__inner">
+    <div>
+      <span class="badge badge--primary"><span class="dot"></span>EEG 全流程一站式</span>
+      <h1 class="mt-3">念隐于微，<br/><span class="grad">析显于明</span></h1>
+      <p>面向科研的脑电数据分析 Web 平台 — 数据管理、预处理、分析、可视化、出图与机器学习全部整合到一个工作台中。BIDS 标准、MNE-Python 算法、Web 端协作，复现性与效率兼得。</p>
+      <div class="hero__cta">
+        <a class="btn btn--primary btn--lg" href="dashboard.html">立即体验工作台</a>
+        <a class="btn btn--lg" href="#sitemap">查看全部页面</a>
+      </div>
+      <div class="hero__quote">推荐路径：登录 → 仪表盘 → 项目列表 → 进入项目 → 数据导入 → 工作流编辑 → 观察 → 统计 → 出图。</div>
+    </div>
+    <div class="hero__visual">
+      <div class="row row--between mb-3">
+        <strong>典型工作流：P300 标准分析</strong>
+        <span class="badge badge--success"><span class="dot"></span>已完成</span>
+      </div>
+      <div class="pipeline-mock">
+        <div class="pl-node is-success"><div class="pl-node__head">📂 LoadData</div><div class="pl-node__body">sub-01..30</div></div>
+        <div class="arrow">→</div>
+        <div class="pl-node is-success"><div class="pl-node__head">🔧 Filter</div><div class="pl-node__body">0.5–30 Hz</div></div>
+        <div class="arrow">→</div>
+        <div class="pl-node is-success"><div class="pl-node__head">🧠 ICA</div><div class="pl-node__body">Picard, 20</div></div>
+      </div>
+      <div class="pipeline-mock">
+        <div class="pl-node is-success"><div class="pl-node__head">✂ Epoch</div><div class="pl-node__body">[-0.2, 1.0] s</div></div>
+        <div class="arrow">→</div>
+        <div class="pl-node is-success"><div class="pl-node__head">📈 ERP</div><div class="pl-node__body">Grand Avg</div></div>
+        <div class="arrow">→</div>
+        <div class="pl-node is-running"><div class="pl-node__head">📊 t-test</div><div class="pl-node__body">tar vs std</div></div>
+      </div>
+      <div class="stat-row">
+        <div class="card card--flat" style="padding: 12px;">
+          <div class="muted text-sm">数据集</div>
+          <div class="text-xl" style="font-weight:700">120</div>
+        </div>
+        <div class="card card--flat" style="padding: 12px;">
+          <div class="muted text-sm">通道</div>
+          <div class="text-xl" style="font-weight:700">64</div>
+        </div>
+        <div class="card card--flat" style="padding: 12px;">
+          <div class="muted text-sm">QA · A 级</div>
+          <div class="text-xl" style="font-weight:700;color:var(--c-success)">96%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="feature-grid">
+  <div class="feat">
+    <div class="feat__icon">
+      <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7h18M3 12h18M3 17h12"/></svg>
+    </div>
+    <h3 style="margin:0 0 4px">7 个核心模块</h3>
+    <p class="muted">文件管理 · 预处理 · 数据分析 · 观察 · 作图 · 统计 · 机器学习，145+ 功能项一站可达。</p>
+  </div>
+  <div class="feat feat--accent">
+    <div class="feat__icon">
+      <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>
+    </div>
+    <h3 style="margin:0 0 4px">BIDS + MNE 基底</h3>
+    <p class="muted">遵循脑成像数据国际标准，集成 MNE-Python 主流算法，复现性与算法前沿性兼得。</p>
+  </div>
+  <div class="feat feat--warn">
+    <div class="feat__icon">
+      <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 21V8l7-5 7 5v13"/><path d="M9 21v-7h6v7"/></svg>
+    </div>
+    <h3 style="margin:0 0 4px">本地 + 云端协作</h3>
+    <p class="muted">敏感数据保留本地，云端仅存去标识化元数据；TLS 1.3 + VPN 加密，符合个人信息保护法。</p>
+  </div>
+</section>
+
+<section id="sitemap" class="map-section">
+  <div class="map-section__inner">
+    <div class="row row--between mb-4">
+      <div>
+        <h2 style="margin: 0 0 4px;">页面导航</h2>
+        <div class="muted">本静态原型按规格文档逐页对应，共 21 个页面。点击任意卡片预览。</div>
+      </div>
+      <div class="row gap-2">
+        <span class="badge">已登录页面</span>
+        <span class="badge badge--primary">游客可访问</span>
+      </div>
+    </div>
+
+    <h4 class="muted text-sm" style="text-transform:uppercase; letter-spacing:.06em">入口与工作台</h4>
+    <div class="nav-cards">
+      <a class="nav-card" href="login.html"><span class="nav-card__num">02</span><div class="nav-card__title">🔐 登录 / 注册</div><div class="nav-card__hint">密码 / 注册 / SSO 三模式</div></a>
+      <a class="nav-card" href="dashboard.html"><span class="nav-card__num">03</span><div class="nav-card__title">📊 仪表盘</div><div class="nav-card__hint">KPI · 任务 · 项目 · 系统</div></a>
+      <a class="nav-card" href="projects.html"><span class="nav-card__num">04</span><div class="nav-card__title">📁 项目列表</div><div class="nav-card__hint">卡片 / 列表双视图</div></a>
+      <a class="nav-card" href="project-detail.html"><span class="nav-card__num">05</span><div class="nav-card__title">🗂 项目详情</div><div class="nav-card__hint">7 Tab：概览 / 被试 / 数据 / 工作流 / …</div></a>
+    </div>
+
+    <h4 class="muted text-sm mt-5" style="text-transform:uppercase; letter-spacing:.06em">数据 → 处理</h4>
+    <div class="nav-cards">
+      <a class="nav-card" href="import.html"><span class="nav-card__num">06</span><div class="nav-card__title">📥 数据导入</div><div class="nav-card__hint">拖拽上传 + BIDS 自动组织 + QA</div></a>
+      <a class="nav-card" href="pipeline.html"><span class="nav-card__num">07</span><div class="nav-card__title">🔧 工作流编辑器</div><div class="nav-card__hint">可视化节点编排</div></a>
+      <a class="nav-card" href="preprocess.html"><span class="nav-card__num">08</span><div class="nav-card__title">🧹 预处理交互</div><div class="nav-card__hint">坏通道 / 坏段 / ICA 审核</div></a>
+      <a class="nav-card" href="view.html"><span class="nav-card__num">09</span><div class="nav-card__title">👁 观察浏览入口</div><div class="nav-card__hint">六类观察类型选择</div></a>
+    </div>
+
+    <h4 class="muted text-sm mt-5" style="text-transform:uppercase; letter-spacing:.06em">六种观察视图</h4>
+    <div class="nav-cards">
+      <a class="nav-card" href="view-erp.html"><span class="nav-card__num">09a</span><div class="nav-card__title">📈 时域 ERP</div><div class="nav-card__hint">波形 · 峰值 · 拓扑</div></a>
+      <a class="nav-card" href="view-psd.html"><span class="nav-card__num">09b</span><div class="nav-card__title">📊 频域 PSD</div><div class="nav-card__hint">频段 · IAF · 地形图</div></a>
+      <a class="nav-card" href="view-tfr.html"><span class="nav-card__num">09c</span><div class="nav-card__title">🌊 时频 TFR</div><div class="nav-card__hint">时频热图 · ERS/ERD</div></a>
+      <a class="nav-card" href="view-connectivity.html"><span class="nav-card__num">09d</span><div class="nav-card__title">🕸 脑网络</div><div class="nav-card__hint">圆形图 / 矩阵 / 3D 脑</div></a>
+      <a class="nav-card" href="view-microstate.html"><span class="nav-card__num">09e</span><div class="nav-card__title">🧩 微状态</div><div class="nav-card__hint">模板 · 序列 · 转移</div></a>
+      <a class="nav-card" href="view-source.html"><span class="nav-card__num">09f</span><div class="nav-card__title">🧲 溯源</div><div class="nav-card__hint">3D 皮层 · ROI 时序</div></a>
+    </div>
+
+    <h4 class="muted text-sm mt-5" style="text-transform:uppercase; letter-spacing:.06em">输出 · 推断 · 智能</h4>
+    <div class="nav-cards">
+      <a class="nav-card" href="statistics.html"><span class="nav-card__num">11</span><div class="nav-card__title">📐 统计分析</div><div class="nav-card__hint">5 类 20+ 检验 + Cluster Perm</div></a>
+      <a class="nav-card" href="figures.html"><span class="nav-card__num">12</span><div class="nav-card__title">🎨 作图编辑器</div><div class="nav-card__hint">期刊预设 · 批量导出</div></a>
+      <a class="nav-card" href="ml.html"><span class="nav-card__num">13</span><div class="nav-card__title">🤖 机器学习工作台</div><div class="nav-card__hint">特征 · 模型 · 解释性</div></a>
+      <a class="nav-card" href="admin.html"><span class="nav-card__num">14</span><div class="nav-card__title">⚙ 管理面板</div><div class="nav-card__hint">用户 · 设置 · 审计 · 统计</div></a>
+    </div>
+  </div>
+</section>
+
+<footer class="app-footer">© 2026 念析 ELYS · 静态前端原型 · 共 21 个页面互联</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

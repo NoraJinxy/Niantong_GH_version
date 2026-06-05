@@ -1,0 +1,63 @@
+﻿"""
+Purpose: Define SQLAlchemy ORM models entry point.
+Related: database/init.sql, app/schemas/*, app/routers/*, docs_v2/3-00.
+"""
+
+from .user import User
+from .role import Role, Permission, UserRole, RolePermission
+from .study import (
+    AuditEvent,
+    AsyncTask,
+    DatasetAsset,
+    DatasetFileDerivation,
+    DatasetFile,
+    DatasetVersion,
+    DatasetVersionReference,
+    DatasetWithdrawalRequest,
+    PipelineDefinition,
+    PipelineJob,
+    PipelineExecution,
+    PipelineExecutionDependency,
+    PipelineExecutionInput,
+    Study,
+    StudyMember,
+    Recording,
+    RecordingVersion,
+    StudyLock,
+    StudyDatasetMount,
+    StudySettings,
+    Subject,
+    TaskEvent,
+)
+from .derived_dataset import DerivedDataset
+
+__all__ = [
+    "User",
+    "Role",
+    "Permission",
+    "UserRole",
+    "RolePermission",
+    "Study",
+    "AuditEvent",
+    "StudyMember",
+    "StudyLock",
+    "StudySettings",
+    "DatasetAsset",
+    "DatasetVersion",
+    "DatasetVersionReference",
+    "DatasetWithdrawalRequest",
+    "StudyDatasetMount",
+    "Subject",
+    "AsyncTask",
+    "TaskEvent",
+    "DatasetFile",
+    "DatasetFileDerivation",
+    "PipelineDefinition",
+    "PipelineJob",
+    "PipelineExecution",
+    "PipelineExecutionDependency",
+    "PipelineExecutionInput",
+    "Recording",
+    "RecordingVersion",
+    "DerivedDataset",
+]

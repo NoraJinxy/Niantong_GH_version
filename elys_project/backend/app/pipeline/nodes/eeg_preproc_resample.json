@@ -1,0 +1,35 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/preproc/resample",
+  "title": "Resample",
+  "category": "preprocessing",
+  "phase": "phase1",
+  "description": "重采样，属于 preprocessing，输出写入 derivatives。",
+  "tags": ["resample", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Resampled EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "sfreq", "label": "Target Sampling Rate", "type": "number", "unit": "Hz", "default": 250, "min": 1, "required": true}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.resample",
+    "function": "run_resample",
+    "save_descriptor": "resamp",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "resample",
+    "auto_tags": ["step:resample", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "cache": {"enabled": true, "strategy": "content_hash"},
+  "ui": {"color": "#00A5A8", "default_size": [180, 80], "preview_type": "time_series"}
+}

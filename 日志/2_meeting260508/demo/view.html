@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>观察浏览 · 念析 ELYS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+  .view-card {
+    background: #fff; border: 1px solid var(--c-border);
+    border-radius: var(--r-lg); padding: var(--s-5);
+    text-decoration: none; color: inherit;
+    display: flex; flex-direction: column; gap: var(--s-3);
+    transition: all var(--t);
+    position: relative; overflow: hidden;
+  }
+  .view-card::after {
+    content: ""; position: absolute; right: -40px; top: -40px;
+    width: 140px; height: 140px; border-radius: 50%; opacity: .35;
+  }
+  .view-card:hover { transform: translateY(-2px); border-color: var(--c-primary); box-shadow: var(--shadow-md); }
+  .view-card .view-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 22px;
+    z-index: 1;
+  }
+  .view-card .arrow { color: var(--c-text-3); align-self: flex-end; transition: all var(--t); }
+  .view-card:hover .arrow { color: var(--c-primary); transform: translateX(4px); }
+  .view-erp .view-icon, .view-erp::after { background: linear-gradient(135deg,#2E6BFF,#6E84FF); }
+  .view-psd .view-icon, .view-psd::after { background: linear-gradient(135deg,#00C2A8,#3FE0C8); }
+  .view-tfr .view-icon, .view-tfr::after { background: linear-gradient(135deg,#F59E0B,#FFC868); }
+  .view-conn .view-icon, .view-conn::after { background: linear-gradient(135deg,#8B5CF6,#A78BFA); }
+  .view-micro .view-icon, .view-micro::after { background: linear-gradient(135deg,#EC4899,#F472B6); }
+  .view-source .view-icon, .view-source::after { background: linear-gradient(135deg,#10B981,#34D399); }
+</style>
+</head>
+<body data-page="view">
+
+<div id="topbar-mount"></div>
+
+<main class="page page--narrow" style="padding-top: var(--s-7);">
+  <div class="text-center mb-5">
+    <span class="badge badge--primary">观察浏览入口</span>
+    <h1 class="page__title mt-3" style="font-size: 30px;">选择观察数据类型</h1>
+    <p class="page__subtitle">六类观察视图共享统一交互模式：时间光标 · 区间统计 · 多面板联动 · 截图导出</p>
+  </div>
+
+  <div class="grid grid-3">
+    <a class="view-card view-erp" href="view-erp.html">
+      <div class="view-icon">📈</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">时域 ERP</h3>
+        <div class="muted text-sm">波形 · 峰值 · 拓扑联动</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">条件叠加 / 个体被试 / 差异波 三种排列；自动 P1/N1/P2/N2/P3/N400 峰值检测；瞬时拓扑随光标。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=erp</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+
+    <a class="view-card view-psd" href="view-psd.html">
+      <div class="view-icon">📊</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">频域 PSD</h3>
+        <div class="muted text-sm">频谱 · 频段 · IAF</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">叠加 / 分行 / 网格三模式；δ-θ-α-β-γ 频段背景着色 + IAF 自动定位；频段功率柱状图。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=psd</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+
+    <a class="view-card view-tfr" href="view-tfr.html">
+      <div class="view-icon">🌊</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">时频 TFR</h3>
+        <div class="muted text-sm">时频热图 · ERS/ERD</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">单图 / 并列 / 网格；2D 框选时间×频率联动 ERP 与 PSD 子图；统计显著性轮廓叠加。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=tfr</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+
+    <a class="view-card view-conn" href="view-connectivity.html">
+      <div class="view-icon">🕸</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">脑网络</h3>
+        <div class="muted text-sm">圆形图 / 矩阵 / 3D 脑</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">wPLI / PLV / Coherence；阈值滑块实时过滤；图论指标 (全局效率 / 聚类 / 小世界 / 模块化)。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=connectivity</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+
+    <a class="view-card view-micro" href="view-microstate.html">
+      <div class="view-icon">🧩</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">微状态</h3>
+        <div class="muted text-sm">模板 · 序列 · 转移</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">K=4-7 模板地形图；GFP 序列分类着色；K×K 转移概率矩阵；Duration / Occurrence / Coverage。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=microstate</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+
+    <a class="view-card view-source" href="view-source.html">
+      <div class="view-icon">🧲</div>
+      <div>
+        <h3 style="margin: 0 0 4px;">溯源</h3>
+        <div class="muted text-sm">3D 皮层 · ROI 时序</div>
+      </div>
+      <p class="muted text-sm" style="line-height:1.6">sLORETA / dSPM / MNE；Desikan / Destrieux / HCP-MMP 图谱；切片视图 + ROI 激活排行。</p>
+      <div class="row row--between mt-3">
+        <span class="text-mono text-sm muted">?type=source</span>
+        <span class="arrow">进入 →</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="card mt-5">
+    <div class="card__header">
+      <h3 class="card__title">从最近结果快速进入</h3>
+      <a href="project-detail.html" class="text-sm">所有结果 →</a>
+    </div>
+    <table class="table table--compact">
+      <thead><tr><th>类型</th><th>来源工作流</th><th>覆盖被试</th><th>创建时间</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge--primary">ERP</span></td><td>P300 标准分析</td><td>sub-01 ~ sub-30</td><td class="muted">2 小时前</td><td><a class="btn btn--sm btn--primary" href="view-erp.html">进入 →</a></td></tr>
+        <tr><td><span class="badge badge--accent">PSD</span></td><td>静息态频谱</td><td>sub-01 ~ sub-45</td><td class="muted">昨天</td><td><a class="btn btn--sm btn--primary" href="view-psd.html">进入 →</a></td></tr>
+        <tr><td><span class="badge badge--warning">TFR</span></td><td>时频分析</td><td>sub-01 ~ sub-20</td><td class="muted">3 天前</td><td><a class="btn btn--sm btn--primary" href="view-tfr.html">进入 →</a></td></tr>
+        <tr><td><span class="badge">Connectivity</span></td><td>脑网络分析</td><td>sub-01 ~ sub-45</td><td class="muted">1 周前</td><td><a class="btn btn--sm btn--primary" href="view-connectivity.html">进入 →</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="alert alert--info mt-4">
+    <svg class="alert__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h0"/></svg>
+    <div>
+      <div class="alert__title">通用快捷键</div>
+      <div class="alert__body">
+        <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 切换排列模式 ·
+        <kbd>滚轮</kbd> 时间轴缩放 ·
+        <kbd>拖拽</kbd> 框选区间 ·
+        <kbd>B</kbd> 切换框选 ·
+        <kbd>Ctrl+S</kbd> 截图当前视图
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/icons.js"></script>
+<script src="assets/topbar.js"></script>
+<script>renderTopbar('observe');</script>
+<script src="assets/app.js"></script>
+</body>
+</html>
