@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchShell active-key="datasets" active-top-key="datasets" :show-sidebar="false">
+  <WorkbenchShell active-key="datasets" active-top-key="datasets" :show-sidebar="false" :narrow="true">
     <div class="page__header dataset-page__header">
       <div>
         <h1 class="page__title">数据集管理</h1>

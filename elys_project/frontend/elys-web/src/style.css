@@ -485,7 +485,7 @@ code, kbd {
   min-height: calc(100vh - var(--header-h));
 }
 .page--narrow {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 .page__header {

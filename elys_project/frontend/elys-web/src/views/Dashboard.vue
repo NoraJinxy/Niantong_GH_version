@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchShell active-key="dashboard" active-top-key="dashboard" :show-sidebar="false">
+  <WorkbenchShell active-key="dashboard" active-top-key="dashboard" :show-sidebar="false" :narrow="true">
     <div class="page__header dashboard-header">
       <div>
         <h1 class="page__title">{{ greeting }}，{{ user?.full_name || user?.username || 'PI' }}</h1>

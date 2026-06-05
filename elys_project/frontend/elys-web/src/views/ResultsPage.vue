@@ -1,11 +1,10 @@
 <template>
-  <WorkbenchShell active-key="results" active-top-key="results" :show-sidebar="false">
+  <WorkbenchShell active-key="results" active-top-key="results" :show-sidebar="false" :narrow="true">
     <div class="results-page">
       <!-- ❶ Header -->
       <header class="page__header results-header">
         <div class="results-header__title">
-          <p class="eyebrow">派生数据</p>
-          <h1 class="page__title">分析结果</h1>
+          <h1 class="page__title">派生数据</h1>
           <p class="page__subtitle">
             这里列出本研究项里所有由工作流产出的数据。可以搜索、筛选、改名、加标签、改保留策略。
           </p>
@@ -206,23 +205,6 @@
           </div>
 
           <div class="results-toolbar__right">
-            <!-- UI Phase (docs_v2/6-05) P1-3: 视图模式切换 -->
-            <div class="view-mode-switch" role="tablist" aria-label="结果视图">
-              <button
-                type="button"
-                class="view-mode-switch__btn"
-                :class="{ 'is-active': viewMode === 'list' }"
-                title="列表视图"
-                @click="viewMode = 'list'"
-              >📋 列表</button>
-              <button
-                type="button"
-                class="view-mode-switch__btn"
-                :class="{ 'is-active': viewMode === 'grid' }"
-                title="卡片视图"
-                @click="viewMode = 'grid'"
-              >🎴 卡片</button>
-            </div>
             <label class="results-select-all">
               <input
                 type="checkbox"

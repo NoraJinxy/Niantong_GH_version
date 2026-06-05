@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false">
+  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="true">
     <div class="studies-page">
       <div class="page__header studies-page__header">
         <div>

@@ -61,7 +61,7 @@
         </button>
       </aside>
 
-      <main class="page">
+      <main class="page" :class="{ 'page--narrow': narrow }">
         <slot />
       </main>
     </div>
@@ -80,6 +80,7 @@ const props = defineProps<{
   activeKey: string
   activeTopKey?: string
   showSidebar?: boolean
+  narrow?: boolean
 }>()
 
 const auth = useAuthStore()
