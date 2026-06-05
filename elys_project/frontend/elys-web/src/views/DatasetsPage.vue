@@ -2397,6 +2397,11 @@ function formatFileSize(bytes: number) {
   gap: var(--s-4);
 }
 
+/* 统计条与下方主区之间留块级间距（原为 0，上下太挤）*/
+.page-stat-strip {
+  margin-bottom: var(--s-6);
+}
+
 .dataset-page__actions {
   display: flex;
   align-items: center;
