@@ -8,7 +8,7 @@
 : <span class="elys-badge elys-badge--wip">部分接入</span>
 
 后端
-: `routers/pipelines.py` · `pipeline/executor.py` · `pipeline/artifacts.py` · `tasks/pipeline_tasks.py`
+: `routers/pipelines.py` · `pipeline/executor.py` · `pipeline/derived_dataset_store.py` · `tasks/pipeline_tasks.py`
 
 数据库
 : `pipeline_executions` · `pipeline_jobs` · `pipeline_execution_inputs` · `pipeline_execution_dependencies` · `derived_datasets` · `async_tasks` · `task_events`
@@ -102,7 +102,7 @@ Execution 创建 API 已支持两个轻量控制字段：
 | `execution_mode` | `trial` / `analysis` / `replay` / `system` | `analysis` | 区分试跑、正式分析、重放和系统触发 |
 | `save_policy` | `temporary` / `current` / `pinned` / `discard` | `current` | 描述输出保留意图 |
 
-当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。ArtifactStore 尚未按 `save_policy` 自动改变输出保留策略，后续再强化。
+当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。DerivedDatasetStore 尚未按 Execution 级 `save_policy` 自动改变输出保留策略（当前 retention 由节点拓扑角色经 `save_settings.py` 决定：leaf=current、intermediate=cached+7d），后续再强化。
 
 Execution 创建还会结合 Pipeline 状态校验：
 

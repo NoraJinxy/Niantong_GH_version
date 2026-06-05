@@ -43,13 +43,51 @@ def _raise_for_status(response: requests.Response) -> requests.Response:
     return response
 
 
+class _StreamingBody:
+    """带 __len__ 的可迭代请求体。
+
+    为什么需要它：requests 拿到一个**裸生成器**当 body 时，因为算不出长度，会自动加
+    `Transfer-Encoding: chunked`；要是再手动塞了 `Content-Length`，俩头同时出现属畸形请求，
+    有些代理 / 网关会直接重置连接（实测本机 clash 代理就这么挂的）。给 body 一个 __len__，
+    requests 就改用 Content-Length 直传、不发 chunked——和旧的 files= 缓冲上传同样规矩，
+    但仍是边读盘边发，进度条照常。
+    """
+
+    def __init__(self, chunks: "Iterator[bytes]", length: int):
+        self._chunks = chunks
+        self._length = length
+        self._buf = b""
+        self._done = False
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __iter__(self):
+        # requests 靠 __iter__ 把它判定为「流式 body」从而设 Content-Length；
+        # 实际传输走下面的 read()（http.client/urllib3 优先用 read，更通用）。
+        return self._chunks
+
+    def read(self, amt: int | None = -1) -> bytes:
+        if amt is None or amt < 0:                 # 读全部剩余
+            rest = b"".join(self._chunks)
+            out, self._buf, self._done = self._buf + rest, b"", True
+            return out
+        while len(self._buf) < amt and not self._done:
+            try:
+                self._buf += next(self._chunks)
+            except StopIteration:
+                self._done = True
+        out, self._buf = self._buf[:amt], self._buf[amt:]
+        return out
+
+
 def _encode_multipart_stream(
     text_fields: dict[str, str],
     file_specs: list[tuple[str, Path]],
     *,
     chunk_size: int = 256 * 1024,
     on_progress: Callable[[int, int], None] | None = None,
-) -> tuple[Iterator[bytes], str, int]:
+) -> tuple[_StreamingBody, str, int]:
     """手写 multipart/form-data 的「流式」编码：边读盘边发，发的同时回报进度。
 
     为什么不用 requests 自带的 files=：它会把整个请求体先攒进内存算 Content-Length 再发，
@@ -106,7 +144,7 @@ def _encode_multipart_stream(
         yield emit(closing)
 
     content_type = f"multipart/form-data; boundary={boundary}"
-    return _body(), content_type, total
+    return _StreamingBody(_body(), total), content_type, total
 
 
 class ElysClient:
@@ -271,7 +309,7 @@ class ElysClient:
             r = self._session.post(
                 f"{self.base_url}/studies/{study_id}/recordings/import",
                 data=body,
-                headers={"Content-Type": content_type, "Content-Length": str(content_length)},
+                headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
                 timeout=timeout,
             )
         finally:
@@ -409,7 +447,7 @@ class ElysClient:
         r = self._session.post(
             f"{self.base_url}/studies/{study_id}/recordings/import-async",
             data=body,
-            headers={"Content-Type": content_type, "Content-Length": str(content_length)},
+            headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
             timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
         )
         _raise_for_status(r)        # 409（重复）/422（坏文件）在这同步抛出

@@ -99,7 +99,7 @@ Dataset-first bootstrap 会创建或选择配套 Study，并创建 active `study
 |---|---|---|
 | `default_dataset_filter` | LoadData 默认筛选范围 | 已被 LoadData 消费 |
 | `run_policy` | 是否同一 Study 只允许一个活跃 Execution、是否需要运行锁 | 字段已存在，运行时待完整接入 |
-| `artifact_retention_policy` | 新 DerivedDataset 默认保存策略、缓存清理开关 | 字段已存在，清理服务待接入 |
+| `derived_dataset_retention_policy` | 新 DerivedDataset 默认保存策略、缓存清理开关（DDL 字段名，非 `artifact_retention_policy`） | 字段已存在，清理服务待接入 |
 | `storage_policy` | Study 级配额、冷热存储或导出策略 | 预留 |
 
 Settings 必须成为运行时事实源，不能只是前端可写配置。
@@ -130,7 +130,7 @@ Settings 必须成为运行时事实源，不能只是前端可写配置。
 ```text
 study_locks
   study_id
-  lock_type = edit / run
+  lock_type = edit / execution
   locked_by
   resource_id
   expires_at
@@ -165,12 +165,13 @@ Study 级关键行为要留痕：
 Study 目录只存研究输出：
 
 ```text
-studies/st-202605000001/
-  runs/
-  artifacts/
+studies/202605000001/
+  executions/
+  derived/
   previews/
   temp/
   exports/
+  pipeline_snapshots/
 ```
 
 Dataset 原始文件和 canonical FIF 放在 Dataset 目录中，Study 通过数据库引用，不复制。
@@ -190,10 +191,10 @@ Dataset 原始文件和 canonical FIF 放在 Dataset 目录中，Study 通过数
 
 ## 9. 后续实现任务
 
-1. 增加 `/studies` alias，逐步弱化 Study 命名。
+1. Study 路径已确定为 `/studies`（产品语义即「研究项」，无迁名计划）。
 2. 前端接入 Pipeline 编辑锁的获取、续期和释放。
 3. `run_policy` 真正控制并发 Execution。
-4. `artifact_retention_policy` 接入 ArtifactStore（写 `derived_datasets`）和清理服务。
+4. `derived_dataset_retention_policy` 接入 DerivedDatasetStore（写 `derived_datasets`）和清理服务。
 5. Study activity 页面展示最近谁改了 Pipeline、谁运行、谁固定结果。
 
 ## 10. 相关页面

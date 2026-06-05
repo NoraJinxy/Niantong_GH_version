@@ -2,7 +2,7 @@
   <div>
     <header class="topbar">
       <RouterLink to="/" class="topbar__brand" title="返回首页">
-        <div class="logo">析</div>
+        <div class="logo"><svg viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg></div>
         <div class="topbar__brand-text">念析 <small>ELYS</small></div>
       </RouterLink>
 

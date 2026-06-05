@@ -173,6 +173,8 @@ code, kbd {
   letter-spacing: -.5px;
   flex-shrink: 0;
 }
+/* logo 内的波形字形（取代旧「析」字），自适应各处方块尺寸 */
+.logo svg { width: 62%; height: 62%; }
 .topbar__brand-text {
   line-height: 1.1;
   font-size: 15px;
