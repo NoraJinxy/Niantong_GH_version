@@ -171,7 +171,7 @@ flowchart LR
 | LoadData 使用挂载 Dataset 文件 | 已实现，Execution 输入冻结保留 `dataset_asset_id/dataset_file_id/storage_uri/logical_path/sha256` 和 mount metadata |
 | 采集记录与文件查询 API | 已支持 `GET /recordings`、`GET /recordings/{id}/files`、`GET /dataset-assets/{id}/files`（按 `file_role` 查询）、`GET /dataset-assets/{id}/bids-tree`，以及 `GET /dataset-files/{id}/metadata`、`/preview`、`/download` |
 | Raw BIDS 视图 | 已完成基础逻辑路径和 `file_role` 登记；BIDS validator 与 BrainVision 引用重写待后续 |
-| 异步导入任务 | `POST /recordings/import-task`（`dataset_import`）、`POST /dataset-assets/{id}/raw-bids-build`（`raw_bids_build`）、`POST /dataset-assets/{id}/canonical-fif-rebuild`（`canonical_fif_rebuild`）任务入口均已就绪，但 `backend/app/tasks/file_tasks.py` 里这三个 handler 仍是**骨架**（`*_performed=False`，只统计不真正执行）；真正的 FIF 转换当前只在**同步导入** `POST /recordings/import` 里发生（`generate_canonical_fif` 调 MNE）。异步真正接管上传待 staged upload 落地 |
+| 异步导入任务 | **`dataset_import` 已真正落地**：`POST /recordings/import-async`（也有旧入口 `/import-task`）请求内先落盘归档，再派发 Celery，worker `run_dataset_import` 调与同步路径共用的转换核心 `materialize_recording_import`（校验 → MNE 转 canonical FIF → 写库），返回 `import_performed=True`，进度经 `task_events` 上报。`raw_bids_build` 因 raw_bids 是纯逻辑视图、无需复制，handler 只回 file_count（no-op）。`canonical_fif_rebuild` 仍是**骨架**（`rebuild_performed=False`，只索引已有 FIF）。同步入口 `POST /recordings/import`（`generate_canonical_fif`）继续保留 |
 
 ## 9. 相关页面
 
