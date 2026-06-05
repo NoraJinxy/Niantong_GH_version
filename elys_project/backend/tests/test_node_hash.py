@@ -30,13 +30,13 @@ from app.pipeline.hash import node_hash  # noqa: E402
 def base_spec():
     return {
         "schema_version": "1.0",
-        "type": "eeg/filter/butterworth",
-        "title": "Butter",
+        "type": "eeg/filter/apply",
+        "title": "Filter",
         "category": "preprocess",
         "phase": "phase1",
         "backend": {
             "module": "app.engine.preprocess.filters",
-            "function": "run_butterworth_filter",
+            "function": "run_filter",
             "save_descriptor": "filt",
             "output_kind": "fif",
             "supports_batch": True,
@@ -130,7 +130,7 @@ def test_properties_change_does_not_affect_node_hash_directly():
 def test_node_type_change_changes_hash():
     spec_a = base_spec()
     spec_b = base_spec()
-    spec_b["type"] = "eeg/filter/fir"
+    spec_b["type"] = "eeg/preproc/resample"
     a = node_hash(
         node_type=spec_a["type"], params_digest=PARAMS_DIGEST,
         input_digest=INPUT_DIGEST, node_spec=spec_a,
@@ -154,7 +154,7 @@ def test_backend_function_change_changes_hash():
     """改 backend.function 意味着调用不同函数 → hash 应该变。"""
     spec_a = base_spec()
     spec_b = base_spec()
-    spec_b["backend"]["function"] = "run_butterworth_filter_v2"
+    spec_b["backend"]["function"] = "run_filter_v2"
     assert hash_of(spec_a) != hash_of(spec_b)
 
 

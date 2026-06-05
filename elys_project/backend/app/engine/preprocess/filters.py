@@ -8,111 +8,118 @@ from __future__ import annotations
 from typing import Any
 
 
-def run_fir_filter(raw: Any, params: dict[str, Any]) -> Any:
-    filter_mode = str(params.get("filter_mode") or "bandpass")
-    phase = str(params.get("phase") or "zero")
-    if phase not in {"zero", "minimum"}:
-        raise ValueError("FIR phase must be zero or minimum.")
+def run_filter(raw: Any, params: dict[str, Any]) -> Any:
+    """统一滤波节点的执行入口：按 filter_type 分派到 MNE 的 filter() 或 notch_filter()。
 
-    l_freq, h_freq = _resolve_freqs(filter_mode, params, "FIR")
+    filter_type:
+      - bandpass / highpass / lowpass → raw.filter()（频谱滤波家族，由 l_freq/h_freq 决定形状）
+      - notch                          → raw.notch_filter()（工频陷波，由中心频率 + 谐波决定）
+    method:
+      - fir（默认，零相位窗函数）/ iir（Butterworth）/ spectrum_fit（仅 notch，正弦拟合减除）
 
-    filtered = raw.copy().load_data()
-    filtered.filter(l_freq=l_freq, h_freq=h_freq, phase=phase, fir_design="firwin", verbose="ERROR")
-    return filtered
-
-
-def run_butterworth_filter(raw: Any, params: dict[str, Any]) -> Any:
-    """IIR Butterworth filter via MNE.
-
-    MNE 的 `method="iir"` 配 `iir_params={"order": N, "ftype": "butter"}` 走 scipy 的 sosfiltfilt（零相位双向），
-    跟 FIR 用法风格统一；order 范围 1-12 与节点 spec 一致。
+    设计说明：MNE 本就用一个 filter() 管低通 / 高通 / 带通，notch 是独立函数。这里把这两套
+    包成一个面向用户的节点，按 filter_type 在引擎内分派——参数形状的差异由 NodeSpec 的
+    visible_when 在 UI 层切换，引擎只管按 type 读对应参数。
     """
-    order_raw = params.get("order")
-    try:
-        order = int(order_raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Butterworth order must be an integer (1-12).") from exc
-    if order < 1 or order > 12:
-        raise ValueError("Butterworth order must be between 1 and 12.")
-
-    filter_mode = str(params.get("filter_mode") or "bandpass")
-    l_freq, h_freq = _resolve_freqs(filter_mode, params, "Butterworth")
-
-    filtered = raw.copy().load_data()
-    filtered.filter(
-        l_freq=l_freq,
-        h_freq=h_freq,
-        method="iir",
-        iir_params={"order": order, "ftype": "butter"},
-        verbose="ERROR",
+    filter_type = str(params.get("filter_type") or "bandpass").strip().lower()
+    method = str(params.get("method") or "fir").strip().lower()
+    if filter_type == "notch":
+        return _run_notch(raw, params, method)
+    if filter_type in {"bandpass", "highpass", "lowpass"}:
+        return _run_spectral(raw, params, filter_type, method)
+    raise ValueError(
+        f"Unknown filter_type: {filter_type!r} (expected bandpass/highpass/lowpass/notch)."
     )
-    return filtered
 
 
-def run_notch_filter(raw: Any, params: dict[str, Any]) -> Any:
-    """工频陷波（notch）——剔除 50/60Hz 工频及其谐波。
+def _run_spectral(raw: Any, params: dict[str, Any], filter_type: str, method: str) -> Any:
+    """带通 / 高通 / 低通：走 MNE raw.filter()。FIR（默认）或 IIR Butterworth。"""
+    if method == "spectrum_fit":
+        raise ValueError("spectrum_fit method is only valid for filter_type=notch.")
+    if method not in {"fir", "iir"}:
+        raise ValueError("Spectral filter method must be fir or iir.")
 
-    用法与 FIR / Butterworth 保持一致：raw.copy().load_data() 后调 MNE 的 notch_filter。
-    频点优先级：
-      - 给了 freqs（逗号分隔字符串 / 列表）→ 直接用这些频点，忽略 freq + harmonics；
-      - 否则用 freq（基频）× 1..harmonics 自动展开成 [50, 100, 150 …]。
-    """
-    explicit = params.get("freqs")
-    if explicit not in (None, ""):
-        freqs = _parse_freq_list(explicit)
-        if not freqs:
-            raise ValueError("Notch freqs must contain at least one positive frequency.")
-    else:
-        freq = _positive_float_or_none(params.get("freq"))
-        if freq is None:
-            raise ValueError("Notch filter requires a positive freq (line frequency).")
-        harmonics_raw = params.get("harmonics")
-        try:
-            harmonics = int(harmonics_raw) if harmonics_raw not in (None, "") else 1
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Notch harmonics must be an integer between 1 and 20.") from exc
-        if harmonics < 1 or harmonics > 20:
-            raise ValueError("Notch harmonics must be between 1 and 20.")
-        freqs = [freq * order for order in range(1, harmonics + 1)]
+    l_freq, h_freq = _resolve_freqs(filter_type, params)
+    trans = _positive_float_or_none(params.get("trans_bandwidth"))
+
+    kwargs: dict[str, Any] = {"l_freq": l_freq, "h_freq": h_freq, "verbose": "ERROR"}
+    if trans is not None:
+        # 只给相关那一边设过渡带（高通只有低边、低通只有高边）；留空时 MNE 用 'auto'
+        if l_freq is not None:
+            kwargs["l_trans_bandwidth"] = trans
+        if h_freq is not None:
+            kwargs["h_trans_bandwidth"] = trans
+
+    if method == "iir":
+        kwargs["method"] = "iir"
+        kwargs["iir_params"] = {"order": _resolve_order(params), "ftype": "butter"}
+    else:  # fir
+        phase = str(params.get("phase") or "zero").strip().lower()
+        if phase not in {"zero", "minimum"}:
+            raise ValueError("FIR phase must be zero or minimum.")
+        kwargs["phase"] = phase
+        kwargs["fir_design"] = "firwin"
 
     filtered = raw.copy().load_data()
-    filtered.notch_filter(freqs=freqs, verbose="ERROR")
+    filtered.filter(**kwargs)
     return filtered
 
 
-def _parse_freq_list(value: Any) -> list[float]:
-    """把 "50, 100; 150" 或 [50, 100] 这样的输入解析成正频点列表，跳过非法 / 非正值。"""
-    if isinstance(value, (list, tuple)):
-        items: list[Any] = list(value)
-    else:
-        items = str(value).replace(";", ",").split(",")
-    freqs: list[float] = []
-    for item in items:
-        number = _positive_float_or_none(item.strip() if isinstance(item, str) else item)
-        if number is not None:
-            freqs.append(number)
-    return freqs
+def _run_notch(raw: Any, params: dict[str, Any], method: str) -> Any:
+    """工频陷波：走 MNE raw.notch_filter()。中心频率 × 谐波展开成 [50, 100, 150 …]。"""
+    if method not in {"fir", "iir", "spectrum_fit"}:
+        raise ValueError("Notch method must be fir, iir, or spectrum_fit.")
+    freq = _positive_float_or_none(params.get("notch_freq"))
+    if freq is None:
+        raise ValueError("Notch filter requires a positive notch_freq (line frequency).")
+    harmonics = _resolve_int(params.get("notch_harmonics"), default=1, lo=1, hi=20, name="notch_harmonics")
+    freqs = [freq * order for order in range(1, harmonics + 1)]
+
+    filtered = raw.copy().load_data()
+    filtered.notch_filter(freqs=freqs, method=method, verbose="ERROR")
+    return filtered
 
 
-def _resolve_freqs(filter_mode: str, params: dict[str, Any], label: str) -> tuple[float | None, float | None]:
-    """共享的 bandpass/lowpass/highpass cutoff 校验。返回 (l_freq, h_freq) 给 MNE filter() 用。"""
+def _resolve_freqs(filter_type: str, params: dict[str, Any]) -> tuple[float | None, float | None]:
+    """按 filter_type 解析 (l_freq, h_freq) 给 MNE filter() 用，并做基本校验。"""
     l_freq = _positive_float_or_none(params.get("l_freq"))
     h_freq = _positive_float_or_none(params.get("h_freq"))
-    if filter_mode == "bandpass":
+    if filter_type == "bandpass":
         if l_freq is None or h_freq is None:
-            raise ValueError(f"Bandpass {label} filter requires l_freq and h_freq.")
+            raise ValueError("Bandpass filter requires both l_freq and h_freq.")
         if l_freq >= h_freq:
-            raise ValueError(f"Bandpass {label} filter requires l_freq < h_freq.")
+            raise ValueError("Bandpass filter requires l_freq < h_freq.")
         return l_freq, h_freq
-    if filter_mode == "lowpass":
+    if filter_type == "lowpass":
         if h_freq is None:
-            raise ValueError(f"Lowpass {label} filter requires h_freq.")
+            raise ValueError("Lowpass filter requires h_freq.")
         return None, h_freq
-    if filter_mode == "highpass":
+    if filter_type == "highpass":
         if l_freq is None:
-            raise ValueError(f"Highpass {label} filter requires l_freq.")
+            raise ValueError("Highpass filter requires l_freq.")
         return l_freq, None
-    raise ValueError(f"{label} filter_mode must be bandpass, lowpass, or highpass.")
+    raise ValueError("Spectral filter_type must be bandpass, lowpass, or highpass.")
+
+
+def _resolve_order(params: dict[str, Any]) -> int:
+    raw_order = params.get("order")
+    try:
+        order = int(raw_order) if raw_order not in (None, "") else 4
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Butterworth order must be an integer between 1 and 12.") from exc
+    if order < 1 or order > 12:
+        raise ValueError("Butterworth order must be between 1 and 12.")
+    return order
+
+
+def _resolve_int(value: Any, *, default: int, lo: int, hi: int, name: str) -> int:
+    try:
+        number = int(value) if value not in (None, "") else default
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer between {lo} and {hi}.") from exc
+    if number < lo or number > hi:
+        raise ValueError(f"{name} must be between {lo} and {hi}.")
+    return number
 
 
 def _positive_float_or_none(value: Any) -> float | None:

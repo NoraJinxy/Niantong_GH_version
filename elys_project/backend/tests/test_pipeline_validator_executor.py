@@ -1,5 +1,6 @@
 """
-Purpose: Test Pipeline validation catches NodeSpec entries without runtime executors.
+Purpose: Test Pipeline validation — every registered NodeSpec has a runtime executor,
+and unknown node types are reported.
 Related: app/pipeline/validator.py, app/pipeline/dispatcher.py, app/pipeline/nodes/*.json.
 """
 
@@ -35,6 +36,7 @@ def clear_lightweight_app_stubs() -> None:
 clear_lightweight_app_stubs()
 
 from app.pipeline.dispatcher import NodeDispatcher  # noqa: E402
+from app.pipeline.registry import get_node_registry  # noqa: E402
 from app.pipeline.validator import validate_definition  # noqa: E402
 
 
@@ -51,7 +53,7 @@ VALID_LOAD_PARAMS = {
 }
 
 
-def make_definition(filter_type: str) -> dict:
+def make_definition(filter_type: str, filter_params: dict | None = None) -> dict:
     return {
         "schema_version": "1.0",
         "graph": {
@@ -66,11 +68,9 @@ def make_definition(filter_type: str) -> dict:
                     "id": "filter-1",
                     "type": filter_type,
                     "title": "Filter",
-                    "params": {
-                        "filter_mode": "bandpass",
-                        "l_freq": 0.5,
-                        "h_freq": 30.0,
-                    },
+                    "params": filter_params
+                    if filter_params is not None
+                    else {"filter_type": "bandpass", "l_freq": 0.5, "h_freq": 30.0},
                 },
             ],
             "links": [
@@ -83,30 +83,46 @@ def make_definition(filter_type: str) -> dict:
     }
 
 
-def test_node_dispatcher_exposes_supported_node_types() -> None:
+def test_every_registered_nodespec_has_executor() -> None:
+    """合并后所有内置 NodeSpec 都应有 dispatcher handler（不再有「有 spec 无执行器」的幽灵）。"""
     dispatcher = NodeDispatcher()
+    registry = get_node_registry()
 
     assert "eeg/data/load" in dispatcher.supported_node_types()
-    assert dispatcher.supports("eeg/filter/fir")
-    assert not dispatcher.supports("eeg/filter/butterworth")
+    assert dispatcher.supports("eeg/filter/apply")
+    for spec in registry.list_specs():
+        assert dispatcher.supports(spec["type"]), f"NodeSpec without executor: {spec['type']}"
 
 
-def test_validate_definition_reports_nodespec_without_executor() -> None:
-    result = validate_definition(make_definition("eeg/filter/butterworth"))
+def test_validate_definition_reports_unknown_node_type() -> None:
+    result = validate_definition(make_definition("eeg/does-not/exist", filter_params={}))
 
     assert not result.valid
     assert any(
-        issue.code == "PIPELINE_NODE_EXECUTOR_NOT_IMPLEMENTED"
-        and issue.node_id == "filter-1"
-        and issue.node_type == "eeg/filter/butterworth"
+        issue.code == "NODE_SPEC_NOT_FOUND" and issue.node_id == "filter-1"
         for issue in result.errors
     )
 
 
-def test_validate_definition_allows_nodespec_with_executor() -> None:
-    result = validate_definition(make_definition("eeg/filter/fir"))
+def test_validate_definition_allows_filter_node() -> None:
+    result = validate_definition(make_definition("eeg/filter/apply"))
 
-    executor_errors = [
-        issue for issue in result.errors if issue.code == "PIPELINE_NODE_EXECUTOR_NOT_IMPLEMENTED"
+    blocking = [
+        issue
+        for issue in result.errors
+        if issue.code in {"PIPELINE_NODE_EXECUTOR_NOT_IMPLEMENTED", "NODE_SPEC_NOT_FOUND"}
     ]
-    assert executor_errors == []
+    assert blocking == []
+
+
+def test_validate_filter_node_notch_only_params() -> None:
+    """陷波类型：只给 notch_freq，不给 l_freq/h_freq，也应通过（visible_when 让它们非必填）。"""
+    result = validate_definition(
+        make_definition(
+            "eeg/filter/apply",
+            filter_params={"filter_type": "notch", "notch_freq": 50.0, "notch_harmonics": 3},
+        )
+    )
+
+    param_errors = [issue for issue in result.errors if issue.code == "PARAM_REQUIRED"]
+    assert param_errors == []

@@ -55,7 +55,7 @@ class StorageService:
         if not parsed.scheme:
             raise StorageUriError("Storage URI must include a scheme.")
 
-        if parsed.scheme == "project":
+        if parsed.scheme == "study":
             return self._resolve_legacy_study_uri(uri, parsed, study_root=study_root)
         if parsed.scheme == "elys" and parsed.netloc == "datasets":
             return self._resolve_dataset_uri(uri, parsed)
@@ -78,7 +78,7 @@ class StorageService:
             raise StorageUriError("Path reference is empty.")
 
         parsed = urlparse(text)
-        if parsed.scheme in {"project", "elys"}:
+        if parsed.scheme in {"study", "elys"}:
             return self.resolve_uri(text, study_root=study_root).path
 
         path = Path(text).expanduser()
@@ -129,7 +129,7 @@ class StorageService:
         path = _safe_join(root, parts)
         return StorageReference(
             uri=uri,
-            scheme="project",
+            scheme="study",
             namespace="studies",
             root=root,
             path=path,

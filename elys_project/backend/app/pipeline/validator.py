@@ -100,6 +100,74 @@ def validate_load_data_params(
         )
 
 
+def _effective_params(spec: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """合并属性默认值 + 用户实参，供 visible_when 判定（控制字段没显式给时用默认值）。"""
+    effective: dict[str, Any] = {}
+    for prop in spec.get("properties", []):
+        if "default" in prop:
+            effective[prop["name"]] = prop.get("default")
+    for key, value in (params or {}).items():
+        if value not in (None, ""):
+            effective[key] = value
+    return effective
+
+
+def _property_visible(prop: dict[str, Any], effective_params: dict[str, Any]) -> bool:
+    """visible_when: {控制字段: [允许值,...]}，全部命中才显示；无 visible_when 视为永远显示。"""
+    rules = prop.get("visible_when")
+    if not isinstance(rules, dict):
+        return True
+    for key, allowed in rules.items():
+        allowed_list = allowed if isinstance(allowed, list) else [allowed]
+        if effective_params.get(key) not in allowed_list:
+            return False
+    return True
+
+
+def validate_filter_params(
+    params: dict[str, Any],
+    issues: list[PipelineValidationIssue],
+    node_id: str,
+    node_type: str,
+) -> None:
+    filter_type = str(params.get("filter_type") or "bandpass")
+    if filter_type not in {"bandpass", "highpass", "lowpass", "notch"}:
+        issues.append(
+            PipelineValidationIssue(
+                code="FILTER_TYPE_INVALID",
+                message="filter_type 必须是 bandpass / highpass / lowpass / notch",
+                node_id=node_id,
+                node_type=node_type,
+            )
+        )
+        return
+    method = str(params.get("method") or "fir")
+    if method == "spectrum_fit" and filter_type != "notch":
+        issues.append(
+            PipelineValidationIssue(
+                code="FILTER_METHOD_INVALID",
+                message="谱拟合(spectrum_fit) 仅适用于工频陷波(notch)",
+                node_id=node_id,
+                node_type=node_type,
+            )
+        )
+    if filter_type == "bandpass":
+        l_freq = params.get("l_freq")
+        h_freq = params.get("h_freq")
+        try:
+            if l_freq not in (None, "") and h_freq not in (None, "") and float(l_freq) >= float(h_freq):
+                issues.append(
+                    PipelineValidationIssue(
+                        code="FILTER_BAND_INVALID",
+                        message="带通要求低截止 < 高截止",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+        except (TypeError, ValueError):
+            pass
+
+
 def topological_node_order(definition_json: dict[str, Any]) -> list[dict[str, Any]]:
     """返回需要执行的节点（拓扑顺序）。
 
@@ -232,7 +300,10 @@ def validate_definition(
                 )
             )
             params = {}
+        effective_params = _effective_params(spec, params)
         for prop in spec.get("properties", []):
+            if not _property_visible(prop, effective_params):
+                continue
             if prop.get("required") and params.get(prop["name"]) in (None, ""):
                 issues.append(
                     PipelineValidationIssue(
@@ -256,6 +327,8 @@ def validate_definition(
                 )
                 issues.extend(resolved.errors)
                 issues.extend(resolved.warnings)
+        if node_type == "eeg/filter/apply" and isinstance(params, dict):
+            validate_filter_params(params, issues, node_id, node_type)
 
     incoming: dict[str, int] = {node_id: 0 for node_id in node_ids}
     incoming_ports: dict[str, set[str]] = {node_id: set() for node_id in node_ids}

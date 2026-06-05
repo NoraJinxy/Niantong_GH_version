@@ -101,9 +101,16 @@ class PipelineCache:
 
     def _artifacts_for_job(self, job: Any) -> list[Any]:
         model = self._get_artifact_model()
+        # 必须排除已被 cleanup 标记 deleted 的派生数据：cleanup 只改 retention_status /
+        # deleted_at、物理文件保留，所以"文件在 + sha256 对"仍成立，但这些行用户视角是
+        # 已删除的，不能当作缓存命中复用（否则下游会引用一条 deleted 行）。与
+        # derived_dataset_store 的 content-addressed dedup 过滤口径保持一致。
         return (
             self.db.query(model)
-            .filter(model.produced_by_job_id == getattr(job, "id", None))
+            .filter(
+                model.produced_by_job_id == getattr(job, "id", None),
+                model.deleted_at.is_(None),
+            )
             .order_by(model.created_at.asc(), model.id.asc())
             .all()
         )

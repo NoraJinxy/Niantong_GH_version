@@ -249,7 +249,7 @@ def test_conflict_empty_base_returns_input():
 
 # ---- apply_save_settings (end-to-end with FakeDb) -------------------------
 
-def _node(node_id="butter-1", node_type="eeg/filter/butterworth", title="Butter"):
+def _node(node_id="butter-1", node_type="eeg/filter/apply", title="Butter"):
     return {"id": node_id, "type": node_type, "title": title}
 
 

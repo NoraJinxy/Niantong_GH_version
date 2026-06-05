@@ -172,7 +172,7 @@ Pipeline 保存和运行前都应校验：
 - 输出槽被下游使用时类型合法。
 - 运行前选择器能解析到数据或明确返回 422。
 
-当前 Execution 创建已前置执行 validation，严重输入错误返回 422，不再先创建 queued Execution。10 个内置节点（LoadData、FIR / Butterworth / Notch 滤波、重采样、重参考、Compute / Apply ICA、Epoch、ERP）均已在 `dispatcher.py` 注册真实 handler；validate 只对"有 NodeSpec 但 dispatcher 无 handler"的节点类型返回 `PIPELINE_NODE_EXECUTOR_NOT_IMPLEMENTED`，当前内置节点不会触发。节点级清单与补全规划见 [5-25 工作流节点路线图](5-25-工作流节点路线图.md)。
+当前 Execution 创建已前置执行 validation，严重输入错误返回 422，不再先创建 queued Execution。8 个内置节点（LoadData、Filter[统一滤波：带通/高通/低通/陷波]、重采样、重参考、Compute / Apply ICA、Epoch、ERP）均已在 `dispatcher.py` 注册真实 handler；validate 只对"有 NodeSpec 但 dispatcher 无 handler"的节点类型返回 `PIPELINE_NODE_EXECUTOR_NOT_IMPLEMENTED`，当前内置节点不会触发。节点级清单与补全规划见 [5-25 工作流节点路线图](5-25-工作流节点路线图.md)。
 
 ## 8. 当前运行链路
 

@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS dataset_files (
 
 COMMENT ON TABLE dataset_files IS '数据文件统一索引表。登记 Dataset Version 下的 original upload、Raw BIDS 逻辑视图、canonical FIF、sidecar 等。';
 COMMENT ON COLUMN dataset_files.file_role IS '文件角色。标准角色包括 original_upload、raw_bids_data、raw_bids_eeg_json、raw_bids_channels、raw_bids_events、canonical_fif；兼容角色包括 raw_source、sidecar。';
-COMMENT ON COLUMN dataset_files.storage_uri IS '存储抽象 URI，例如 elys://studies/{study_id}/{relative_path}。';
+COMMENT ON COLUMN dataset_files.storage_uri IS '存储抽象 URI。当前数据集导入写 legacy 形式 study://{study_id}/{relative_path}（解析到研究项 data_root）；新 Study 存储用 elys://studies/{study_id}/{relative_path}（解析到 STUDIES_STORAGE_ROOT）。两者由 StorageService.resolve_uri 分别解析。';
 COMMENT ON COLUMN dataset_files.relative_path IS '相对于研究项 data_root 的 POSIX 路径。';
 COMMENT ON COLUMN dataset_files.logical_path IS '相对于 Dataset Version 根或 Study 根的稳定逻辑路径。';
 COMMENT ON COLUMN dataset_files.source_file_id IS '可选的直接来源文件。复杂多源关系使用 dataset_file_derivations 表表达。';

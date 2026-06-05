@@ -42,6 +42,7 @@ from app.models import (
     PipelineExecutionInput,
     Study,
     StudyLock,
+    StudySettings,
     TaskEvent,
     User,
 )
@@ -3040,6 +3041,28 @@ def batch_update_derived_datasets(
             },
         )
     upd = payload.update
+    # 事务原子性：apply_derived_dataset_retention_action 命中依赖 blocker 时会先 db.commit()
+    # 再抛 409。批量循环里若第 N 条撞 blocker，会把前 N-1 条的改动一并提交后抛错，造成
+    # "部分成功 + 无回滚"。因此当目标是 deleted 时，先全量预检所有 blocker，任一被挡就
+    # 在改动任何数据之前一次性 409，循环内便不会再触发 commit-then-raise。
+    if upd.retention_status == ARTIFACT_DELETED_STATUS:
+        blocked: list[dict[str, Any]] = []
+        for ds in datasets:
+            try:
+                assert_artifact_can_be_deleted(db, artifact=ds)
+            except ArtifactDependencyError as exc:
+                blocked.append(
+                    {"derived_dataset_id": str(ds.id), "dependencies": exc.blockers}
+                )
+        if blocked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DERIVED_DATASET_BATCH_BLOCKED",
+                    "message": "部分派生数据集被下游引用，无法删除/隐藏；批量操作已整体取消。",
+                    "blocked": blocked,
+                },
+            )
     for ds in datasets:
         if upd.display_name is not None:
             ds.display_name = upd.display_name.strip() or None
@@ -3362,6 +3385,41 @@ def _create_pipeline_execution(
     settings = get_settings()
     async_task_id = uuid4()
 
+    # run_policy.single_active_pipeline_run（默认 True）：整个 Study 同一时刻只允许一个
+    # 活跃 Execution。per-pipeline 运行锁只挡同一 Pipeline 的并发，挡不住"同 Study 不同
+    # Pipeline 同时跑"，故在此按策略做 Study 级前置检查。
+    # 注：这是前置查询，与"拿锁前的瞬间"之间存在极小竞态窗口（同 Pipeline 由下面的运行锁
+    # 兜底）；要做成硬互斥需引入 Study 级锁，留待后续。
+    settings_row = (
+        db.query(StudySettings).filter(StudySettings.study_id == study.id).first()
+    )
+    run_policy = (
+        settings_row.run_policy
+        if settings_row is not None and isinstance(settings_row.run_policy, dict)
+        else {}
+    ) or {}
+    if run_policy.get("single_active_pipeline_run", True):
+        active_execution = (
+            db.query(PipelineExecution)
+            .filter(
+                PipelineExecution.study_id == study.id,
+                PipelineExecution.status.in_(
+                    ("queued", "running", "waiting_user_input")
+                ),
+            )
+            .first()
+        )
+        if active_execution is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "STUDY_EXECUTION_ACTIVE",
+                    "message": "该研究项已有正在进行的运行，请等待其结束或在研究项设置中关闭单活跃运行限制。",
+                    "active_execution_id": str(active_execution.id),
+                    "active_pipeline_id": active_execution.pipeline_id,
+                },
+            )
+
     def _try_acquire_lock():
         return acquire_study_lock(
             db,
@@ -3396,11 +3454,15 @@ def _create_pipeline_execution(
                 execution_lock = None
                 _raise_pipeline_execution_locked(exc2.lock, study.id, pipeline.id)
         else:
-            # 没找到 stale 锁，说明真有别的 execution 在跑
+            # 没找到 stale 锁，通常是真有别的 execution 在跑。但在"第一次尝试失败"
+            # 与这次重试之间，那个 execution 有可能刚好结束并释放了锁（并发窗口），
+            # 此时重试会成功——必须接收返回值采用它，否则 execution_lock 未绑定会
+            # 在后面 str(execution_lock.id) 抛 UnboundLocalError，且这把刚拿到的锁
+            # 会泄漏到 TTL。
             try:
-                # 重新触发一次拿当前锁信息
-                _try_acquire_lock()
+                execution_lock = _try_acquire_lock()
             except StudyLockConflictError as exc2:
+                execution_lock = None
                 _raise_pipeline_execution_locked(exc2.lock, study.id, pipeline.id)
 
     execution = PipelineExecution(

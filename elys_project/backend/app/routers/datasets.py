@@ -419,6 +419,7 @@ def create_and_dispatch_file_task(
     current_user: User,
 ) -> AsyncTaskResponse:
     from app.services.async_tasks import async_task_to_response, create_async_task
+    from app.services.task_events import record_task_event
     from app.tasks.file_tasks import run_file_task
 
     task = create_async_task(

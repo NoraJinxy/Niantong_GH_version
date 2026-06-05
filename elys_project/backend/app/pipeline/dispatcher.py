@@ -25,7 +25,7 @@ from app.engine.io import (
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
-from app.engine.preprocess.filters import run_butterworth_filter, run_fir_filter, run_notch_filter
+from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
 from app.engine.preprocess.resample import run_resample
 from app.models import PipelineExecutionInput
@@ -67,9 +67,7 @@ class NodeDispatcher:
     def __init__(self):
         self._handlers: dict[str, Callable[[NodeExecutionContext], NodeDispatchResult]] = {
             "eeg/data/load": self._execute_load_data,
-            "eeg/filter/fir": self._execute_fir_filter,
-            "eeg/filter/butterworth": self._execute_butterworth_filter,
-            "eeg/filter/notch": self._execute_notch_filter,
+            "eeg/filter/apply": self._execute_filter,
             "eeg/preproc/resample": self._execute_resample,
             "eeg/preproc/rereference": self._execute_rereference,
             "eeg/ica/compute": self._execute_ica_compute,
@@ -197,14 +195,18 @@ class NodeDispatcher:
             warnings=warnings,
         )
 
-    def _execute_fir_filter(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        return self._execute_raw_preprocess(context, run_fir_filter, save_descriptor="filt")
-
-    def _execute_butterworth_filter(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        return self._execute_raw_preprocess(context, run_butterworth_filter, save_descriptor="iirfilt")
-
-    def _execute_notch_filter(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        return self._execute_raw_preprocess(context, run_notch_filter, save_descriptor="notch")
+    def _execute_filter(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        # 统一滤波节点：按 filter_type / method 推导 save_descriptor（影响派生文件名后缀）
+        params = context.params if isinstance(context.params, dict) else {}
+        filter_type = str(params.get("filter_type") or "bandpass").strip().lower()
+        method = str(params.get("method") or "fir").strip().lower()
+        if filter_type == "notch":
+            save_descriptor = "notch"
+        elif method == "iir":
+            save_descriptor = "iirfilt"
+        else:
+            save_descriptor = "firfilt"
+        return self._execute_raw_preprocess(context, run_filter, save_descriptor=save_descriptor)
 
     def _execute_resample(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_raw_preprocess(context, run_resample, save_descriptor="resamp")

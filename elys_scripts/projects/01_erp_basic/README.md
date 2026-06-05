@@ -33,6 +33,6 @@ python run.py       # 跑 ERP pipeline
 
 ## 改 pipeline 参数
 
-- 换滤波频段：改 `run.py` 里 `build_definition()` 的 `bw` 节点 `l_freq` / `h_freq`。
+- 换滤波类型 / 频段：改 `run.py` 里 `build_definition()` 的 `bw`（统一 `eeg/filter/apply`）节点——`filter_type`（bandpass/highpass/lowpass/notch）、`method`（fir/iir/spectrum_fit，仅陷波可用谱拟合）、`l_freq`/`h_freq`；陷波改用 `notch_freq`/`notch_harmonics`。
 - 换参考电极 / 分析条件：改 `config_local.py` 的 `REF_CHANNELS` / `EVENT_LABELS`（候选见 setup 打印）。
 - 要重跑不同参数对比：复制 `run.py` 成 `run_v2.py` 改参数，跑两次对比 `output/`。

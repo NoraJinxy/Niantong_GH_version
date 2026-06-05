@@ -32,18 +32,24 @@ def build_definition() -> dict:
                     },
                 },
                 {
-                    "id": "bw", "type": "eeg/filter/butterworth", "title": "Butterworth",
+                    "id": "bw", "type": "eeg/filter/apply", "title": "Bandpass (IIR)",
                     "position": [320, 80],
-                    "params": {"filter_mode": "bandpass", "l_freq": 0.5, "h_freq": 30.0, "order": 4},
+                    "params": {"filter_type": "bandpass", "method": "iir", "l_freq": 0.5, "h_freq": 30.0, "order": 4},
+                },
+                {
+                    "id": "nf", "type": "eeg/filter/apply", "title": "Notch 50Hz",
+                    "position": [560, 80],
+                    # 工频陷波：50Hz 基频 + 前 3 次谐波（50/100/150）。中国市电 50Hz；北美改 60。
+                    "params": {"filter_type": "notch", "notch_freq": 50.0, "notch_harmonics": 3},
                 },
                 {
                     "id": "rr", "type": "eeg/preproc/rereference", "title": "Re-reference",
-                    "position": [560, 80],
+                    "position": [800, 80],
                     "params": {"ref_channels": lconfig.REF_CHANNELS},
                 },
                 {
                     "id": "ep", "type": "eeg/epoch/segment", "title": "Epoch",
-                    "position": [800, 80],
+                    "position": [1040, 80],
                     "params": {
                         "event_id": lconfig.EVENT_LABELS,
                         "tmin": -0.2, "tmax": 1.0,
@@ -52,15 +58,16 @@ def build_definition() -> dict:
                 },
                 {
                     "id": "erp", "type": "eeg/analysis/erp", "title": "ERP Average",
-                    "position": [1040, 80],
+                    "position": [1280, 80],
                     "params": {"condition": lconfig.EVENT_LABELS},
                 },
             ],
             "links": [
                 {"id": "l1", "from": {"node": "ld",  "port": "output"}, "to": {"node": "bw",  "port": "input"}},
-                {"id": "l2", "from": {"node": "bw",  "port": "output"}, "to": {"node": "rr",  "port": "input"}},
-                {"id": "l3", "from": {"node": "rr",  "port": "output"}, "to": {"node": "ep",  "port": "input"}},
-                {"id": "l4", "from": {"node": "ep",  "port": "output"}, "to": {"node": "erp", "port": "input"}},
+                {"id": "l2", "from": {"node": "bw",  "port": "output"}, "to": {"node": "nf",  "port": "input"}},
+                {"id": "l3", "from": {"node": "nf",  "port": "output"}, "to": {"node": "rr",  "port": "input"}},
+                {"id": "l4", "from": {"node": "rr",  "port": "output"}, "to": {"node": "ep",  "port": "input"}},
+                {"id": "l5", "from": {"node": "ep",  "port": "output"}, "to": {"node": "erp", "port": "input"}},
             ],
         },
     }

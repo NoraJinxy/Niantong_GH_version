@@ -737,7 +737,7 @@
           />
 
           <div v-else-if="selectedNodeSpec.properties.length" class="property-list">
-            <template v-for="prop in selectedNodeSpec.properties" :key="prop.name">
+            <template v-for="prop in visibleBasicProperties" :key="prop.name">
               <!-- event_select 类型：根据上游 LoadData 的事件标签做多选 chip -->
               <div v-if="prop.type === 'event_select'" class="field event-select">
                 <div class="event-select__head">
@@ -915,6 +915,45 @@
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
               </label>
             </template>
+
+            <!-- 高级设置：advanced=true 的工程参数折叠在这里（method / phase / order 等） -->
+            <details v-if="visibleAdvancedProperties.length" class="advanced-params">
+              <summary class="advanced-params__summary">高级设置（{{ visibleAdvancedProperties.length }}）</summary>
+              <label v-for="prop in visibleAdvancedProperties" :key="'adv-' + prop.name" class="field">
+                <span>
+                  {{ prop.label }}
+                  <small v-if="prop.unit">({{ prop.unit }})</small>
+                </span>
+                <input
+                  v-if="prop.type === 'boolean'"
+                  class="checkbox"
+                  type="checkbox"
+                  :checked="Boolean(selectedNode.params[prop.name])"
+                  @change="handleParamCheckbox(prop, $event)"
+                />
+                <select
+                  v-else-if="prop.type === 'select'"
+                  class="control"
+                  :value="String(selectedNode.params[prop.name] ?? prop.default ?? '')"
+                  @change="handleParamInput(prop, $event)"
+                >
+                  <option v-for="option in prop.options || []" :key="String(option.value)" :value="String(option.value)">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input
+                  v-else
+                  class="control"
+                  :type="prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text'"
+                  :min="prop.min"
+                  :max="prop.max"
+                  :step="prop.type === 'integer' ? (prop.step ?? 1) : (prop.step ?? 'any')"
+                  :value="formatParamValue(prop)"
+                  @change="handleParamInput(prop, $event)"
+                />
+                <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
+              </label>
+            </details>
           </div>
           <div v-else class="state-text">该节点暂无可配置参数。</div>
 
@@ -1670,6 +1709,36 @@ const canUsePipelineEditLockActions = computed(() =>
 )
 const selectedNode = computed(() => definition.value.graph.nodes.find((node) => node.id === selectedNodeId.value) || null)
 const selectedNodeSpec = computed(() => (selectedNode.value ? specForNode(selectedNode.value) : null))
+// —— 节点参数的条件显示 (visible_when) 与高级折叠 (advanced) ——
+// effectiveNodeParams：属性默认值 + 用户实参合并，给 visible_when 判定用（控制字段未显式给时回退默认）
+const effectiveNodeParams = computed<Record<string, unknown>>(() => {
+  const eff: Record<string, unknown> = {}
+  const spec = selectedNodeSpec.value
+  if (spec) {
+    for (const prop of spec.properties) {
+      if (prop.default !== undefined) eff[prop.name] = prop.default
+    }
+  }
+  const params = (selectedNode.value?.params ?? {}) as Record<string, unknown>
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') eff[key] = value
+  }
+  return eff
+})
+const isPropVisible = (prop: { visible_when?: Record<string, Array<string | number | boolean>> }): boolean => {
+  const rules = prop.visible_when
+  if (!rules) return true
+  const eff = effectiveNodeParams.value
+  return Object.entries(rules).every(([key, allowed]) =>
+    allowed.map((value) => String(value)).includes(String(eff[key])),
+  )
+}
+const visibleBasicProperties = computed(() =>
+  (selectedNodeSpec.value?.properties ?? []).filter((prop) => !prop.advanced && isPropVisible(prop)),
+)
+const visibleAdvancedProperties = computed(() =>
+  (selectedNodeSpec.value?.properties ?? []).filter((prop) => prop.advanced && isPropVisible(prop)),
+)
 const isLoadDataNode = computed(() => selectedNode.value?.type === LOAD_DATA_NODE_TYPE)
 
 /**
@@ -4973,7 +5042,21 @@ async function savePipeline() {
     loadPipelineIntoEditor(res.data)
     statusMessage.value = '工作流已保存'
   } catch (error) {
-    statusMessage.value = describeError(error, '保存失败')
+    const httpStatus = (error as { response?: { status?: number } })?.response?.status
+    if (httpStatus === 409 && currentPipeline.value) {
+      // 乐观锁版本冲突：拉最新版本号刷新本地 expected_version，否则再点保存会一直发旧
+      // 版本号、永远 409 死循环。只更新 version、不动画布（保留用户未保存的编辑），让用户
+      // 确认后可重新保存（将覆盖远端最新版本）。
+      try {
+        const latest = await pipelineApi.get(selectedStudyId.value, currentPipeline.value.id)
+        currentPipeline.value = { ...currentPipeline.value, version: latest.data.version }
+        statusMessage.value = '此工作流已被其他人更新，已载入最新版本号；你的画布改动仍在，确认后可重新保存（将覆盖远端最新版本）。'
+      } catch (refetchError) {
+        statusMessage.value = describeError(error, '保存失败（版本冲突，刷新最新版本号也失败）')
+      }
+    } else {
+      statusMessage.value = describeError(error, '保存失败')
+    }
   } finally {
     saving.value = false
   }

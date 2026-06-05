@@ -626,6 +626,10 @@ export interface NodeProperty {
   description?: string | null
   help?: string | null
   hash?: boolean
+  /** 条件显示：{控制字段: [允许值,...]}，全部命中才渲染该参数。 */
+  visible_when?: Record<string, Array<string | number | boolean>>
+  /** true=归入折叠的「高级设置」区；默认 false=常显。 */
+  advanced?: boolean
 }
 
 export interface NodeSpec {

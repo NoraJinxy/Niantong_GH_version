@@ -365,18 +365,25 @@ class ElysClient:
 
     @staticmethod
     def _make_upload_bar(show_progress: bool):
-        """只画上传进度条（不带转换计时）——异步上传用：POST 秒回，转换进度改由轮询任务状态展示。"""
+        """只画上传进度条（不带转换计时）——异步上传用：POST 秒回，转换进度改由轮询任务状态展示。
+
+        注意进度条到 100% 只表示字节已全部交给本地 socket/代理；若挂了本地代理(clash 等)，
+        代理再上传到远端会再花一段时间，这段表现为「100% 后等一会才返回」，属正常。
+        """
         if not show_progress:
             return lambda sent, total: None
 
+        # 用足够长的空白清行：中文「上传完成」每字占 2 列但算 1 字符，普通空格盖不满进度条残影
+        clear = "\r" + " " * 72 + "\r"
         state = {"last": 0.0, "done": False}
 
         def on_progress(sent: int, total: int):
+            if state["done"]:                       # 传满后任何回调都不再重绘，杜绝 100% 后再冒 99.9%
+                return
             if sent >= total:
-                if not state["done"]:
-                    state["done"] = True
-                    sys.stdout.write(f"\r  ↑ 上传完成 {total / 1e6:.1f} MB (100%)          \n")
-                    sys.stdout.flush()
+                state["done"] = True
+                sys.stdout.write(f"{clear}  ↑ 数据已发出 {total / 1e6:.1f} MB，等待服务器接收并入队…\n")
+                sys.stdout.flush()
                 return
             now = time.time()
             if now - state["last"] < 0.1:

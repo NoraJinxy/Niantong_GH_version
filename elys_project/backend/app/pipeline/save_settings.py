@@ -282,7 +282,11 @@ def apply_save_settings(
     elif retention_override == "pinned":
         retention_status, retention_expires_at = "pinned", None
     elif retention_override == "none":
-        retention_status, retention_expires_at = "none", None
+        # "不保留"映射到合法的 'temporary'（expires 为空 → 下次 cleanup 立即可回收）。
+        # 不能写 'none'：derived_datasets.retention_status 的 CHECK 只允许
+        # current/pinned/cached/temporary/deleted/quarantined，写 'none' 会撞约束、
+        # 整个节点产物登记失败。
+        retention_status, retention_expires_at = "temporary", None
     else:
         retention_status, retention_expires_at = default_retention_for_role(role)
 

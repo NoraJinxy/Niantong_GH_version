@@ -235,10 +235,16 @@ def _ensure_asset_writer(asset: DatasetAsset, user: User) -> None:
 
 
 def _ensure_superadmin(user: User) -> None:
-    """紧急下架仅限超级管理员（DEC-2026-0531-D）。"""
-    if user.has_role("superadmin"):
+    """紧急下架仅限超级管理员（DEC-2026-0531-D）。
+
+    注：seed（seeds/01_roles_permissions.sql）当前只建 admin / pi 两个系统角色、
+    没有 superadmin。admin 在 seed 里被赋予全部权限、是事实上的最高权限角色，因此
+    一并放行——否则从零自建的环境里没有任何用户能执行紧急下架（永远 403）。
+    将来若引入独立 superadmin 角色，可收窄此处。
+    """
+    if user.has_role("superadmin") or user.has_role("admin"):
         return
-    raise DatasetLifecyclePermissionError("紧急下架仅限超级管理员")
+    raise DatasetLifecyclePermissionError("紧急下架仅限管理员")
 
 
 def _latest_published_version_label(db: Session, *, asset: DatasetAsset) -> str | None:
