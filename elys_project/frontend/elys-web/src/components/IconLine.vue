@@ -8,7 +8,7 @@
 
   设计原则:
     - 单色：fill="none" + stroke="currentColor"，颜色随父元素文字色（CSS 中 color 控制）
-    - 线条粗细统一 1.6px（lucide 默认 2px 视觉略重，做了细微减薄）
+    - 线条粗细统一 1.8px（对齐 AppIcon / 设计系统 Lucide 标准，两套图标粗细一致）
     - 24×24 viewBox，等比缩放
     - rounded line caps/joins（圆角端点，柔和）
 
@@ -26,7 +26,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   size: 14,
-  strokeWidth: 1.6,
+  strokeWidth: 1.8,
 })
 
 /**
