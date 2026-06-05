@@ -5,7 +5,9 @@ Related: app/routers/datasets.py, app/routers/pipelines.py, app/services/executi
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -215,14 +217,113 @@ def run_canonical_fif_rebuild(db, task: AsyncTask) -> dict[str, Any]:
     }
 
 
+def _read_import_manifest(job_dir: Path) -> dict[str, Any]:
+    """读回请求阶段写的 archiving manifest，让 worker 续写 done/failed 时保留 jobId/entities 等字段。"""
+    manifest_path = job_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            pass
+    return {"status": "archiving", "jobDir": str(job_dir)}
+
+
 def run_dataset_import(db, task: AsyncTask) -> dict[str, Any]:
+    """真正干活的异步导入 worker：读 job_dir 里**已暂存**的文件，调用与同步端点同源的
+    materialize_recording_import 做 校验→转 canonical FIF→写库，全程 record_task_event 上报进度。
+
+    上下文从 task.payload_json 重建（见 routers/datasets.py import_recording_async 写入的字段）。
+    """
+    from sqlalchemy.orm import joinedload
+
+    from app.models import DatasetVersion, Study, Subject, User
+    # 惰性 import：转换核心与辅助函数都在 routers.datasets 里，顶层 import 会把 router 层拉进
+    # worker 进程并可能造成循环 import；在函数体内运行时 import 可避开。
+    from app.routers.datasets import (
+        get_active_study_dataset_mount_for_asset,
+        materialize_recording_import,
+        recording_to_response,
+    )
+
     payload = task.payload_json or {}
+    required = (
+        "study_id", "dataset_asset_id", "dataset_version_id", "job_dir",
+        "archived", "upload_kind", "upload_seq", "job_id", "bids_subject_id", "task_label",
+    )
+    missing = [key for key in required if payload.get(key) in (None, "")]
+    if missing:
+        raise ValueError(f"dataset_import 任务 payload 缺字段: {missing}")
+
+    study = db.query(Study).filter(Study.id == payload["study_id"]).first()
+    if study is None:
+        raise ValueError(f"Study 不存在: {payload['study_id']}")
+
+    importer = None
+    if payload.get("importer_user_id"):
+        importer = db.query(User).filter(User.id == payload["importer_user_id"]).first()
+    if importer is None and task.created_by:
+        importer = db.query(User).filter(User.id == task.created_by).first()
+    if importer is None:
+        raise ValueError("dataset_import 找不到发起用户")
+
+    target_asset = db.query(DatasetAsset).filter(DatasetAsset.id == payload["dataset_asset_id"]).first()
+    target_version = db.query(DatasetVersion).filter(DatasetVersion.id == payload["dataset_version_id"]).first()
+    if target_asset is None or target_version is None:
+        raise ValueError("dataset_import 的 dataset asset / version 不存在")
+    target_mount = get_active_study_dataset_mount_for_asset(db, study=study, dataset_asset=target_asset)
+
+    duplicate = None
+    if payload.get("duplicate_recording_id"):
+        duplicate = (
+            db.query(Recording)
+            .options(joinedload(Recording.current_version))
+            .filter(Recording.id == payload["duplicate_recording_id"])
+            .first()
+        )
+    subject_record = None
+    if payload.get("subject_record_id"):
+        subject_record = db.query(Subject).filter(Subject.id == payload["subject_record_id"]).first()
+
+    archived = {ext: Path(p) for ext, p in (payload.get("archived") or {}).items()}
+    job_dir = Path(payload["job_dir"])
+    temp_root = Path(study.data_root) / "upload_staging"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    manifest = _read_import_manifest(job_dir)
+
+    def emit(progress: int, message: str) -> None:
+        record_task_event(db, task, "progress", status="running", progress=progress, message=message)
+        db.commit()
+
+    emit(10, "文件已暂存，开始导入")
+    dataset = materialize_recording_import(
+        db,
+        study=study,
+        current_user=importer,
+        target_asset=target_asset,
+        target_version=target_version,
+        target_mount=target_mount,
+        duplicate=duplicate,
+        subject_record=subject_record,
+        bids_subject_id=payload["bids_subject_id"],
+        session_label=payload.get("session_label"),
+        task_label=payload["task_label"],
+        run_label=payload.get("run_label"),
+        upload_kind=payload["upload_kind"],
+        upload_seq=payload["upload_seq"],
+        job_id=payload["job_id"],
+        job_dir=job_dir,
+        archived=archived,
+        manifest=manifest,
+        temp_root=temp_root,
+        on_progress=emit,
+    )
     return {
-        "study_id": task.study_id,
-        "dataset_asset_id": payload.get("dataset_asset_id"),
-        "staged_upload_uri": payload.get("staged_upload_uri"),
-        "message": "Dataset import task was recorded. Synchronous upload remains the active import path until staged upload workers are enabled.",
-        "import_performed": False,
+        "recording_id": str(dataset.id),
+        "recording": recording_to_response(dataset).model_dump(mode="json"),
+        "upload_seq": payload["upload_seq"],
+        "mode": "replacement" if duplicate else "new",
+        "fif_path": dataset.fif_path,
+        "import_performed": True,
     }
 
 

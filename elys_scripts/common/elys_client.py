@@ -325,6 +325,123 @@ class ElysClient:
 
         return on_progress, finish
 
+    @staticmethod
+    def _make_upload_bar(show_progress: bool):
+        """只画上传进度条（不带转换计时）——异步上传用：POST 秒回，转换进度改由轮询任务状态展示。"""
+        if not show_progress:
+            return lambda sent, total: None
+
+        state = {"last": 0.0, "done": False}
+
+        def on_progress(sent: int, total: int):
+            if sent >= total:
+                if not state["done"]:
+                    state["done"] = True
+                    sys.stdout.write(f"\r  ↑ 上传完成 {total / 1e6:.1f} MB (100%)          \n")
+                    sys.stdout.flush()
+                return
+            now = time.time()
+            if now - state["last"] < 0.1:
+                return
+            state["last"] = now
+            width = 24
+            filled = int(width * sent / total)
+            bar = "█" * filled + "·" * (width - filled)
+            sys.stdout.write(
+                f"\r  ↑ [{bar}] {sent / 1e6:5.1f}/{total / 1e6:.1f} MB {sent / total * 100:5.1f}%"
+            )
+            sys.stdout.flush()
+
+        return on_progress
+
+    @staticmethod
+    def _latest_task_message(task: dict) -> str:
+        """从任务详情里取最近一条事件消息（轮询时给用户看「转换中…」这类阶段提示）。"""
+        for event in reversed(task.get("events") or []):
+            if event.get("message"):
+                return event["message"]
+        errors = (task.get("error_json") or {}).get("errors") or []
+        if errors:
+            return errors[0].get("message", "")
+        return ""
+
+    def import_recording_async(
+        self,
+        study_id: str,
+        file_paths: list[str | Path],
+        *,
+        subject: str,
+        task: str,
+        dataset_asset_id: str | None = None,
+        mount_name: str | None = None,
+        session: str = "",
+        run: str = "",
+        replace_existing: bool = True,
+        show_progress: bool = False,
+        poll_interval: float = 2.0,
+        poll_timeout: float = 1800,
+    ) -> dict:
+        """异步导入：流式上传文件 → **秒拿 task_id** → 轮询任务状态直到 succeeded/failed。
+        POST /studies/{study_id}/recordings/import-async（只把文件送达就返回，转 FIF 的重活在
+        服务端后台 Celery worker 跑），随后轮询 GET /studies/{study_id}/tasks/{task_id} 看真实进度。
+
+        与同步 import_recording 的区别：上传不再阻塞等转换；进度分两段——上传条 + 轮询出的服务端阶段。
+        返回最终的任务详情 dict（AsyncTaskResponse）；成功时 result_json.recording 里是 recording 元信息。
+        """
+        self._ensure_login()
+        text_fields = {
+            "subject": subject,
+            "task": task,
+            "session": session,
+            "run": run,
+            "replace_existing": str(replace_existing).lower(),
+        }
+        if dataset_asset_id:
+            text_fields["dataset_asset_id"] = dataset_asset_id
+        if mount_name:
+            text_fields["mount_name"] = mount_name
+        file_specs = [("files", Path(p)) for p in file_paths]
+
+        on_progress = self._make_upload_bar(show_progress)
+        body, content_type, content_length = _encode_multipart_stream(
+            text_fields, file_specs, on_progress=on_progress
+        )
+        r = self._session.post(
+            f"{self.base_url}/studies/{study_id}/recordings/import-async",
+            data=body,
+            headers={"Content-Type": content_type, "Content-Length": str(content_length)},
+            timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
+        )
+        _raise_for_status(r)        # 409（重复）/422（坏文件）在这同步抛出
+        task_resp = r.json()
+        task_id = task_resp.get("id")
+        if not task_id:
+            raise ElysAPIError(r)
+        if show_progress:
+            print(f"  ⏳ 已入队 task={task_id[:8]}…，服务器转换中（轮询进度）")
+
+        deadline = time.time() + poll_timeout
+        last_line = ""
+        while True:
+            s = self._session.get(
+                f"{self.base_url}/studies/{study_id}/tasks/{task_id}",
+                timeout=self.timeout,
+            )
+            _raise_for_status(s)
+            t = s.json()
+            status = t.get("status")
+            if show_progress:
+                progress = float(t.get("progress") or 0)
+                line = f"  ⏳ [{status}] {progress:5.1f}%  {self._latest_task_message(t)}"
+                if line != last_line:
+                    print(line)
+                    last_line = line
+            if status in ("succeeded", "failed", "canceled"):
+                return t
+            if time.time() > deadline:
+                raise TimeoutError(f"导入任务 {task_id} 未在 {poll_timeout}s 内完成（最后状态 {status}）")
+            time.sleep(poll_interval)
+
     # ---------- pipelines ----------
     def list_pipelines(self, study_id: str) -> list[dict]:
         self._ensure_login()

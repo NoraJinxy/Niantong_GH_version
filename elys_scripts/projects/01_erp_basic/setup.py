@@ -128,7 +128,7 @@ def _upload(c: ElysClient, *, study_id: str, ds_id: str) -> str:
     print(f"\n→ 上传 BrainVision 三件套到 asset {ds_id}")
     print(f"  文件：{[p.name for p in triplet]}")
     print(f"  subject={lconfig.SUBJECT}  task={lconfig.TASK}")
-    result = c.import_recording(
+    task = c.import_recording_async(
         study_id,
         triplet,
         subject=lconfig.SUBJECT,
@@ -139,8 +139,14 @@ def _upload(c: ElysClient, *, study_id: str, ds_id: str) -> str:
         replace_existing=True,
         show_progress=True,
     )
+    if task.get("status") != "succeeded":
+        errors = (task.get("error_json") or {}).get("errors") or []
+        detail = errors[0].get("message") if errors else task.get("status")
+        print(f"\n✗ 导入任务未成功（{task.get('status')}）：{detail}")
+        sys.exit(1)
+    result = task.get("result_json") or {}
     rec = result.get("recording") or {}
-    print(f"✓ {result.get('message') or '导入完成'}")
+    print(f"✓ 导入完成（async upload-{result.get('upload_seq')}）")
     print(f"  recording_id = {rec.get('id', '')}")
     print(
         f"  格式={rec.get('source_format')}  通道数={rec.get('n_channels')}  "

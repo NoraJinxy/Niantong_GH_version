@@ -2896,20 +2896,267 @@ def review_recording_qa_report(
     )
 
 
-@recording_router.post("/import", response_model=RecordingUploadResponse, status_code=status.HTTP_201_CREATED)
-async def import_recording(
+def materialize_recording_import(
+    db: Session,
+    *,
+    study: Study,
+    current_user: User,
+    target_asset: DatasetAsset,
+    target_version: DatasetVersion,
+    target_mount: StudyDatasetMount | None,
+    duplicate: Recording | None,
+    subject_record: Subject | None,
+    bids_subject_id: str,
+    session_label: str | None,
+    task_label: str,
+    run_label: str | None,
+    upload_kind: str,
+    upload_seq: int,
+    job_id: str,
+    job_dir: Path,
+    archived: dict[str, Path],
+    manifest: dict[str, Any],
+    temp_root: Path,
+    on_progress=None,
+) -> Recording:
+    """导入的「重活核心」：对**已落盘**的 archived 文件做 校验 → 转 canonical FIF → 写库 → audit → commit，
+    返回已回填 subject/current_version 的 Recording。
+
+    同步端点 import_recording 和 Celery worker run_dataset_import 都调它（单一事实源）。
+    on_progress(pct:int, msg:str) 可选：worker 传它来上报进度，同步端点不传。
+    注意 archived 的 key 是小写扩展名（.vhdr/.eeg/.vmrk/.edf/...），文件必须已经存进 job_dir。
+    """
+    def _emit(pct, msg):
+        if on_progress is not None:
+            on_progress(pct, msg)
+
+    archived_paths = list(archived.values())
+    checksum, total_size = compute_files_checksum(archived_paths)
+    _emit(30, "文件校验完成，准备转换")
+
+    existing_checksum_query = db.query(Recording).filter(
+        Recording.study_id == study.id,
+        Recording.dataset_asset_id == target_asset.id,
+        Recording.checksum == checksum,
+    )
+    if duplicate:
+        existing_checksum_query = existing_checksum_query.filter(Recording.id != duplicate.id)
+    existing_checksum = existing_checksum_query.first()
+    if existing_checksum:
+        manifest.update(
+            {
+                "status": "duplicate",
+                "checksum": checksum,
+                "duplicateDatasetId": str(existing_checksum.id),
+                "updatedAt": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+        write_manifest(job_dir, manifest)
+        raise HTTPException(status_code=409, detail="检测到完全相同的数据已经导入过，已阻止重复入库")
+    if duplicate and duplicate.checksum == checksum:
+        manifest.update(
+            {
+                "status": "duplicate",
+                "checksum": checksum,
+                "duplicateDatasetId": str(duplicate.id),
+                "updatedAt": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+        write_manifest(job_dir, manifest)
+        raise HTTPException(status_code=409, detail="本次上传与当前数据完全相同，无需替换")
+
+    if upload_kind == "brainvision":
+        primary_source = archived[".vhdr"]
+        source_format = "BRAINVISION"
+    else:
+        extension = next(iter(archived))
+        primary_source = archived[extension]
+        source_format = STANDARD_SINGLE_EXTENSIONS[extension]
+
+    fif_base = build_fif_base_path(study, bids_subject_id, session_label, task_label, run_label, upload_seq)
+    canonical_fif_base = build_canonical_fif_base_path(
+        target_version,
+        bids_subject_id,
+        session_label,
+        task_label,
+        run_label,
+        upload_seq,
+    )
+    ensure_fif_targets_are_free(fif_base)
+    ensure_canonical_fif_targets_are_free(canonical_fif_base)
+    ensure_fifdata_dataset_files(study, bids_subject_id)
+
+    _emit(45, "转换中（原始格式 → canonical FIF）")
+    conversion = generate_canonical_fif(
+        study=study,
+        dataset_version=target_version,
+        upload_kind=upload_kind,
+        source_path=primary_source,
+        source_format=source_format,
+        canonical_fif_base=canonical_fif_base,
+        legacy_fif_base=fif_base,
+        bids_subject_id=bids_subject_id,
+        session=session_label,
+        task_label=task_label,
+        run=run_label,
+        upload_seq=upload_seq,
+        import_job_id=job_id,
+        archived_files=archived_paths,
+        checksum=checksum,
+        temp_root=temp_root,
+    )
+
+    subject_record = subject_record or get_or_create_subject(db, study, bids_subject_id)
+    source_path = relative_to_study(study, primary_source)
+    now = datetime.utcnow()
+    if duplicate:
+        dataset = duplicate
+        if dataset.dataset_asset_id is None:
+            dataset.dataset_asset_id = target_asset.id
+        elif dataset.dataset_asset_id != target_asset.id:
+            raise HTTPException(
+                status_code=409,
+                detail="该 subject/session/task/run 已存在于另一个 Dataset Asset 中，请调整上传目标或使用新的 run 标签",
+            )
+        previous_source_path = dataset.source_path
+        previous_fif_path = dataset.fif_path
+        dataset.source_format = source_format
+        dataset.source_path = source_path
+        dataset.fif_path = conversion["fif_path"]
+        dataset.file_size = total_size
+        dataset.checksum = checksum
+        dataset.n_channels = conversion["n_channels"]
+        dataset.sfreq = conversion["sfreq"]
+        dataset.duration_seconds = conversion["duration_seconds"]
+        dataset.n_events = conversion["n_events"]
+        dataset.qa_status = "converted"
+        dataset.qa_report = {
+            **conversion["qa_report"],
+            "replacement": {
+                "status": "current_version_switched",
+                "upload_seq": upload_seq,
+                "previous_source_path": previous_source_path,
+                "previous_fif_path": previous_fif_path,
+                "replaced_at": now.isoformat() + "Z",
+            },
+        }
+        dataset.imported_by = current_user.id
+        dataset.imported_at = now
+    else:
+        dataset = Recording(
+            study_id=study.id,
+            dataset_asset_id=target_asset.id,
+            subject_id=subject_record.id,
+            session=session_label,
+            task=task_label,
+            run=run_label,
+            source_format=source_format,
+            source_path=source_path,
+            fif_path=conversion["fif_path"],
+            file_size=total_size,
+            checksum=checksum,
+            n_channels=conversion["n_channels"],
+            sfreq=conversion["sfreq"],
+            duration_seconds=conversion["duration_seconds"],
+            n_events=conversion["n_events"],
+            qa_status="converted",
+            qa_report=conversion["qa_report"],
+            imported_by=current_user.id,
+        )
+        db.add(dataset)
+        db.flush()
+
+    upload_record = create_dataset_upload_record(
+        db,
+        study=study,
+        dataset=dataset,
+        dataset_version=target_version,
+        upload_seq=upload_seq,
+        job_dir=job_dir,
+        primary_source=primary_source,
+        source_format=source_format,
+        archived_paths=archived_paths,
+        conversion=conversion,
+        total_size=total_size,
+        checksum=checksum,
+        current_user=current_user,
+        bids_subject_id=bids_subject_id,
+        session=session_label,
+        task=task_label,
+        run=run_label,
+        note="replace_existing" if duplicate else "initial_import",
+    )
+    record_audit_event(
+        db,
+        study_id=study.id,
+        action="dataset.reuploaded" if duplicate else "dataset.uploaded",
+        actor_id=current_user.id,
+        resource_kind="dataset",
+        resource_id=dataset.id,
+        resource_label=f"{bids_subject_id}/{session_label or 'no-session'}/{task_label}/{run_label or 'no-run'}",
+        metadata={
+            "dataset_upload_id": str(upload_record.id),
+            "upload_seq": upload_seq,
+            "upload_kind": upload_kind,
+            "source_format": source_format,
+            "checksum": checksum,
+            "file_size": total_size,
+            "replace_existing": bool(duplicate),
+            "fif_path": dataset.fif_path,
+            "canonical_fif_path": conversion.get("canonical_fif_path"),
+            "canonical_provenance_path": conversion.get("canonical_provenance_path"),
+            "dataset_asset_id": str(dataset.dataset_asset_id) if dataset.dataset_asset_id else None,
+            "mount_name": target_mount.mount_name if target_mount else None,
+        },
+    )
+    db.commit()
+    db.refresh(dataset)
+    dataset.subject = subject_record
+    dataset.current_version = upload_record
+
+    manifest.update(
+        {
+            "status": "done",
+            "checksum": checksum,
+            "fileSize": total_size,
+            "datasetId": str(dataset.id),
+            "datasetUploadId": str(upload_record.id),
+            "uploadSeq": upload_seq,
+            "mode": "replacement" if duplicate else "new",
+            "sourcePath": dataset.source_path,
+            "fifPath": dataset.fif_path,
+            "fifDir": conversion["fif_dir"],
+            "sidecars": conversion["sidecar_paths"],
+            "canonicalFifPath": conversion.get("canonical_fif_path"),
+            "canonicalFifDir": conversion.get("canonical_fif_dir"),
+            "canonicalProvenancePath": conversion.get("canonical_provenance_path"),
+            "canonicalSidecars": conversion.get("canonical_sidecar_paths"),
+            "updatedAt": datetime.utcnow().isoformat() + "Z",
+        }
+    )
+    write_manifest(job_dir, manifest)
+    return dataset
+
+
+def _build_import_context(
+    db: Session,
+    *,
     study_id: str,
-    subject: str = Form(...),
-    task: str = Form(...),
-    session: str | None = Form(None),
-    run: str | None = Form(None),
-    replace_existing: bool = Form(False),
-    dataset_asset_id: uuid.UUID | None = Form(None),
-    mount_name: str | None = Form(None),
-    files: list[UploadFile] = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+    current_user: User,
+    subject: str,
+    task: str,
+    session: str | None,
+    run: str | None,
+    replace_existing: bool,
+    dataset_asset_id: "uuid.UUID | None",
+    mount_name: str | None,
+    files: list[UploadFile],
+) -> dict[str, Any]:
+    """同步 / 异步两个上传端点共用的「请求阶段前置逻辑」：鉴权、解析 asset/version、分类文件、
+    规范 BIDS 标签、重复 409 校验、算 job_id / upload_seq / job_dir、初始化并写 archiving manifest。
+
+    返回一个 dict，把后续 archive_uploads + materialize / 派发任务所需的全部上下文打包带走。
+    """
     require_system_permission(current_user, "data:write", "当前用户没有上传数据权限")
     study = require_study_write(db.query(Study).filter(Study.id == study_id).first(), db, current_user)
     target_asset, target_mount = resolve_upload_dataset_asset(
@@ -3008,213 +3255,148 @@ async def import_recording(
     }
     write_manifest(job_dir, manifest)
 
+    return {
+        "study": study,
+        "target_asset": target_asset,
+        "target_mount": target_mount,
+        "target_version": target_version,
+        "upload_kind": upload_kind,
+        "items_by_extension": items_by_extension,
+        "bids_subject_id": bids_subject_id,
+        "session_label": session_label,
+        "task_label": task_label,
+        "run_label": run_label,
+        "subject_record": subject_record,
+        "duplicate": duplicate,
+        "job_id": job_id,
+        "upload_seq": upload_seq,
+        "job_dir": job_dir,
+        "temp_root": temp_root,
+        "manifest": manifest,
+    }
+
+
+@recording_router.post("/import-async", response_model=AsyncTaskResponse, status_code=status.HTTP_201_CREATED)
+async def import_recording_async(
+    study_id: str,
+    subject: str = Form(...),
+    task: str = Form(...),
+    session: str | None = Form(None),
+    run: str | None = Form(None),
+    replace_existing: bool = Form(False),
+    dataset_asset_id: uuid.UUID | None = Form(None),
+    mount_name: str | None = Form(None),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """异步导入：请求内只把文件落盘后**立即返回 task_id**，转 FIF 的重活交给 Celery worker。
+    客户端拿 task_id 轮询 GET /studies/{study_id}/tasks/{task_id} 看进度/状态。
+    权限、重复 409 等能快速判定的校验仍在请求内同步做掉，让客户端立刻拿到 409。"""
+    ctx = _build_import_context(
+        db,
+        study_id=study_id,
+        current_user=current_user,
+        subject=subject,
+        task=task,
+        session=session,
+        run=run,
+        replace_existing=replace_existing,
+        dataset_asset_id=dataset_asset_id,
+        mount_name=mount_name,
+        files=files,
+    )
+    study = ctx["study"]
+    job_dir = ctx["job_dir"]
+    archived = await archive_uploads(ctx["items_by_extension"], job_dir, files_subdir=None)
+
+    payload_json = {
+        "mode": "async_dataset_import",
+        "study_id": study.id,
+        "importer_user_id": str(current_user.id),
+        "dataset_asset_id": str(ctx["target_asset"].id),
+        "dataset_version_id": str(ctx["target_version"].id),
+        "duplicate_recording_id": str(ctx["duplicate"].id) if ctx["duplicate"] else None,
+        "subject_record_id": str(ctx["subject_record"].id) if ctx["subject_record"] else None,
+        "bids_subject_id": ctx["bids_subject_id"],
+        "session_label": ctx["session_label"],
+        "task_label": ctx["task_label"],
+        "run_label": ctx["run_label"],
+        "upload_kind": ctx["upload_kind"],
+        "upload_seq": ctx["upload_seq"],
+        "job_id": ctx["job_id"],
+        "job_dir": str(job_dir),
+        "archived": {ext: str(path) for ext, path in archived.items()},
+        "replace_existing": replace_existing,
+    }
+    return create_and_dispatch_file_task(
+        db,
+        task_type="dataset_import",
+        study_id=study.id,
+        resource_kind="dataset_asset",
+        resource_id=ctx["target_asset"].id,
+        payload_json=payload_json,
+        current_user=current_user,
+    )
+
+
+@recording_router.post("/import", response_model=RecordingUploadResponse, status_code=status.HTTP_201_CREATED)
+async def import_recording(
+    study_id: str,
+    subject: str = Form(...),
+    task: str = Form(...),
+    session: str | None = Form(None),
+    run: str | None = Form(None),
+    replace_existing: bool = Form(False),
+    dataset_asset_id: uuid.UUID | None = Form(None),
+    mount_name: str | None = Form(None),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ctx = _build_import_context(
+        db,
+        study_id=study_id,
+        current_user=current_user,
+        subject=subject,
+        task=task,
+        session=session,
+        run=run,
+        replace_existing=replace_existing,
+        dataset_asset_id=dataset_asset_id,
+        mount_name=mount_name,
+        files=files,
+    )
+    study = ctx["study"]
+    duplicate = ctx["duplicate"]
+    upload_seq = ctx["upload_seq"]
+    job_dir = ctx["job_dir"]
+    manifest = ctx["manifest"]
+
     archived: dict[str, Path] = {}
     try:
-        archived = await archive_uploads(items_by_extension, job_dir, files_subdir=None)
-        archived_paths = list(archived.values())
-        checksum, total_size = compute_files_checksum(archived_paths)
-
-        existing_checksum_query = db.query(Recording).filter(
-            Recording.study_id == study.id,
-            Recording.dataset_asset_id == target_asset.id,
-            Recording.checksum == checksum,
-        )
-        if duplicate:
-            existing_checksum_query = existing_checksum_query.filter(Recording.id != duplicate.id)
-        existing_checksum = existing_checksum_query.first()
-        if existing_checksum:
-            manifest.update(
-                {
-                    "status": "duplicate",
-                    "checksum": checksum,
-                    "duplicateDatasetId": str(existing_checksum.id),
-                    "updatedAt": datetime.utcnow().isoformat() + "Z",
-                }
-            )
-            write_manifest(job_dir, manifest)
-            raise HTTPException(status_code=409, detail="检测到完全相同的数据已经导入过，已阻止重复入库")
-        if duplicate and duplicate.checksum == checksum:
-            manifest.update(
-                {
-                    "status": "duplicate",
-                    "checksum": checksum,
-                    "duplicateDatasetId": str(duplicate.id),
-                    "updatedAt": datetime.utcnow().isoformat() + "Z",
-                }
-            )
-            write_manifest(job_dir, manifest)
-            raise HTTPException(status_code=409, detail="本次上传与当前数据完全相同，无需替换")
-
-        if upload_kind == "brainvision":
-            primary_source = archived[".vhdr"]
-            source_format = "BRAINVISION"
-        else:
-            extension = next(iter(archived))
-            primary_source = archived[extension]
-            source_format = STANDARD_SINGLE_EXTENSIONS[extension]
-
-        fif_base = build_fif_base_path(study, bids_subject_id, session_label, task_label, run_label, upload_seq)
-        canonical_fif_base = build_canonical_fif_base_path(
-            target_version,
-            bids_subject_id,
-            session_label,
-            task_label,
-            run_label,
-            upload_seq,
-        )
-        ensure_fif_targets_are_free(fif_base)
-        ensure_canonical_fif_targets_are_free(canonical_fif_base)
-        ensure_fifdata_dataset_files(study, bids_subject_id)
-
-        conversion = generate_canonical_fif(
-            study=study,
-            dataset_version=target_version,
-            upload_kind=upload_kind,
-            source_path=primary_source,
-            source_format=source_format,
-            canonical_fif_base=canonical_fif_base,
-            legacy_fif_base=fif_base,
-            bids_subject_id=bids_subject_id,
-            session=session_label,
-            task_label=task_label,
-            run=run_label,
-            upload_seq=upload_seq,
-            import_job_id=job_id,
-            archived_files=archived_paths,
-            checksum=checksum,
-            temp_root=temp_root,
-        )
-
-        subject_record = subject_record or get_or_create_subject(db, study, bids_subject_id)
-        source_path = relative_to_study(study, primary_source)
-        now = datetime.utcnow()
-        if duplicate:
-            dataset = duplicate
-            if dataset.dataset_asset_id is None:
-                dataset.dataset_asset_id = target_asset.id
-            elif dataset.dataset_asset_id != target_asset.id:
-                raise HTTPException(
-                    status_code=409,
-                    detail="该 subject/session/task/run 已存在于另一个 Dataset Asset 中，请调整上传目标或使用新的 run 标签",
-                )
-            previous_source_path = dataset.source_path
-            previous_fif_path = dataset.fif_path
-            dataset.source_format = source_format
-            dataset.source_path = source_path
-            dataset.fif_path = conversion["fif_path"]
-            dataset.file_size = total_size
-            dataset.checksum = checksum
-            dataset.n_channels = conversion["n_channels"]
-            dataset.sfreq = conversion["sfreq"]
-            dataset.duration_seconds = conversion["duration_seconds"]
-            dataset.n_events = conversion["n_events"]
-            dataset.qa_status = "converted"
-            dataset.qa_report = {
-                **conversion["qa_report"],
-                "replacement": {
-                    "status": "current_version_switched",
-                    "upload_seq": upload_seq,
-                    "previous_source_path": previous_source_path,
-                    "previous_fif_path": previous_fif_path,
-                    "replaced_at": now.isoformat() + "Z",
-                },
-            }
-            dataset.imported_by = current_user.id
-            dataset.imported_at = now
-        else:
-            dataset = Recording(
-                study_id=study.id,
-                dataset_asset_id=target_asset.id,
-                subject_id=subject_record.id,
-                session=session_label,
-                task=task_label,
-                run=run_label,
-                source_format=source_format,
-                source_path=source_path,
-                fif_path=conversion["fif_path"],
-                file_size=total_size,
-                checksum=checksum,
-                n_channels=conversion["n_channels"],
-                sfreq=conversion["sfreq"],
-                duration_seconds=conversion["duration_seconds"],
-                n_events=conversion["n_events"],
-                qa_status="converted",
-                qa_report=conversion["qa_report"],
-                imported_by=current_user.id,
-            )
-            db.add(dataset)
-            db.flush()
-
-        upload_record = create_dataset_upload_record(
+        archived = await archive_uploads(ctx["items_by_extension"], job_dir, files_subdir=None)
+        dataset = materialize_recording_import(
             db,
             study=study,
-            dataset=dataset,
-            dataset_version=target_version,
-            upload_seq=upload_seq,
-            job_dir=job_dir,
-            primary_source=primary_source,
-            source_format=source_format,
-            archived_paths=archived_paths,
-            conversion=conversion,
-            total_size=total_size,
-            checksum=checksum,
             current_user=current_user,
-            bids_subject_id=bids_subject_id,
-            session=session_label,
-            task=task_label,
-            run=run_label,
-            note="replace_existing" if duplicate else "initial_import",
+            target_asset=ctx["target_asset"],
+            target_version=ctx["target_version"],
+            target_mount=ctx["target_mount"],
+            duplicate=duplicate,
+            subject_record=ctx["subject_record"],
+            bids_subject_id=ctx["bids_subject_id"],
+            session_label=ctx["session_label"],
+            task_label=ctx["task_label"],
+            run_label=ctx["run_label"],
+            upload_kind=ctx["upload_kind"],
+            upload_seq=upload_seq,
+            job_id=ctx["job_id"],
+            job_dir=job_dir,
+            archived=archived,
+            manifest=manifest,
+            temp_root=ctx["temp_root"],
         )
-        record_audit_event(
-            db,
-            study_id=study.id,
-            action="dataset.reuploaded" if duplicate else "dataset.uploaded",
-            actor_id=current_user.id,
-            resource_kind="dataset",
-            resource_id=dataset.id,
-            resource_label=f"{bids_subject_id}/{session_label or 'no-session'}/{task_label}/{run_label or 'no-run'}",
-            metadata={
-                "dataset_upload_id": str(upload_record.id),
-                "upload_seq": upload_seq,
-                "upload_kind": upload_kind,
-                "source_format": source_format,
-                "checksum": checksum,
-                "file_size": total_size,
-                "replace_existing": bool(duplicate),
-                "fif_path": dataset.fif_path,
-                "canonical_fif_path": conversion.get("canonical_fif_path"),
-                "canonical_provenance_path": conversion.get("canonical_provenance_path"),
-                "dataset_asset_id": str(dataset.dataset_asset_id) if dataset.dataset_asset_id else None,
-                "mount_name": target_mount.mount_name if target_mount else None,
-            },
-        )
-        db.commit()
-        db.refresh(dataset)
-        dataset.subject = subject_record
-        dataset.current_version = upload_record
-
-        manifest.update(
-            {
-                "status": "done",
-                "checksum": checksum,
-                "fileSize": total_size,
-                "datasetId": str(dataset.id),
-                "datasetUploadId": str(upload_record.id),
-                "uploadSeq": upload_seq,
-                "mode": "replacement" if duplicate else "new",
-                "sourcePath": dataset.source_path,
-                "fifPath": dataset.fif_path,
-                "fifDir": conversion["fif_dir"],
-                "sidecars": conversion["sidecar_paths"],
-                "canonicalFifPath": conversion.get("canonical_fif_path"),
-                "canonicalFifDir": conversion.get("canonical_fif_dir"),
-                "canonicalProvenancePath": conversion.get("canonical_provenance_path"),
-                "canonicalSidecars": conversion.get("canonical_sidecar_paths"),
-                "updatedAt": datetime.utcnow().isoformat() + "Z",
-            }
-        )
-        write_manifest(job_dir, manifest)
-
         return RecordingUploadResponse(
             message=(
                 f"已新增 upload-{upload_seq:03d}，并切换为当前工作版本"
