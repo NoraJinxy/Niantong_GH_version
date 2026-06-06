@@ -19,6 +19,8 @@ import config_local as lconfig        # noqa: E402
 
 
 def build_definition() -> dict:
+    # 节点横向间隔 320px：前端画布节点卡片宽 264px（NODE_CARD_WIDTH），间隔小于它会重叠；
+    # 前端自身自动布局用 304（NODE_GAP_X），这里取 320 留点余量。
     return {
         "graph": {
             "nodes": [
@@ -33,23 +35,23 @@ def build_definition() -> dict:
                 },
                 {
                     "id": "bw", "type": "eeg/filter/apply", "title": "Bandpass (IIR)",
-                    "position": [320, 80],
+                    "position": [400, 80],
                     "params": {"filter_type": "bandpass", "method": "iir", "l_freq": 0.5, "h_freq": 30.0, "order": 4},
                 },
                 {
                     "id": "nf", "type": "eeg/filter/apply", "title": "Notch 50Hz",
-                    "position": [560, 80],
+                    "position": [720, 80],
                     # 工频陷波：50Hz 基频 + 前 3 次谐波（50/100/150）。中国市电 50Hz；北美改 60。
                     "params": {"filter_type": "notch", "notch_freq": 50.0, "notch_harmonics": 3},
                 },
                 {
                     "id": "rr", "type": "eeg/preproc/rereference", "title": "Re-reference",
-                    "position": [800, 80],
+                    "position": [1040, 80],
                     "params": {"ref_channels": lconfig.REF_CHANNELS},
                 },
                 {
                     "id": "ep", "type": "eeg/epoch/segment", "title": "Epoch",
-                    "position": [1040, 80],
+                    "position": [1360, 80],
                     "params": {
                         "event_id": lconfig.EVENT_LABELS,
                         "tmin": -0.2, "tmax": 1.0,
@@ -58,7 +60,7 @@ def build_definition() -> dict:
                 },
                 {
                     "id": "erp", "type": "eeg/analysis/erp", "title": "ERP Average",
-                    "position": [1280, 80],
+                    "position": [1680, 80],
                     "params": {"condition": lconfig.EVENT_LABELS},
                 },
             ],

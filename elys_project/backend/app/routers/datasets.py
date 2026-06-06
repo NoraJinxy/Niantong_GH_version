@@ -2082,15 +2082,24 @@ def generate_canonical_fif(
         canonical_version_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_dir), str(canonical_version_dir))
         committed = True
-        legacy_version_dir.mkdir(parents=True, exist_ok=True)
-        for source, target in (
-            (canonical_fif_path, legacy_fif_path),
-            (canonical_eeg_json_path, legacy_eeg_json_path),
-            (canonical_channels_path, legacy_channels_path),
-            (canonical_events_path, legacy_events_path),
-            (canonical_provenance_path, legacy_import_json_path),
-        ):
-            shutil.copy2(source, target)
+        # legacy 镜像是 canonical 落盘的一部分，要 all-or-nothing：若复制中途失败（磁盘满 /
+        # 权限 / 并发占用），必须把已 move 到位的 canonical 目录一起回滚，否则会留下"磁盘有
+        # canonical 目录、DB 却因上层 rollback 查无记录"的孤儿目录——它会以 409 挡住后续同
+        # seq 重试。
+        try:
+            legacy_version_dir.mkdir(parents=True, exist_ok=True)
+            for source, target in (
+                (canonical_fif_path, legacy_fif_path),
+                (canonical_eeg_json_path, legacy_eeg_json_path),
+                (canonical_channels_path, legacy_channels_path),
+                (canonical_events_path, legacy_events_path),
+                (canonical_provenance_path, legacy_import_json_path),
+            ):
+                shutil.copy2(source, target)
+        except Exception:
+            shutil.rmtree(canonical_version_dir, ignore_errors=True)
+            shutil.rmtree(legacy_version_dir, ignore_errors=True)
+            raise
 
         return {
             "canonical_fif_dir": relative_to_study(study, canonical_version_dir),

@@ -595,6 +595,23 @@ def emergency_takedown_version(
     version.withdrawn_by = actor.id
     version.withdrawal_admin_notes = normalized_reason
 
+    # 若该版本本就有一条等审批的撤回申请（decision 为空），紧急下架会让它的版本状态不再是
+    # withdraw_requested、正常 review 会 409。必须把它一并关闭（标 emergency），否则它会永远
+    # 挂在管理员 /pending 待审列表里、点也点不动。
+    stale_pending = (
+        db.query(DatasetWithdrawalRequest)
+        .filter(
+            DatasetWithdrawalRequest.dataset_version_id == version.id,
+            DatasetWithdrawalRequest.decision.is_(None),
+        )
+        .all()
+    )
+    for pending in stale_pending:
+        pending.decision = "emergency"
+        pending.reviewed_by = actor.id
+        pending.reviewed_at = now
+        pending.admin_notes = (pending.admin_notes or "") + "（已被紧急下架接管）"
+
     request = DatasetWithdrawalRequest(
         dataset_version_id=version.id,
         requested_by=actor.id,

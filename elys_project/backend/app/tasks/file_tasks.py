@@ -240,6 +240,8 @@ def run_dataset_import(db, task: AsyncTask) -> dict[str, Any]:
     # 惰性 import：转换核心与辅助函数都在 routers.datasets 里，顶层 import 会把 router 层拉进
     # worker 进程并可能造成循环 import；在函数体内运行时 import 可避开。
     from app.routers.datasets import (
+        ensure_dataset_asset_active_mounted,
+        ensure_dataset_asset_uploadable,
         get_active_study_dataset_mount_for_asset,
         materialize_recording_import,
         recording_to_response,
@@ -270,6 +272,11 @@ def run_dataset_import(db, task: AsyncTask) -> dict[str, Any]:
     target_version = db.query(DatasetVersion).filter(DatasetVersion.id == payload["dataset_version_id"]).first()
     if target_asset is None or target_version is None:
         raise ValueError("dataset_import 的 dataset asset / version 不存在")
+    # 在 worker 真正写库前重新校验——请求受理到此刻有时间窗，期间 asset 可能被
+    # 归档/隔离/删除、mount 可能被停用。同步导入在请求内由 resolve_upload_dataset_asset
+    # 做掉这两项校验，异步路径必须补上，否则会把数据写进已不该接受上传的 asset。
+    ensure_dataset_asset_uploadable(target_asset, importer)
+    ensure_dataset_asset_active_mounted(db, study=study, dataset_asset_id=target_asset.id)
     target_mount = get_active_study_dataset_mount_for_asset(db, study=study, dataset_asset=target_asset)
 
     duplicate = None
