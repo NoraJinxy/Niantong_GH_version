@@ -131,7 +131,7 @@ CREATE TABLE derived_datasets (
 | `file_role` | `canonical_fif` / `metadata_json` / `directory` 等 |
 | `sha256` | 内容校验值；同 `study_id + sha256` 唯一索引用于潜在去重 |
 
-物理文件按 [DerivedDatasetStore](../../elys_project/backend/app/pipeline/derived_dataset_store.py) 的内容寻址放在 `studies/{study_id}/derived/{sha256[0:2]}/{sha256}/`。
+物理文件按 `DerivedDatasetStore`（源码 `elys_project/backend/app/pipeline/derived_dataset_store.py`）的内容寻址放在 `studies/{study_id}/derived/{sha256[0:2]}/{sha256}/`。
 
 ### 3.5 生命周期
 
@@ -151,7 +151,7 @@ CREATE TABLE derived_datasets (
 清理任务（`derived_dataset_cleanup`）按 `retention_status + retention_expires_at` 决定回收：
 
 - 跳过未过期项
-- 跳过被下游 Execution 依赖的项（依靠 [execution_dependencies](../../elys_project/backend/app/services/execution_dependencies.py)）
+- 跳过被下游 Execution 依赖的项（依靠 `execution_dependencies`，源码 `elys_project/backend/app/services/execution_dependencies.py`）
 - 把命中的项 `retention_status` 改为 `deleted` 并设 `deleted_at`
 - 物理文件保留（后续 garbage collector 单独处理）
 

@@ -24,7 +24,7 @@ DatasetQaReviewConclusion = Literal["accept", "reject", "hold"]
 DatasetQaStageStatus = Literal["pass", "warning", "fail", "not_computed", "skipped", "pending"]
 DatasetQaSeverity = Literal["info", "warning", "error"]
 DatasetAssetStatus = Literal["working", "active", "archived", "deleted", "quarantined"]
-DatasetAssetVisibility = Literal["private", "workspace", "shared", "public"]
+DatasetAssetVisibility = Literal["private", "shared", "public"]
 
 
 class DatasetAssetCreate(BaseModel):
@@ -116,6 +116,7 @@ class DatasetAssetResponse(BaseModel):
     # UI Phase (docs_v2/6-05): 数据概要聚合字段，给前端 L1 区域显示
     # 这三个字段对每个 asset 从 datasets 表聚合得来（compute_asset_stats）
     subject_count: int = 0
+    recording_count: int = 0
     task_codes: list[str] = Field(default_factory=list)
     total_duration_seconds: float = 0.0
     last_imported_at: Optional[datetime] = None

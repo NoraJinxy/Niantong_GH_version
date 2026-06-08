@@ -33,7 +33,7 @@
 | `description` | 数据说明 |
 | `owner_id` | 数据集负责人 |
 | `status` | `working`（在建草稿）默认值，配套 `active` · `archived` · `deleted` · `quarantined`（隔离待核） |
-| `visibility` | `private`（默认）· `workspace` · `shared` · `public` |
+| `visibility` | `private`（默认）· `shared` · `public`。可见范围，也是数据集 UI 的状态徽章轴（6-05 B 方案）；发布时自动 `private→shared`，旧 `workspace` 档已去掉 |
 | `metadata`（ORM 属性 `metadata_json`）| 设备、采样范式、伦理说明、采集说明等扩展信息 |
 | `primary_study_id` | 主属 Study，发布/生命周期口径下的归属锚点（见 3-25），可空 |
 | `concept_doi` | 概念级 DOI（指向资产本身而非某个版本），可空 |

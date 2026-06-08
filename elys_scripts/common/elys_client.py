@@ -43,6 +43,19 @@ def _raise_for_status(response: requests.Response) -> requests.Response:
     return response
 
 
+def _format_speed(bytes_per_sec: float) -> str:
+    """把「字节/秒」格式化成自适应单位的人类可读速度，如 '2.3 MB/s'。速度无效时返回 '--'。"""
+    if not bytes_per_sec or bytes_per_sec <= 0:
+        return "--"
+    value = float(bytes_per_sec)
+    for unit in ("B/s", "KB/s", "MB/s", "GB/s"):
+        if value < 1024 or unit == "GB/s":
+            digits = 0 if unit == "B/s" or value >= 100 else 1
+            return f"{value:.{digits}f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB/s"
+
+
 class _StreamingBody:
     """带 __len__ 的可迭代请求体。
 
@@ -325,7 +338,7 @@ class ElysClient:
         if not show_progress:
             return (lambda sent, total: None), (lambda: None)
 
-        state = {"done_at": None, "last": 0.0}
+        state = {"done_at": None, "last": 0.0, "prev_sent": 0, "prev_time": time.time(), "speed": 0.0}
         stop = threading.Event()
 
         def _spinner():
@@ -338,7 +351,7 @@ class ElysClient:
             if sent >= total:
                 if state["done_at"] is None:          # 刚传满：收尾进度条 + 启动转换计时
                     state["done_at"] = time.time()
-                    sys.stdout.write(f"\r  ↑ 上传完成 {total / 1e6:.1f} MB (100%)          \n")
+                    sys.stdout.write("\r" + " " * 72 + f"\r  ↑ 上传完成 {total / 1e6:.1f} MB (100%)\n")
                     sys.stdout.flush()
                     threading.Thread(target=_spinner, daemon=True).start()
                 return
@@ -346,11 +359,20 @@ class ElysClient:
             if now - state["last"] < 0.1:             # 限流：最多每 0.1s 重画一次
                 return
             state["last"] = now
+            # 实时网速：相邻两次回调的「字节增量 / 时间增量」，指数平滑后读数更稳
+            dt = now - state["prev_time"]
+            if dt > 0:
+                inst = (sent - state["prev_sent"]) / dt
+                if inst >= 0:
+                    state["speed"] = inst if state["speed"] <= 0 else state["speed"] * 0.6 + inst * 0.4
+            state["prev_time"] = now
+            state["prev_sent"] = sent
             width = 24
             filled = int(width * sent / total)
             bar = "█" * filled + "·" * (width - filled)
             sys.stdout.write(
                 f"\r  ↑ [{bar}] {sent / 1e6:5.1f}/{total / 1e6:.1f} MB {sent / total * 100:5.1f}%"
+                f"  {_format_speed(state['speed'])}   "
             )
             sys.stdout.flush()
 
@@ -365,39 +387,77 @@ class ElysClient:
 
     @staticmethod
     def _make_upload_bar(show_progress: bool):
-        """只画上传进度条（不带转换计时）——异步上传用：POST 秒回，转换进度改由轮询任务状态展示。
+        """画上传进度条 + 字节传满后的「等待服务器接收」实时计时。返回 (on_progress, finish)。
 
-        注意进度条到 100% 只表示字节已全部交给本地 socket/代理；若挂了本地代理(clash 等)，
-        代理再上传到远端会再花一段时间，这段表现为「100% 后等一会才返回」，属正常。
+        异步上传用。进度条到 100% 只表示字节已全部交给本地 socket/代理；之后 POST 仍阻塞着
+        等代理/网络把整个 body 送达远端、服务端入队并返回 task_id——这段「最后一公里」可能不短
+        （挂本地代理 clash 等时尤其明显），主线程卡在 post() 里没法刷新，于是起一个后台线程把
+        等待秒数滚出来，避免看起来卡死。finish 在 post() 返回后停掉线程并收尾。
+        show_progress=False 时两者都是空操作。
         """
         if not show_progress:
-            return lambda sent, total: None
+            return (lambda sent, total: None), (lambda: None)
 
-        # 用足够长的空白清行：中文「上传完成」每字占 2 列但算 1 字符，普通空格盖不满进度条残影
+        # 用足够长的空白清行：中文每字占 2 列但算 1 字符，普通空格盖不满进度条残影
         clear = "\r" + " " * 72 + "\r"
-        state = {"last": 0.0, "done": False}
+        state = {
+            "last": 0.0, "done": False, "prev_sent": 0, "prev_time": time.time(), "speed": 0.0,
+            "sent_at": None, "total": 0,
+        }
+        stop = threading.Event()
+
+        def _waiting_spinner():
+            while not stop.wait(0.5):
+                elapsed = time.time() - state["sent_at"]
+                sys.stdout.write(
+                    f"\r  ⏳ 数据已发出 {state['total'] / 1e6:.1f} MB，等待服务器接收并入队… {elapsed:4.0f}s   "
+                )
+                sys.stdout.flush()
 
         def on_progress(sent: int, total: int):
             if state["done"]:                       # 传满后任何回调都不再重绘，杜绝 100% 后再冒 99.9%
                 return
             if sent >= total:
                 state["done"] = True
-                sys.stdout.write(f"{clear}  ↑ 数据已发出 {total / 1e6:.1f} MB，等待服务器接收并入队…\n")
+                state["sent_at"] = time.time()
+                state["total"] = total
+                sys.stdout.write(
+                    f"{clear}  ⏳ 数据已发出 {total / 1e6:.1f} MB，等待服务器接收并入队…    "
+                )
                 sys.stdout.flush()
+                threading.Thread(target=_waiting_spinner, daemon=True).start()
                 return
             now = time.time()
             if now - state["last"] < 0.1:
                 return
             state["last"] = now
+            # 实时网速：相邻两次回调的「字节增量 / 时间增量」，指数平滑后读数更稳
+            dt = now - state["prev_time"]
+            if dt > 0:
+                inst = (sent - state["prev_sent"]) / dt
+                if inst >= 0:
+                    state["speed"] = inst if state["speed"] <= 0 else state["speed"] * 0.6 + inst * 0.4
+            state["prev_time"] = now
+            state["prev_sent"] = sent
             width = 24
             filled = int(width * sent / total)
             bar = "█" * filled + "·" * (width - filled)
             sys.stdout.write(
                 f"\r  ↑ [{bar}] {sent / 1e6:5.1f}/{total / 1e6:.1f} MB {sent / total * 100:5.1f}%"
+                f"  {_format_speed(state['speed'])}   "
             )
             sys.stdout.flush()
 
-        return on_progress
+        def finish():
+            stop.set()
+            if state["sent_at"] is not None:
+                elapsed = time.time() - state["sent_at"]
+                sys.stdout.write(
+                    f"{clear}  ↑ 数据已发出 {state['total'] / 1e6:.1f} MB，服务器已接收（耗时 {elapsed:.0f}s）\n"
+                )
+                sys.stdout.flush()
+
+        return on_progress, finish
 
     @staticmethod
     def _latest_task_message(task: dict) -> str:
@@ -447,16 +507,19 @@ class ElysClient:
             text_fields["mount_name"] = mount_name
         file_specs = [("files", Path(p)) for p in file_paths]
 
-        on_progress = self._make_upload_bar(show_progress)
+        on_progress, finish_upload = self._make_upload_bar(show_progress)
         body, content_type, content_length = _encode_multipart_stream(
             text_fields, file_specs, on_progress=on_progress
         )
-        r = self._session.post(
-            f"{self.base_url}/studies/{study_id}/recordings/import-async",
-            data=body,
-            headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
-            timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
-        )
+        try:
+            r = self._session.post(
+                f"{self.base_url}/studies/{study_id}/recordings/import-async",
+                data=body,
+                headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
+                timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
+            )
+        finally:
+            finish_upload()         # 停掉「等待服务器接收」计时线程（无论成功或抛错）
         _raise_for_status(r)        # 409（重复）/422（坏文件）在这同步抛出
         task_resp = r.json()
         task_id = task_resp.get("id")

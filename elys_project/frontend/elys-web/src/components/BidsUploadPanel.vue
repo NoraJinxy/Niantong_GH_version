@@ -478,6 +478,7 @@ interface UploadGroup {
   run: string
   status: UploadStatus
   progress: number
+  speedBps?: number
   statusText: string
   message: string
   outcome: ImportOutcome | null
@@ -872,12 +873,30 @@ function getGroupSuccessSummary(group: UploadGroup) {
   return `已导入 · ${fifText} · ${fileIndexText}`
 }
 
+function nowMs() {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()
+}
+
+function formatSpeed(bytesPerSec?: number) {
+  if (!bytesPerSec || bytesPerSec <= 0 || !Number.isFinite(bytesPerSec)) return ''
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let value = bytesPerSec
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  const digits = unitIndex === 0 || value >= 100 ? 0 : 1
+  return `${value.toFixed(digits)} ${units[unitIndex]}`
+}
+
 function getProgressDisplay(group: UploadGroup) {
   if (group.status === 'ready') return '0%'
   if (group.status === 'replace-pending') return '待确认'
   if (group.status === 'error') return '0%'
   if (group.status === 'processing') return '等待服务器'
-  return `${group.progress}%`
+  const speed = formatSpeed(group.speedBps)
+  return speed ? `${group.progress}% · ${speed}` : `${group.progress}%`
 }
 
 function getProgressClass(group: UploadGroup) {
@@ -1248,10 +1267,14 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
 
   group.status = 'uploading'
   group.progress = 0
+  group.speedBps = undefined
   group.statusText = '正在上传原始数据'
   group.message = ''
   group.outcome = null
 
+  // 实时上传速度：用相邻两次进度回调之间的「字节增量 / 时间增量」估算，并做指数平滑以防抖动
+  let lastLoaded = 0
+  let lastSampleTime = nowMs()
   try {
     const res = await datasetApi.upload(
       target.studyId,
@@ -1266,8 +1289,20 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
         mountName: target.mountName,
       },
       {
-        onProgress: (percent) => {
+        onProgress: (percent, loaded) => {
           group.progress = percent
+          const now = nowMs()
+          const elapsed = (now - lastSampleTime) / 1000
+          // 至少间隔 200ms 再采样一次，避免高频回调把速度算得忽高忽低
+          if (elapsed >= 0.2) {
+            const delta = loaded - lastLoaded
+            if (delta >= 0 && elapsed > 0) {
+              const instantBps = delta / elapsed
+              group.speedBps = group.speedBps ? group.speedBps * 0.6 + instantBps * 0.4 : instantBps
+            }
+            lastLoaded = loaded
+            lastSampleTime = now
+          }
           if (group.status !== 'processing') {
             group.status = 'uploading'
             group.statusText = '正在上传原始数据'
@@ -1276,6 +1311,7 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
         onUploadComplete: () => {
           group.status = 'processing'
           group.progress = 100
+          group.speedBps = undefined
           group.statusText = '上传完成，正在生成 BIDS 逻辑视图、标准 FIF 和文件索引'
         },
       },

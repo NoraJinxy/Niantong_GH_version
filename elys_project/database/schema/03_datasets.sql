@@ -14,8 +14,10 @@ CREATE TABLE IF NOT EXISTS dataset_assets (
     owner_id            UUID REFERENCES users(id) ON DELETE SET NULL,
     status              VARCHAR(32) NOT NULL DEFAULT 'working'
                             CHECK (status IN ('working', 'active', 'archived', 'deleted', 'quarantined')),
+    -- 可见范围（用户可见徽章轴）：private 私有 / shared 共享 / public 公开。
+    -- 发布时自动 private→shared（见 services/dataset_lifecycle.py）；workspace 档已废弃（6-05 B 方案）。
     visibility          VARCHAR(32) NOT NULL DEFAULT 'private'
-                            CHECK (visibility IN ('private', 'workspace', 'shared', 'public')),
+                            CHECK (visibility IN ('private', 'shared', 'public')),
     metadata            JSONB NOT NULL DEFAULT '{}',
     -- Phase 1 (3-25): 生命周期相关字段，draft 时 primary_study_id 必填，published 后保留作出身记录
     primary_study_id    CHAR(12) REFERENCES studies(id) ON DELETE SET NULL,

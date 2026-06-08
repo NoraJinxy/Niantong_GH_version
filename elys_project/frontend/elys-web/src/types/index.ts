@@ -76,6 +76,45 @@ export interface StudyMemberListResponse {
   members: StudyMember[]
 }
 
+export interface StudySummaryCounts {
+  recordings: number
+  pipelines: number
+  executions: number
+  members: number
+  mounts: number
+  derived_datasets: number
+}
+
+export interface StudySummaryPipeline {
+  id: string
+  name: string
+  version: number
+  node_count: number
+  status: string
+}
+
+export interface StudySummaryExecution {
+  id: string
+  execution_seq: number
+  execution_mode: string
+  save_policy: string
+  status: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface StudySummaryResponse {
+  counts: StudySummaryCounts
+  subject_total: number
+  running_execution_count: number
+  member_role: string | null
+  can_run: boolean
+  pipelines: StudySummaryPipeline[]
+  executions: StudySummaryExecution[]
+  mounts: StudyDatasetMount[]
+  derived_datasets: DerivedDataset[]
+}
+
 export interface StudyMemberUpsertRequest {
   user_id: string
   role: StudyMemberRole
@@ -281,7 +320,7 @@ export interface DatasetQaReviewResponse {
 }
 
 export type DatasetAssetStatus = 'working' | 'active' | 'archived' | 'deleted' | 'quarantined'
-export type DatasetAssetVisibility = 'private' | 'workspace' | 'shared' | 'public'
+export type DatasetAssetVisibility = 'private' | 'shared' | 'public'
 
 export interface DatasetAssetCreateRequest {
   name: string
@@ -314,6 +353,7 @@ export interface DatasetAsset {
   current_version_id?: string | null
   // UI Phase (docs_v2/6-05): 数据概要聚合（后端 compute_asset_stats）
   subject_count?: number
+  recording_count?: number
   task_codes?: string[]
   total_duration_seconds?: number
   last_imported_at?: string | null

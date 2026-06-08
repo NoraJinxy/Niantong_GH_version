@@ -1,6 +1,5 @@
 <template>
-  <WorkbenchShell active-key="results" active-top-key="results" :show-sidebar="false" :narrow="true">
-    <div class="results-page">
+  <div class="results-page">
       <!-- ❶ Header -->
       <header class="page__header results-header">
         <div class="results-header__title">
@@ -10,15 +9,6 @@
           </p>
         </div>
         <div class="results-header__actions">
-          <label class="results-study-select">
-            <span>研究项</span>
-            <select :value="selectedStudyId" @change="handleStudyChange">
-              <option value="">请选择研究项</option>
-              <option v-for="study in studies" :key="study.id" :value="study.id">
-                {{ study.name }}
-              </option>
-            </select>
-          </label>
           <button
             class="btn btn--icon"
             type="button"
@@ -86,7 +76,7 @@
             :class="{ 'is-active': !filters.data_types.length }"
             @click="filters.data_types = []"
           >
-            <span class="type-chip__icon">⊞</span>
+            <span class="type-chip__icon"><AppIcon name="dashboard" :size="14" /></span>
             全部 <small>{{ datasets.length }}</small>
           </button>
           <button
@@ -97,7 +87,7 @@
             :class="[{ 'is-active': filters.data_types.includes(opt) }, dataTypeClass(opt)]"
             @click="toggleFilter('data_types', opt)"
           >
-            <span class="type-chip__icon">{{ dataTypeEmoji(opt) }}</span>
+            <span class="type-chip__icon"><AppIcon :name="dataTypeIcon(opt)" :size="14" /></span>
             {{ opt }} <small>{{ countByType(opt) }}</small>
           </button>
         </section>
@@ -255,7 +245,7 @@
               <div class="results-empty-inline__icon"><AppIcon name="figure" :size="28" /></div>
               <strong>这个研究项还没有派生数据</strong>
               <p>执行一个工作流试试，输出结果会在这里汇总。</p>
-              <RouterLink class="btn btn--primary btn--sm" :to="{ path: '/pipeline', query: { study_id: selectedStudyId } }">
+              <RouterLink class="btn btn--primary btn--sm" :to="`/studies/${selectedStudyId}/workflow`">
                 <AppIcon name="pipeline" :size="14" />
                 进入工作流
               </RouterLink>
@@ -282,7 +272,7 @@
             >
               <!-- UI Phase (docs_v2/6-05) P1-3: 卡片视图顶部预览占位 -->
               <div v-if="viewMode === 'grid'" class="result-row__preview" :class="dataTypeClass(row.data_type)">
-                <span class="result-row__preview-emoji">{{ dataTypeEmoji(row.data_type) }}</span>
+                <span class="result-row__preview-emoji"><AppIcon :name="dataTypeIcon(row.data_type)" :size="40" /></span>
                 <span class="result-row__preview-meta" v-if="previewSummaryFor(row)">{{ previewSummaryFor(row) }}</span>
               </div>
               <label class="result-row__check" @click.stop>
@@ -382,7 +372,7 @@
               <RouterLink
                 v-if="activeRow.produced_by_execution_id"
                 class="btn btn--sm"
-                :to="{ path: '/pipeline', query: { study_id: selectedStudyId, execution_id: activeRow.produced_by_execution_id } }"
+                :to="{ path: `/studies/${selectedStudyId}/workflow`, query: { execution_id: activeRow.produced_by_execution_id } }"
               >
                 <AppIcon name="pipeline" :size="14" />跳转工作流
               </RouterLink>
@@ -483,21 +473,17 @@
         </footer>
       </section>
     </div>
-  </WorkbenchShell>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
 import { pipelineApi } from '@/api/pipelines'
-import { studyApi } from '@/api/studies'
-import { getCurrentStudyId, setCurrentStudyId } from '@/utils/studySelection'
 import type {
   DerivedDataset,
   DerivedDatasetListQuery,
-  Study,
 } from '@/types'
 
 type RetentionValue = 'current' | 'pinned' | 'cached' | 'temporary' | 'deleted'
@@ -510,8 +496,8 @@ const retentionOptions: Array<{ value: RetentionValue; label: string }> = [
   { value: 'deleted', label: '已隐藏' },
 ]
 
-const studies = ref<Study[]>([])
-const selectedStudyId = ref('')
+const route = useRoute()
+const selectedStudyId = computed(() => String(route.params.studyId || ''))
 const datasets = ref<DerivedDataset[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -540,19 +526,6 @@ function previewSummaryFor(row: { preview_json?: Record<string, unknown> | null 
   return parts.slice(0, 3).join(' · ')
 }
 
-function dataTypeEmoji(typeName: string): string {
-  const t = (typeName || '').toLowerCase()
-  if (t.includes('erp')) return '📈'
-  if (t.includes('psd') || t.includes('spectrum')) return '🌡'
-  if (t.includes('tfr') || t.includes('time') && t.includes('freq')) return '🔥'
-  if (t.includes('ica') || t.includes('component')) return '🧠'
-  if (t.includes('connect') || t.includes('network')) return '🕸'
-  if (t.includes('source')) return '📍'
-  if (t.includes('micro')) return '🔬'
-  if (t.includes('epoch')) return '⏱'
-  if (t.includes('raw') || t.includes('clean')) return '📉'
-  return '📊'
-}
 const filters = reactive({
   data_types: [] as string[],
   bids_subject_ids: [] as string[],
@@ -671,8 +644,7 @@ const lineageItems = computed(() => {
 })
 
 // === watchers ===
-watch(selectedStudyId, async (newId) => {
-  setCurrentStudyId(newId)  // 跨页面共享:其他页面读取时优先用这个
+watch(selectedStudyId, async () => {
   selectedIds.clear()
   activeId.value = ''
   resetFiltersSilent()
@@ -681,27 +653,9 @@ watch(selectedStudyId, async (newId) => {
 })
 
 // === lifecycle ===
-onMounted(async () => {
-  try {
-    const res = await studyApi.list()
-    studies.value = res.data.studies
-    // 选 study 优先级:URL ?studyId= > sessionStorage(上次选的) > 第一个
-    // 避免用户在 PipelinePage 选了 study A、跑完 run、跳到这里却看到默认的 study B
-    const urlStudyId =
-      new URLSearchParams(window.location.search).get('studyId') ||
-      new URLSearchParams(window.location.search).get('study_id') ||
-      ''
-    const remembered = getCurrentStudyId()
-    if (urlStudyId && studies.value.some((p) => p.id === urlStudyId)) {
-      selectedStudyId.value = urlStudyId
-    } else if (remembered && studies.value.some((p) => p.id === remembered)) {
-      selectedStudyId.value = remembered
-    } else if (studies.value[0]) {
-      selectedStudyId.value = studies.value[0].id
-    }
-  } catch (err) {
-    error.value = describeError(err, '研究项加载失败')
-  }
+onMounted(() => {
+  // studyId 来自容器路由参数；computed 初值不触发 watch，首屏显式拉一次
+  if (selectedStudyId.value) void reload()
   document.addEventListener('click', onGlobalClick)
 })
 
@@ -740,10 +694,6 @@ async function reload() {
   } finally {
     loading.value = false
   }
-}
-
-function handleStudyChange(event: Event) {
-  selectedStudyId.value = (event.target as HTMLSelectElement).value
 }
 
 function toggleFilter<K extends keyof typeof filters>(key: K, value: string) {
@@ -1041,13 +991,15 @@ function dataTypeClass(type?: string | null): string {
 
 function dataTypeIcon(type?: string | null): string {
   const t = String(type || '').toLowerCase()
-  if (t.includes('ica')) return 'brain'
-  if (t.includes('psd')) return 'spectrum'
-  if (t.includes('tfr')) return 'heatmap'
+  if (t.includes('ica') || t.includes('component')) return 'brain'
+  if (t.includes('psd') || t.includes('spectrum')) return 'spectrum'
+  if (t.includes('tfr') || (t.includes('time') && t.includes('freq'))) return 'heatmap'
   if (t.includes('source')) return 'source'
   if (t.includes('micro')) return 'network'
-  if (t.includes('connect')) return 'network'
-  if (t.includes('erp')) return 'wave'
+  if (t.includes('connect') || t.includes('network')) return 'network'
+  if (t.includes('epoch')) return 'layers'
+  if (t.includes('evoked') || t.includes('erp')) return 'wave'
+  if (t.includes('raw') || t.includes('clean') || t.includes('filter')) return 'pulse'
   if (t.includes('ml') || t.includes('model')) return 'ai'
   return 'file'
 }
@@ -1065,13 +1017,11 @@ function describeError(err: unknown, fallback: string): string {
 </script>
 
 <style scoped>
-/* WorkbenchShell .page 已有 padding，去掉这里避免双倍 */
+/* WorkbenchShell .page 已有 padding 与版心(.page--narrow)，这里不再自己定宽/居中 */
 .results-page {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 1600px;
-  margin: 0 auto;
   color: var(--c-text);
 }
 
@@ -1572,8 +1522,11 @@ function describeError(err: unknown, fallback: string): string {
   pointer-events: none;
 }
 .result-row__preview-emoji {
-  font-size: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+  color: var(--c-primary);
   z-index: 1;
 }
 .result-row__preview-meta {
@@ -1623,7 +1576,9 @@ function describeError(err: unknown, fallback: string): string {
   color: var(--c-primary);
 }
 .type-chip__icon {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  color: currentColor;
 }
 .type-chip small {
   color: var(--c-text-3);

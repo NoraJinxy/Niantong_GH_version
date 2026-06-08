@@ -254,6 +254,7 @@ def dataset_asset_to_response(asset: DatasetAsset, stats: dict | None = None) ->
     未传时用空值（保持向后兼容）。"""
     s = stats or {
         "subject_count": 0,
+        "recording_count": 0,
         "task_codes": [],
         "total_duration_seconds": 0.0,
         "last_imported_at": None,
@@ -273,6 +274,7 @@ def dataset_asset_to_response(asset: DatasetAsset, stats: dict | None = None) ->
         current_version_id=str(asset.current_version_id) if asset.current_version_id else None,
         # UI Phase (docs_v2/6-05): 数据概要聚合字段
         subject_count=s["subject_count"],
+        recording_count=s.get("recording_count", 0),
         task_codes=s["task_codes"],
         total_duration_seconds=s["total_duration_seconds"],
         last_imported_at=s["last_imported_at"],
@@ -888,21 +890,6 @@ def build_fif_stem(
     return "_".join(parts)
 
 
-def build_fif_base_path(
-    study: Study,
-    bids_subject_id: str,
-    session: str | None,
-    task: str | None,
-    run: str | None,
-    upload_seq: int,
-) -> Path:
-    root = Path(study.data_root) / "fifdata" / bids_subject_id
-    if session:
-        root = root / session
-    root = root / (task or "task-none") / (run or "run-none") / f"upload-{upload_seq:03d}"
-    return root / build_fif_stem(bids_subject_id, session, task, run)
-
-
 def canonical_fif_logical_dir(
     bids_subject_id: str,
     session: str | None,
@@ -942,17 +929,6 @@ def build_canonical_fif_base_path_for_asset(
     root = dataset_version_root(dataset_asset.id, version_label)
     logical_dir = canonical_fif_logical_dir(bids_subject_id, session, task, run, upload_seq)
     return root / logical_dir / build_fif_stem(bids_subject_id, session, task, run)
-
-
-def make_fif_version_dir(
-    study: Study,
-    bids_subject_id: str,
-    session: str | None,
-    task: str,
-    run: str | None,
-    upload_seq: int,
-) -> Path:
-    return build_fif_base_path(study, bids_subject_id, session, task, run, upload_seq).parent
 
 
 def make_canonical_fif_version_dir(
@@ -1162,7 +1138,6 @@ def get_next_upload_seq(
 
     while (
         make_import_job_dir(study, bids_subject_id, session, task, run, seq, dataset_asset=dataset_asset).exists()
-        or make_fif_version_dir(study, bids_subject_id, session, task, run, seq).exists()
         or (
             dataset_asset is not None
             and make_canonical_fif_version_dir_for_asset(
@@ -1518,7 +1493,7 @@ def create_dataset_file_records(
 
     provenance = conversion.get("provenance") if isinstance(conversion.get("provenance"), dict) else {}
     conversion_params = provenance.get("ConversionParams") if isinstance(provenance.get("ConversionParams"), dict) else {}
-    canonical_fif_path = conversion.get("canonical_fif_path") or conversion.get("fif_path")
+    canonical_fif_path = conversion.get("canonical_fif_path")
     if canonical_fif_path:
         canonical_fif_text = str(canonical_fif_path)
         canonical_fif_storage_uri = canonical_fif_text if is_storage_uri(canonical_fif_text) else None
@@ -1538,8 +1513,6 @@ def create_dataset_file_records(
             current_user=current_user,
             metadata={
                 "canonical_fif_dir": conversion.get("canonical_fif_dir"),
-                "legacy_fif_dir": conversion.get("fif_dir"),
-                "legacy_fif_path": conversion.get("fif_path"),
                 "generated_by": "import.generate_canonical_fif",
                 "upload_seq": upload_record.version_seq,
                 "provenance": provenance,
@@ -1575,11 +1548,10 @@ def create_dataset_file_records(
         )
         records.append(canonical_provenance_record)
 
-    sidecar_paths = conversion.get("sidecar_paths") if isinstance(conversion.get("sidecar_paths"), dict) else {}
     canonical_sidecar_paths = (
         conversion.get("canonical_sidecar_paths") if isinstance(conversion.get("canonical_sidecar_paths"), dict) else {}
     )
-    for sidecar_key, sidecar_path in sorted(sidecar_paths.items()):
+    for sidecar_key, sidecar_path in sorted(canonical_sidecar_paths.items()):
         records.append(
             add_dataset_file_record(
                 db,
@@ -1732,9 +1704,9 @@ def create_dataset_upload_record(
         source_main_file=relative_to_study(study, primary_source),
         source_files=[relative_to_study(study, path) for path in archived_paths],
         source_format=source_format,
-        fif_dir=conversion["fif_dir"],
-        fif_path=conversion["fif_path"],
-        sidecar_paths=conversion["sidecar_paths"],
+        fif_dir=conversion["canonical_fif_dir"],
+        fif_path=conversion["canonical_fif_path"],
+        sidecar_paths=conversion["canonical_sidecar_paths"],
         file_size=total_size,
         checksum=checksum,
         status="current",
@@ -1764,19 +1736,6 @@ def create_dataset_upload_record(
     return upload_record
 
 
-def ensure_fif_targets_are_free(fif_base: Path) -> None:
-    targets = [
-        fif_base.with_name(f"{fif_base.name}_raw.fif"),
-        fif_base.with_name(f"{fif_base.name}_eeg.json"),
-        fif_base.with_name(f"{fif_base.name}_channels.tsv"),
-        fif_base.with_name(f"{fif_base.name}_events.tsv"),
-        fif_base.with_name(f"{fif_base.name}_import.json"),
-    ]
-    for path in targets:
-        if path.exists():
-            raise HTTPException(status_code=409, detail=f"fifdata 中已存在同名记录，请更换 run 或 subject: {path.name}")
-
-
 def ensure_canonical_fif_targets_are_free(canonical_fif_base: Path) -> None:
     targets = [
         canonical_fif_base.with_name(f"{canonical_fif_base.name}_raw.fif"),
@@ -1791,54 +1750,6 @@ def ensure_canonical_fif_targets_are_free(canonical_fif_base: Path) -> None:
                 status_code=409,
                 detail=f"canonical FIF 中已存在同名记录，请更换 run 或 subject: {path.name}",
             )
-
-
-def ensure_fifdata_dataset_files(study: Study, bids_subject_id: str) -> None:
-    fif_root = Path(study.data_root) / "fifdata"
-    fif_root.mkdir(parents=True, exist_ok=True)
-
-    description = fif_root / "dataset_description.json"
-    if not description.exists():
-        description.write_text(
-            json.dumps(
-                {
-                    "Name": f"{study.name} ELYS FIF working dataset",
-                    "DatasetType": "ELYS-FIF-WorkingDataset",
-                    "GeneratedBy": [{"Name": "ELYS", "Description": "Imported raw EEG converted to FIF"}],
-                    "BIDSLikeEntities": True,
-                    "Note": "This is not an official EEG-BIDS raw dataset. Official BIDS exports are generated under bids_exports/.",
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    participants_json = fif_root / "participants.json"
-    if not participants_json.exists():
-        participants_json.write_text(
-            json.dumps(
-                {
-                    "participant_id": {
-                        "Description": "BIDS-like participant identifier used by ELYS FIF working dataset"
-                    }
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    participants_tsv = fif_root / "participants.tsv"
-    existing: list[str] = []
-    if participants_tsv.exists():
-        lines = participants_tsv.read_text(encoding="utf-8").splitlines()
-        existing = [line.split("\t", 1)[0] for line in lines[1:] if line.strip()]
-    if not participants_tsv.exists():
-        participants_tsv.write_text("participant_id\n", encoding="utf-8")
-    if bids_subject_id not in existing:
-        with participants_tsv.open("a", encoding="utf-8", newline="") as handle:
-            handle.write(f"{bids_subject_id}\n")
 
 
 def write_channels_tsv(raw: Any, target: Path) -> None:
@@ -1932,7 +1843,6 @@ def generate_canonical_fif(
     source_path: Path,
     source_format: str,
     canonical_fif_base: Path,
-    legacy_fif_base: Path,
     bids_subject_id: str,
     session: str | None,
     task_label: str,
@@ -1953,12 +1863,6 @@ def generate_canonical_fif(
     canonical_events_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_events.tsv")
     canonical_provenance_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_provenance.json")
     canonical_version_dir = canonical_fif_base.parent
-    legacy_fif_path = legacy_fif_base.with_name(f"{legacy_fif_base.name}_raw.fif")
-    legacy_eeg_json_path = legacy_fif_base.with_name(f"{legacy_fif_base.name}_eeg.json")
-    legacy_channels_path = legacy_fif_base.with_name(f"{legacy_fif_base.name}_channels.tsv")
-    legacy_events_path = legacy_fif_base.with_name(f"{legacy_fif_base.name}_events.tsv")
-    legacy_import_json_path = legacy_fif_base.with_name(f"{legacy_fif_base.name}_import.json")
-    legacy_version_dir = legacy_fif_base.parent
     temp_targets = [
         temp_dir / canonical_fif_path.name,
         temp_dir / canonical_eeg_json_path.name,
@@ -2042,19 +1946,11 @@ def generate_canonical_fif(
             "sourceFiles": [relative_to_study(study, path) for path in archived_files],
             "canonicalFifDir": relative_to_study(study, canonical_version_dir),
             "canonicalFifPath": relative_to_study(study, canonical_fif_path),
-            "legacyFifDir": relative_to_study(study, legacy_version_dir),
-            "legacyFifPath": relative_to_study(study, legacy_fif_path),
             "sidecars": {
                 "eeg": relative_to_study(study, canonical_eeg_json_path),
                 "channels": relative_to_study(study, canonical_channels_path),
                 "events": relative_to_study(study, canonical_events_path),
                 "provenance": relative_to_study(study, canonical_provenance_path),
-            },
-            "legacySidecars": {
-                "eeg": relative_to_study(study, legacy_eeg_json_path),
-                "channels": relative_to_study(study, legacy_channels_path),
-                "events": relative_to_study(study, legacy_events_path),
-                "import": relative_to_study(study, legacy_import_json_path),
             },
             "validation": {
                 "fifReadable": True,
@@ -2073,7 +1969,6 @@ def generate_canonical_fif(
                 "upload_kind": upload_kind,
                 "preload": True,
                 "output_format": "FIF",
-                "legacy_mirror": True,
             },
             "createdAt": datetime.utcnow().isoformat() + "Z",
         }
@@ -2082,24 +1977,6 @@ def generate_canonical_fif(
         canonical_version_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_dir), str(canonical_version_dir))
         committed = True
-        # legacy 镜像是 canonical 落盘的一部分，要 all-or-nothing：若复制中途失败（磁盘满 /
-        # 权限 / 并发占用），必须把已 move 到位的 canonical 目录一起回滚，否则会留下"磁盘有
-        # canonical 目录、DB 却因上层 rollback 查无记录"的孤儿目录——它会以 409 挡住后续同
-        # seq 重试。
-        try:
-            legacy_version_dir.mkdir(parents=True, exist_ok=True)
-            for source, target in (
-                (canonical_fif_path, legacy_fif_path),
-                (canonical_eeg_json_path, legacy_eeg_json_path),
-                (canonical_channels_path, legacy_channels_path),
-                (canonical_events_path, legacy_events_path),
-                (canonical_provenance_path, legacy_import_json_path),
-            ):
-                shutil.copy2(source, target)
-        except Exception:
-            shutil.rmtree(canonical_version_dir, ignore_errors=True)
-            shutil.rmtree(legacy_version_dir, ignore_errors=True)
-            raise
 
         return {
             "canonical_fif_dir": relative_to_study(study, canonical_version_dir),
@@ -2111,14 +1988,6 @@ def generate_canonical_fif(
                 "provenance": relative_to_study(study, canonical_provenance_path),
             },
             "canonical_provenance_path": relative_to_study(study, canonical_provenance_path),
-            "fif_dir": relative_to_study(study, legacy_version_dir),
-            "fif_path": relative_to_study(study, legacy_fif_path),
-            "sidecar_paths": {
-                "eeg": relative_to_study(study, legacy_eeg_json_path),
-                "channels": relative_to_study(study, legacy_channels_path),
-                "events": relative_to_study(study, legacy_events_path),
-                "import": relative_to_study(study, legacy_import_json_path),
-            },
             "n_channels": len(raw.ch_names),
             "sfreq": sfreq,
             "duration_seconds": duration,
@@ -2133,7 +2002,6 @@ def generate_canonical_fif(
                     "status": "success",
                     "source_format": source_format,
                     "canonical_fif_path": relative_to_study(study, canonical_fif_path),
-                    "legacy_fif_path": relative_to_study(study, legacy_fif_path),
                     "created_at": datetime.utcnow().isoformat() + "Z",
                 },
             },
@@ -2444,7 +2312,7 @@ def create_recording_import_task(
         asset = get_dataset_asset_for_user(db, asset_id=payload.dataset_asset_id, user=current_user)
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-        if not can_write_dataset_asset(asset, current_user):
+        if not can_write_dataset_asset(current_user, asset):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权写入该 Dataset 资产")
     payload_json = {
         "study_id": study.id,
@@ -2983,7 +2851,6 @@ def materialize_recording_import(
         primary_source = archived[extension]
         source_format = STANDARD_SINGLE_EXTENSIONS[extension]
 
-    fif_base = build_fif_base_path(study, bids_subject_id, session_label, task_label, run_label, upload_seq)
     canonical_fif_base = build_canonical_fif_base_path(
         target_version,
         bids_subject_id,
@@ -2992,9 +2859,7 @@ def materialize_recording_import(
         run_label,
         upload_seq,
     )
-    ensure_fif_targets_are_free(fif_base)
     ensure_canonical_fif_targets_are_free(canonical_fif_base)
-    ensure_fifdata_dataset_files(study, bids_subject_id)
 
     _emit(45, "转换中（原始格式 → canonical FIF）")
     conversion = generate_canonical_fif(
@@ -3004,7 +2869,6 @@ def materialize_recording_import(
         source_path=primary_source,
         source_format=source_format,
         canonical_fif_base=canonical_fif_base,
-        legacy_fif_base=fif_base,
         bids_subject_id=bids_subject_id,
         session=session_label,
         task_label=task_label,
@@ -3032,7 +2896,7 @@ def materialize_recording_import(
         previous_fif_path = dataset.fif_path
         dataset.source_format = source_format
         dataset.source_path = source_path
-        dataset.fif_path = conversion["fif_path"]
+        dataset.fif_path = conversion["canonical_fif_path"]
         dataset.file_size = total_size
         dataset.checksum = checksum
         dataset.n_channels = conversion["n_channels"]
@@ -3062,7 +2926,7 @@ def materialize_recording_import(
             run=run_label,
             source_format=source_format,
             source_path=source_path,
-            fif_path=conversion["fif_path"],
+            fif_path=conversion["canonical_fif_path"],
             file_size=total_size,
             checksum=checksum,
             n_channels=conversion["n_channels"],
@@ -3135,8 +2999,8 @@ def materialize_recording_import(
             "mode": "replacement" if duplicate else "new",
             "sourcePath": dataset.source_path,
             "fifPath": dataset.fif_path,
-            "fifDir": conversion["fif_dir"],
-            "sidecars": conversion["sidecar_paths"],
+            "fifDir": conversion["canonical_fif_dir"],
+            "sidecars": conversion["canonical_sidecar_paths"],
             "canonicalFifPath": conversion.get("canonical_fif_path"),
             "canonicalFifDir": conversion.get("canonical_fif_dir"),
             "canonicalProvenancePath": conversion.get("canonical_provenance_path"),
@@ -3411,7 +3275,7 @@ async def import_recording(
             message=(
                 f"已新增 upload-{upload_seq:03d}，并切换为当前工作版本"
                 if duplicate
-                else "原始文件已归档到 Dataset 存储，canonical FIF 已生成并保留 fifdata 兼容镜像"
+                else "原始文件已归档到 Dataset 存储，canonical FIF 已生成并写入 derivatives"
             ),
             recording=recording_to_response(dataset),
         )

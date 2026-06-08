@@ -78,6 +78,9 @@
 
   --header-h: 56px;
   --sidebar-w: 240px;
+  /* 版心宽度：列表/总览页内容居中的最大宽度（典型屏 1920，2K/4K 自动留白）。
+     工作流页(/pipeline)与未实现的预览页不套此宽度。改这一处即可全站统一。 */
+  --content-w: 1600px;
 
   --ff-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
@@ -481,11 +484,11 @@ code, kbd {
 
 /* ====== Page main area ====== */
 .page {
-  padding: var(--s-5) var(--s-6);
+  padding: var(--s-5) var(--page-pad-x, var(--s-6));
   min-height: calc(100vh - var(--header-h));
 }
 .page--narrow {
-  max-width: 1280px;
+  max-width: var(--content-w);
   margin: 0 auto;
 }
 .page__header {

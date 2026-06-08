@@ -51,6 +51,7 @@ def compute_asset_stats(db: Session, asset_ids: list) -> dict:
         db.query(
             Recording.dataset_asset_id.label("asset_id"),
             func.count(func.distinct(Recording.subject_id)).label("subject_count"),
+            func.count(Recording.id).label("recording_count"),
             func.coalesce(func.sum(Recording.duration_seconds), 0.0).label("total_duration"),
             func.max(Recording.imported_at).label("last_imported_at"),
         )
@@ -78,6 +79,7 @@ def compute_asset_stats(db: Session, asset_ids: list) -> dict:
         key = str(asset_id)
         result[key] = {
             "subject_count": 0,
+            "recording_count": 0,
             "task_codes": sorted(task_map.get(key, [])),
             "total_duration_seconds": 0.0,
             "last_imported_at": None,
@@ -85,6 +87,7 @@ def compute_asset_stats(db: Session, asset_ids: list) -> dict:
     for row in rows:
         key = str(row.asset_id)
         result[key]["subject_count"] = int(row.subject_count or 0)
+        result[key]["recording_count"] = int(row.recording_count or 0)
         result[key]["total_duration_seconds"] = float(row.total_duration or 0.0)
         result[key]["last_imported_at"] = row.last_imported_at
 
@@ -93,6 +96,7 @@ def compute_asset_stats(db: Session, asset_ids: list) -> dict:
 
 _EMPTY_ASSET_STATS = {
     "subject_count": 0,
+    "recording_count": 0,
     "task_codes": [],
     "total_duration_seconds": 0.0,
     "last_imported_at": None,
@@ -195,7 +199,7 @@ def can_read_dataset_asset(user: User, asset: DatasetAsset) -> bool:
         return True
     if asset.owner_id == user.id or asset.created_by == user.id:
         return True
-    return asset.visibility in {"workspace", "shared", "public"}
+    return asset.visibility in {"shared", "public"}
 
 
 def can_write_dataset_asset(user: User, asset: DatasetAsset) -> bool:
@@ -216,7 +220,7 @@ def list_visible_dataset_assets(db: Session, *, user: User) -> list[DatasetAsset
             or_(
                 DatasetAsset.owner_id == user.id,
                 DatasetAsset.created_by == user.id,
-                DatasetAsset.visibility.in_(("workspace", "shared", "public")),
+                DatasetAsset.visibility.in_(("shared", "public")),
             )
         )
         .order_by(DatasetAsset.created_at.desc(), DatasetAsset.id.desc())

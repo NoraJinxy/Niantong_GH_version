@@ -1,7 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const STALE_CHUNK_RELOAD_KEY = 'elys:stale-chunk-reload'
+
+// 旧顶层 /pipeline、/results 的兼容重定向：把 query 里的 studyId 升级成容器路径参数，
+// 落到对应子 tab；裸链（无 studyId）兜底回研究项列表。
+function redirectToStudyTab(to: RouteLocationNormalized, name: string): RouteLocationRaw {
+  const sid = (to.query.studyId || to.query.study_id) as string | undefined
+  if (!sid) return { name: 'Studies' }
+  const query = { ...to.query }
+  delete query.studyId
+  delete query.study_id
+  return { name, params: { studyId: sid }, query }
+}
 
 function isDynamicImportError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
@@ -40,11 +52,30 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/studies/:id',
-      alias: '/studies/:id',
-      name: 'StudyDetail',
-      component: () => import('@/views/StudyDetailPage.vue'),
+      path: '/studies/:studyId',
+      component: () => import('@/views/study/StudyLayout.vue'),
       meta: { requiresAuth: true },
+      redirect: (to) => ({ name: 'StudyWorkflow', params: to.params }),
+      children: [
+        {
+          path: 'data',
+          name: 'StudyData',
+          component: () => import('@/views/StudyDetailPage.vue'),
+          meta: { requiresAuth: true, studyTab: 'data' },
+        },
+        {
+          path: 'workflow',
+          name: 'StudyWorkflow',
+          component: () => import('@/views/PipelinePage.vue'),
+          meta: { requiresAuth: true, studyTab: 'workflow' },
+        },
+        {
+          path: 'results',
+          name: 'StudyResults',
+          component: () => import('@/views/ResultsPage.vue'),
+          meta: { requiresAuth: true, studyTab: 'results' },
+        },
+      ],
     },
     {
       path: '/datasets',
@@ -55,15 +86,11 @@ const router = createRouter({
     },
     {
       path: '/pipeline',
-      name: 'Pipeline',
-      component: () => import('@/views/PipelinePage.vue'),
-      meta: { requiresAuth: true },
+      redirect: (to) => redirectToStudyTab(to, 'StudyWorkflow'),
     },
     {
       path: '/results',
-      name: 'Results',
-      component: () => import('@/views/ResultsPage.vue'),
-      meta: { requiresAuth: true },
+      redirect: (to) => redirectToStudyTab(to, 'StudyResults'),
     },
     {
       path: '/preprocess',

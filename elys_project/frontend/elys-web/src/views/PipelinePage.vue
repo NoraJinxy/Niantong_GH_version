@@ -1,6 +1,5 @@
 <template>
-  <WorkbenchShell active-key="pipeline" active-top-key="analysis" :show-sidebar="false">
-    <div class="pipeline-page" @pointerdown="closePipelineContextMenu">
+  <div class="pipeline-page" @pointerdown="closePipelineContextMenu">
       <aside
         class="library"
         :class="{ 'is-hidden': !libraryVisible }"
@@ -59,15 +58,6 @@
       >
         <header class="toolbar">
           <div class="toolbar-row toolbar-row--context">
-            <label class="toolbar-select">
-              <span>研究项</span>
-              <select :value="selectedStudyId" @change="handleStudyChange">
-                <option value="">请选择</option>
-                <option v-for="study in studies" :key="study.id" :value="study.id">
-                  {{ study.name }}
-                </option>
-              </select>
-            </label>
             <label class="toolbar-select">
               <span>工作流</span>
               <select
@@ -1108,22 +1098,18 @@
         </section>
       </aside>
     </div>
-  </WorkbenchShell>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { LGraph, LGraphCanvas, LGraphNode, LiteGraph } from 'litegraph.js'
 import 'litegraph.js/css/litegraph.css'
-import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import LoadDataPanel from '@/components/LoadDataPanel.vue'
 import IconLine from '@/components/IconLine.vue'
 import { datasetApi } from '@/api/datasets'
 import { pipelineApi } from '@/api/pipelines'
-import { studyApi } from '@/api/studies'
-import { setCurrentStudyId } from '@/utils/studySelection'
 import type {
   Recording,
   AsyncTask,
@@ -1148,7 +1134,6 @@ import type {
   PipelineExecutionSavePolicy,
   PipelineExecutionSelectionOverride,
   PipelineValidationResponse,
-  Study,
   TaskEvent,
 } from '@/types'
 
@@ -1316,14 +1301,14 @@ const LITEGRAPH_MIN_ZOOM = 0.58
 const LITEGRAPH_MAX_ZOOM = 1.75
 const LITEGRAPH_MAX_PIXEL_RATIO = 2
 
-const route = useRoute()
-const router = useRouter()
+defineOptions({ name: 'PipelinePage' })
 
-const studies = ref<Study[]>([])
+const route = useRoute()
+
 const pipelines = ref<Pipeline[]>([])
 const studyDatasets = ref<Recording[]>([])
 const nodeSpecs = ref<NodeSpec[]>([])
-const selectedStudyId = ref(routeStudyId())
+const selectedStudyId = computed(() => String(route.params.studyId || ''))
 const selectedPipelineId = ref('')
 const currentPipeline = ref<Pipeline | null>(null)
 const pipelineName = ref('未命名工作流')
@@ -2570,9 +2555,7 @@ const connectableUpstreamCandidates = computed(() => {
 })
 
 watch(selectedStudyId, async (studyId) => {
-  if (hydrating) return
-  setCurrentStudyId(studyId)  // 跨页面共享:派生数据 / 导入 等页面读取时优先用这个
-  await router.replace({ path: route.path, query: studyId ? { studyId: studyId } : {} })
+  if (hydrating || !studyId) return
   await Promise.all([loadPipelines(), loadDatasets(studyId)])
 })
 
@@ -2605,14 +2588,26 @@ watch([executionJobs, runArtifacts], () => {
 
 onMounted(async () => {
   restoreLayoutState()
-  document.addEventListener('keydown', handleLayoutKeydown)
   await nextTick()
   initLiteGraphCanvas()
   hydrating = true
-  await Promise.all([loadStudies(), loadNodeSpecs()])
+  await loadNodeSpecs()
   hydrating = false
-  if (!selectedStudyId.value && studies.value[0]) selectedStudyId.value = studies.value[0].id
-  await Promise.all([loadPipelines(routeTarget()), loadDatasets(selectedStudyId.value)])
+  if (selectedStudyId.value) {
+    await Promise.all([loadPipelines(routeTarget()), loadDatasets(selectedStudyId.value)])
+  }
+})
+
+// keep-alive：本页在容器 4-tab 中被缓存。切回时重绑快捷键 + 重算画布尺寸（隐藏期 ResizeObserver 不触发，防错位/糊）
+onActivated(() => {
+  document.addEventListener('keydown', handleLayoutKeydown)
+  if (liteGraphCanvas) resizeLiteGraphCanvas()
+})
+
+// 切走时解绑快捷键 + 停运行轮询，避免后台空转
+onDeactivated(() => {
+  document.removeEventListener('keydown', handleLayoutKeydown)
+  stopRunPolling()
 })
 
 onBeforeUnmount(() => {
@@ -2643,35 +2638,21 @@ function routeQueryValue(...keys: string[]) {
   return ''
 }
 
-function routeStudyId() {
-  return routeQueryValue('study_id', 'studyId', 'studyId')
-}
-
 function routeTarget(): PipelineRouteTarget {
   return {
-    studyId: routeStudyId(),
+    studyId: selectedStudyId.value,
     pipelineId: routeQueryValue('pipeline_id', 'pipelineId'),
     executionId: routeQueryValue('execution_id', 'executionId'),
   }
 }
 
 function hasPipelineRouteTarget() {
-  return Boolean(route.query.study_id || route.query.studyId || route.query.pipeline_id || route.query.pipelineId || route.query.execution_id || route.query.executionId)
+  return Boolean(route.query.pipeline_id || route.query.pipelineId || route.query.execution_id || route.query.executionId)
 }
 
 async function applyPipelineRouteTarget() {
+  if (!selectedStudyId.value) return
   const target = routeTarget()
-  const nextStudyId = target.studyId || selectedStudyId.value
-  if (!nextStudyId) return
-
-  if (selectedStudyId.value !== nextStudyId) {
-    hydrating = true
-    selectedStudyId.value = nextStudyId
-    hydrating = false
-    await Promise.all([loadPipelines(target), loadDatasets(nextStudyId)])
-    return
-  }
-
   if (target.pipelineId || target.executionId) {
     await loadPipelines(target)
   }
@@ -4039,11 +4020,6 @@ function clonePlainObject(value: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
 }
 
-async function loadStudies() {
-  const res = await studyApi.list()
-  studies.value = res.data.studies
-}
-
 async function loadDatasets(studyId = selectedStudyId.value) {
   studyDatasets.value = []
   datasetLoadError.value = ''
@@ -4515,10 +4491,6 @@ function normalizeNode(node: PipelineGraphNode): PipelineGraphNode {
   }
   if (normalized.type === LOAD_DATA_NODE_TYPE) ensureLoadDataParams(normalized)
   return normalized
-}
-
-function handleStudyChange(event: Event) {
-  selectedStudyId.value = (event.target as HTMLSelectElement).value
 }
 
 function handlePipelineChange(event: Event) {

@@ -6,12 +6,14 @@ import type {
   StudyMember,
   StudyMemberListResponse,
   StudyMemberUpsertRequest,
+  StudySummaryResponse,
 } from '@/types'
 import { api } from './client'
 
 export const studyApi = {
   list: () => api.get<StudyListResponse>('/studies'),
   get: (studyId: string) => api.get<Study>(`/studies/${studyId}`),
+  summary: (studyId: string) => api.get<StudySummaryResponse>(`/studies/${studyId}/summary`),
   listTrash: () => api.get<StudyListResponse>('/studies/trash'),
   create: (data: CreateStudyRequest) => api.post<Study>('/studies', data),
   trash: (studyId: string, reason?: string) =>

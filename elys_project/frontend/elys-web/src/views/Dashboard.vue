@@ -1,5 +1,6 @@
 <template>
-  <WorkbenchShell active-key="dashboard" active-top-key="dashboard" :show-sidebar="false" :narrow="true">
+  <!-- 内容与主页 .hero__inner 横向完全对齐：--content-w=1200(版心=主页) + --page-pad-x=0(去掉 .page 左右内边距，内容满 1200、与主页内容齐边)。均只覆盖本页。 -->
+  <WorkbenchShell active-key="dashboard" active-top-key="dashboard" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
     <div class="page__header dashboard-header">
       <div>
         <h1 class="page__title">{{ greeting }}，{{ user?.full_name || user?.username || 'PI' }}</h1>
@@ -75,13 +76,13 @@
           <span class="page-stat__hint">{{ studySummary }}</span>
         </RouterLink>
 
-        <RouterLink class="page-stat" to="/pipeline">
+        <RouterLink class="page-stat" to="/studies">
           <span class="page-stat__label">工作流</span>
           <strong class="page-stat__value">{{ pipelineTotal }}<small>个</small></strong>
           <span class="page-stat__hint">{{ pipelineSummary }}</span>
         </RouterLink>
 
-        <RouterLink class="page-stat" to="/pipeline">
+        <RouterLink class="page-stat" to="/studies">
           <span class="page-stat__label">运行记录</span>
           <strong class="page-stat__value">{{ executionTotal }}<small>条</small></strong>
           <span class="page-stat__hint">{{ executionSummary }}</span>
@@ -544,15 +545,15 @@ const primaryAction = computed<DashboardAction>(() => {
     return { label: '新建研究项', to: '/studies', icon: 'plus' }
   }
   if (hasNoPipelineSnapshot.value) {
-    return { label: '创建工作流', to: '/pipeline', icon: 'pipeline' }
+    return { label: '创建工作流', to: '/studies', icon: 'pipeline' }
   }
   if (hasPipelinesWithoutExecutions.value) {
-    return { label: '发起试跑', to: '/pipeline', icon: 'clock' }
+    return { label: '发起试跑', to: '/studies', icon: 'clock' }
   }
   if (activeExecutions.value.length) {
-    return { label: '查看运行记录', to: '/pipeline', icon: 'clock' }
+    return { label: '查看运行记录', to: '/studies', icon: 'clock' }
   }
-  return { label: '进入工作流', to: '/pipeline', icon: 'pipeline' }
+  return { label: '进入工作流', to: '/studies', icon: 'pipeline' }
 })
 
 // UI Phase (docs_v2/6-05) P1-1: 需要处理 警示横幅 — 仅在有阻塞事项时显示
@@ -631,7 +632,7 @@ const executionEmptyState = computed<DashboardEmptyState>(() => {
       title: '创建工作流',
       description: '为研究项配置处理流程。',
       icon: 'pipeline',
-      action: { label: '创建工作流', to: '/pipeline', icon: 'pipeline' },
+      action: { label: '创建工作流', to: '/studies', icon: 'pipeline' },
     }
   }
   if (hasPipelinesWithoutExecutions.value) {
@@ -639,7 +640,7 @@ const executionEmptyState = computed<DashboardEmptyState>(() => {
       title: '发起试跑',
       description: '先试跑一次，确认流程可用。',
       icon: 'clock',
-      action: { label: '发起试跑', to: '/pipeline', icon: 'clock' },
+      action: { label: '发起试跑', to: '/studies', icon: 'clock' },
     }
   }
   if (!studyTotal.value || hasNoDatasetAssets.value) {
@@ -874,21 +875,10 @@ function pipelineNameForExecution(execution: DashboardExecutionItem) {
   return pipeline?.name || `Pipeline #${execution.pipeline_id}`
 }
 
-function pipelineRoute(pipeline: Pipeline): RouteLocationRaw {
-  return {
-    path: '/pipeline',
-    query: {
-      study_id: pipeline.study_id,
-      pipeline_id: String(pipeline.id),
-    },
-  }
-}
-
 function pipelineExecutionRoute(execution: DashboardExecutionItem): RouteLocationRaw {
   return {
-    path: '/pipeline',
+    path: `/studies/${execution.study_id}/workflow`,
     query: {
-      study_id: execution.study_id,
       pipeline_id: String(execution.pipeline_id),
       execution_id: execution.id,
     },
@@ -997,8 +987,7 @@ function summaryObjectKindLabel(kind: DashboardRecentActivityItem['object_kind']
 
 function defaultActivityRoute(kind: DashboardRecentActivityItem['object_kind']): RouteLocationRaw {
   if (kind === 'dataset') return '/datasets'
-  if (kind === 'study') return '/studies'
-  return '/pipeline'
+  return '/studies'
 }
 
 function executionModeLabel(mode: string) {

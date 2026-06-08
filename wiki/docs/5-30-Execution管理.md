@@ -293,7 +293,7 @@ pipeline_execution_dependencies
 
 - 被下游 Execution 使用的派生数据不能直接 hide / 物理清理
 - 如果输出可重算，可以标记 `deleted`，但必须保留 `produced_by_params + upstream_*` 重建信息
-- Execution detail 返回 dependencies；运行时由 [execution_dependencies.record_execution_artifact_dependencies()](../../elys_project/backend/app/services/execution_dependencies.py) 自动写入
+- Execution detail 返回 dependencies；运行时由 `execution_dependencies.record_execution_artifact_dependencies()`（源码 `elys_project/backend/app/services/execution_dependencies.py`）自动写入
 
 ## 8. 保存与不保存
 

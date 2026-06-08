@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>数据集页 · 左侧栏改造演示稿 — 念析 ELYS</title>
+<style>
+  /* ===== Steel 主题令牌（对齐 wiki 6-05 §5.1） ===== */
+  :root{
+    --c-primary:#3F5E8F; --c-primary-hover:#344E78; --c-primary-soft:#E9EEF6;
+    --c-accent:#5E7BA8; --c-success:#4F8A6B; --c-warning:#B07F33; --c-danger:#B0544C;
+    --c-text:#20293B; --c-text-2:#51607A; --c-text-3:#79859A;
+    --c-surface:#FFFFFF; --c-bg-soft:#F4F6F9; --c-bg-tint:#EAEEF4; --c-border:#E4E9F1;
+    --success-soft:#E7F0EB; --warning-soft:#F5ECDD; --danger-soft:#F4E4E2;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--c-bg-soft); color:var(--c-text); line-height:1.55;
+    padding:32px 24px 80px;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+
+  /* 演示横幅 */
+  .demo-banner{
+    background:linear-gradient(110deg,#2C3E5E,#3F5E8F);color:#fff;border-radius:12px;
+    padding:18px 22px;margin-bottom:28px;display:flex;gap:16px;align-items:flex-start;
+  }
+  .demo-banner h1{font-size:17px;font-weight:800;margin-bottom:4px}
+  .demo-banner p{font-size:13px;opacity:.9}
+  .demo-banner .tag{font-size:11px;font-weight:700;background:rgba(255,255,255,.18);
+    border-radius:999px;padding:3px 10px;white-space:nowrap}
+
+  /* 卡片基线（6-05 §5.4） */
+  .card{
+    border-radius:10px;border:1px solid var(--c-border);background:var(--c-surface);
+    padding:18px 22px;margin-bottom:18px;transition:box-shadow .2s;
+  }
+  .kicker{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--c-text-3);
+    text-transform:uppercase;display:block;margin-bottom:6px}
+  h2.title{font-size:22px;font-weight:800}
+  h3{font-size:15px;font-weight:700}
+
+  /* 头部 */
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+  .breadcrumb{font-size:12px;font-weight:700;color:var(--c-accent);margin-bottom:2px}
+  .subtitle{font-size:13px;color:var(--c-text-2);margin:6px 0 18px}
+
+  /* 徽章 */
+  .badge{border-radius:999px;padding:4px 11px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px}
+  .badge--draft{background:var(--warning-soft);color:var(--c-warning)}
+  .badge--active{background:var(--success-soft);color:var(--c-success)}
+
+  /* 按钮 */
+  .btn{border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text);
+    border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;transition:.15s}
+  .btn:hover{box-shadow:0 2px 8px rgba(15,23,42,.08)}
+  .btn--primary{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
+  .btn--primary:hover{background:var(--c-primary-hover)}
+  .btn--ghost{background:transparent}
+  .btn--sm{padding:5px 11px;font-size:12px}
+
+  /* ===== Tab 栏：5→3 ===== */
+  .tabs{display:flex;gap:6px;background:var(--c-bg-tint);padding:5px;border-radius:10px;margin-bottom:22px}
+  .tab{flex:0 0 auto;border:none;background:transparent;color:var(--c-text-2);
+    border-radius:7px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+  .tab:hover{color:var(--c-text)}
+  .tab.is-active{background:var(--c-surface);color:var(--c-primary);box-shadow:0 1px 4px rgba(15,23,42,.08)}
+  .tab-removed{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--c-text-3)}
+  .tab-removed s{color:var(--c-danger);opacity:.7}
+
+  .panel{display:none}
+  .panel.is-active{display:block;animation:fade .2s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* 数据概要（L1，置顶） */
+  .overview-card{border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);padding:20px 22px;margin-bottom:18px}
+  .overview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px}
+  .stat{display:flex;gap:11px;align-items:center;background:var(--c-bg-soft);border-radius:9px;padding:13px 15px}
+  .stat .ico{width:34px;height:34px;border-radius:8px;background:var(--c-primary-soft);color:var(--c-primary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .stat strong{font-size:24px;font-weight:800;display:block;line-height:1.1}
+  .stat small{font-size:12px;color:var(--c-text-3)}
+  .tasks{margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tasks .lbl{font-size:12px;color:var(--c-text-3);font-weight:600}
+  .chip{background:var(--c-primary-soft);color:var(--c-primary);border-radius:7px;padding:3px 11px;font-size:12px;font-weight:600}
+
+  /* 状态 + 下一步 合并卡 */
+  .status-card{display:flex;gap:20px;align-items:center;justify-content:space-between;
+    background:var(--success-soft);border:1px solid #CFE2D7;border-radius:10px;padding:18px 22px;margin-bottom:18px}
+  .status-card .left{flex:1}
+  .status-card .state-line{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .status-card .state-line strong{font-size:16px;font-weight:800;color:var(--c-text)}
+  .status-card p{font-size:13px;color:var(--c-text-2)}
+  .status-card .actions{display:flex;gap:8px;flex-shrink:0}
+
+  /* 次级折叠：版本 / 技术信息 */
+  details.fold{border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);margin-bottom:14px;overflow:hidden}
+  details.fold>summary{list-style:none;cursor:pointer;padding:15px 22px;display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:14px}
+  details.fold>summary::-webkit-details-marker{display:none}
+  details.fold>summary .hint{font-size:11px;font-weight:500;color:var(--c-text-3)}
+  details.fold>summary::after{content:"▾";color:var(--c-text-3);transition:.2s;margin-left:8px}
+  details.fold[open]>summary::after{transform:rotate(180deg)}
+  .fold-body{padding:4px 22px 20px;border-top:1px solid var(--c-border)}
+
+  .ver-row{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--c-bg-soft);border-radius:8px;margin-top:12px}
+  .ver-row strong{font-size:14px}
+  .ver-row .time{font-size:12px;color:var(--c-text-3);margin-left:auto}
+  .pill{border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700}
+  .pill--draft{background:var(--warning-soft);color:var(--c-warning)}
+  .pill--default{background:var(--c-bg-tint);color:var(--c-text-2)}
+
+  dl.techgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 28px;margin-top:14px}
+  dl.techgrid div{display:flex;flex-direction:column;gap:2px}
+  dl.techgrid dt{font-size:11px;color:var(--c-text-3);font-weight:600}
+  dl.techgrid dd{font-size:13px;font-family:"JetBrains Mono",monospace;color:var(--c-text-2);word-break:break-all}
+  .tech-sub{margin-top:18px;padding-top:14px;border-top:1px dashed var(--c-border)}
+  .file-line{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12px;border-bottom:1px solid var(--c-bg-soft)}
+  .file-line .fp{font-family:"JetBrains Mono",monospace;color:var(--c-text-2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-line .role{font-size:11px;font-weight:700;color:var(--c-accent)}
+  .file-line .sz{color:var(--c-text-3);width:60px;text-align:right}
+
+  /* 采集记录 */
+  .rec-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0 18px}
+  .rec-stats div{background:var(--c-bg-soft);border-radius:8px;padding:12px 14px}
+  .rec-stats span{font-size:12px;color:var(--c-text-3);display:block}
+  .rec-stats strong{font-size:20px;font-weight:800}
+  .rec-row{border:1px solid var(--c-border);border-radius:9px;margin-bottom:10px;overflow:hidden}
+  .rec-main{display:flex;align-items:center;gap:20px;padding:14px 18px;cursor:pointer;background:var(--c-surface)}
+  .rec-main:hover{background:var(--c-bg-soft)}
+  .rec-id strong{font-size:14px;display:block}
+  .rec-id span{font-size:12px;color:var(--c-text-3)}
+  .rec-col{font-size:12px;color:var(--c-text-2)}
+  .rec-col b{display:block;font-size:13px;color:var(--c-text);font-weight:700}
+  .rec-toggle{margin-left:auto;font-size:12px;color:var(--c-primary);font-weight:700}
+  .rec-detail{padding:16px 18px;background:var(--c-bg-soft);border-top:1px solid var(--c-border);display:none}
+  .rec-row.open .rec-detail{display:block}
+  .rec-detail .files-hint{font-size:12px;color:var(--c-text-3);margin-bottom:10px}
+
+  /* 导入 */
+  .import-target{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    background:var(--c-primary-soft);border:1px solid #CFD9EA;border-radius:10px;padding:18px 22px;margin-bottom:18px}
+  .import-target h3{margin-bottom:4px}
+  .import-target p{font-size:13px;color:var(--c-text-2)}
+  .dropzone{border:2px dashed var(--c-border);border-radius:10px;padding:28px;text-align:center;color:var(--c-text-3);margin-bottom:8px}
+  .dropzone strong{display:block;color:var(--c-text);font-size:14px;margin-bottom:6px}
+
+  .note{background:#FBFBE9;border:1px solid #E8E4B8;border-radius:8px;padding:10px 14px;font-size:12px;color:#7A6B2E;margin-top:10px}
+  .footnote{font-size:12px;color:var(--c-text-3);margin-top:30px;text-align:center;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="demo-banner">
+    <div>
+      <h1>数据集页 · 详情区导航改造演示稿</h1>
+      <p>一级 tab 由 <b>5 → 3</b>（概览 / 导入 / 采集记录）；文件索引、技术信息降级折叠；概览重排为"数据→状态→版本→技术"。本稿为静态演示，<b>不改任何真实代码</b>。数据沿用截图中的 sub093-erp。</p>
+    </div>
+    <span class="tag">PROPOSAL</span>
+  </div>
+
+  <div class="card" style="padding:22px">
+    <div class="breadcrumb">数据集工作台</div>
+    <div class="head">
+      <h2 class="title">sub093-erp</h2>
+      <span class="badge badge--draft">● 草稿</span>
+    </div>
+
+    <!-- ===== Tab 栏 ===== -->
+    <div class="tabs">
+      <button class="tab is-active" data-tab="overview">概览</button>
+      <button class="tab" data-tab="import">导入</button>
+      <button class="tab" data-tab="records">采集记录</button>
+      <span class="tab-removed">
+        <s>文件索引</s> <s>技术信息</s> → 已折叠进概览
+      </span>
+    </div>
+
+    <!-- ============ 概览 ============ -->
+    <div class="panel is-active" id="overview">
+
+      <!-- ① 数据概要：L1，置顶（修正原版"倒挂"） -->
+      <div class="overview-card">
+        <span class="kicker">数据概要</span>
+        <span style="font-size:13px;color:var(--c-text-2)">静息态 / ERP 范式数据集，已完成导入与标准化。</span>
+        <div class="overview-grid">
+          <div class="stat"><span class="ico">👥</span><div><strong>1</strong><small>名被试</small></div></div>
+          <div class="stat"><span class="ico">📋</span><div><strong>1</strong><small>种采集任务</small></div></div>
+          <div class="stat"><span class="ico">⏱</span><div><strong>2 分</strong><small>总采集时长</small></div></div>
+          <div class="stat"><span class="ico">📅</span><div><strong>9 小时前</strong><small>最近导入</small></div></div>
+        </div>
+        <div class="tasks"><span class="lbl">任务列表</span><span class="chip">task-erp</span></div>
+      </div>
+
+      <!-- ② 状态 + 下一步：合并成一句话 + 行动按钮（消灭"已导入 vs 未准备"矛盾） -->
+      <div class="status-card">
+        <div class="left">
+          <div class="state-line">
+            <span class="badge badge--active">✓ 已导入</span>
+            <strong>数据已就绪，可以开始分析</strong>
+          </div>
+          <p>已生成标准化文件，可继续追加数据，或直接进入预处理 / 工作流。</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn--ghost btn--sm" onclick="go('import')">继续导入</button>
+          <button class="btn btn--ghost btn--sm" onclick="go('records')">查看采集记录</button>
+          <button class="btn btn--primary btn--sm">进入工作流 →</button>
+        </div>
+      </div>
+
+      <!-- ③ 版本与发布：次级折叠（PI/低频，不再压在数据上方） -->
+      <details class="fold">
+        <summary>
+          <span>版本与发布 <span class="pill pill--draft" style="margin-left:8px">当前：工作版本 · 草稿</span></span>
+          <span class="hint">质控未运行 · 发布后可被其他研究项引用</span>
+        </summary>
+        <div class="fold-body">
+          <p style="font-size:13px;color:var(--c-text-2);margin-top:12px">
+            草稿版本仅本研究项可用。发布后变为只读、可被其他研究项引用（要改请开新版本）。
+          </p>
+          <div class="ver-row">
+            <strong>工作版本</strong>
+            <span class="pill pill--draft">草稿</span>
+            <span class="pill pill--default">默认</span>
+            <span class="time">创建于 2026/06/07 01:42</span>
+            <button class="btn btn--primary btn--sm">发布版本</button>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <span style="font-size:12px;color:var(--c-text-3)">主研究项</span>
+            <a href="#" style="font-size:13px;color:var(--c-primary);font-weight:600;text-decoration:none">查看研究项 →</a>
+          </div>
+        </div>
+      </details>
+
+      <!-- ④ 技术信息：全站唯一折叠（合并原"技术信息 tab" + "文件索引 tab"） -->
+      <details class="fold">
+        <summary>
+          <span>技术信息</span>
+          <span class="hint">平台内部记录，普通研究员可忽略</span>
+        </summary>
+        <div class="fold-body">
+          <dl class="techgrid">
+            <div><dt>数据集编码</dt><dd>sub093-erp</dd></div>
+            <div><dt>数据集 ID</dt><dd>088c2f07-bb17-455d-96ea-0e76989eaf04</dd></div>
+            <div><dt>文件总数 / 体量</dt><dd>18 个 · 79 MB</dd></div>
+            <div><dt>原始 / BIDS / 标准FIF</dt><dd>6 / 9 / 2</dd></div>
+            <div><dt>状态枚举</dt><dd>working / private</dd></div>
+            <div><dt>创建 / 更新</dt><dd>2026/06/07 01:42</dd></div>
+          </dl>
+
+          <!-- 文件索引并入此处，按需展开 -->
+          <div class="tech-sub">
+            <details>
+              <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--c-primary)">查看完整文件索引（18 个）</summary>
+              <div style="margin-top:10px">
+                <div class="file-line"><span class="fp">run-none/upload-001/sub-093_task-erp_raw.fif</span><span class="role">canonical FIF</span><span class="sz">32 MB</span></div>
+                <div class="file-line"><span class="fp">run-none/upload-001/sub-093_task-erp_provenance.json</span><span class="role">canonical FIF</span><span class="sz">3.4 KB</span></div>
+                <div class="file-line"><span class="fp">sub-093/eeg/sub-093_task-erp_eeg.eeg</span><span class="role">Raw BIDS</span><span class="sz">16 MB</span></div>
+                <div class="file-line"><span class="fp">sub-093/eeg/sub-093_task-erp_eeg.vhdr</span><span class="role">Raw BIDS</span><span class="sz">12 KB</span></div>
+                <div class="file-line"><span class="fp">sub-093/eeg/sub-093_task-erp_events.tsv</span><span class="role">Raw BIDS</span><span class="sz">19 KB</span></div>
+                <div style="font-size:12px;color:var(--c-text-3);margin-top:8px">… 还有 13 个（支持搜索 / 按角色筛选 / 分页）</div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ 导入 ============ -->
+    <div class="panel" id="import">
+      <div class="import-target">
+        <div>
+          <h3>可以继续导入</h3>
+          <p>选择 EEG 原始数据并提交，会写入当前草稿版本。<span style="color:var(--c-text-3)">（不再出现"准备导入目标 / 处理工作空间 / 挂载"等后台词）</span></p>
+        </div>
+        <button class="btn btn--primary">选择数据</button>
+      </div>
+
+      <div class="card">
+        <div class="dropzone">
+          <strong>拖拽文件到此，或点击选择</strong>
+          BrainVision 请一次选择 .vhdr / .eeg / .vmrk；EDF、BDF 可作为单文件导入。
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button class="btn btn--sm">📄 选择数据</button>
+          <button class="btn btn--sm">📁 选择文件夹</button>
+        </div>
+        <div class="note">
+          ⓘ 改动点：原版 4 步状态条（原始上传→BIDS→标准FIF→文件索引）属于后台流水线内部环节，对用户是黑话，
+          改为导入完成后用一句"已生成标准化文件"概括；"挂载名 / BIDS 实体默认值"收进「高级设置」折叠。
+        </div>
+        <details class="fold" style="margin-top:14px">
+          <summary><span>高级设置</span><span class="hint">通常无需调整</span></summary>
+          <div class="fold-body"><p style="font-size:13px;color:var(--c-text-2);margin-top:12px">挂载名、subject/task/session/run 默认值等。</p></div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============ 采集记录 ============ -->
+    <div class="panel" id="records">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div><h3>采集记录</h3><p style="font-size:13px;color:var(--c-text-2);margin-top:4px">按被试 / 任务组织；文件列表在每条展开里查看。</p></div>
+          <button class="btn btn--sm">↻ 刷新</button>
+        </div>
+        <div class="rec-stats">
+          <div><span>采集记录数</span><strong>1</strong></div>
+          <div><span>已生成标准 FIF</span><strong>1</strong></div>
+          <div><span>质控通过</span><strong>0</strong></div>
+          <div><span>状态</span><strong style="font-size:14px;color:var(--c-success)">已就绪</strong></div>
+        </div>
+        <div class="note" style="margin-bottom:16px">
+          ⓘ 改动点：原版此处恒显"采集记录数 0 · 所在工作空间未准备"，与概览"已导入 18 文件"矛盾。
+          统一状态逻辑后，有数据即按被试展示，不再要求用户先理解"处理工作空间"。
+        </div>
+
+        <div class="rec-row" onclick="this.classList.toggle('open')">
+          <div class="rec-main">
+            <div class="rec-id"><strong>sub-093</strong><span>task-erp</span></div>
+            <div class="rec-col">原始格式<b>BrainVision</b></div>
+            <div class="rec-col">标准 FIF<b style="color:var(--c-success)">已生成</b></div>
+            <div class="rec-col">质控<b>未运行</b></div>
+            <span class="rec-toggle">展开 ▾</span>
+          </div>
+          <div class="rec-detail">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+              <div class="rec-col">通道 / 事件<b>63 通道 · 240 事件</b></div>
+              <div class="rec-col">文件体量<b>79 MB</b></div>
+              <div class="rec-col">task / session / run<b>erp / - / -</b></div>
+            </div>
+            <div class="files-hint">该记录的文件（来自原"文件索引"，归到被试名下更直观）：</div>
+            <div class="file-line"><span class="fp">sub-093_task-erp_raw.fif</span><span class="role">标准 FIF</span><span class="sz">32 MB</span></div>
+            <div class="file-line"><span class="fp">sub-093_task-erp_eeg.eeg</span><span class="role">BIDS 逻辑</span><span class="sz">16 MB</span></div>
+            <div class="file-line"><span class="fp">sub-093_task-erp_events.tsv</span><span class="role">sidecar</span><span class="sz">19 KB</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="footnote">
+    念析 ELYS · 数据集页详情区改造演示稿 · 遵循 wiki 6-05 信息分级（L1/L2/L3）与 Steel 主题令牌<br>
+    确认方向后再落地到 <code>DatasetsPage.vue</code>；本文件位于 <code>design/mockups/datasets-redesign.html</code>
+  </p>
+
+</div>
+
+<script>
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.addEventListener('click',()=>go(t.dataset.tab));
+  });
+  function go(name){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('is-active',t.dataset.tab===name));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('is-active',p.id===name));
+  }
+</script>
+</body>
+</html>

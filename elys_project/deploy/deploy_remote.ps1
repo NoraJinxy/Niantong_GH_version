@@ -508,6 +508,9 @@ function Get-SshOptions {
     $options = @(
         "-o", "StrictHostKeyChecking=no",
         "-o", "IdentitiesOnly=yes",
+        "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=4",
         "-i", $SshKeyPath
     )
 
@@ -614,6 +617,7 @@ function Start-SshMaster {
         "-p", $Port,
         "-o", "StrictHostKeyChecking=no",
         "-o", "IdentitiesOnly=yes",
+        "-o", "ConnectTimeout=15",
         "-o", "ControlMaster=yes",
         "-o", "ControlPath=$controlPath",
         "-o", "ControlPersist=10m",
@@ -740,8 +744,15 @@ function Install-DeployKey {
         return
     }
 
-    Write-LocalWarn "Installing deploy key on ${Label} (${ServerIP}); 接下来会让你输入这台服务器的 root 密码 (输入时不显示字符)"
-    Write-LocalInfo "  → 如果密码输错, 整个 deploy 会在这步 FAIL; 重新跑 deploy_remote.cmd 再输一次即可"
+    Write-Host ""
+    Write-Host "######################################################################" -ForegroundColor Yellow
+    Write-Host "#  [需要你操作] 部署已暂停, 正在等待你手动输入密码                    #" -ForegroundColor Yellow
+    Write-Host "######################################################################" -ForegroundColor Yellow
+    Write-LocalWarn "目标 ${Label} (${ServerIP}) 的【免密钥登录失败】, 现在要用 root 密码把部署公钥重新装上去。"
+    Write-LocalWarn "下面会出现 `"root@${ServerIP}'s password:`" 提示符, 请输入该服务器 root 密码 (输入时不显示字符, 正常现象)。"
+    Write-LocalInfo "  → 密码输错会在这步 FAIL; 重新跑 deploy_remote.cmd 再输一次即可。"
+    Write-LocalWarn "  → 安全提示: 若这台服务器【以前能免密、现在突然要密码】, 可能 authorized_keys 被改或系统被重装,"
+    Write-LocalWarn "     请先去阿里云控制台核对异常登录告警, 确认安全后再继续输入密码!"
     $publicKey = (Get-Content -Raw -Encoding ascii -Path "${SshKeyPath}.pub").Trim()
     $quotedKey = Quote-RemoteValue $publicKey
     $installCmd = "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF $quotedKey ~/.ssh/authorized_keys || echo $quotedKey >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys"

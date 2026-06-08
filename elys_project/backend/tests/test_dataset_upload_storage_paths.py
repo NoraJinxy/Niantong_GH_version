@@ -231,29 +231,34 @@ def test_create_dataset_file_records_registers_standard_raw_bids_roles_for_edf(t
     original.parent.mkdir(parents=True, exist_ok=True)
     original.write_bytes(b"edf")
 
+    canonical_prefix = "derivatives/elys-canonical-fif/sub-001/u001/sub-001_task-rest"
+    canonical_fif_uri = write_dataset_file(tmp_path, "ds-000001", f"{canonical_prefix}_raw.fif")
+    canonical_eeg_uri = write_dataset_file(tmp_path, "ds-000001", f"{canonical_prefix}_eeg.json")
+    canonical_channels_uri = write_dataset_file(tmp_path, "ds-000001", f"{canonical_prefix}_channels.tsv")
+    canonical_events_uri = write_dataset_file(tmp_path, "ds-000001", f"{canonical_prefix}_events.tsv")
+    canonical_provenance_uri = write_dataset_file(
+        tmp_path,
+        "ds-000001",
+        f"{canonical_prefix}_provenance.json",
+        b'{"GeneratedBy":"test"}',
+    )
     conversion = {
-        "fif_dir": "fifdata/sub-001/ses-01/task-rest/run-01/upload-001",
-        "fif_path": write_study_file(
-            study,
-            "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_raw.fif",
-        ),
-        "sidecar_paths": {
-            "eeg": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_eeg.json",
-            ),
-            "channels": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_channels.tsv",
-            ),
-            "events": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_events.tsv",
-            ),
-            "import": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_import.json",
-            ),
+        "canonical_fif_dir": "elys://datasets/ds-000001/versions/working/derivatives/elys-canonical-fif/sub-001/u001",
+        "canonical_fif_path": canonical_fif_uri,
+        "canonical_sidecar_paths": {
+            "eeg": canonical_eeg_uri,
+            "channels": canonical_channels_uri,
+            "events": canonical_events_uri,
+            "provenance": canonical_provenance_uri,
+        },
+        "canonical_provenance_path": canonical_provenance_uri,
+        "provenance": {
+            "SourceRawBIDS": {"logical_path": "raw_bids/sub-001/ses-01/eeg/sub-001_ses-01_task-rest_run-01_eeg.edf"},
+            "SourceEvents": {"logical_path": "raw_bids/sub-001/ses-01/eeg/sub-001_ses-01_task-rest_run-01_events.tsv"},
+            "SourceChannels": {"logical_path": "raw_bids/sub-001/ses-01/eeg/sub-001_ses-01_task-rest_run-01_channels.tsv"},
+            "SourceSHA256": "source-sha",
+            "ConversionParams": {"output_format": "FIF"},
+            "GeneratedBy": {"Step": "generate_canonical_fif"},
         },
     }
 
@@ -346,29 +351,6 @@ def test_create_dataset_file_records_registers_canonical_fif_provenance_and_deri
             "provenance": canonical_provenance_uri,
         },
         "canonical_provenance_path": canonical_provenance_uri,
-        "fif_dir": "fifdata/sub-001/ses-01/task-rest/run-01/upload-001",
-        "fif_path": write_study_file(
-            study,
-            "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_raw.fif",
-        ),
-        "sidecar_paths": {
-            "eeg": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_eeg.json",
-            ),
-            "channels": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_channels.tsv",
-            ),
-            "events": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_events.tsv",
-            ),
-            "import": write_study_file(
-                study,
-                "fifdata/sub-001/ses-01/task-rest/run-01/upload-001/sub-001_ses-01_task-rest_run-01_import.json",
-            ),
-        },
         "provenance": {
             "SourceRawBIDS": {"logical_path": "raw_bids/sub-001/ses-01/eeg/sub-001_ses-01_task-rest_run-01_eeg.edf"},
             "SourceEvents": {"logical_path": "raw_bids/sub-001/ses-01/eeg/sub-001_ses-01_task-rest_run-01_events.tsv"},
@@ -400,7 +382,7 @@ def test_create_dataset_file_records_registers_canonical_fif_provenance_and_deri
     canonical_fif = next(record for record in files if record.file_role == "canonical_fif")
     assert canonical_fif.storage_uri == canonical_fif_uri
     assert canonical_fif.logical_path == f"{canonical_prefix}_raw.fif"
-    assert canonical_fif.metadata_json["legacy_fif_path"].endswith("_raw.fif")
+    assert canonical_fif.metadata_json["canonical_fif_dir"].endswith("sub-001/u001")
 
     provenance = next(record for record in files if record.file_role == "canonical_fif_provenance")
     assert provenance.storage_uri == canonical_provenance_uri

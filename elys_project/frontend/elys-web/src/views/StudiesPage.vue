@@ -94,13 +94,12 @@
           </div>
 
           <div v-else class="study-list">
-            <button
+            <div
               v-for="study in visibleStudies"
               :key="study.id"
               class="study-row"
-              :class="{ 'is-active': selectedStudy?.id === study.id }"
-              type="button"
-              @click="selectStudy(study)"
+              :class="{ 'is-active': selectedStudyId === study.id }"
+              @click="selectStudy(study.id)"
             >
               <span class="study-row__top">
                 <span class="study-row__title">
@@ -155,17 +154,17 @@
                 <span class="danger">已删除</span>
                 <span>{{ trashedLabel(study) }}</span>
               </span>
-            </button>
+            </div>
           </div>
         </aside>
 
         <main class="study-detail-panel" aria-label="研究项详情">
           <div v-if="!selectedStudy" class="study-empty study-empty--detail">
-            <strong>选择一个研究项查看工作状态</strong>
-            <span>左侧目录用于定位研究项，右侧显示处理入口、数据摘要和治理动作。</span>
+            <strong>选择一个研究项查看概况</strong>
+            <span>左侧目录用于挑选研究项，右侧铺开它的数据 / 工作流 / 结果概况，点「进入工作区」开干。</span>
           </div>
 
-          <template v-else>
+          <template v-else-if="viewMode === 'active'">
             <div class="study-detail__head">
               <div>
                 <h2>{{ selectedStudy.name }}</h2>
@@ -174,161 +173,35 @@
                   <span class="status-pill" :class="statusPillClass(selectedStudy.status)">
                     {{ statusLabel(selectedStudy.status) }}
                   </span>
-                  <span>我的角色 {{ ownerRoleLabel(selectedStudy) }}</span>
                 </div>
               </div>
-              <div v-if="viewMode === 'active'" class="study-detail__actions">
-                <RouterLink class="btn btn--ghost" :to="`/studies/${selectedStudy.id}`">
-                  查看主页
-                </RouterLink>
-                <RouterLink class="btn btn--ghost" :to="`/datasets?study_id=${selectedStudy.id}`">
-                  导入数据集
-                </RouterLink>
-                <RouterLink class="btn btn--primary" :to="`/pipeline?study_id=${selectedStudy.id}`">
-                  进入工作流
+              <div class="study-detail__actions">
+                <RouterLink class="btn btn--primary" :to="`/studies/${selectedStudy.id}/workflow`">
+                  <AppIcon name="pipeline" :size="16" />
+                  进入工作区
                 </RouterLink>
                 <button class="btn btn--ghost danger-text" type="button" @click="openActionModal(selectedStudy, 'trash')">
                   移入回收站
                 </button>
               </div>
             </div>
+            <StudyOverviewTab :study-id="selectedStudy.id" />
+          </template>
 
-            <p class="study-description">{{ selectedStudy.description || '暂无描述。' }}</p>
-
-            <!-- UI Phase (docs_v2/6-05) L1: 研究项进度摘要 -->
-            <section v-if="viewMode === 'active'" class="study-card study-progress-card">
-              <header class="study-card__head">
-                <h3>研究进度</h3>
-              </header>
-              <div class="study-progress-grid">
-                <div class="progress-stat">
-                  <span class="progress-stat__icon">
-                    <IconLine name="target" :size="22" />
-                  </span>
-                  <div>
-                    <strong>{{ selectedTotalSubjects }}</strong>
-                    <small>名被试 ({{ selectedMountCount }} 个数据集)</small>
-                  </div>
-                </div>
-                <div class="progress-stat">
-                  <span class="progress-stat__icon">
-                    <IconLine name="settings" :size="22" />
-                  </span>
-                  <div>
-                    <strong>{{ compactCount(selectedSummary.pipelineCount) }}</strong>
-                    <small>{{ pipelineReadinessText(selectedSummary) }}</small>
-                  </div>
-                </div>
-                <div class="progress-stat">
-                  <span class="progress-stat__icon">
-                    <IconLine name="barChart" :size="22" />
-                  </span>
-                  <div>
-                    <strong>{{ compactCount(selectedSummary.executionCount) }}</strong>
-                    <small>{{ executionReadinessText(selectedSummary) }}</small>
-                  </div>
-                </div>
-                <div class="progress-stat">
-                  <span class="progress-stat__icon">
-                    <IconLine name="lock" :size="22" />
-                  </span>
-                  <div>
-                    <strong>{{ memberCountLabel(selectedSummary) }}</strong>
-                    <small>{{ permissionText(selectedSummary) }}</small>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="(selectedSummary.mounts ?? []).length" class="study-mounted-list">
-                <span class="study-mounted-list__label">已挂载的数据集</span>
-                <div class="study-mounted-list__items">
-                  <RouterLink
-                    v-for="mount in (selectedSummary.mounts ?? [])"
-                    :key="mount.id"
-                    class="mounted-data-item"
-                    :class="{ 'is-upgradable': isMountUpgradable(mount) }"
-                    to="/datasets"
-                  >
-                    <strong>{{ mountAssetLabel(mount) }}</strong>
-                    <span v-if="mount.dataset_version">
-                      v{{ mount.dataset_version.version_label }}
-                    </span>
-                    <small v-if="mount.dataset_asset?.subject_count">
-                      {{ mount.dataset_asset.subject_count }} 名被试
-                    </small>
-                    <span v-if="isMountUpgradable(mount)" class="upgrade-marker" title="有新版本可升级">⇡</span>
-                  </RouterLink>
-                </div>
-              </div>
-
-              <div class="study-decision-inline">
-                <div>
-                  <span>建议下一步</span>
-                  <strong>{{ selectedDecision.title }}</strong>
-                  <p>{{ selectedDecision.description }}</p>
-                </div>
-                <RouterLink class="btn btn--primary" :to="selectedDecision.to">
-                  {{ selectedDecision.action }}
-                </RouterLink>
-              </div>
-            </section>
-
-            <section v-else class="study-governance-panel">
+          <template v-else>
+            <div class="study-detail__head">
               <div>
-                <span>删除时间</span>
-                <strong>{{ formatDateTime(selectedStudy.deleted_at) }}</strong>
-                <p>恢复后会重新回到活跃研究项；永久删除前请确认数据和审计要求。</p>
+                <h2>{{ selectedStudy.name }}</h2>
+                <div class="study-badges">
+                  <span class="status-pill status-pill--danger">已删除</span>
+                </div>
               </div>
               <div class="study-detail__actions">
-                <button class="btn btn--ghost" type="button" @click="openActionModal(selectedStudy, 'restore')">
-                  恢复
-                </button>
-                <button class="btn btn--danger" type="button" @click="openActionModal(selectedStudy, 'purge')">
-                  永久删除
-                </button>
+                <button class="btn btn--ghost" type="button" @click="openActionModal(selectedStudy, 'restore')">恢复</button>
+                <button class="btn btn--danger" type="button" @click="openActionModal(selectedStudy, 'purge')">永久删除</button>
               </div>
-            </section>
-
-            <section class="study-card">
-              <header class="study-card__head">
-                <h3>元信息</h3>
-              </header>
-              <dl class="study-meta-table">
-                <div>
-                  <dt>最近更新</dt>
-                  <dd>{{ formatDateTime(selectedStudy.updated_at || selectedStudy.created_at) }}</dd>
-                </div>
-                <div>
-                  <dt>创建时间</dt>
-                  <dd>{{ formatDateTime(selectedStudy.created_at) }}</dd>
-                </div>
-                <div>
-                  <dt>访问范围</dt>
-                  <dd>按成员权限</dd>
-                </div>
-                <div>
-                  <dt>存储配额</dt>
-                  <dd>{{ formatStorageQuota(selectedStudy.storage_quota_bytes) }}</dd>
-                </div>
-              </dl>
-              <details class="study-technical-details">
-                <summary>技术信息</summary>
-                <dl>
-                  <div>
-                    <dt>研究项 ID</dt>
-                    <dd>{{ selectedStudy.id }}</dd>
-                  </div>
-                  <div>
-                    <dt>所有者角色</dt>
-                    <dd>{{ ownerRoleLabel(selectedStudy) }}</dd>
-                  </div>
-                  <div>
-                    <dt>状态</dt>
-                    <dd>{{ selectedStudy.status }}</dd>
-                  </div>
-                </dl>
-              </details>
-            </section>
+            </div>
+            <p class="study-description">已移入回收站。恢复后回到活跃研究项；永久删除前请确认数据和审计要求。</p>
           </template>
         </main>
       </section>
@@ -416,16 +289,16 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
-import IconLine from '../components/IconLine.vue'
+import StudyOverviewTab from './study/StudyOverviewTab.vue'
 import WorkbenchShell from '../components/WorkbenchShell.vue'
 import { datasetApi } from '../api/datasets'
 import { studyDatasetMountApi } from '../api/datasetAssets'
 import { pipelineApi } from '../api/pipelines'
 import { studyApi } from '../api/studies'
 import { useAuthStore } from '../stores/auth'
-import type { CreateStudyRequest, PipelineExecution, Study, StudyDatasetMount, StudyMember } from '../types'
+import type { CreateStudyRequest, Pipeline, PipelineExecution, Study, StudyDatasetMount, StudyMember } from '../types'
 
 type StudyViewMode = 'active' | 'trash'
 type StudyAction = 'trash' | 'restore' | 'purge'
@@ -444,14 +317,19 @@ interface StudySummary {
   latestExecution: PipelineExecution | null
   latestActivityAt: string | null
   mounts: StudyDatasetMount[] | null
+  pipelines: Pipeline[]
+  executions: PipelineExecution[]
 }
 
 const SUMMARY_LIMIT = 12
 const EXECUTION_PIPELINE_LIMIT = 3
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const studies = ref<Study[]>([])
+const selectedStudyId = ref('')
 const trashedStudies = ref<Study[]>([])
 const summaries = reactive<Record<string, StudySummary>>({})
 const loading = ref(false)
@@ -463,7 +341,6 @@ const summaryWarnings = ref<string[]>([])
 const viewMode = ref<StudyViewMode>('active')
 const studySearch = ref('')
 const studyFocusFilter = ref<StudyFocusFilter>('all')
-const selectedStudyId = ref<string | null>(null)
 const showCreateModal = ref(false)
 
 const createForm = reactive({
@@ -516,21 +393,23 @@ const visibleStudies = computed(() => {
   })
 })
 
-const selectedStudy = computed(() => {
-  if (!selectedStudyId.value) return null
-  return visibleStudies.value.find((study) => study.id === selectedStudyId.value) ?? null
-})
+const selectedStudy = computed(() => visibleStudies.value.find((s) => s.id === selectedStudyId.value) ?? null)
 
-const selectedSummary = computed(() => (selectedStudy.value ? summaryFor(selectedStudy.value.id) : makeEmptySummary()))
-const selectedDecision = computed(() => (selectedStudy.value ? studyDecision(selectedStudy.value) : emptyDecision()))
+function selectStudy(id: string) {
+  selectedStudyId.value = id
+  void router.replace({ query: { ...route.query, study: id } })
+}
 
-// UI Phase (docs_v2/6-05): 聚合被试总数 + 数据集挂载数（来自 mount.dataset_asset.subject_count）
-const selectedMountCount = computed<number>(() => (selectedSummary.value.mounts ?? []).length)
-const selectedTotalSubjects = computed<number>(() => {
-  const mounts = selectedSummary.value.mounts ?? []
-  // 同一被试可能被多个数据集覆盖, 这里简单求和给"总采集人次"; 真要去重需后端 GROUP BY subject
-  return mounts.reduce((sum, m) => sum + (m.dataset_asset?.subject_count ?? 0), 0)
-})
+// 选中项不在当前可见列表里时，优先取 URL ?study=，否则落到第一个
+function ensureSelectedStudy() {
+  if (selectedStudyId.value && visibleStudies.value.some((s) => s.id === selectedStudyId.value)) return
+  const fromQuery = typeof route.query.study === 'string' ? route.query.study : ''
+  if (fromQuery && visibleStudies.value.some((s) => s.id === fromQuery)) {
+    selectedStudyId.value = fromQuery
+    return
+  }
+  selectedStudyId.value = visibleStudies.value[0]?.id ?? ''
+}
 
 const readyStudyCount = computed(() =>
   studies.value.filter((study) => {
@@ -622,20 +501,6 @@ function switchView(mode: StudyViewMode) {
   if (mode === 'trash') {
     studyFocusFilter.value = 'all'
   }
-  ensureSelectedStudy()
-}
-
-function selectStudy(study: Study) {
-  selectedStudyId.value = study.id
-  if (viewMode.value === 'active') {
-    void loadStudySummary(study)
-  }
-}
-
-function ensureSelectedStudy() {
-  const current = selectedStudyId.value
-  if (current && visibleStudies.value.some((study) => study.id === current)) return
-  selectedStudyId.value = visibleStudies.value[0]?.id ?? null
 }
 
 async function loadVisibleSummaries() {
@@ -692,6 +557,10 @@ async function loadStudySummary(study: Study) {
       latestExecution,
       latestActivityAt: candidateDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null,
       mounts: mountsRes ? mountsRes.data.mounts.filter((mount) => mount.is_active) : null,
+      pipelines,
+      executions: executions
+        .slice()
+        .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime()),
     }
   } catch (err) {
     summaries[study.id] = {
@@ -723,6 +592,8 @@ function makeEmptySummary(): StudySummary {
     latestExecution: null,
     latestActivityAt: null,
     mounts: null,
+    pipelines: [],
+    executions: [],
   }
 }
 
@@ -775,89 +646,6 @@ function signalClass(value: number | null) {
   }
 }
 
-function dataReadinessText(summary: StudySummary) {
-  if (summary.loading) return '正在同步数据摘要'
-  if (summary.recordingCount === null) return '暂未返回数据摘要'
-  if (summary.recordingCount === 0) return '还没有可处理的数据，建议先导入数据集'
-  return '已有数据引用，可进入质控或工作流'
-}
-
-function pipelineReadinessText(summary: StudySummary) {
-  if (summary.pipelineCount === null) return '暂未返回工作流摘要'
-  if (summary.pipelineCount === 0) return '还没有工作流，可先配置分析流程'
-  return '已有工作流，可继续创建或查看运行记录'
-}
-
-function executionReadinessText(summary: StudySummary) {
-  if (summary.executionCount === null) return '暂未返回运行记录摘要'
-  if ((summary.runningExecutionCount ?? 0) > 0) return `${summary.runningExecutionCount} 条运行正在进行`
-  if (summary.executionCount === 0) return '暂无运行记录'
-  return '已有运行记录，可查看结果和审计信息'
-}
-
-function memberCountLabel(summary: StudySummary) {
-  if (summary.memberCount === null) return '待同步'
-  return `${summary.memberCount} 人`
-}
-
-function permissionText(summary: StudySummary) {
-  const role = roleLabel(summary.memberRole)
-  if (summary.canRun === true) return `${role}，可发起运行`
-  if (summary.canRun === false) return `${role}，不可发起运行`
-  return `${role}，权限摘要待同步`
-}
-
-function studyDecision(study: Study) {
-  const summary = summaryFor(study.id)
-  if (!summary.loaded || summary.loading) {
-    return {
-      title: '先同步处理摘要',
-      description: '正在整理数据、工作流和运行记录状态。需要操作时可以直接进入研究项主页。',
-      action: '查看主页',
-      to: `/studies/${study.id}`,
-    }
-  }
-  if ((summary.recordingCount ?? 0) === 0) {
-    return {
-      title: '先导入数据集',
-      description: '当前研究项还没有可处理的数据引用。导入或挂载数据集后再进入后续处理。',
-      action: '导入数据集',
-      to: `/datasets?study_id=${study.id}`,
-    }
-  }
-  if ((summary.pipelineCount ?? 0) === 0) {
-    return {
-      title: '配置工作流',
-      description: '已有数据引用，但还没有工作流。下一步是创建或选择分析流程。',
-      action: '进入工作流',
-      to: `/pipeline?study_id=${study.id}`,
-    }
-  }
-  if ((summary.runningExecutionCount ?? 0) > 0) {
-    return {
-      title: '查看运行状态',
-      description: '当前有运行正在进行，建议先查看进度、日志和输出状态。',
-      action: '查看运行记录',
-      to: `/pipeline?study_id=${study.id}`,
-    }
-  }
-  return {
-    title: '可以继续分析',
-    description: '数据和工作流已就绪，可以创建新运行或查看既有运行结果。',
-    action: '进入工作流',
-    to: `/pipeline?study_id=${study.id}`,
-  }
-}
-
-function emptyDecision() {
-  return {
-    title: '',
-    description: '',
-    action: '',
-    to: '/studies',
-  }
-}
-
 function recentActivityLabel(study: Study) {
   const summary = summaries[study.id]
   const value = summary?.latestActivityAt ?? study.updated_at ?? study.created_at
@@ -898,14 +686,6 @@ function ownerRoleLabel(study: Study) {
   if (summary?.memberRole) return roleLabel(summary.memberRole)
   if (study.owner_id === auth.user?.id) return '负责人'
   return '待同步'
-}
-
-function formatStorageQuota(bytes?: number | null) {
-  if (!bytes) return '未设置'
-  const gb = bytes / (1024 ** 3)
-  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`
-  const mb = bytes / (1024 ** 2)
-  return `${mb.toFixed(0)} MB`
 }
 
 function friendlyError(err: unknown, fallback: string) {
@@ -977,7 +757,6 @@ async function handleCreateStudy() {
     successMessage.value = `Study 已创建：${createdStudy.name}`
     showCreateModal.value = false
     await loadStudies()
-    selectedStudyId.value = createdStudy.id
   } catch (err) {
     error.value = friendlyError(err, '研究项创建失败')
   } finally {
@@ -1043,7 +822,6 @@ async function handleStudyAction() {
   margin-bottom: 0;
 }
 
-.study-detail__head h2,
 .study-list-panel__head h2 {
   margin: 0;
   color: var(--c-text);
@@ -1057,9 +835,7 @@ async function handleStudyAction() {
   letter-spacing: 0;
 }
 
-.studies-page__actions,
-.study-detail__actions,
-.study-next__actions {
+.studies-page__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1139,12 +915,17 @@ async function handleStudyAction() {
 
 .study-workbench {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   min-height: 560px;
   overflow: hidden;
   border: 1px solid #dfe7f3;
   border-radius: 8px;
   background: #fff;
+}
+@media (max-width: 860px) {
+  .study-workbench {
+    grid-template-columns: 1fr;
+  }
 }
 
 .study-list-panel {
@@ -1223,6 +1004,7 @@ async function handleStudyAction() {
   padding-right: 2px;
 }
 
+/* 列表项 = 可点选卡片（master-detail：点选不跳页，is-active 高亮） */
 .study-row {
   display: flex;
   width: 100%;
@@ -1236,22 +1018,92 @@ async function handleStudyAction() {
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
-.study-row:hover,
-.study-row.is-active {
+.study-row:hover {
   border-color: #8fb2ff;
   box-shadow: 0 8px 20px rgb(47 109 246 / 10%);
 }
 
 .study-row.is-active {
+  border-color: #2f6df6;
   background: #f4f8ff;
+  box-shadow: 0 8px 20px rgb(47 109 246 / 12%);
+}
+
+/* 右栏：选中研究项的概览工作台 */
+.study-detail-panel {
+  min-width: 0;
+  padding: 24px;
+  overflow: auto;
+}
+
+.study-empty--detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  text-align: center;
+  color: var(--c-text-3);
+}
+
+.study-empty--detail strong {
+  color: var(--c-text-2);
+  font-size: 15px;
+}
+
+.study-detail__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.study-detail__head h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+
+.study-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.study-badges > span:not(.status-pill) {
+  border-radius: 999px;
+  background: var(--c-bg-tint);
+  padding: 5px 9px;
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.study-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.study-description {
+  margin: 0;
+  color: var(--c-text-2);
+  line-height: 1.7;
 }
 
 .study-row__top,
 .study-row__meta,
-.study-row__signals,
-.study-badges {
+.study-row__signals {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1384,294 +1236,6 @@ async function handleStudyAction() {
   font-weight: 700;
 }
 
-.study-detail-panel {
-  min-width: 0;
-  padding: 24px;
-}
-
-.study-detail__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.study-detail__head h2 {
-  font-size: 24px;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.study-badges {
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.study-badges span {
-  border-radius: 999px;
-  background: var(--c-bg-tint);
-  padding: 5px 9px;
-  color: var(--c-text-2);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.study-description {
-  margin: 18px 0 0;
-  max-width: 980px;
-  color: var(--c-text-2);
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-
-/* 详情区卡片容器:「现状 & 下一步」「元信息」各为一个 study-card */
-.study-card {
-  margin-top: 18px;
-  border: 1px solid var(--c-border);
-  border-radius: 10px;
-  background: #fff;
-  padding: 18px;
-}
-
-.study-card__head {
-  margin-bottom: 14px;
-}
-
-.study-card__head h3 {
-  margin: 0;
-  color: var(--c-text);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-/* 卡片内「建议下一步」行,用虚线与上方状态卡片分隔(取代原独立蓝框面板) */
-.study-decision-inline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--c-border);
-}
-
-.study-decision-panel,
-.study-governance-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-top: 22px;
-  border: 1px solid #c9d9ff;
-  border-radius: 8px;
-  background: #f5f8ff;
-  padding: 18px;
-}
-
-.study-governance-panel {
-  border-color: var(--c-danger-soft);
-  background: #fff7f7;
-}
-
-.study-decision-panel span,
-.study-governance-panel span,
-.study-decision-inline span,
-.study-readiness-card span {
-  color: var(--c-text-3);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.study-decision-panel strong,
-.study-governance-panel strong,
-.study-decision-inline strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--c-text);
-  font-size: 18px;
-}
-
-.study-decision-panel p,
-.study-governance-panel p,
-.study-decision-inline p,
-.study-readiness-card p {
-  margin: 6px 0 0;
-  color: var(--c-text-2);
-  line-height: 1.6;
-}
-
-.study-readiness-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 0;
-}
-
-/* UI Phase (docs_v2/6-05) L1: 研究进度卡片 */
-.study-progress-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-top: 0;
-}
-.progress-stat {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-radius: 8px;
-  background: var(--c-bg-soft);
-  padding: 12px 14px;
-}
-.progress-stat__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  color: var(--c-text-2);
-}
-.progress-stat > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.progress-stat strong {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--c-text);
-  line-height: 1.1;
-}
-.progress-stat small {
-  color: var(--c-text-3);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.study-mounted-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--c-bg-tint);
-}
-.study-mounted-list__label {
-  color: var(--c-text-3);
-  font-size: 12px;
-  font-weight: 700;
-}
-.study-mounted-list__items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.mounted-data-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #d8e3f5;
-  border-radius: 8px;
-  background: #f4f8ff;
-  padding: 6px 10px;
-  color: var(--c-text);
-  font-size: 13px;
-  text-decoration: none;
-}
-.mounted-data-item:hover {
-  background: var(--c-primary-soft);
-}
-.mounted-data-item strong {
-  color: var(--c-primary);
-}
-.mounted-data-item span {
-  color: var(--c-text-3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-}
-.mounted-data-item small {
-  color: var(--c-text-2);
-  font-size: 11px;
-}
-.mounted-data-item.is-upgradable {
-  border-color: #f0c674;
-  background: #fff7e6;
-}
-.mounted-data-item .upgrade-marker {
-  color: var(--c-warning);
-  font-weight: 700;
-  font-family: inherit;
-}
-
-/* 内层小卡片用浅灰底,和外层白色 study-card 形成层次 */
-.study-readiness-card {
-  min-width: 0;
-  border: 1px solid var(--c-bg-tint);
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 14px;
-}
-
-.study-readiness-card strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--c-text);
-  font-size: 22px;
-}
-
-.study-meta-table {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.study-meta-table div,
-.study-technical-details dl div {
-  min-width: 0;
-  border: 1px solid var(--c-bg-tint);
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 13px;
-}
-
-.study-meta-table dt,
-.study-technical-details dt {
-  color: var(--c-text-3);
-  font-size: 12px;
-}
-
-.study-meta-table dd,
-.study-technical-details dd {
-  margin: 6px 0 0;
-  color: var(--c-text);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.study-technical-details {
-  margin-top: 14px;
-  border: 1px solid var(--c-bg-tint);
-  border-radius: 8px;
-  background: #fbfcfe;
-  padding: 0;
-}
-
-.study-technical-details summary {
-  cursor: pointer;
-  padding: 13px 16px;
-  color: var(--c-text-2);
-  font-weight: 700;
-}
-
-.study-technical-details dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-  padding: 0 16px 16px;
-}
-
 .status-pill {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1699,6 +1263,11 @@ async function handleStudyAction() {
 .status-pill--muted {
   background: var(--c-bg-tint);
   color: var(--c-text-2);
+}
+
+.status-pill--warn {
+  background: var(--c-warning-soft);
+  color: var(--c-warning);
 }
 
 .btn {
@@ -1758,10 +1327,6 @@ async function handleStudyAction() {
 
 .study-empty strong {
   color: var(--c-text);
-}
-
-.study-empty--detail {
-  min-height: 480px;
 }
 
 .modal-backdrop {
@@ -1869,56 +1434,25 @@ async function handleStudyAction() {
   line-height: 1.6;
 }
 
-@media (max-width: 1180px) {
-  .study-summary-strip,
-  .study-readiness-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .study-workbench {
-    grid-template-columns: 1fr;
-  }
-
-  .study-list-panel {
-    border-right: 0;
-    border-bottom: 1px solid #e5ecf5;
-  }
-
-  .study-list {
-    max-height: 360px;
-  }
-}
-
 @media (max-width: 760px) {
   .studies-page {
     padding: 16px;
   }
 
-  .studies-page__header,
-  .study-detail__head,
-  .study-decision-panel,
-  .study-governance-panel {
+  .studies-page__header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .study-summary-strip,
-  .study-readiness-grid,
-  .study-meta-table,
-  .study-technical-details dl,
   .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .studies-page__actions,
-  .study-detail__actions {
+  .studies-page__actions {
     width: 100%;
   }
 
-  .studies-page__actions .btn,
-  .study-detail__actions .btn,
-  .study-decision-panel .btn,
-  .study-governance-panel .btn {
+  .studies-page__actions .btn {
     flex: 1;
   }
 }

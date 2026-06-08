@@ -30,7 +30,9 @@ from app.schemas.study import (
     StudySettingsResponse,
     StudySettingsUpdate,
 )
+from app.schemas.study_summary import StudySummaryResponse
 from app.services.study_access import require_study_read, require_study_write
+from app.services.study_summary import build_study_summary
 from app.services.audit_events import record_audit_event
 from app.services.execution_dependencies import study_downstream_dependency_blockers
 from app.services import studies as study_service
@@ -282,6 +284,25 @@ def get_study(
 ):
     study = db.query(Study).filter(Study.id == study_id).first()
     return to_study_response(require_study_read(study, db, current_user))
+
+
+@router.get("/{study_id}/summary", response_model=StudySummaryResponse)
+def get_study_summary(
+    study_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """研究项概览聚合：一次返回该 study 的 数据/工作流/运行/结果 全貌，
+
+    替代前端原先并发拼约 12 个请求（N+1）。权限复用与 GET /{study_id} 同款的
+    require_study_read（只有该 study 成员 / owner / 管理员可访问）。
+    """
+    study = require_study_read(
+        db.query(Study).filter(Study.id == study_id).first(),
+        db,
+        current_user,
+    )
+    return build_study_summary(db, study=study, current_user=current_user)
 
 
 @router.get("/{study_id}/settings", response_model=StudySettingsResponse)

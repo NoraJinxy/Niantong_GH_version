@@ -221,7 +221,7 @@
             <div class="nav-card__title">📥 数据集管理</div>
             <div class="nav-card__hint">原始上传 · Raw BIDS · canonical FIF · 版本发布</div>
           </RouterLink>
-          <RouterLink class="nav-card" to="/pipeline" title="Pipeline / Run 工作台">
+          <RouterLink class="nav-card" to="/studies" title="工作流 / 运行：进入研究项后在容器内操作">
             <span class="nav-card__num">06</span>
             <div class="nav-card__title">🔧 Pipeline / Run</div>
             <div class="nav-card__hint">工作流定义 · 运行记录追踪</div>

@@ -31,17 +31,18 @@
         <span class="page-stat__label">数据集总数</span>
         <strong class="page-stat__value">{{ assetStats.total }}</strong>
       </article>
-      <article class="page-stat">
-        <span class="page-stat__label">草稿中</span>
-        <strong class="page-stat__value">{{ assetStats.working }}</strong>
+      <!-- 6-05 §6.2 + B 方案：按可见范围分桶，零值不渲染 -->
+      <article v-if="assetStats.private" class="page-stat">
+        <span class="page-stat__label">私有</span>
+        <strong class="page-stat__value">{{ assetStats.private }}</strong>
       </article>
-      <article class="page-stat">
-        <span class="page-stat__label">已发布</span>
-        <strong class="page-stat__value">{{ assetStats.active }}</strong>
+      <article v-if="assetStats.shared" class="page-stat">
+        <span class="page-stat__label">共享</span>
+        <strong class="page-stat__value">{{ assetStats.shared }}</strong>
       </article>
-      <article class="page-stat">
-        <span class="page-stat__label">已归档</span>
-        <strong class="page-stat__value">{{ assetStats.archived }}</strong>
+      <article v-if="assetStats.public" class="page-stat">
+        <span class="page-stat__label">公开</span>
+        <strong class="page-stat__value">{{ assetStats.public }}</strong>
       </article>
     </section>
 
@@ -70,11 +71,11 @@
             <AppIcon name="search" :size="15" />
             <input v-model.trim="assetSearch" type="search" placeholder="搜索名称或 code" />
           </label>
-          <select v-model="assetStatusFilter" class="input">
-            <option value="all">全部状态</option>
-            <option value="working">工作中</option>
-            <option value="active">可用</option>
-            <option value="archived">已归档</option>
+          <select v-model="assetVisibilityFilter" class="input">
+            <option value="all">全部可见范围</option>
+            <option value="private">私有</option>
+            <option value="shared">共享</option>
+            <option value="public">公开</option>
           </select>
         </div>
 
@@ -97,18 +98,19 @@
             <div class="dataset-row__top">
               <IconLine class="dataset-row__emoji" name="folder" :size="16" />
               <strong>{{ asset.name }}</strong>
-              <span class="badge" :class="getStatusClass(asset.status)">
-                {{ getStatusLabel(asset.status) }}
+              <span class="badge" :class="getVisibilityClass(asset.visibility)">
+                {{ getVisibilityLabel(asset.visibility) }}
               </span>
             </div>
-            <!-- UI Phase (docs_v2/6-05): 列表概要预览 - 被试 / 任务 -->
-            <div v-if="(asset.subject_count ?? 0) > 0 || (asset.task_codes ?? []).length" class="dataset-row__summary">
-              <span v-if="(asset.subject_count ?? 0) > 0"><IconLine name="target" :size="14" /> {{ asset.subject_count }} 名被试</span>
+            <!-- 6-05：数据概要四件套 被试/记录数/任务/时长 -->
+            <div v-if="(asset.subject_count ?? 0) > 0 || (asset.recording_count ?? 0) > 0 || (asset.task_codes ?? []).length" class="dataset-row__summary">
+              <span v-if="(asset.subject_count ?? 0) > 0"><IconLine name="users" :size="14" /> {{ asset.subject_count }} 名被试</span>
+              <span v-if="(asset.recording_count ?? 0) > 0"><IconLine name="list" :size="14" /> {{ asset.recording_count }} 条记录</span>
               <span v-if="(asset.task_codes ?? []).length"><IconLine name="clipboard" :size="14" /> {{ (asset.task_codes ?? []).length }} 种任务</span>
-              <span v-if="(asset.total_duration_seconds ?? 0) > 0"><IconLine name="play" :size="14" /> {{ formatDuration(asset.total_duration_seconds ?? 0) }}</span>
+              <span v-if="(asset.total_duration_seconds ?? 0) > 0" title="全部采集记录的总时长"><IconLine name="clock" :size="14" /> 共 {{ formatDuration(asset.total_duration_seconds ?? 0) }}</span>
             </div>
             <div class="dataset-row__meta">
-              <span>{{ formatRelative(asset.last_imported_at || asset.updated_at || asset.created_at) }}</span>
+              <span>创建于 {{ formatRelative(asset.created_at) }}</span>
             </div>
           </button>
         </div>
@@ -128,6 +130,7 @@
             </p>
           </div>
           <div class="dataset-detail__actions">
+            <!-- 6-05：去掉与页头重复的"新建数据集"主按钮，仅保留创建模式下的返回入口 -->
             <button
               v-if="activePanel === 'create'"
               class="btn btn--sm"
@@ -136,14 +139,6 @@
               @click="returnToDatasetWorkbench"
             >
               返回当前数据集
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn--sm btn--primary"
-              @click="openCreatePanel"
-            >
-              新建数据集
             </button>
           </div>
         </div>
@@ -242,10 +237,16 @@
                 <p>{{ datasetDecisionSummary.message }}</p>
               </div>
               <div class="dataset-profile__badges">
-                <span class="badge" :class="getStatusClass(selectedDatasetAsset.status)">
-                  {{ getStatusLabel(selectedDatasetAsset.status) }}
+                <!-- 6-05 B 方案：徽章只读展示可见范围（私有/共享/公开）。
+                     可见范围是严肃决策（类比论文发表），不提供随意下拉；
+                     私有→共享由「发布版本」流程郑重触发，收回走撤回流程。 -->
+                <span
+                  class="badge"
+                  :class="getVisibilityClass(selectedDatasetAsset.visibility)"
+                  :title="visibilityHint(selectedDatasetAsset.visibility)"
+                >
+                  {{ getVisibilityLabel(selectedDatasetAsset.visibility) }}
                 </span>
-                <!-- Phase 3 C1 (docs_v2/3-25): 可见性由发布状态自动联动，不单独展示 -->
               </div>
             </div>
 
@@ -259,7 +260,7 @@
               <div class="dataset-version-card__header">
                 <div>
                   <span class="section-kicker">当前版本</span>
-                  <strong>{{ currentVersion.version_label }}</strong>
+                  <strong>{{ formatVersionLabel(currentVersion.version_label) }}</strong>
                   <span class="version-state-pill" :class="datasetVersionStateClass(currentVersion.state)">
                     {{ datasetVersionStateLabel(currentVersion.state) }}
                   </span>
@@ -358,7 +359,7 @@
                   :class="[datasetVersionStateClass(version.state), { 'is-current': version.id === currentVersion?.id }]"
                 >
                   <div class="version-timeline__label">
-                    <strong>{{ version.version_label }}</strong>
+                    <strong>{{ formatVersionLabel(version.version_label) }}</strong>
                     <span class="version-state-pill" :class="datasetVersionStateClass(version.state)">
                       {{ datasetVersionStateLabel(version.state) }}
                     </span>
@@ -416,12 +417,20 @@
                   {{ selectedDatasetAsset.description }}
                 </span>
               </header>
+              <!-- 6-05：数据概要四件套 被试/记录数/任务/时长（最近导入移到下方说明，不占四格） -->
               <div class="data-overview-card__grid">
                 <div class="data-stat">
-                  <IconLine class="data-stat__icon" name="target" :size="20" />
+                  <IconLine class="data-stat__icon" name="users" :size="20" />
                   <div>
                     <strong>{{ selectedDatasetAsset.subject_count ?? 0 }}</strong>
                     <small>名被试</small>
+                  </div>
+                </div>
+                <div class="data-stat">
+                  <IconLine class="data-stat__icon" name="list" :size="20" />
+                  <div>
+                    <strong>{{ selectedDatasetAsset.recording_count ?? 0 }}</strong>
+                    <small>条采集记录</small>
                   </div>
                 </div>
                 <div class="data-stat">
@@ -431,21 +440,17 @@
                     <small>种采集任务</small>
                   </div>
                 </div>
-                <div class="data-stat">
-                  <IconLine class="data-stat__icon" name="play" :size="20" />
+                <div class="data-stat" title="全部采集记录时长之和">
+                  <IconLine class="data-stat__icon" name="clock" :size="20" />
                   <div>
                     <strong>{{ formatDuration(selectedDatasetAsset.total_duration_seconds ?? 0) }}</strong>
                     <small>总采集时长</small>
                   </div>
                 </div>
-                <div class="data-stat">
-                  <IconLine class="data-stat__icon" name="info" :size="20" />
-                  <div>
-                    <strong>{{ formatRelative(selectedDatasetAsset.last_imported_at) }}</strong>
-                    <small>最近导入</small>
-                  </div>
-                </div>
               </div>
+              <p v-if="selectedDatasetAsset.last_imported_at" class="data-overview-card__imported">
+                最近导入：{{ formatRelative(selectedDatasetAsset.last_imported_at) }}
+              </p>
               <div v-if="(selectedDatasetAsset.task_codes ?? []).length" class="data-overview-card__tasks">
                 <span class="data-overview-card__tasks-label">任务列表</span>
                 <span
@@ -614,12 +619,12 @@
             </div>
           </section>
 
-          <section v-else-if="activeTab === 'records'" class="dataset-tab-panel" aria-label="Records">
+          <section v-else-if="activeTab === 'records'" class="dataset-tab-panel" aria-label="采集记录">
             <div class="dataset-record-panel">
               <div class="dataset-panel-head">
                 <div>
-                  <h3>Records</h3>
-                  <p>按 Recording 管理数据位；文件列表仅在展开详情中查看。</p>
+                  <h3>采集记录</h3>
+                  <p>按被试 / 任务组织采集记录；文件列表仅在展开详情中查看。</p>
                 </div>
                 <button
                   class="btn btn--sm"
@@ -634,19 +639,19 @@
 
               <div class="dataset-record-stats">
                 <div>
-                  <span>Recording 总数</span>
+                  <span>采集记录数</span>
                   <strong>{{ recordingStats.total }}</strong>
                 </div>
                 <div>
-                  <span>标准 FIF</span>
+                  <span>已生成标准 FIF</span>
                   <strong>{{ recordingStats.withCanonicalFif }}</strong>
                 </div>
                 <div>
-                  <span>QC 通过</span>
+                  <span>质控通过</span>
                   <strong>{{ recordingStats.qcPassed }}</strong>
                 </div>
                 <div>
-                  <span>查询上下文</span>
+                  <span>所在工作空间</span>
                   <strong>{{ recordsContextLabel }}</strong>
                 </div>
               </div>
@@ -654,14 +659,14 @@
               <div v-if="!recordsStudyContext" class="dataset-detail-empty">
                 <AppIcon name="database" :size="24" />
                 <strong>请先准备导入目标</strong>
-                <span>Recording API 需要处理工作空间上下文。准备导入目标后，会按当前 Dataset Asset 查询 Records。</span>
+                <span>采集记录需要先准备好处理工作空间。准备导入目标后，这里会列出该数据集的采集记录。</span>
               </div>
-              <div v-else-if="isLoadingRecordings" class="dataset-list-empty">正在读取 Records...</div>
+              <div v-else-if="isLoadingRecordings" class="dataset-list-empty">正在读取采集记录...</div>
               <div v-else-if="recordingsError" class="inline-error">{{ recordingsError }}</div>
               <div v-else-if="!selectedAssetRecordings.length" class="dataset-detail-empty">
                 <AppIcon name="file" :size="24" />
-                <strong>还没有 Recording</strong>
-                <span>导入 EEG 原始数据后，这里会按 subject、task、session、run 汇总显示。</span>
+                <strong>还没有采集记录</strong>
+                <span>导入 EEG 原始数据后，这里会按被试 / 任务 / 会话 / 运行汇总显示。</span>
               </div>
               <div v-else class="dataset-record-list">
                 <article v-for="recording in selectedAssetRecordings" :key="recording.id" class="dataset-record-row">
@@ -679,7 +684,7 @@
                       <strong>{{ recording.run || '-' }}</strong>
                     </div>
                     <div>
-                      <span>source format</span>
+                      <span>原始格式</span>
                       <strong>{{ recording.sourceFormat }}</strong>
                     </div>
                     <div>
@@ -687,7 +692,7 @@
                       <strong>{{ recording.currentVersionLabel }}</strong>
                     </div>
                     <div>
-                      <span>QC 状态</span>
+                      <span>质控状态</span>
                       <strong>
                         <span class="badge" :class="getQaStatusClass(recording.qaStatus)">
                           {{ getQaStatusLabel(recording.qaStatus) }}
@@ -737,10 +742,10 @@
                         </button>
                       </div>
 
-                      <div v-if="recordingFilesLoading[recording.id]" class="dataset-list-empty">正在读取该 Recording 的文件...</div>
+                      <div v-if="recordingFilesLoading[recording.id]" class="dataset-list-empty">正在读取该采集记录的文件...</div>
                       <div v-else-if="recordingFilesError[recording.id]" class="inline-error">{{ recordingFilesError[recording.id] }}</div>
                       <div v-else-if="!recordingFilesById[recording.id]?.length" class="dataset-list-empty">
-                        当前接口未返回该 Recording 的文件列表。
+                        该采集记录暂无可显示的文件。
                       </div>
                       <ul v-else class="dataset-record-files">
                         <li v-for="file in recordingFilesById[recording.id]" :key="file.id">
@@ -881,6 +886,187 @@
             </div>
           </section>
 
+          <section v-else-if="activeTab === 'data'" class="dataset-tab-panel dataset-files" aria-label="数据文件">
+            <!-- 安全承诺：原始文件永久保留 -->
+            <div class="df-assure">
+              <IconLine name="lock" :size="16" />
+              <span><strong>你上传的原始文件永久保留、平台从不修改。</strong>数据按被试 / 类型组织；标准化与追溯用的技术文件折叠在每条记录里。</span>
+            </div>
+
+            <div v-if="!recordsStudyContext" class="dataset-detail-empty">
+              <AppIcon name="database" :size="24" />
+              <strong>请先准备导入目标</strong>
+              <span>数据文件需要先准备好处理工作空间。准备导入目标后，这里会列出该数据集的原始数据与标准 FIF。</span>
+            </div>
+            <div v-else-if="isLoadingRecordings || isLoadingAssetFiles" class="dataset-list-empty">正在读取数据文件...</div>
+            <div v-else-if="recordingsError" class="inline-error">{{ recordingsError }}</div>
+            <template v-else>
+              <!-- 两个大桶汇总 -->
+              <div class="df-buckets">
+                <div class="df-bucket df-bucket--upload">
+                  <div class="df-bucket__top">
+                    <span class="df-bucket__ico"><IconLine name="folder" :size="20" /></span>
+                    <div>
+                      <h4>你上传的原始数据</h4>
+                      <span>你提供的原貌，永久保管</span>
+                    </div>
+                  </div>
+                  <div class="df-bucket__stat">
+                    <strong>{{ assetBuckets.upload.count }}</strong>
+                    <span>份原始文件{{ uploadFormatHint }}</span>
+                  </div>
+                  <div class="df-bucket__foot">
+                    <span class="df-bucket__note">共 {{ formatFileSize(assetBuckets.upload.size) }}</span>
+                    <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">全部下载</button>
+                  </div>
+                </div>
+                <div class="df-bucket df-bucket--fif">
+                  <div class="df-bucket__top">
+                    <span class="df-bucket__ico"><IconLine name="sparkles" :size="20" /></span>
+                    <div>
+                      <h4>平台标准格式（FIF）</h4>
+                      <span>平台生成，可直接分析</span>
+                    </div>
+                  </div>
+                  <div class="df-bucket__stat">
+                    <strong>{{ assetBuckets.fif.count }}</strong>
+                    <span>份标准 FIF · MNE 可用</span>
+                  </div>
+                  <div class="df-bucket__foot">
+                    <span class="df-bucket__note">共 {{ formatFileSize(assetBuckets.fif.size) }} · 可重建</span>
+                    <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">全部下载</button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="assetBuckets.tech.count" class="df-note">
+                另有 {{ assetBuckets.tech.count }} 个技术与元数据文件（sidecar、BIDS 逻辑视图、导入清单等）由平台自动生成，折叠在每条记录的「技术文件」中，普通分析无需关心。
+              </div>
+
+              <!-- 工具栏：视图切换 -->
+              <div class="df-toolbar">
+                <div class="df-seg">
+                  <button type="button" :class="{ 'is-active': dataView === 'by-subject' }" @click="dataView = 'by-subject'">按被试浏览</button>
+                  <button type="button" :class="{ 'is-active': dataView === 'by-type' }" @click="dataView = 'by-type'">按类型浏览</button>
+                </div>
+                <div class="df-toolbar__spacer"></div>
+                <button class="btn btn--sm" type="button" :disabled="isLoadingRecordings || !recordsStudyContext" @click="loadSelectedAssetRecordings">
+                  <AppIcon name="restore" :size="14" />
+                  刷新
+                </button>
+              </div>
+
+              <div v-if="!selectedAssetRecordings.length" class="dataset-detail-empty">
+                <AppIcon name="file" :size="24" />
+                <strong>还没有采集记录</strong>
+                <span>导入 EEG 原始数据后，这里会按被试 / 任务列出原始数据与标准 FIF。</span>
+              </div>
+
+              <!-- 视图 A：按被试 -->
+              <div v-else-if="dataView === 'by-subject'" class="df-view">
+                <div v-for="group in recordingsBySubject" :key="group.subject" class="df-subject">
+                  <div class="df-subject__head">
+                    <IconLine name="users" :size="16" />
+                    <strong>{{ group.subject }}</strong>
+                    <span class="df-subject__meta">{{ group.recordings.length }} 条采集记录 · {{ formatFileSize(group.size) }}</span>
+                  </div>
+                  <div v-for="rec in group.recordings" :key="rec.id" class="df-rec">
+                    <div class="df-rec__title">
+                      <b>{{ rec.task }}</b>
+                      <span v-if="rec.session && rec.session !== '-'" class="df-chip">ses-{{ rec.session }}</span>
+                      <span v-if="rec.run && rec.run !== '-'" class="df-chip">run-{{ rec.run }}</span>
+                      <span v-if="rec.hasCanonicalFif" class="df-bids-ok"><AppIcon name="check" :size="13" /> 已生成标准 FIF</span>
+                    </div>
+
+                    <div v-if="recordingFilesLoading[rec.id]" class="dataset-list-empty">正在读取文件...</div>
+                    <div v-else-if="recordingFilesError[rec.id]" class="inline-error">{{ recordingFilesError[rec.id] }}</div>
+                    <template v-else>
+                      <!-- 原始数据行 -->
+                      <div class="df-data-row df-data-row--upload">
+                        <span class="df-data-row__ico"><IconLine name="folder" :size="17" /></span>
+                        <div class="df-data-row__main">
+                          <strong>你上传的原始数据 · {{ rec.sourceFormat }}</strong>
+                          <span class="df-data-row__sub">{{ recordingBucketsById[rec.id]?.upload.length || 0 }} 个原始文件，永久保留</span>
+                        </div>
+                        <span class="df-data-row__size">{{ formatFileSize(recordingBucketsById[rec.id]?.uploadSize || 0) }}</span>
+                        <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">下载</button>
+                      </div>
+                      <!-- 标准 FIF 行（有才显示） -->
+                      <div v-if="recordingBucketsById[rec.id]?.fif.length" class="df-data-row df-data-row--fif">
+                        <span class="df-data-row__ico"><IconLine name="sparkles" :size="17" /></span>
+                        <div class="df-data-row__main">
+                          <strong>平台标准格式 · 标准 FIF</strong>
+                          <span class="df-data-row__sub">可直接用于预处理 / MNE 分析</span>
+                        </div>
+                        <span class="df-data-row__size">{{ formatFileSize(recordingBucketsById[rec.id]?.fifSize || 0) }}</span>
+                        <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">下载</button>
+                      </div>
+                      <!-- 技术文件折叠（BIDS 幽灵层 + sidecar + provenance） -->
+                      <details v-if="recordingBucketsById[rec.id]?.tech.length" class="df-tech">
+                        <summary>技术与元数据文件（{{ recordingBucketsById[rec.id]?.tech.length }}） · 排错 / 高级用户</summary>
+                        <div class="df-tech__list">
+                          <div class="df-tech__hint">下列文件由平台自动生成，用于标准化、追溯和重建，普通分析无需关心：</div>
+                          <div v-for="f in recordingBucketsById[rec.id]?.tech" :key="f.id" class="df-tech__item">
+                            <span class="df-tech__name">{{ getFileShortPath(f) }}</span>
+                            <span class="df-tech__role">{{ getFileRoleLabel(f.file_role) }}</span>
+                            <span class="df-tech__size">{{ formatFileSize(f.file_size || 0) }}</span>
+                          </div>
+                        </div>
+                      </details>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 视图 B：按类型 -->
+              <div v-else class="df-view">
+                <div class="df-type df-type--upload">
+                  <div class="df-type__head">
+                    <IconLine name="folder" :size="16" />
+                    <strong>你上传的原始数据</strong>
+                    <span class="df-type__meta">{{ assetBuckets.upload.count }} 份 · {{ formatFileSize(assetBuckets.upload.size) }}</span>
+                  </div>
+                  <div v-if="!assetBuckets.upload.files.length" class="dataset-list-empty">暂无原始上传文件。</div>
+                  <div v-for="f in assetBuckets.upload.files" :key="f.id" class="df-type__file">
+                    <div class="df-type__main">
+                      <strong>{{ getFileShortPath(f) }}</strong>
+                      <span>{{ getFileRoleLabel(f.file_role) }}</span>
+                    </div>
+                    <span class="df-type__size">{{ formatFileSize(f.file_size || 0) }}</span>
+                    <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">下载</button>
+                  </div>
+                </div>
+                <div class="df-type df-type--fif">
+                  <div class="df-type__head">
+                    <IconLine name="sparkles" :size="16" />
+                    <strong>平台标准格式（FIF）</strong>
+                    <span class="df-type__meta">{{ assetBuckets.fif.count }} 份 · {{ formatFileSize(assetBuckets.fif.size) }}</span>
+                  </div>
+                  <div v-if="!assetBuckets.fif.files.length" class="dataset-list-empty">暂无标准 FIF 文件。</div>
+                  <div v-for="f in assetBuckets.fif.files" :key="f.id" class="df-type__file">
+                    <div class="df-type__main">
+                      <strong>{{ getFileShortPath(f) }}</strong>
+                      <span>{{ getFileRoleLabel(f.file_role) }}</span>
+                    </div>
+                    <span class="df-type__size">{{ formatFileSize(f.file_size || 0) }}</span>
+                    <button class="btn btn--sm" type="button" disabled title="文件下载功能接入中">下载</button>
+                  </div>
+                </div>
+                <details v-if="assetBuckets.tech.count" class="df-tech df-tech--global">
+                  <summary>技术与元数据文件（全部 {{ assetBuckets.tech.count }} 个） · 排错 / 高级用户</summary>
+                  <div class="df-tech__list">
+                    <div class="df-tech__hint">sidecar 元数据、provenance、导入清单、BIDS 逻辑索引等由平台自动生成与维护；完整 logical_path / sha256 在「概览 → 技术信息」查看。</div>
+                    <div v-for="f in assetBuckets.tech.files" :key="f.id" class="df-tech__item">
+                      <span class="df-tech__name">{{ getFileShortPath(f) }}</span>
+                      <span class="df-tech__role">{{ getFileRoleLabel(f.file_role) }}</span>
+                      <span class="df-tech__size">{{ formatFileSize(f.file_size || 0) }}</span>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </template>
+          </section>
+
           <section v-else class="dataset-tab-panel" aria-label="技术信息">
             <details class="dataset-technical-details">
               <summary>
@@ -956,7 +1142,7 @@
         <header>
           <div>
             <p class="eyebrow">申请撤回</p>
-            <h2>{{ selectedDatasetAsset?.name || '未命名' }} {{ currentVersion?.version_label }}</h2>
+            <h2>{{ selectedDatasetAsset?.name || '未命名' }} {{ formatVersionLabel(currentVersion?.version_label) }}</h2>
           </div>
           <button class="icon-button" type="button" aria-label="关闭" @click="closeWithdrawModal">x</button>
         </header>
@@ -993,7 +1179,7 @@
         <header>
           <div>
             <p class="eyebrow eyebrow--danger">紧急下架（高危）</p>
-            <h2>{{ selectedDatasetAsset?.name || '未命名' }} {{ currentVersion?.version_label }}</h2>
+            <h2>{{ selectedDatasetAsset?.name || '未命名' }} {{ formatVersionLabel(currentVersion?.version_label) }}</h2>
           </div>
           <button class="icon-button" type="button" aria-label="关闭" @click="closeEmergencyModal">x</button>
         </header>
@@ -1056,7 +1242,7 @@ import type {
 
 const STUDY_CODE_MAX_LENGTH = 64
 const FILE_INDEX_PAGE_SIZE = 30
-type DatasetWorkbenchTab = 'overview' | 'import' | 'records' | 'files' | 'technical'
+type DatasetWorkbenchTab = 'overview' | 'import' | 'data' | 'records' | 'files' | 'technical'
 type DatasetFileRoleFilter = 'all' | 'original' | 'raw-bids' | 'canonical-fif' | 'other'
 interface TechnicalInfoItem {
   key: string
@@ -1090,9 +1276,7 @@ interface RecordsStudyContext {
 const datasetTabs: Array<{ key: DatasetWorkbenchTab; label: string }> = [
   { key: 'overview', label: '概览' },
   { key: 'import', label: '导入' },
-  { key: 'records', label: 'Records' },
-  { key: 'files', label: '文件索引' },
-  { key: 'technical', label: '技术信息' },
+  { key: 'data', label: '数据文件' },
 ]
 
 const fileRoleOptions: Array<{ value: DatasetFileRoleFilter; label: string }> = [
@@ -1118,7 +1302,7 @@ const recordingFilesError = ref<Record<string, string>>({})
 const activePanel = ref<'catalog' | 'create'>('catalog')
 const activeTab = ref<DatasetWorkbenchTab>('overview')
 const assetSearch = ref('')
-const assetStatusFilter = ref<'all' | 'working' | 'active' | 'archived'>('all')
+const assetVisibilityFilter = ref<'all' | 'private' | 'shared' | 'public'>('all')
 const datasetName = ref('')
 const datasetCode = ref('')
 const datasetDescription = ref('')
@@ -1172,7 +1356,7 @@ const emergencyModal = ref<{
   error: string
 }>({ open: false, reason: '', submitting: false, error: '' })
 
-const queryStudyId = computed(() => queryString(route.query.study_id) || queryString(route.query.study_id))
+const queryStudyId = computed(() => queryString(route.query.study_id) || queryString(route.query.studyId))
 const selectedStudy = computed(() =>
   studies.value.find((study) => study.id === selectedStudyId.value),
 )
@@ -1211,6 +1395,15 @@ const sortedVersions = computed<DatasetVersion[]>(() => {
   })
 })
 
+// 6-05 B 方案：可见范围只读展示。私有→共享是严肃决策（类比论文发表），
+// 由「发布版本」流程郑重触发、收回走撤回流程，不提供随意下拉。这里只给徽章一个解释性 tooltip。
+function visibilityHint(visibility: string) {
+  if (visibility === 'private') return '仅本研究项可见。发布版本后会自动转为「共享」，供其他研究项引用。'
+  if (visibility === 'shared') return '其他研究项可挂载 / 引用。如需收回请走撤回流程。'
+  if (visibility === 'public') return '全平台可见。'
+  return ''
+}
+
 const hasOpenDraft = computed<boolean>(() =>
   datasetVersions.value.some((v) => v.state === 'draft' || v.state === 'withdraw_requested'),
 )
@@ -1235,7 +1428,7 @@ const filteredDatasetAssets = computed(() => {
   const keyword = assetSearch.value.trim().toLowerCase()
   return datasetAssets.value
     .filter((asset) => {
-      if (assetStatusFilter.value !== 'all' && asset.status !== assetStatusFilter.value) return false
+      if (assetVisibilityFilter.value !== 'all' && asset.visibility !== assetVisibilityFilter.value) return false
       if (!keyword) return true
       return [asset.name, asset.code, asset.description || '']
         .some((text) => text.toLowerCase().includes(keyword))
@@ -1244,9 +1437,9 @@ const filteredDatasetAssets = computed(() => {
 })
 const assetStats = computed(() => ({
   total: datasetAssets.value.length,
-  working: datasetAssets.value.filter((asset) => asset.status === 'working').length,
-  active: datasetAssets.value.filter((asset) => asset.status === 'active').length,
-  archived: datasetAssets.value.filter((asset) => asset.status === 'archived').length,
+  private: datasetAssets.value.filter((asset) => asset.visibility === 'private').length,
+  shared: datasetAssets.value.filter((asset) => asset.visibility === 'shared').length,
+  public: datasetAssets.value.filter((asset) => asset.visibility === 'public').length,
 }))
 const selectedAssetFileStats = computed(() => {
   const files = selectedAssetFiles.value
@@ -1258,6 +1451,74 @@ const selectedAssetFileStats = computed(() => {
     totalSize: files.reduce((sum, file) => sum + (file.file_size || 0), 0),
   }
 })
+// ===== 数据文件管理器（filemanager 视图）：后台 3 类文件角色 → 用户 2 个桶 =====
+const dataView = ref<'by-subject' | 'by-type'>('by-subject')
+
+// original/upload/source → 你上传的；canonical/fif → 标准 FIF；raw/bids(幽灵) + sidecar + 其它 → 技术文件
+function fileBucketOf(file: DatasetFile): 'upload' | 'fif' | 'tech' {
+  const role = (file.file_role || '').toLowerCase()
+  if (role.includes('original') || role.includes('upload') || role.includes('source')) return 'upload'
+  if (role.includes('canonical') || role.includes('fif')) return 'fif'
+  return 'tech'
+}
+function sumFileSize(files: DatasetFile[]) {
+  return files.reduce((sum, file) => sum + (file.file_size || 0), 0)
+}
+
+// 资产级 2 桶（用于顶部汇总卡 + 按类型视图）
+const assetBuckets = computed(() => {
+  const buckets = {
+    upload: { count: 0, size: 0, files: [] as DatasetFile[] },
+    fif: { count: 0, size: 0, files: [] as DatasetFile[] },
+    tech: { count: 0, size: 0, files: [] as DatasetFile[] },
+  }
+  for (const file of selectedAssetFiles.value) {
+    const bucket = buckets[fileBucketOf(file)]
+    bucket.files.push(file)
+    bucket.count += 1
+    bucket.size += file.file_size || 0
+  }
+  return buckets
+})
+
+// 原始数据格式提示（取记录里出现过的源格式，如 BrainVision / EDF）
+const uploadFormatHint = computed(() => {
+  const formats = Array.from(
+    new Set(selectedAssetRecordings.value.map((r) => r.sourceFormat).filter((f) => f && f !== '-')),
+  )
+  return formats.length ? ` · ${formats.join(' / ')}` : ''
+})
+
+// 按被试分组（按被试视图）
+const recordingsBySubject = computed(() => {
+  const groups = new Map<string, { subject: string; recordings: DatasetRecordingRow[]; size: number }>()
+  for (const recording of selectedAssetRecordings.value) {
+    let group = groups.get(recording.subject)
+    if (!group) {
+      group = { subject: recording.subject, recordings: [], size: 0 }
+      groups.set(recording.subject, group)
+    }
+    group.recordings.push(recording)
+    group.size += recording.fileSize || 0
+  }
+  return Array.from(groups.values())
+})
+
+// 每条记录的文件按 2 桶 + 技术拆分（按被试视图每条记录的数据行）
+const recordingBucketsById = computed(() => {
+  const out: Record<
+    string,
+    { upload: DatasetFile[]; fif: DatasetFile[]; tech: DatasetFile[]; uploadSize: number; fifSize: number }
+  > = {}
+  for (const [id, files] of Object.entries(recordingFilesById.value)) {
+    const upload = files.filter((f) => fileBucketOf(f) === 'upload')
+    const fif = files.filter((f) => fileBucketOf(f) === 'fif')
+    const tech = files.filter((f) => fileBucketOf(f) === 'tech')
+    out[id] = { upload, fif, tech, uploadSize: sumFileSize(upload), fifSize: sumFileSize(fif) }
+  }
+  return out
+})
+
 const recordingStats = computed(() => ({
   total: selectedAssetRecordings.value.length,
   withCanonicalFif: selectedAssetRecordings.value.filter((recording) => recording.hasCanonicalFif).length,
@@ -1434,7 +1695,7 @@ const uploadContext = computed<DatasetUploadContext | null>(() => {
 const technicalInfoItems = computed<TechnicalInfoItem[]>(() => {
   const items: Array<TechnicalInfoItem | null> = [
     selectedDatasetAsset.value
-      ? { key: 'dataset-asset-id', label: 'Dataset Asset ID', value: selectedDatasetAsset.value.id }
+      ? { key: 'dataset-asset-id', label: '数据集 ID', value: selectedDatasetAsset.value.id }
       : null,
     targetSummary.value
       ? { key: 'study-id', label: 'Study ID', value: targetSummary.value.studyId }
@@ -1460,7 +1721,7 @@ watch(selectedDatasetAssetId, () => {
   resetRecordsView()
   void loadSelectedAssetFiles()
   void loadSelectedAssetVersions()
-  if (activeTab.value === 'records') void loadSelectedAssetRecordings()
+  if (activeTab.value === 'data') void loadSelectedAssetRecordings()
 })
 
 watch([fileSearch, fileRoleFilter], () => {
@@ -1468,7 +1729,13 @@ watch([fileSearch, fileRoleFilter], () => {
 })
 
 watch(activeTab, (tab) => {
-  if (tab === 'records') void loadSelectedAssetRecordings()
+  if (tab === 'data') void loadSelectedAssetRecordings()
+})
+
+// 「数据文件」按被试视图需要每条记录的文件分类 → 进入或记录变化时预加载每条记录的文件
+watch(selectedAssetRecordings, (recordings) => {
+  if (activeTab.value !== 'data') return
+  for (const recording of recordings) void loadRecordingFiles(recording)
 })
 
 watch(
@@ -1478,7 +1745,7 @@ watch(
     recordsStudyContext.value?.mountName || '',
   ].join('|'),
   () => {
-    if (activeTab.value === 'records') void loadSelectedAssetRecordings()
+    if (activeTab.value === 'data') void loadSelectedAssetRecordings()
   },
 )
 
@@ -2141,7 +2408,7 @@ async function copyTechnicalValue(value: string, label: string) {
 async function handleUploaded() {
   await Promise.all([loadStudies(), loadDatasetAssets()])
   await loadSelectedAssetFiles()
-  if (activeTab.value === 'records') await loadSelectedAssetRecordings()
+  if (activeTab.value === 'data') await loadSelectedAssetRecordings()
 }
 
 async function scrollToUploadSection() {
@@ -2222,29 +2489,22 @@ function formatProcessingWorkspaceName(value?: string | null) {
   return value.replace(/\s*Study$/i, ' 处理工作空间')
 }
 
-function getStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    working: '工作中',
-    active: '可用',
-    archived: '已归档',
-    deleted: '已删除',
-    quarantined: '隔离',
-  }
-  return labels[status] || status
+// 6-05 §9：内部版本标识 "working" 对用户翻成"工作版本"；已发布版本保留其 SemVer 号（如 1.0.0）
+function formatVersionLabel(label?: string | null) {
+  if (!label || label === 'working') return '工作版本'
+  return label
 }
 
-function getStatusClass(status: string) {
-  if (status === 'active') return 'badge--success'
-  if (status === 'working') return 'badge--primary'
-  if (status === 'archived') return 'badge--warning'
-  if (status === 'deleted' || status === 'quarantined') return 'badge--danger'
+// 6-05 B 方案：可见范围徽章配色（开放度递增：私有→灰中性，共享→主色蓝，公开→成功绿）
+function getVisibilityClass(visibility: string) {
+  if (visibility === 'public') return 'badge--success'
+  if (visibility === 'shared') return 'badge--primary'
   return 'badge--outline'
 }
 
 function getVisibilityLabel(visibility: string) {
   const labels: Record<string, string> = {
     private: '私有',
-    workspace: '工作区',
     shared: '共享',
     public: '公开',
   }
@@ -2313,9 +2573,9 @@ function getRecordingErrorMessage(err: any) {
   if (typeof detail === 'string') return detail
   if (detail?.message) return detail.message
   if (err.response?.status) {
-    return `Records 读取失败 (HTTP ${err.response.status})；可能需要后端补充按 dataset_asset_id / mount 查询 Recording 的接口能力。`
+    return `采集记录读取失败 (HTTP ${err.response.status})。`
   }
-  return err.message ? `Records 读取失败：${err.message}` : 'Records 读取失败'
+  return err.message ? `采集记录读取失败：${err.message}` : '采集记录读取失败'
 }
 
 function getRecordingFilesErrorMessage(err: any) {
@@ -2654,6 +2914,7 @@ function formatFileSize(bytes: number) {
   min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr); /* 单列定宽：详情内容不被任一 tab 的内容撑出不同宽度 */
   gap: var(--s-3);
   padding: var(--s-4);
 }
@@ -2701,6 +2962,7 @@ function formatFileSize(bytes: number) {
 .dataset-detail__body {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* 同上：tab 区整体单列定宽 */
   align-content: start;
   gap: var(--s-3);
 }
@@ -2786,6 +3048,7 @@ function formatFileSize(bytes: number) {
 .dataset-tab-panel {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* 每个 tab 面板等宽：彻底消除切 tab 时的左右跳动 */
   align-content: start;
   gap: var(--s-4);
 }
@@ -2875,9 +3138,11 @@ function formatFileSize(bytes: number) {
 .dataset-profile__badges {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--s-2);
 }
+
 
 .dataset-meta-grid,
 .dataset-decision-panel,
@@ -3362,6 +3627,218 @@ function formatFileSize(bytes: number) {
   overflow-wrap: anywhere;
 }
 
+/* ===== 数据文件管理器（filemanager 视图）===== */
+.df-assure {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid #CFE2D7;
+  border-radius: var(--r);
+  background: var(--c-success-soft);
+  color: var(--c-success);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.df-assure strong { font-weight: 700; }
+
+.df-buckets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.df-bucket {
+  padding: 16px 18px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+.df-bucket--upload { background: var(--c-primary-soft); border-color: #D2DEED; }
+.df-bucket--fif { background: var(--c-success-soft); border-color: #D3E2D3; }
+.df-bucket__top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.df-bucket__ico {
+  width: 38px; height: 38px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r); background: #fff; color: var(--c-primary);
+}
+.df-bucket--fif .df-bucket__ico { color: var(--c-success); }
+.df-bucket__top h4 { margin: 0; font-size: 14px; font-weight: 700; }
+.df-bucket__top span { font-size: 12px; color: var(--c-text-2); }
+.df-bucket__stat { display: flex; align-items: baseline; gap: 8px; margin: 10px 0; }
+.df-bucket__stat strong { font-size: 24px; font-weight: 800; }
+.df-bucket__stat span { font-size: 13px; color: var(--c-text-2); }
+.df-bucket__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.df-bucket__note { font-size: 11px; color: var(--c-text-3); }
+
+.df-note {
+  padding: 10px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-bg-soft);
+  color: var(--c-text-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.df-toolbar { display: flex; align-items: center; gap: var(--s-3); }
+.df-toolbar__spacer { flex: 1; }
+.df-seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--r);
+  background: var(--c-bg-tint);
+}
+.df-seg button {
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-2);
+  background: transparent;
+  cursor: pointer;
+}
+.df-seg button.is-active { background: #fff; color: var(--c-primary); box-shadow: var(--shadow-sm); }
+
+.df-view { display: grid; gap: var(--s-3); }
+
+.df-subject {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+.df-subject__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--c-bg-soft);
+  border-bottom: 1px solid var(--c-border);
+}
+.df-subject__head strong { font-size: 14px; }
+.df-subject__meta { margin-left: auto; font-size: 12px; color: var(--c-text-3); }
+
+.df-rec { padding: 14px 16px; border-bottom: 1px solid var(--c-bg-soft); }
+.df-rec:last-child { border-bottom: 0; }
+.df-rec__title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.df-rec__title b { font-size: 14px; }
+.df-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-primary);
+  background: var(--c-primary-soft);
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+}
+.df-bids-ok {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-success);
+}
+
+.df-data-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+}
+.df-data-row:last-child { margin-bottom: 0; }
+.df-data-row--upload { background: var(--c-primary-soft); border-color: #D9E3EF; }
+.df-data-row--fif { background: var(--c-success-soft); border-color: #D9E6D9; }
+.df-data-row__ico {
+  width: 32px; height: 32px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); background: #fff; color: var(--c-primary);
+}
+.df-data-row--fif .df-data-row__ico { color: var(--c-success); }
+.df-data-row__main { flex: 1; min-width: 0; }
+.df-data-row__main strong { display: block; font-size: 13px; }
+.df-data-row__sub { font-size: 12px; color: var(--c-text-2); }
+.df-data-row__size { width: 72px; text-align: right; font-size: 13px; font-weight: 700; }
+
+.df-tech { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--c-border); }
+.df-tech > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-3);
+}
+.df-tech > summary::-webkit-details-marker { display: none; }
+.df-tech > summary::before { content: "▸"; display: inline-block; transition: transform var(--t-fast); }
+.df-tech[open] > summary::before { transform: rotate(90deg); }
+.df-tech--global {
+  margin-top: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border);
+  border-top: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+.df-tech__list { margin-top: 10px; }
+.df-tech__hint { font-size: 11px; color: var(--c-text-3); line-height: 1.7; margin-bottom: 8px; }
+.df-tech__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--c-bg-soft);
+}
+.df-tech__item:last-child { border-bottom: 0; }
+.df-tech__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-mono);
+  color: var(--c-text-2);
+}
+.df-tech__role { font-size: 11px; font-weight: 600; color: var(--c-accent); }
+.df-tech__size { width: 56px; text-align: right; color: var(--c-text-3); }
+
+.df-type {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+.df-type__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+.df-type--upload .df-type__head { background: var(--c-primary-soft); }
+.df-type--fif .df-type__head { background: var(--c-success-soft); }
+.df-type__head strong { font-size: 14px; }
+.df-type__meta { margin-left: auto; font-size: 12px; color: var(--c-text-2); }
+.df-type__file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--c-bg-soft);
+}
+.df-type__file:last-child { border-bottom: 0; }
+.df-type__main { flex: 1; min-width: 0; }
+.df-type__main strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-type__main span { font-size: 12px; color: var(--c-text-3); }
+.df-type__size { width: 72px; text-align: right; font-size: 13px; font-weight: 700; }
+
 @media (max-width: 1080px) {
   .dataset-workbench {
     grid-template-columns: 1fr;
@@ -3750,6 +4227,11 @@ function formatFileSize(bytes: number) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
+}
+.data-overview-card__imported {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
 }
 .data-stat {
   display: flex;

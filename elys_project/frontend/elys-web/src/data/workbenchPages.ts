@@ -43,8 +43,6 @@ export const topNavItems: WorkbenchNavItem[] = [
   { key: 'dashboard', label: '工作台', to: '/dashboard', icon: 'dashboard', status: 'live' },
   { key: 'datasets', label: '数据集', to: '/datasets', icon: 'database', status: 'live' },
   { key: 'studies', label: '研究项', to: '/studies', icon: 'studies', status: 'live' },
-  { key: 'analysis', label: '工作流', to: '/pipeline', icon: 'branch', status: 'live' },
-  { key: 'results', label: '派生数据', to: '/results', icon: 'layers', status: 'live' },
   { key: 'observe', label: '观察', to: '/observe', icon: 'observe', status: 'preview' },
   { key: 'stats', label: '统计', to: '/statistics', icon: 'stats', status: 'preview' },
   { key: 'figure', label: '作图', to: '/figures', icon: 'figure', status: 'preview' },
@@ -58,7 +56,6 @@ export const sideNavGroups: WorkbenchNavGroup[] = [
       { key: 'dashboard', label: '工作台总览', to: '/dashboard', icon: 'dashboard', status: 'live' },
       { key: 'datasets', label: '数据集管理', to: '/datasets', icon: 'database', status: 'live' },
       { key: 'studies', label: '研究项', to: '/studies', icon: 'studies', status: 'live' },
-      { key: 'pipeline', label: '工作流与运行记录', to: '/pipeline', icon: 'branch', status: 'live' },
     ],
   },
   {

@@ -149,6 +149,47 @@ function Test-SshTcpPort {
     }
 }
 
+function Resolve-MkDocsCommand {
+    # Find a working way to run mkdocs and return @{ Exe; PreArgs } (or $null).
+    # Robust against two traps on this kind of Windows box:
+    #   1. The PATH-less Microsoft Store python stub (lives under WindowsApps,
+    #      prints nothing) -- skipped explicitly.
+    #   2. mkdocs installed in a terminal opened AFTER the current one, so the
+    #      live process PATH is stale -- we also scan the persisted (registry)
+    #      PATH dirs for mkdocs.exe, which the current shell hasn't picked up.
+
+    # 1) mkdocs.exe already on the live PATH.
+    $cmd = Get-Command mkdocs -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return @{ Exe = $cmd.Source; PreArgs = @() }
+    }
+
+    # 2) A REAL python/py with the mkdocs module importable (skip Store stub).
+    foreach ($pyName in @("py", "python", "python3")) {
+        $py = Get-Command $pyName -ErrorAction SilentlyContinue
+        if ($py -and ($py.Source -notlike "*WindowsApps*")) {
+            & $py.Source -m mkdocs --version *> $null 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                return @{ Exe = $py.Source; PreArgs = @("-m", "mkdocs") }
+            }
+        }
+    }
+
+    # 3) Scan persisted PATH (machine + user) for mkdocs.exe, covering the
+    #    "installed but current terminal is stale" case.
+    $regDirs = @()
+    $regDirs += ([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';')
+    $regDirs += ([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
+    foreach ($dir in ($regDirs | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)) {
+        $candidate = Join-Path $dir "mkdocs.exe"
+        if (Test-Path -LiteralPath $candidate) {
+            return @{ Exe = $candidate; PreArgs = @() }
+        }
+    }
+
+    return $null
+}
+
 function Invoke-MkDocsBuild {
     if (-not (Test-Path -LiteralPath $WikiDir)) {
         throw "Wiki directory not found: $WikiDir"
@@ -170,14 +211,13 @@ function Invoke-MkDocsBuild {
         $previousMkDocs2Warning = $env:NO_MKDOCS_2_WARNING
         $env:NO_MKDOCS_2_WARNING = "1"
 
-        $mkdocs = Get-Command mkdocs -ErrorAction SilentlyContinue
-        if ($mkdocs) {
-            & mkdocs build --clean --config-file $ConfigFile
+        $resolved = Resolve-MkDocsCommand
+        if (-not $resolved) {
+            throw "mkdocs not found. Install it, e.g.:  python -m pip install mkdocs-material  (or with your Anaconda python). If you JUST installed it, open a NEW terminal so PATH refreshes, then rerun deploy_docs.cmd."
         }
-        else {
-            & python -m mkdocs build --clean --config-file $ConfigFile
-        }
-        Assert-LastExitCode "mkdocs build failed."
+        Write-Host "Using mkdocs: $($resolved.Exe) $($resolved.PreArgs -join ' ')"
+        & $resolved.Exe @($resolved.PreArgs) build --clean --config-file $ConfigFile
+        Assert-LastExitCode "mkdocs build failed. See the mkdocs output above for the actual cause."
     }
     finally {
         if ($null -eq $previousMkDocs2Warning) {
@@ -223,6 +263,7 @@ function Get-SshCommonArgs {
     # connection but rejects changed keys, balancing automation against MITM risk.
     $argList = @(
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=3"
     )
@@ -243,30 +284,118 @@ function Get-ScpArgs {
     return @("-P", $Port.ToString()) + (Get-SshCommonArgs)
 }
 
-function Assert-SshKeyAvailable {
-    if ($DryRun -or $AllowPasswordPrompt) {
+function ConvertTo-ShellSingleQuoted {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'\''") + "'"
+}
+
+function Ensure-LocalDeployKey {
+    # Create a passwordless ed25519 deploy key locally if it is missing,
+    # so the first run can self-provision instead of erroring out.
+    if ($SshKeyPath -and (Test-Path -LiteralPath $SshKeyPath)) {
         return
     }
+    if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
+        throw "ssh-keygen not found. Install the Windows OpenSSH client, or run .\deploy_docs.cmd -AllowPasswordPrompt."
+    }
+    $keyDir = Split-Path -Parent $SshKeyPath
+    if ($keyDir -and -not (Test-Path -LiteralPath $keyDir)) {
+        New-Item -ItemType Directory -Path $keyDir -Force | Out-Null
+    }
+    Write-Host "  [INFO] Deploy key not found; creating one: $SshKeyPath" -ForegroundColor Blue
+    $escapedKeyPath = $SshKeyPath.Replace('"', '\"')
+    & cmd.exe /d /c "ssh-keygen -t ed25519 -f ""$escapedKeyPath"" -N """" -C ""elys-doc-deploy"""
+    Assert-LastExitCode "Failed to create SSH deploy key."
+}
 
-    if (-not $SshKeyPath -or -not (Test-Path -LiteralPath $SshKeyPath)) {
-        throw "SSH deploy key not found: $SshKeyPath. Run .\setup_docs_ssh_key.cmd once, then run .\deploy_docs.cmd again. To use password manually, run .\deploy_docs.cmd -AllowPasswordPrompt."
+function Test-DocKeyLogin {
+    # BatchMode probe: returns $true/$false, never prompts, fails fast on a
+    # 15s connect timeout instead of hanging.
+    $remote = "${ServerUser}@${ServerHost}"
+    $probeArgs = @(
+        "-p", $Port.ToString(),
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3",
+        "-i", $SshKeyPath,
+        "-o", "IdentitiesOnly=yes"
+    )
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        & ssh @probeArgs $remote "true" 1>$null 2>$null
+        return ($LASTEXITCODE -eq 0)
+    }
+    finally {
+        $ErrorActionPreference = $previous
     }
 }
 
-function Test-SshKeyLogin {
-    if ($DryRun -or $AllowPasswordPrompt) {
-        if ($AllowPasswordPrompt) {
-            Write-Host "AllowPasswordPrompt set. SSH may ask for a password."
-        }
+function Install-DocDeployKey {
+    # Mirror deploy_remote: when key login fails, install the public key over a
+    # one-time password login, with a loud, unmissable prompt banner.
+    $remote = "${ServerUser}@${ServerHost}"
+    $publicKeyPath = "$SshKeyPath.pub"
+    if (-not (Test-Path -LiteralPath $publicKeyPath)) {
+        & ssh-keygen -y -f $SshKeyPath | Set-Content -Encoding ascii -NoNewline -Path $publicKeyPath
+        Assert-LastExitCode "Failed to derive SSH public key."
+    }
+    $publicKey = ([System.IO.File]::ReadAllText($publicKeyPath, [System.Text.UTF8Encoding]::new($false))).Trim()
+    if (-not $publicKey) {
+        throw "Public key is empty: $publicKeyPath"
+    }
+    $quotedKey = ConvertTo-ShellSingleQuoted $publicKey
+    $installCmd = "umask 077 && mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF $quotedKey ~/.ssh/authorized_keys || echo $quotedKey >> ~/.ssh/authorized_keys) && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+
+    Write-Host ""
+    Write-Host "######################################################################" -ForegroundColor Yellow
+    Write-Host "#  [ACTION REQUIRED] Deploy paused -- waiting for your password      #" -ForegroundColor Yellow
+    Write-Host "######################################################################" -ForegroundColor Yellow
+    Write-Host "  [WARN] Passwordless login to docs server ($remote) FAILED." -ForegroundColor Yellow
+    Write-Host "  [WARN] It will now install the deploy public key using your root password." -ForegroundColor Yellow
+    Write-Host "  [WARN] You will see a `"${remote}'s password:`" prompt (typed characters stay hidden -- normal)." -ForegroundColor Yellow
+    Write-Host "  [INFO]   -> After this, future doc deploys will NOT ask for a password." -ForegroundColor Blue
+    Write-Host "  [INFO]   -> Wrong password makes this step FAIL; just rerun deploy_docs.cmd and retype." -ForegroundColor Blue
+    Write-Host "  [WARN]   -> Security note: if this server used to be passwordless and now asks again," -ForegroundColor Yellow
+    Write-Host "  [WARN]      authorized_keys may have been changed or the box reinstalled -- check your cloud alerts first." -ForegroundColor Yellow
+
+    $pwArgs = @(
+        "-p", $Port.ToString(),
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3"
+    )
+    & ssh @pwArgs $remote $installCmd
+    Assert-LastExitCode "Failed to install deploy key on docs server (wrong password / root SSH disabled / network). Rerun deploy_docs.cmd and retype the password."
+}
+
+function Prepare-DocSshAccess {
+    if ($DryRun) {
+        return
+    }
+    # Escape hatch: -AllowPasswordPrompt keeps the old manual-password behavior
+    # and skips key management entirely.
+    if ($AllowPasswordPrompt) {
+        Write-Host "AllowPasswordPrompt set. Skipping key management; SSH will prompt for a password when needed."
         return
     }
 
-    Write-Step "Check SSH key login"
-    $remote = "${ServerUser}@${ServerHost}"
-    $sshArgs = Get-SshArgs
-    & ssh @sshArgs $remote "true"
-    Assert-LastExitCode "SSH key login failed. Run .\setup_docs_ssh_key.cmd once to install the deploy key on the server, or run .\deploy_docs.cmd -AllowPasswordPrompt to use password manually."
-    Write-Host "SSH key login OK."
+    Write-Step "Prepare SSH access"
+    Ensure-LocalDeployKey
+    if (Test-DocKeyLogin) {
+        Write-Host "SSH key login OK (passwordless)."
+        return
+    }
+    Install-DocDeployKey
+    if (Test-DocKeyLogin) {
+        Write-Host "Deploy key installed; future runs will not ask for a password."
+    }
+    else {
+        Write-Host "  [WARN] Public key was written, but the passwordless test still failed; this run may still need a password." -ForegroundColor Yellow
+    }
 }
 
 function New-RemotePublishScript {
@@ -371,8 +500,7 @@ Write-Host "SSH target:   ${ServerUser}@${ServerHost}:$RemoteTarget"
 
 if (-not $BuildOnly) {
     Test-SshTcpPort
-    Assert-SshKeyAvailable
-    Test-SshKeyLogin
+    Prepare-DocSshAccess
 }
 
 if (-not $SkipBuild) {
