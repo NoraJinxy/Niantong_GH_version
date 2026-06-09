@@ -37,7 +37,8 @@
                   class="node-template"
                   type="button"
                   draggable="true"
-                  @click="addNode(spec)"
+                  title="拖到画布添加（或双击）"
+                  @dblclick="addNode(spec)"
                   @dragstart="handleNodeDragStart(spec, $event)"
                 >
                   <span class="node-template__title">{{ spec.title }}</span>
@@ -57,6 +58,7 @@
         }"
       >
         <header class="toolbar">
+          <Teleport to=".study-layout__extra" :disabled="!teleportActive">
           <div class="toolbar-row toolbar-row--context">
             <label class="toolbar-select">
               <span>工作流</span>
@@ -76,6 +78,7 @@
               新建工作流
             </button>
           </div>
+          </Teleport>
 
           <div class="toolbar-row toolbar-row--actions">
             <button
@@ -201,7 +204,7 @@
             </div>
             <div v-else-if="definition.graph.nodes.length === 0" class="empty-canvas">
               <strong>从左侧添加节点</strong>
-              <span>点击节点或拖到画布中，再从输出端口拖到输入端口建立连线。</span>
+              <span>从左侧拖动节点到画布（或双击节点），再从输出端口拖到输入端口建立连线。</span>
             </div>
           </div>
         </section>
@@ -1136,13 +1139,75 @@ import type {
   PipelineValidationResponse,
   TaskEvent,
 } from '@/types'
-
-const LOAD_DATA_NODE_TYPE = 'eeg/data/load'
-const EPOCH_NODE_TYPE = 'eeg/epoch/segment'
-const ERP_NODE_TYPE = 'eeg/analysis/erp'
-const ICA_APPLY_NODE_TYPE = 'eeg/ica/apply'
-const NULL_FILTER_VALUE = '__elys_null__'
-const DEFAULT_LOAD_DATA_QA_STATUS = ['converted', 'checked']
+import {
+  LOAD_DATA_NODE_TYPE,
+  EPOCH_NODE_TYPE,
+  ERP_NODE_TYPE,
+  ICA_APPLY_NODE_TYPE,
+  NULL_FILTER_VALUE,
+  DEFAULT_LOAD_DATA_QA_STATUS,
+  LITEGRAPH_NODE_ID_PROP,
+  LITEGRAPH_HIDPI_EVENT_PROP,
+  LITEGRAPH_ORIGINAL_CLIENT_X_PROP,
+  LITEGRAPH_ORIGINAL_CLIENT_Y_PROP,
+  LITEGRAPH_ENGINE_INFO,
+  LINK_DEFAULT_COLOR,
+  LINK_HIGHLIGHT_COLOR,
+  LINK_CONNECTING_COLOR,
+  LINK_HIGHLIGHT_WIDTH_MULT,
+  EXECUTION_POLL_INTERVAL_MS,
+  EXECUTION_CANCELABLE_STATUSES,
+  EXECUTION_RETRYABLE_STATUSES,
+  TASK_CANCELABLE_STATUSES,
+  TASK_RETRYABLE_STATUSES,
+  EXECUTION_MODE_OPTIONS,
+  SAVE_POLICY_OPTIONS,
+  NODE_CARD_WIDTH,
+  NODE_CARD_MIN_HEIGHT,
+  NODE_GAP_X,
+  NODE_GAP_Y,
+  LITEGRAPH_MIN_ZOOM,
+  LITEGRAPH_MAX_ZOOM,
+  LITEGRAPH_MAX_PIXEL_RATIO,
+  DRAFT_LS_PREFIX,
+  DRAFT_STORAGE_VERSION,
+  LAYOUT_LS_PREFIX,
+  LINK_HIGHLIGHT_PATCH_MARK,
+  NO_SAVE_ICON_NODE_TYPES,
+} from '@/composables/pipeline/pipelineConstants'
+import {
+  pipelinePortColors,
+  portTypeColor,
+  withAlpha,
+  nodeStatusColor,
+  nodeStatusSoftColor,
+  formatJobStatus,
+  jobStatusClass,
+  stepVisualState,
+  stepIcon,
+  isStepDone,
+  formatFileSize,
+  shortId,
+  numericMetric,
+  formatMetricNumber,
+  formatSecondsMetric,
+  formatDurationMs,
+  formatPipelineExecutionStatus,
+  formatTaskStatus,
+  formatDateTime,
+  formatPipelineStatus,
+  allowedExecutionModeText,
+  formatExecutionMode,
+  formatSavePolicy,
+  formatArtifactRetention,
+  categoryColor,
+  categorySoftColor,
+  compactNodeTitle,
+  portTypesCompatible,
+  liteGraphPortType,
+} from '@/composables/pipeline/pipelineFormatters'
+import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
+import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1209,98 +1274,6 @@ type PipelineContextMenuItem = {
 type ExecutionDetailTab = 'summary' | 'inputs' | 'jobs' | 'tasks' | 'artifacts' | 'manifest' | 'lineage'
 type ArtifactAction = 'pin' | 'unpin' | 'hide' | 'download'
 
-const LITEGRAPH_NODE_ID_PROP = '__elys_node_id'
-const LITEGRAPH_HIDPI_EVENT_PROP = '__elys_hidpi_event'
-const LITEGRAPH_ORIGINAL_CLIENT_X_PROP = '__elys_original_client_x'
-const LITEGRAPH_ORIGINAL_CLIENT_Y_PROP = '__elys_original_client_y'
-const LITEGRAPH_ENGINE_INFO = {
-  name: 'litegraph.js',
-  version: '0.7.18',
-}
-const CATEGORY_COLORS: Record<string, string> = {
-  data: '#2F5F8F',
-  input: '#2F5F8F',
-  preprocess: '#2F766F',
-  preprocessing: '#2F766F',
-  ica: '#6B5F95',
-  epoch: '#4C7A5B',
-  analysis: '#9A6A28',
-  output: '#687386',
-  qc: '#9B557A',
-  visualization: '#4F6F9F',
-}
-const CATEGORY_SOFT_COLORS: Record<string, string> = {
-  data: '#EEF4FA',
-  input: '#EEF4FA',
-  preprocess: '#EDF7F5',
-  preprocessing: '#EDF7F5',
-  ica: '#F3F1F8',
-  epoch: '#F0F7F2',
-  analysis: '#FAF4E8',
-  output: '#F2F4F7',
-  qc: '#F8EEF4',
-  visualization: '#EEF3F9',
-}
-const PORT_COLORS: Record<string, string> = {
-  eeg_data: '#2F5F8F',
-  dataset_collection: '#2F5F8F',
-  raw: '#386B9A',
-  epochs: '#4C7A5B',
-  evoked: '#9A6A28',
-  analysis_result: '#6B5F95',
-  ica_matrix: '#6B5F95',
-  events: '#9A6A28',
-  figure_spec: '#687386',
-  psd: '#2F766F',
-  tfr: '#9B557A',
-  connectivity: '#4F6F9F',
-  microstate: '#9B557A',
-  source_estimate: '#6B5F95',
-}
-
-// 连线视觉常量(集中管理,方便统一调整)
-const LINK_DEFAULT_COLOR = '#475569'   // slate-600 :普通连线
-const LINK_HIGHLIGHT_COLOR = '#2563EB' // blue-600 :选中节点 / 拖动节点 / hover 时的相关连线
-const LINK_CONNECTING_COLOR = '#2563EB'// blue-600 :拖线建立连接时的临时连线
-const LINK_HIGHLIGHT_WIDTH_MULT = 1.5  // 高亮连线相对默认宽度的倍率
-const NODE_STATUS_COLORS: Record<string, string> = {
-  queued: '#687386',
-  pending: '#687386',
-  running: '#C7831D',
-  waiting_user_input: '#8B5CF6',
-  success: '#2F766F',
-  completed: '#2F766F',
-  failed: '#B42318',
-  canceled: '#687386',
-  cached: '#6B5F95',
-  skipped: '#687386',
-}
-const EXECUTION_POLL_INTERVAL_MS = 1500
-const EXECUTION_CANCELABLE_STATUSES = ['queued', 'running', 'waiting_user_input']
-const EXECUTION_RETRYABLE_STATUSES = ['failed', 'canceled']
-const TASK_CANCELABLE_STATUSES = ['queued', 'pending', 'running', 'waiting', 'waiting_user_input', 'started']
-const TASK_RETRYABLE_STATUSES = ['failed', 'canceled']
-const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label: string; description: string }> = [
-  { value: 'trial', label: '试跑', description: '用于边调参数边看数据' },
-  { value: 'analysis', label: '正式分析', description: '用于正式结果和报告追溯' },
-  { value: 'replay', label: '重放', description: '复用历史快照重放一次执行；当前后端通常由 Retry 触发' },
-  { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
-]
-const SAVE_POLICY_OPTIONS: Array<{ value: PipelineExecutionSavePolicy; label: string; description: string }> = [
-  { value: 'temporary', label: '临时', description: '可清理的试跑输出' },
-  { value: 'current', label: '当前', description: '当前认可的分析结果' },
-  { value: 'pinned', label: '固定', description: '长期保留的重要输出' },
-  { value: 'discard', label: '丢弃', description: '仅保留执行记录' },
-]
-const NODE_CARD_WIDTH = 264
-const NODE_CARD_MIN_HEIGHT = 112
-const NODE_TITLE_MAX_CHARS = 22
-const NODE_GAP_X = 304
-const NODE_GAP_Y = 168
-const LITEGRAPH_MIN_ZOOM = 0.58
-const LITEGRAPH_MAX_ZOOM = 1.75
-const LITEGRAPH_MAX_PIXEL_RATIO = 2
-
 defineOptions({ name: 'PipelinePage' })
 
 const route = useRoute()
@@ -1316,13 +1289,18 @@ const pipelineDescription = ref('')
 const definition = ref<PipelineDefinitionPayload>(createEmptyDefinition())
 const selectedNodeId = ref('')
 const upstreamNodeId = ref('')
-const nodeSearch = ref('')
+// 节点库（搜索 / 分组 / 折叠）状态与逻辑见 composables/pipeline/useNodeLibrary
+const {
+  nodeSearch,
+  groupOpen,
+  filteredNodeSpecs,
+  groupedNodeSpecs,
+  toggleGroup,
+} = useNodeLibrary(nodeSpecs)
 
 // ========== Pipeline 草稿 localStorage 暂存 ==========
 // 每次 markDirty 后 debounce 800ms 写入；切回页面静默恢复。
 // key 按 study_id + pipeline_id 隔离；新建 pipeline 用 'new' 作为 pipeline_id。
-const DRAFT_LS_PREFIX = 'elys-pipeline-draft-'
-const DRAFT_STORAGE_VERSION = 1
 
 interface PipelineDraft {
   storageVersion: number
@@ -1433,123 +1411,25 @@ function tryRestoreDraft(): boolean {
   return true
 }
 
-// ========== 阶段 1: 抽屉式布局 ==========
-const LAYOUT_LS_PREFIX = 'elys-pipeline-layout-'
-const libraryVisible = ref(true)
-const libraryWidth = ref(240)
-const inspectorVisible = ref(false)
-const inspectorWidth = ref(580)
-const inspectorPinned = ref(false)
-const drawerDragging = ref<'library' | 'inspector' | null>(null)
-
-let _drawerDragStartX = 0
-let _drawerDragStartWidth = 0
-
-function restoreLayoutState() {
-  try {
-    const lv = localStorage.getItem(LAYOUT_LS_PREFIX + 'library-visible')
-    const lw = parseInt(localStorage.getItem(LAYOUT_LS_PREFIX + 'library-width') || '0', 10)
-    const iw = parseInt(localStorage.getItem(LAYOUT_LS_PREFIX + 'inspector-width') || '0', 10)
-    const ip = localStorage.getItem(LAYOUT_LS_PREFIX + 'inspector-pinned')
-
-    if (lv !== null) libraryVisible.value = lv !== 'false'
-    if (lw >= 180 && lw <= 400) libraryWidth.value = lw
-    if (iw >= 320 && iw <= 800) inspectorWidth.value = iw
-    if (ip === 'true') {
-      inspectorPinned.value = true
-      inspectorVisible.value = true
-    }
-  } catch {
-    // localStorage 不可用时使用默认值
-  }
-}
-
-function persistLayout(key: string, value: string) {
-  try {
-    localStorage.setItem(LAYOUT_LS_PREFIX + key, value)
-  } catch {
-    // 忽略 localStorage 失败
-  }
-}
-
-function toggleLibrary() {
-  libraryVisible.value = !libraryVisible.value
-  persistLayout('library-visible', String(libraryVisible.value))
-}
-
-function toggleInspector() {
-  if (inspectorVisible.value) {
-    inspectorVisible.value = false
-  } else {
-    inspectorVisible.value = true
-  }
-}
-
-function showInspector() {
-  inspectorVisible.value = true
-}
-
-function hideInspector() {
-  if (inspectorPinned.value) return
-  inspectorVisible.value = false
-}
-
-function forceCloseInspector() {
-  inspectorVisible.value = false
-  if (inspectorPinned.value) {
-    inspectorPinned.value = false
-    persistLayout('inspector-pinned', 'false')
-  }
-}
-
-function toggleInspectorPin() {
-  inspectorPinned.value = !inspectorPinned.value
-  persistLayout('inspector-pinned', String(inspectorPinned.value))
-}
-
-function startDrawerDrag(which: 'library' | 'inspector', e: MouseEvent) {
-  drawerDragging.value = which
-  _drawerDragStartX = e.clientX
-  _drawerDragStartWidth = which === 'library' ? libraryWidth.value : inspectorWidth.value
-  document.body.style.cursor = 'ew-resize'
-  document.body.style.userSelect = 'none'
-  document.addEventListener('mousemove', onDrawerDragMove)
-  document.addEventListener('mouseup', onDrawerDragEnd)
-  e.preventDefault()
-}
-
-function onDrawerDragMove(e: MouseEvent) {
-  if (!drawerDragging.value) return
-  const dx = e.clientX - _drawerDragStartX
-  if (drawerDragging.value === 'library') {
-    libraryWidth.value = Math.max(180, Math.min(400, _drawerDragStartWidth + dx))
-  } else {
-    inspectorWidth.value = Math.max(320, Math.min(800, _drawerDragStartWidth - dx))
-  }
-}
-
-function onDrawerDragEnd() {
-  if (!drawerDragging.value) return
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-  if (drawerDragging.value === 'library') {
-    persistLayout('library-width', String(libraryWidth.value))
-  } else {
-    persistLayout('inspector-width', String(inspectorWidth.value))
-  }
-  drawerDragging.value = null
-  document.removeEventListener('mousemove', onDrawerDragMove)
-  document.removeEventListener('mouseup', onDrawerDragEnd)
-}
-
-function handleLayoutKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape' || !inspectorVisible.value) return
-  const target = e.target as HTMLElement | null
-  const tag = target?.tagName?.toLowerCase()
-  if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return
-  forceCloseInspector()
-}
-const groupOpen = reactive<Record<string, boolean>>({})
+// ========== 阶段 1: 抽屉式布局（状态与逻辑见 composables/pipeline/useEditorLayout）==========
+const {
+  libraryVisible,
+  libraryWidth,
+  inspectorVisible,
+  inspectorWidth,
+  inspectorPinned,
+  drawerDragging,
+  restoreLayoutState,
+  toggleLibrary,
+  toggleInspector,
+  showInspector,
+  forceCloseInspector,
+  toggleInspectorPin,
+  startDrawerDrag,
+  onDrawerDragMove,
+  onDrawerDragEnd,
+  handleLayoutKeydown,
+} = useEditorLayout()
 const validation = ref<PipelineValidationResponse | null>(null)
 const loadingNodes = ref(false)
 const loadingPipelines = ref(false)
@@ -2483,29 +2363,6 @@ const manifestOutputCount = computed(() => {
   return 0
 })
 
-const filteredNodeSpecs = computed(() => {
-  const text = nodeSearch.value.trim().toLowerCase()
-  if (!text) return nodeSpecs.value
-  return nodeSpecs.value.filter((spec) =>
-    [spec.title, spec.type, spec.category, spec.description || '', ...(spec.tags || [])]
-      .join(' ')
-      .toLowerCase()
-      .includes(text),
-  )
-})
-
-const groupedNodeSpecs = computed(() => {
-  const groups = new Map<string, NodeSpec[]>()
-  for (const spec of filteredNodeSpecs.value) {
-    const list = groups.get(spec.category) || []
-    list.push(spec)
-    groups.set(spec.category, list)
-  }
-  return Array.from(groups.entries())
-    .map(([category, nodes]) => ({ category, nodes: nodes.sort((a, b) => a.title.localeCompare(b.title)) }))
-    .sort((a, b) => a.category.localeCompare(b.category))
-})
-
 const upstreamCandidates = computed(() => {
   if (!selectedNode.value) return []
   return definition.value.graph.nodes.filter((node) => node.id !== selectedNode.value?.id)
@@ -2586,6 +2443,9 @@ watch([executionJobs, runArtifacts], () => {
   void loadSelectedIcaInteraction()
 })
 
+// 工作流页顶部「工作流选择器/新建」用 Teleport 吊到容器标题栏；keep-alive 切走时关掉、回原位（随页面一起隐藏）
+const teleportActive = ref(true)
+
 onMounted(async () => {
   restoreLayoutState()
   await nextTick()
@@ -2600,12 +2460,20 @@ onMounted(async () => {
 
 // keep-alive：本页在容器 4-tab 中被缓存。切回时重绑快捷键 + 重算画布尺寸（隐藏期 ResizeObserver 不触发，防错位/糊）
 onActivated(() => {
+  teleportActive.value = true
   document.addEventListener('keydown', handleLayoutKeydown)
-  if (liteGraphCanvas) resizeLiteGraphCanvas()
+  // 切回本页：画布在就补尺寸；万一画布没了（异常 / HMR）就重建，避免卡在“正在初始化”
+  if (liteGraphCanvas) {
+    liteGraphReady.value = true
+    resizeLiteGraphCanvas()
+  } else {
+    initLiteGraphCanvas()
+  }
 })
 
 // 切走时解绑快捷键 + 停运行轮询，避免后台空转
 onDeactivated(() => {
+  teleportActive.value = false
   document.removeEventListener('keydown', handleLayoutKeydown)
   stopRunPolling()
 })
@@ -2622,6 +2490,23 @@ onBeforeUnmount(() => {
   liteGraphCanvas = null
   liteGraph = null
 })
+
+// HMR 兜底：热更新会重跑 <script setup>，把 liteGraphReady / definition 重置成初值，
+// 但 onMounted 不会在热更新时重跑、旧的 LGraphCanvas 仍绑在同一个 <canvas> 上空转，
+// 于是页面卡在“正在初始化画布”。这里在旧模块卸载前停掉旧画布，并在新模块下一帧补一次初始化。
+// 仅 dev 生效：生产构建里 import.meta.hot 为假，整段被 Vite 剔除。
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    resizeObserver?.disconnect()
+    liteGraphCanvas?.unbindEvents()
+    liteGraph?.stop()
+    liteGraphCanvas = null
+    liteGraph = null
+  })
+  requestAnimationFrame(() => {
+    if (!liteGraphCanvas && liteGraphCanvasEl.value) initLiteGraphCanvas()
+  })
+}
 
 interface PipelineRouteTarget {
   studyId?: string
@@ -2677,7 +2562,12 @@ function createEmptyDefinition(): PipelineDefinitionPayload {
 }
 
 function initLiteGraphCanvas() {
-  if (!liteGraphCanvasEl.value || liteGraphCanvas) return
+  // 已建好画布：确保 ready 标志为真（HMR / 重复调用时把被重置的标志补回来），不重复初始化
+  if (liteGraphCanvas) {
+    liteGraphReady.value = true
+    return
+  }
+  if (!liteGraphCanvasEl.value) return
 
   configureLiteGraphTheme()
   liteGraph = new LGraph()
@@ -2781,7 +2671,6 @@ function configureLiteGraphTheme() {
 // LiteGraph 内置在节点被选中 / 拖动时,会把相关连线 push 进 highlighted_links,
 // renderLink 里 hardcode `color = "#FFF"` —— 在浅色画布上等于看不见。
 // 这里 patch 一次 prototype,统一改为蓝色高亮 + 加粗,把所有走 highlighted_links 的场景都覆盖。
-const LINK_HIGHLIGHT_PATCH_MARK = '__elysLinkHighlightPatched__'
 function patchLiteGraphLinkHighlight() {
   const proto = LGraphCanvas.prototype as Record<string, any>
   const origRenderLink = proto.renderLink
@@ -2995,90 +2884,6 @@ function liteGraphReachableFromLoadData(graph: LGraph | null | undefined): Set<s
   return reachable
 }
 
-function pipelinePortColors(alpha = 1) {
-  return Object.fromEntries(
-    Object.entries(PORT_COLORS).map(([type, color]) => [type, alpha >= 1 ? color : withAlpha(color, alpha)]),
-  )
-}
-
-function portTypeColor(type?: string | number | null) {
-  if (typeof type !== 'string') return '#8A95A8'
-  return PORT_COLORS[type] || '#8A95A8'
-}
-
-function withAlpha(hex: string, alpha: number) {
-  const normalized = hex.replace('#', '')
-  if (normalized.length !== 6) return hex
-  const value = Number.parseInt(normalized, 16)
-  if (!Number.isFinite(value)) return hex
-  const r = (value >> 16) & 255
-  const g = (value >> 8) & 255
-  const b = value & 255
-  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`
-}
-
-function normalizedJobStatus(status?: string | null) {
-  const text = String(status || '').trim().toLowerCase()
-  if (text === 'completed') return 'success'
-  return text || 'pending'
-}
-
-function nodeStatusColor(status?: string | null) {
-  return NODE_STATUS_COLORS[normalizedJobStatus(status)] || '#687386'
-}
-
-function nodeStatusSoftColor(status?: string | null) {
-  const normalized = normalizedJobStatus(status)
-  if (normalized === 'failed') return '#FFF4F2'
-  if (normalized === 'success') return '#F0F8F4'
-  if (normalized === 'running') return '#FFF8E8'
-  if (normalized === 'cached') return '#F5F1FA'
-  if (normalized === 'waiting_user_input') return '#F5F1FA'
-  return '#F8FAFC'
-}
-
-function formatJobStatus(status: string) {
-  const normalized = normalizedJobStatus(status)
-  if (normalized === 'success') return '成功'
-  if (normalized === 'failed') return '失败'
-  if (normalized === 'queued') return '排队'
-  if (normalized === 'running') return '运行中'
-  if (normalized === 'waiting_user_input') return '等待确认'
-  if (normalized === 'pending') return '等待'
-  if (normalized === 'cached') return '缓存'
-  if (normalized === 'skipped') return '跳过'
-  if (normalized === 'canceled') return '已取消'
-  return status
-}
-
-function jobStatusClass(status: string) {
-  return `status-pill--${normalizedJobStatus(status)}`
-}
-
-// UI Phase (docs_v2/6-05) P1-2: 步骤可视化状态映射
-function stepVisualState(status: string): 'done' | 'doing' | 'pending' | 'failed' | 'waiting' | 'skipped' {
-  const s = normalizedJobStatus(status)
-  if (s === 'success' || s === 'completed' || s === 'cached') return 'done'
-  if (s === 'running') return 'doing'
-  if (s === 'failed' || s === 'canceled') return 'failed'
-  if (s === 'waiting_user_input') return 'waiting'
-  if (s === 'skipped') return 'skipped'
-  return 'pending'
-}
-function stepIcon(status: string): string {
-  const v = stepVisualState(status)
-  if (v === 'done') return '✓'
-  if (v === 'doing') return '⏳'
-  if (v === 'failed') return '✕'
-  if (v === 'waiting') return '!'
-  if (v === 'skipped') return '—'
-  return '○'
-}
-function isStepDone(status: string): boolean {
-  const v = stepVisualState(status)
-  return v === 'done' || v === 'skipped'
-}
-
 function jobForNodeId(nodeId: string) {
   return executionJobByNodeId.value.get(nodeId) || null
 }
@@ -3162,19 +2967,6 @@ function artifactLabel(artifact: DerivedDataset) {
   return `${type}${name}`
 }
 
-function formatFileSize(value?: number | null) {
-  if (value === null || value === undefined) return '-'
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${(value / 1024 / 1024).toFixed(1)} MB`
-}
-
-function shortId(value?: string | null) {
-  if (!value) return ''
-  const text = String(value)
-  return text.length > 8 ? text.slice(0, 8) : text
-}
-
 function getPreviewSummary(previewJson?: Record<string, unknown>): Record<string, unknown> {
   const summary = previewJson?.summary
   return isRecord(summary) ? summary : {}
@@ -3241,31 +3033,6 @@ function buildArtifactPreviewCurves(summary: Record<string, unknown>) {
     })
     .filter(Boolean)
     .slice(0, 6)
-}
-
-function numericMetric(value: unknown) {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : null
-}
-
-function formatMetricNumber(value: unknown, suffix = '') {
-  const numberValue = numericMetric(value)
-  if (numberValue === null) return '-'
-  const digits = Math.abs(numberValue) >= 10 ? 1 : 3
-  return `${Number(numberValue.toFixed(digits))}${suffix}`
-}
-
-function formatSecondsMetric(value: unknown) {
-  const seconds = numericMetric(value)
-  if (seconds === null) return '-'
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
-  return `${(seconds / 60).toFixed(2)}min`
-}
-
-function formatDurationMs(durationMs?: number | null) {
-  if (durationMs === null || durationMs === undefined) return '—'
-  if (durationMs < 1000) return `${durationMs}ms`
-  return `${(durationMs / 1000).toFixed(durationMs < 10000 ? 1 : 0)}s`
 }
 
 function jobErrorMessage(job: PipelineJob) {
@@ -3391,13 +3158,6 @@ function drawNodeSaveIcon(
   ctx.fill()
   ctx.restore()
 }
-
-/** 节点类型是否需要在画布上显示 save 图标 —— LoadData 是 source 节点没有派生数据。
- *  Save 节点（eeg/output/save_result）在 P6 阶段已彻底删除，无需再排除。
- */
-const NO_SAVE_ICON_NODE_TYPES = new Set<string>([
-  'eeg/data/load',
-])
 
 function centerLiteGraphView() {
   if (!liteGraph || !liteGraphCanvas) return
@@ -5452,80 +5212,6 @@ function buildDefinitionPayload(): PipelineDefinitionPayload {
   }
 }
 
-function formatPipelineExecutionStatus(status: string) {
-  if (status === 'completed') return '已完成'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '运行中'
-  if (status === 'queued') return '排队'
-  if (status === 'waiting_user_input') return '等待确认'
-  if (status === 'canceled') return '已取消'
-  return status
-}
-
-function formatTaskStatus(status?: string | null) {
-  if (status === 'success' || status === 'completed') return '成功'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '运行中'
-  if (status === 'queued' || status === 'pending') return '排队'
-  if (status === 'waiting_user_input') return '等待确认'
-  if (status === 'canceled') return '已取消'
-  if (status === 'retrying') return '重试中'
-  return status || '-'
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatPipelineStatus(status: string) {
-  if (status === 'active') return '已启用'
-  if (status === 'draft') return '草稿'
-  if (status === 'archived') return '已归档'
-  if (status === 'deleted') return '已删除'
-  return status || '草稿'
-}
-
-function allowedExecutionModeText(status: string) {
-  if (status === 'draft') return '试跑'
-  if (status === 'active') return '试跑或正式分析'
-  return '无'
-}
-
-function formatExecutionMode(mode?: string | null) {
-  if (mode === 'trial') return '试跑'
-  if (mode === 'analysis') return '正式分析'
-  if (mode === 'replay') return '重放'
-  if (mode === 'system') return '系统运行'
-  return mode || '-'
-}
-
-function formatSavePolicy(policy?: string | null) {
-  if (policy === 'temporary') return '临时保存'
-  if (policy === 'current') return '当前结果'
-  if (policy === 'pinned') return '固定保留'
-  if (policy === 'discard') return '不保留输出'
-  return policy || '-'
-}
-
-function formatArtifactRetention(status?: string | null) {
-  if (status === 'pinned') return '固定'
-  if (status === 'current') return '当前'
-  if (status === 'cached') return '缓存'
-  if (status === 'temporary') return '临时'
-  if (status === 'deleted') return '已隐藏'
-  if (status === 'quarantined') return '隔离'
-  return status || '未标记'
-}
-
 function artifactActionStatusText(action: ArtifactAction, retentionStatus?: string | null) {
   if (action === 'pin') return `Artifact 已固定：${formatArtifactRetention(retentionStatus)}`
   if (action === 'unpin') return `Artifact 已取消固定：${formatArtifactRetention(retentionStatus)}`
@@ -5564,64 +5250,6 @@ function markDirty() {
     scheduleDraftSave()
   }
   validation.value = null
-}
-
-function toggleGroup(category: string) {
-  groupOpen[category] = groupOpen[category] === false
-}
-
-function categoryColor(category?: string | null) {
-  return CATEGORY_COLORS[categoryKey(category)] || '#8A95A8'
-}
-
-function categorySoftColor(category?: string | null) {
-  return CATEGORY_SOFT_COLORS[categoryKey(category)] || '#EEF2F8'
-}
-
-function categoryLabel(category?: string | null) {
-  return String(category || 'Node').trim() || 'Node'
-}
-
-function compactNodeTitle(title: string) {
-  const normalized = title.trim()
-  if (normalized.length <= NODE_TITLE_MAX_CHARS) return normalized
-  return `${normalized.slice(0, NODE_TITLE_MAX_CHARS - 1)}…`
-}
-
-function categoryKey(category?: string | null) {
-  const text = String(category || '').trim().toLowerCase()
-  if (!text) return ''
-  if (text.includes('data') || text.includes('load')) return 'data'
-  if (text.includes('input')) return 'input'
-  if (text.includes('preprocess') || text.includes('filter') || text.includes('clean')) return 'preprocess'
-  if (text.includes('ica')) return 'ica'
-  if (text.includes('epoch')) return 'epoch'
-  if (text.includes('analysis') || text.includes('erp') || text.includes('time') || text.includes('frequency')) return 'analysis'
-  if (text.includes('visual') || text.includes('plot') || text.includes('figure')) return 'visualization'
-  if (text.includes('qc') || text.includes('quality')) return 'qc'
-  if (text.includes('output') || text.includes('export')) return 'output'
-  return text
-}
-
-function portTypesCompatible(sourceType?: string, targetType?: string) {
-  if (isWildcardPortType(sourceType) || isWildcardPortType(targetType)) return true
-  if (sourceType === targetType) return true
-  const compatibleTargets: Record<string, string[]> = {
-    analysis_result: ['analysis_result', 'evoked', 'epochs', 'psd', 'tfr', 'connectivity', 'microstate', 'source_estimate'],
-    eeg_data: ['eeg_data', 'raw', 'dataset_collection'],
-  }
-  return Boolean(sourceType && targetType && compatibleTargets[targetType]?.includes(sourceType))
-}
-
-function isWildcardPortType(type?: string): boolean {
-  return type === '*' || type === 'any' || type === '' || type === undefined
-}
-
-function liteGraphPortType(type?: string): string {
-  // litegraph.js 0.7.x 的 wildcard 端口必须是 falsy（空字符串 / 0 / null）。
-  // 注意：-1 在该版本是 LiteGraph.EVENT/ACTION，会被画成方块且拒绝普通数据线连接。
-  if (isWildcardPortType(type)) return ''
-  return type || 'eeg_data'
 }
 
 function describeError(error: unknown, fallback: string) {
@@ -6198,8 +5826,7 @@ function describeError(error: unknown, fallback: string) {
 }
 
 .toolbar-row--context {
-  padding-bottom: 4px;
-  border-bottom: 1px dashed var(--c-border);
+  flex-wrap: nowrap;
 }
 
 .toolbar-row--actions {
