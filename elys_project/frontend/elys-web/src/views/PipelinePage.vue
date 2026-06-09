@@ -1208,6 +1208,7 @@ import {
 } from '@/composables/pipeline/pipelineFormatters'
 import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
 import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
+import { usePipelineEditor } from '@/composables/pipeline/usePipelineEditor'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1278,16 +1279,23 @@ defineOptions({ name: 'PipelinePage' })
 
 const route = useRoute()
 
+// 承重墙：图定义 / 选中节点 / 节点规格（状态与基础查询见 composables/pipeline/usePipelineEditor）
+const {
+  nodeSpecs,
+  definition,
+  selectedNodeId,
+  selectedNode,
+  selectedNodeSpec,
+  createEmptyDefinition,
+  specForNode,
+} = usePipelineEditor()
 const pipelines = ref<Pipeline[]>([])
 const studyDatasets = ref<Recording[]>([])
-const nodeSpecs = ref<NodeSpec[]>([])
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
 const selectedPipelineId = ref('')
 const currentPipeline = ref<Pipeline | null>(null)
 const pipelineName = ref('未命名工作流')
 const pipelineDescription = ref('')
-const definition = ref<PipelineDefinitionPayload>(createEmptyDefinition())
-const selectedNodeId = ref('')
 const upstreamNodeId = ref('')
 // 节点库（搜索 / 分组 / 折叠）状态与逻辑见 composables/pipeline/useNodeLibrary
 const {
@@ -1572,8 +1580,6 @@ const pipelineEditLockSummary = computed(() => {
 const canUsePipelineEditLockActions = computed(() =>
   Boolean(selectedStudyId.value && currentPipeline.value && !pipelineEditLockLoading.value),
 )
-const selectedNode = computed(() => definition.value.graph.nodes.find((node) => node.id === selectedNodeId.value) || null)
-const selectedNodeSpec = computed(() => (selectedNode.value ? specForNode(selectedNode.value) : null))
 // —— 节点参数的条件显示 (visible_when) 与高级折叠 (advanced) ——
 // effectiveNodeParams：属性默认值 + 用户实参合并，给 visible_when 判定用（控制字段未显式给时回退默认）
 const effectiveNodeParams = computed<Record<string, unknown>>(() => {
@@ -2540,24 +2546,6 @@ async function applyPipelineRouteTarget() {
   const target = routeTarget()
   if (target.pipelineId || target.executionId) {
     await loadPipelines(target)
-  }
-}
-
-function createEmptyDefinition(): PipelineDefinitionPayload {
-  return {
-    schema_version: 'elys.pipeline.v1',
-    app_version: 'elys.app.v1',
-    engine_version: null,
-    name: null,
-    description: null,
-    graph: {
-      nodes: [],
-      links: [],
-    },
-    settings: {
-      execution_scope: 'selected_datasets',
-      failure_policy: 'continue',
-    },
   }
 }
 
@@ -4621,11 +4609,6 @@ function onLoadDataParamsUpdate(params: LoadDataParams) {
 function selectNode(nodeId: string) {
   selectedNodeId.value = nodeId
   selectLiteGraphNode(nodeId)
-}
-
-function specForNode(node: PipelineGraphNode | null | undefined) {
-  if (!node) return null
-  return nodeSpecs.value.find((spec) => spec.type === node.type) || null
 }
 
 function formatParamValue(prop: NodeProperty) {
