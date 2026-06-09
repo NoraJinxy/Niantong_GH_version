@@ -1,5 +1,6 @@
 <template>
-  <WorkbenchShell active-key="datasets" active-top-key="datasets" :show-sidebar="false" :narrow="true">
+  <!-- 版心对齐主页 .hero__inner(1200)：与 Dashboard 同款覆盖，--content-w=1200 + --page-pad-x=0，内容与主页齐边。仅本页生效。 -->
+  <WorkbenchShell active-key="datasets" active-top-key="datasets" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
     <div class="page__header dataset-page__header">
       <div>
         <h1 class="page__title">数据集管理</h1>

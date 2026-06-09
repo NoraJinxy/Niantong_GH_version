@@ -1,5 +1,6 @@
 <template>
-  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="true">
+  <!-- 版心对齐主页 .hero__inner(1200)：与 Dashboard/Datasets 同款，--content-w=1200 + --page-pad-x=0。仅本页生效。 -->
+  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
     <div class="studies-page">
       <div class="page__header studies-page__header">
         <div>

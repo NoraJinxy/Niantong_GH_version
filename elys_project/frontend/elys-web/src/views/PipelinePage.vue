@@ -5682,7 +5682,8 @@ function describeError(error: unknown, fallback: string) {
 .pipeline-page {
   position: relative;
   display: flex;
-  height: calc(100vh - var(--header-h));
+  flex: 1;
+  min-height: 0;
   background: var(--c-bg-soft);
   color: var(--c-text);
   overflow: hidden;

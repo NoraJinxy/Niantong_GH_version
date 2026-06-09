@@ -1,9 +1,10 @@
 <template>
-  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="isNarrow">
-    <div class="study-layout">
-      <header class="study-layout__head">
-        <RouterLink class="study-layout__crumb" :to="{ path: '/studies', query: { study: studyId } }">← 研究项列表</RouterLink>
-        <div class="study-layout__title">
+  <!-- 版心对齐主页 .hero__inner(1200)：限宽 tab(数据/结果) 走 .page--narrow=1200；工作流 tab(isNarrow=false) 不限宽、仍是宽画布。--page-pad-x=0 与其余 live 页齐边。 -->
+  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="isNarrow" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
+    <div class="study-layout" :class="{ 'study-layout--full': activeTab === 'workflow' }">
+      <header class="study-layout__bar">
+        <div class="study-layout__id">
+          <RouterLink class="study-layout__crumb" :to="{ path: '/studies', query: { study: studyId } }">← 研究项列表</RouterLink>
           <h1>{{ study.currentStudy?.name || (study.loading ? '加载中…' : '研究项') }}</h1>
           <span
             v-if="study.currentStudy"
@@ -12,24 +13,21 @@
           >
             {{ statusLabel(study.currentStudy.status) }}
           </span>
+          <code v-if="study.currentStudy">{{ study.currentStudy.code }}</code>
         </div>
-        <p v-if="study.currentStudy" class="study-layout__sub">
-          <code>{{ study.currentStudy.code }}</code>
-          <span v-if="study.currentStudy.description"> · {{ study.currentStudy.description }}</span>
-        </p>
-      </header>
 
-      <nav class="study-tabs" role="tablist" aria-label="研究项视图">
-        <RouterLink
-          v-for="tab in STUDY_TABS"
-          :key="tab.key"
-          class="study-tab"
-          :class="{ 'is-active': activeTab === tab.key }"
-          :to="{ name: tab.name, params: { studyId } }"
-        >
-          {{ tab.label }}
-        </RouterLink>
-      </nav>
+        <nav class="study-tabs" role="tablist" aria-label="研究项视图">
+          <RouterLink
+            v-for="tab in STUDY_TABS"
+            :key="tab.key"
+            class="study-tab"
+            :class="{ 'is-active': activeTab === tab.key }"
+            :to="{ name: tab.name, params: { studyId } }"
+          >
+            {{ tab.label }}
+          </RouterLink>
+        </nav>
+      </header>
 
       <div v-if="study.error" class="alert alert--error">{{ study.error }}</div>
 
@@ -94,47 +92,65 @@ function statusPillClass(status: string | null | undefined) {
 .study-layout {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   color: var(--c-text);
+}
+/* 工作流 tab：容器吃满视口剩余高度、画布按 flex 填充，
+   修掉 .pipeline-page 硬算 100vh-header 没扣容器 bar 导致的下溢 */
+.study-layout--full {
+  height: calc(100vh - var(--header-h) - 2 * var(--s-5));
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+/* 头部一行：左 ← 列表+标题+状态+code，右 tab bar，省垂直空间 */
+.study-layout__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--c-border);
+}
+.study-layout__id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-bottom: 8px;
 }
 .study-layout__crumb {
   color: var(--c-text-3);
   font-size: 13px;
   text-decoration: none;
+  white-space: nowrap;
 }
 .study-layout__crumb:hover {
   color: var(--c-primary);
 }
-.study-layout__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-.study-layout__title h1 {
+.study-layout__id h1 {
   margin: 0;
-  font-size: 24px;
-  line-height: 1.25;
+  font-size: 18px;
+  line-height: 1.3;
   color: var(--c-text);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
-.study-layout__sub {
-  margin: 6px 0 0;
-  color: var(--c-text-2);
-  font-size: 13px;
-}
-.study-layout__sub code {
+.study-layout__id code {
+  color: var(--c-text-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+  white-space: nowrap;
 }
 .study-tabs {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  border-bottom: 1px solid var(--c-border);
 }
 .study-tab {
-  padding: 10px 16px;
+  padding: 8px 16px;
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
   color: var(--c-text-2);

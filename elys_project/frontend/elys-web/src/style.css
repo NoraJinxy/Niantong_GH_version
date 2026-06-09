@@ -488,6 +488,10 @@ code, kbd {
   min-height: calc(100vh - var(--header-h));
 }
 .page--narrow {
+  /* 关键：.page 是 .app 网格的子项，带 margin:0 auto 的网格子项会"收缩到内容宽"而非撑满，
+     导致 max-width 永远不生效（内容 < max-width 时尤其明显）。width:100% 强制先撑满列、
+     再由 max-width 截断、auto margin 居中——这才是版心生效的前提。 */
+  width: 100%;
   max-width: var(--content-w);
   margin: 0 auto;
 }
