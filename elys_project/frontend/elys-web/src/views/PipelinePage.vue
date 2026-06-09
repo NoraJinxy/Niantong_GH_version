@@ -1210,6 +1210,7 @@ import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
 import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
 import { usePipelineEditor } from '@/composables/pipeline/usePipelineEditor'
 import { useDraftPersistence } from '@/composables/pipeline/useDraftPersistence'
+import { useExecutionTasks } from '@/composables/pipeline/useExecutionTasks'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1362,8 +1363,7 @@ const editingDisplayId = ref('')
 const displayNameDraft = ref('')
 const tagDrafts = reactive<Record<string, string>>({})
 const executionActionLoading = ref<'cancel' | 'retry' | ''>('')
-const taskActionLoading = reactive<Record<string, 'cancel' | 'retry' | 'events'>>({})
-const taskEventsByTaskId = reactive<Record<string, TaskEvent[]>>({})
+// 异步任务事件流（取消 / 重试 / 拉取事件）见 composables/pipeline/useExecutionTasks（解构见下方装配区）
 const pipelineEditLock = ref<PipelineEditLock | null>(null)
 const pipelineEditLockLoading = ref(false)
 const pipelineEditLockError = ref('')
@@ -1405,6 +1405,24 @@ const {
   statusMessage,
   hydrating,
   syncDefinitionToLiteGraph,
+})
+const {
+  taskActionLoading,
+  taskEventsByTaskId,
+  isPipelineExecutionTask,
+  taskEventsForTask,
+  canCancelTask,
+  canRetryTask,
+  loadTaskEvents,
+  cancelTask,
+  retryTask,
+} = useExecutionTasks({
+  selectedStudyId,
+  statusMessage,
+  activeExecutionId,
+  activeExecutionDetail,
+  refreshRunState,
+  describeError,
 })
 let nodeCounter = 0
 let liteGraph: LGraph | null = null
@@ -4797,87 +4815,6 @@ async function retryLatestExecution() {
   } finally {
     executionActionLoading.value = ''
   }
-}
-
-function isPipelineExecutionTask(task: AsyncTask) {
-  return task.resource_kind === 'pipeline_execution' || task.task_type === 'pipeline_execution'
-}
-
-function taskEventsForTask(task: AsyncTask) {
-  return taskEventsByTaskId[task.id] || task.events || []
-}
-
-function canCancelTask(task: AsyncTask) {
-  return TASK_CANCELABLE_STATUSES.includes(String(task.status))
-}
-
-function canRetryTask(task: AsyncTask) {
-  return !isPipelineExecutionTask(task) && TASK_RETRYABLE_STATUSES.includes(String(task.status))
-}
-
-async function loadTaskEvents(task: AsyncTask) {
-  const studyId = selectedStudyId.value
-  if (!studyId || taskActionLoading[task.id]) return
-  taskActionLoading[task.id] = 'events'
-  try {
-    const events = taskEventsForTask(task)
-    const since = events.length ? events[events.length - 1].id : undefined
-    const res = await pipelineApi.listTaskEvents(studyId, task.id, since)
-    taskEventsByTaskId[task.id] = mergeTaskEvents(events, res.data.events)
-    statusMessage.value = `已刷新任务事件：${taskEventsByTaskId[task.id].length} 条`
-  } catch (error) {
-    statusMessage.value = describeError(error, '任务事件刷新失败')
-  } finally {
-    delete taskActionLoading[task.id]
-  }
-}
-
-async function cancelTask(task: AsyncTask) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !canCancelTask(task) || taskActionLoading[task.id]) return
-  taskActionLoading[task.id] = 'cancel'
-  try {
-    const res = await pipelineApi.cancelTask(studyId, task.id)
-    updateActiveRunTask(res.data)
-    taskEventsByTaskId[task.id] = res.data.events || []
-    if (activeExecutionId.value) await refreshRunState(activeExecutionId.value)
-    statusMessage.value = isPipelineExecutionTask(task)
-      ? 'Pipeline Run 任务已取消；对应 Run 状态和运行锁已同步刷新'
-      : '任务已取消'
-  } catch (error) {
-    statusMessage.value = describeError(error, '任务取消失败')
-  } finally {
-    delete taskActionLoading[task.id]
-  }
-}
-
-async function retryTask(task: AsyncTask) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !canRetryTask(task) || taskActionLoading[task.id]) return
-  taskActionLoading[task.id] = 'retry'
-  try {
-    const res = await pipelineApi.retryTask(studyId, task.id)
-    statusMessage.value = `任务重试已创建：${shortId(res.data.id)}`
-  } catch (error) {
-    statusMessage.value = describeError(error, '任务重试失败')
-  } finally {
-    delete taskActionLoading[task.id]
-  }
-}
-
-function updateActiveRunTask(updatedTask: AsyncTask) {
-  if (!activeExecutionDetail.value?.tasks) return
-  activeExecutionDetail.value.tasks = activeExecutionDetail.value.tasks.map((task) =>
-    task.id === updatedTask.id ? updatedTask : task,
-  )
-}
-
-function mergeTaskEvents(existing: TaskEvent[], incoming: TaskEvent[]) {
-  const byId = new Map<string, TaskEvent>()
-  for (const event of [...existing, ...incoming]) byId.set(event.id, event)
-  return Array.from(byId.values()).sort((left, right) =>
-    String(left.created_at || '').localeCompare(String(right.created_at || '')) || left.id.localeCompare(right.id),
-  )
 }
 
 function selectExecutionDetailTab(tab: ExecutionDetailTab) {
