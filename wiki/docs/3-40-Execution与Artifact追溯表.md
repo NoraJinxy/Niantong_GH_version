@@ -1,6 +1,6 @@
-﻿# 3-40 Execution 与 DerivedDataset 追溯表
+# 3-40 Execution 与 StudyOutput 追溯表
 
-> 本页维护 Execution、Execution Input、Job、DerivedDataset 和 Execution Dependency。它是执行追溯、缓存复用和输出清理的数据库依据。详见 [3-45 DerivedDataset](3-45-DerivedDataset.md)。
+> 本页维护 Execution、Execution Input、Job、StudyOutput 和 Execution Dependency。它是执行追溯、缓存复用和输出清理的数据库依据。详见 [3-45 StudyOutput](3-45-StudyOutput.md)。
 
 <div class="elys-meta" markdown>
 
@@ -44,10 +44,10 @@
 | `input_slot` | 工作流输入槽或节点 ID |
 | `study_id` / `pipeline_id` / `job_id` | 冗余归属，便于查询和追溯 |
 | `node_id` / `node_type` | 哪个节点解析出的输入 |
-| `input_kind` | `selector` · `dataset_file` · `dataset` · `derived_dataset` · `upstream_dataset` |
+| `input_kind` | `selector` · `dataset_file` · `dataset` · `study_output` · `upstream_dataset` |
 | `dataset_asset_id` / `recording_id` / `recording_version_id` / `dataset_file_id` | 输入来源的资产、采集记录、上传版本与文件索引（旧列名 `dataset_id` / `dataset_upload_id` 已不存在） |
 | `file_role` / `storage_uri` / `logical_path` | 输入文件角色、读取 URI 和逻辑路径 |
-| `upstream_execution_id` / `upstream_dataset_id` | 上游 Execution 输出来源，`upstream_dataset_id` FK 指向 `derived_datasets` |
+| `upstream_execution_id` / `upstream_dataset_id` | 上游 Execution 输出来源，`upstream_dataset_id` FK 指向 `study_outputs` |
 | `selector_json` | 当时的选择规则 |
 | `resolved_metadata_json` | 当时解析到的被试、session、task、run、QC 等元数据 |
 | `sha256` | 输入文件校验值 |
@@ -67,9 +67,9 @@
 | `input_hash` / `params_hash` / `node_hash` | 缓存与复用依据 |
 | `trace_code` / `error_json` / `log_tail` | 调试与错误追踪 |
 
-## 4. `derived_datasets`
+## 4. `study_outputs`
 
-`derived_datasets` 是 Execution 产生的所有派生数据登记。
+`study_outputs` 是 Execution 产生的所有派生数据登记。
 
 | 字段组 | 说明 |
 |---|---|
@@ -80,7 +80,7 @@
 | 生命周期 | `retention_status` ∈ `current / pinned / cached / temporary / deleted / quarantined` + `retention_expires_at` |
 | 预览 | `preview_json` |
 
-完整字段定义、生命周期策略、Save 节点 promote 语义见 [3-45 DerivedDataset](3-45-DerivedDataset.md)。
+完整字段定义、生命周期策略、Save 节点 promote 语义见 [3-45 StudyOutput](3-45-StudyOutput.md)。
 
 产品语义操作通过 PATCH 统一入口：
 
@@ -95,17 +95,17 @@
 
 ## 5. `pipeline_execution_dependencies`
 
-用于记录下游 Execution 对上游 Execution / DerivedDataset 的依赖，辅助清理和重建。
+用于记录下游 Execution 对上游 Execution / StudyOutput 的依赖，辅助清理和重建。
 
 | 字段 | 说明 |
 |---|---|
 | `execution_id` | 当前下游 Execution |
 | `depends_on_execution_id` | 被依赖的上游 Execution |
-| `upstream_dataset_id` | 被依赖的上游派生数据集，FK 指向 `derived_datasets` |
-| `dependency_kind` | `upstream_execution` · `upstream_derived_dataset` · `retry_of` 等 |
+| `upstream_dataset_id` | 被依赖的上游输出，FK 指向 `study_outputs` |
+| `dependency_kind` | `upstream_execution` · `upstream_study_output` · `retry_of` 等 |
 | `metadata_json` | 依赖来源、节点、输入槽等扩展信息 |
 
-如果某个 DerivedDataset 被下游 Execution / 报告 / 固定结果引用，不允许直接 hide 或物理清理。
+如果某个 StudyOutput 被下游 Execution / 报告 / 固定结果引用，不允许直接 hide 或物理清理。
 
 ## 5.1 Execution Lineage 聚合视图
 
@@ -120,12 +120,12 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 | 来源 | 用途 |
 |---|---|
 | `pipeline_execution_inputs` | 当前 Execution 的输入快照，并补充输入来源边 |
-| `derived_datasets WHERE produced_by_execution_id = 当前 Execution` | 当前 Execution 产生的输出，包括 deleted 状态 |
-| `pipeline_execution_dependencies.execution_id = 当前 Execution` | 上游 Execution / DerivedDataset 依赖 |
+| `study_outputs WHERE produced_by_execution_id = 当前 Execution` | 当前 Execution 产生的输出，包括 deleted 状态 |
+| `pipeline_execution_dependencies.execution_id = 当前 Execution` | 上游 Execution / StudyOutput 依赖 |
 | `pipeline_execution_dependencies.depends_on_execution_id = 当前 Execution` | 下游 Execution 反向依赖 |
 | `pipeline_execution_dependencies.upstream_dataset_id in 当前 Execution 输出` | 当前输出被哪些下游 Execution 使用 |
 
-返回 `graph_nodes` 和 `graph_edges`，节点类型是 `execution` / `input` / `derived_dataset`，便于前端直接画图。
+返回 `graph_nodes` 和 `graph_edges`，节点类型是 `execution` / `input` / `study_output`，便于前端直接画图。
 
 ## 6. 当前代码映射
 
@@ -133,8 +133,8 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 |---|---|
 | `pipeline_executions` | Pipeline 执行记录，含 `manifest_json`、`execution_mode`、`save_policy` |
 | `pipeline_jobs` | 节点级执行记录 |
-| `derived_datasets` | 派生数据登记 |
-| `pipeline_execution_dependencies` | Execution / DerivedDataset 依赖保护，阻止被下游引用的派生数据 hide / 清理 |
+| `study_outputs` | 派生数据登记 |
+| `pipeline_execution_dependencies` | Execution / StudyOutput 依赖保护，阻止被下游引用的派生数据 hide / 清理 |
 | `dataset_file_derivations` | Dataset 文件级派生关系 |
 
 ## 7. 回归关注点
@@ -145,19 +145,19 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 | 输入冻结 | `PipelineExecutor.prepare_execution()` 写入 `pipeline_execution_inputs`，并优先匹配 `dataset_files` |
 | 任务关联 | `async_tasks.resource_kind='pipeline_execution'`、`resource_id=execution.id`；Celery id 同步到 `async_tasks.celery_task_id` |
 | 任务事件 | 创建、派发、运行、完成、失败路径写 `task_events` |
-| DerivedDataset 写入 | `DerivedDatasetStore` 新产物写 `elys://studies/...`、`sha256`；中间节点默认 `retention_status='cached'` + 7 天 expires，`save_output=true` 节点直接 `current` |
+| StudyOutput 写入 | `StudyOutputStore` 新产物写 `elys://studies/...`、`sha256`；中间节点默认 `retention_status='cached'` + 7 天 expires，`save_output=true` 节点直接 `current` |
 | 缓存复用 | `PipelineCache` 复用产物时写 `retention_status='cached'`，指向同 `storage_uri` |
 | Execution manifest | 终态 Execution 生成 `execution_manifest.json` 和 `manifest_json` 摘要，含每条派生数据的完整字段快照 |
-| Execution dependency | 上游 DerivedDataset 输入写入 `pipeline_execution_inputs.upstream_dataset_id` 与 `pipeline_execution_dependencies.upstream_dataset_id` |
+| Execution dependency | 上游 StudyOutput 输入写入 `pipeline_execution_inputs.upstream_dataset_id` 与 `pipeline_execution_dependencies.upstream_dataset_id` |
 | Execution lineage | `/pipeline-executions/{execution_id}/lineage` 聚合输入、输出、上下游 Execution 和 graph nodes/edges |
-| 派生数据 PATCH | 统一 `PATCH /derived-datasets/{id}` 改 display_name / tags / retention，hide/delete 复用下游依赖 blocker |
+| 派生数据 PATCH | 统一 `PATCH /outputs/{id}` 改 display_name / tags / retention，hide/delete 复用下游依赖 blocker |
 | Cleanup blocker | 被依赖派生数据标记 deleted 返回 409；cleanup 任务跳过被依赖项 + 未到期项 |
-| Save promote | Save 节点不写新行；调用 `DerivedDatasetStore.save_promotion()` UPDATE 上游派生数据集 retention/display_name/tags |
+| Save promote | Save 节点不写新行；调用 `StudyOutputStore.save_promotion()` UPDATE 上游输出 retention/display_name/tags |
 
 ## 8. 相关页面
 
-- [3-45 DerivedDataset](3-45-DerivedDataset.md)
-- [4-30 Study 输出与 DerivedDataset](4-30-Study输出与Artifact.md)
+- [3-45 StudyOutput](3-45-StudyOutput.md)
+- [4-30 Study 输出与 StudyOutput](4-30-Study输出与Artifact.md)
 - [4-50 清理策略与迁移](4-50-清理策略与迁移.md)
 - [2-60 任务队列与异步架构](2-60-任务队列与异步架构.md)
 - [5-30 Execution 管理](5-30-Execution管理.md)

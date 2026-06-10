@@ -1,6 +1,6 @@
 # 5-30 Execution 管理
 
-> 本页说明 Execution 的功能边界、生命周期、输入快照、异步任务、DerivedDataset、Execution Manifest、依赖和清理策略。
+> 本页说明 Execution 的功能边界、生命周期、输入快照、异步任务、StudyOutput、Execution Manifest、依赖和清理策略。
 
 <div class="elys-meta" markdown>
 
@@ -8,10 +8,10 @@
 : <span class="elys-badge elys-badge--wip">部分接入</span>
 
 后端
-: `routers/pipelines.py` · `pipeline/executor.py` · `pipeline/derived_dataset_store.py` · `tasks/pipeline_tasks.py`
+: `routers/pipelines.py` · `pipeline/executor.py` · `pipeline/study_output_store.py` · `tasks/pipeline_tasks.py`
 
 数据库
-: `pipeline_executions` · `pipeline_jobs` · `pipeline_execution_inputs` · `pipeline_execution_dependencies` · `derived_datasets` · `async_tasks` · `task_events`
+: `pipeline_executions` · `pipeline_jobs` · `pipeline_execution_inputs` · `pipeline_execution_dependencies` · `study_outputs` · `async_tasks` · `task_events`
 
 更新
 : 2026-06-04
@@ -27,7 +27,7 @@ Execution 是某个 Pipeline 的一次具体执行。它保存：
 - 运行人、触发方式、开始/结束时间、状态。
 - 节点级作业（Job）记录。
 - 异步任务和事件。
-- DerivedDataset 输出索引。
+- StudyOutput 输出索引。
 - Execution manifest。
 - 上下游依赖关系。
 
@@ -37,7 +37,7 @@ Execution 不保存：
 - 可被后续编辑改变的 Pipeline 定义。
 - 必须永久保留的所有中间大文件。
 
-Execution 的 MVP 后端能力已经覆盖：`trial/analysis` 创建、输入快照、Job 记录、DerivedDataset、Manifest、上下游依赖、cancel/retry、Task events/SSE 和派生数据语义操作。当前“部分接入”的主要原因是仍缺真实部署端到端验收、前端 SSE 客户端和 lineage 图形化体验。
+Execution 的 MVP 后端能力已经覆盖：`trial/analysis` 创建、输入快照、Job 记录、StudyOutput、Manifest、上下游依赖、cancel/retry、Task events/SSE 和派生数据语义操作。当前“部分接入”的主要原因是仍缺真实部署端到端验收、前端 SSE 客户端和 lineage 图形化体验。
 
 ## 2. 生命周期
 
@@ -102,7 +102,7 @@ Execution 创建 API 已支持两个轻量控制字段：
 | `execution_mode` | `trial` / `analysis` / `replay` / `system` | `analysis` | 区分试跑、正式分析、重放和系统触发 |
 | `save_policy` | `temporary` / `current` / `pinned` / `discard` | `current` | 描述输出保留意图 |
 
-当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。DerivedDatasetStore 尚未按 Execution 级 `save_policy` 自动改变输出保留策略（当前 retention 由节点拓扑角色经 `save_settings.py` 决定：leaf=current、intermediate=cached+7d），后续再强化。
+当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。StudyOutputStore 尚未按 Execution 级 `save_policy` 自动改变输出保留策略（当前 retention 由节点拓扑角色经 `save_settings.py` 决定：leaf=current、intermediate=cached+7d），后续再强化。
 
 Execution 创建还会结合 Pipeline 状态校验：
 
@@ -125,7 +125,7 @@ Execution 创建时必须冻结输入到 `pipeline_execution_inputs`：
 execution_id
 pipeline_id
 node_id
-input_kind = selector / dataset_file / dataset / derived_dataset
+input_kind = selector / dataset_file / dataset / study_output
 dataset_asset_id
 dataset_id / recording_id
 dataset_upload_id / recording_version_id
@@ -205,7 +205,7 @@ Execution 和异步任务是不同对象：
 - Celery task id 写入 `async_tasks.celery_task_id`。
 - 进度写入 `task_events`，前端可用 events list 或 SSE stream 读取。
 - `result_json` 可以兼容输出 Celery ID，但不作为唯一事实源。
-- 文件管理任务也复用 `async_tasks/task_events`：`derived_dataset_cleanup` 已有实际逻辑，`dataset_import/raw_bids_build/canonical_fif_rebuild` 已有任务入口。
+- 文件管理任务也复用 `async_tasks/task_events`：`study_output_cleanup` 已有实际逻辑，`dataset_import/raw_bids_build/canonical_fif_rebuild` 已有任务入口。
 - Task cancel 已接入：普通 Task 写 `canceled` 事件并 best-effort revoke Celery；`pipeline_execution` Task 会同步取消对应 Execution、释放运行锁并刷新 manifest。
 - Task retry 已接入：普通文件 Task 从 failed/canceled 创建新 Task；`pipeline_execution` Task 不直接重跑旧 Execution，而是引导调用 Execution retry。
 - Task events stream 已接入：`GET /studies/{study_id}/tasks/{task_id}/events/stream` 返回 SSE，支持 `since` 和 `Last-Event-ID` 断线重连。
@@ -226,9 +226,9 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 |---|---|
 | `execution` | 当前 Execution 摘要 |
 | `inputs` | 当前 Execution 的 `pipeline_execution_inputs` |
-| `derived_datasets` | 当前 Execution 产生的全部派生数据，包括 `deleted` 状态 |
+| `study_outputs` | 当前 Execution 产生的全部派生数据，包括 `deleted` 状态 |
 | `upstream_executions` | 当前 Execution 显式依赖或输入快照引用的上游 Execution |
-| `downstream_executions` | 通过 `depends_on_execution_id` 或当前 DerivedDataset 反向查到的下游 Execution |
+| `downstream_executions` | 通过 `depends_on_execution_id` 或当前 StudyOutput 反向查到的下游 Execution |
 | `upstream_dependencies` | `pipeline_execution_dependencies.execution_id = 当前 Execution` |
 | `downstream_dependencies` | `pipeline_execution_dependencies.depends_on_execution_id = 当前 Execution` 或 `upstream_dataset_id` 属于当前 Execution 输出 |
 | `graph_nodes` / `graph_edges` | 前端可直接绘图的节点和边 |
@@ -238,14 +238,14 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 ```text
 execution:{execution_id}
 input:{pipeline_execution_input_id}
-derived_dataset:{derived_dataset_id}
+study_output:{study_output_id}
 ```
 
 这个接口不改变 `GET /pipeline-executions/{execution_id}` 的 Execution detail 响应；Execution detail 仍用于普通详情页，lineage 用于依赖图、清理阻断提示和结果溯源面板。
 
-## 6. DerivedDataset 输出
+## 6. StudyOutput 输出
 
-Execution 输出进入 `derived_datasets`（详见 [3-45](3-45-DerivedDataset.md)）：
+Execution 输出进入 `study_outputs`（详见 [3-45](3-45-StudyOutput.md)）：
 
 | 字段组 | 说明 |
 |---|---|
@@ -263,11 +263,11 @@ Execution 输出进入 `derived_datasets`（详见 [3-45](3-45-DerivedDataset.md
 
 | 操作 | API | 内部映射 | 规则 |
 |---|---|---|---|
-| 固定结果 | `PATCH /studies/{id}/derived-datasets/{ds_id}` body `{retention_status: 'pinned'}` | `retention_status='pinned'` + 清 expires | 防止被清理任务处理 |
+| 固定结果 | `PATCH /studies/{id}/outputs/{ds_id}` body `{retention_status: 'pinned'}` | `retention_status='pinned'` + 清 expires | 防止被清理任务处理 |
 | 设为正式 | `PATCH ... body {retention_status: 'current'}` | `retention_status='current'` | 不恢复已隐藏项 |
 | 隐藏 | `PATCH ... body {retention_status: 'deleted'}` | 写 `deleted_at` | 不物理删除；被下游依赖时 409 |
 | 改名/打标签 | `PATCH ... body {display_name, tags, description}` | UPDATE 对应字段 | 不影响 retention |
-| 批量同上 | `POST /studies/{id}/derived-datasets/batch-update` | 多 ids + 同一组改动 | `/results` 页主要用 |
+| 批量同上 | `POST /studies/{id}/outputs/batch-update` | 多 ids + 同一组改动 | `/results` 页主要用 |
 
 所有操作都会写入 `audit_events`。`hide` 是产品语义上的"隐藏 / 逻辑删除"，不物理移除文件。
 
@@ -279,14 +279,14 @@ Execution 输出进入 `derived_datasets`（详见 [3-45](3-45-DerivedDataset.md
 pipeline_execution_inputs
   execution_id = Execution3
   upstream_execution_id = Execution2
-  upstream_dataset_id = Execution2 derived_dataset
-  input_kind = derived_dataset
+  upstream_dataset_id = Execution2 study_output
+  input_kind = study_output
 
 pipeline_execution_dependencies
   execution_id = Execution3
   depends_on_execution_id = Execution2
-  upstream_dataset_id = Execution2 derived_dataset
-  dependency_kind = upstream_derived_dataset
+  upstream_dataset_id = Execution2 study_output
+  dependency_kind = upstream_study_output
 ```
 
 规则：
@@ -319,7 +319,7 @@ pipeline_execution_dependencies
 - 隐藏输出
 - 管理员隔离
 
-当前前端 Execution 抽屉的"派生数据"分栏支持：inline 改名 / 行内 tag 编辑 / 状态切换 / 下载；底部"清理 cached"按钮调 `/derived-datasets/cleanup` 创建异步任务。**`/results` 跨 Execution 浏览页**提供更完整的批量动作 + lineage 视图（详见 [6-00](6-00-前端页面总览.md)）。
+当前前端 Execution 抽屉的"派生数据"分栏支持：inline 改名 / 行内 tag 编辑 / 状态切换 / 下载；底部"清理 cached"按钮调 `/outputs/cleanup` 创建异步任务。**`/results` 跨 Execution 浏览页**提供更完整的批量动作 + lineage 视图（详见 [6-00](6-00-前端页面总览.md)）。
 
 ## 9. API 和数据库实现
 
@@ -327,18 +327,18 @@ pipeline_execution_dependencies
 |---|---|
 | Execution 创建 | `POST /studies/{id}/pipelines/{pid}/executions` |
 | Execution 列表 | `GET /studies/{id}/pipelines/{pid}/executions` |
-| Execution detail | 返回 inputs、dependencies、tasks、jobs、`derived_datasets` |
-| Execution lineage | `GET /studies/{id}/pipeline-executions/{rid}/lineage`，graph node_type ∈ `execution / input / derived_dataset` |
+| Execution detail | 返回 inputs、dependencies、tasks、jobs、`study_outputs` |
+| Execution lineage | `GET /studies/{id}/pipeline-executions/{rid}/lineage`，graph node_type ∈ `execution / input / study_output` |
 | Execution cancel | `POST /studies/{id}/pipeline-executions/{rid}/cancel` |
 | Execution retry | `POST /studies/{id}/pipeline-executions/{rid}/retry` |
-| 单 Execution 派生数据列表 | `GET /studies/{id}/pipeline-executions/{rid}/derived-datasets`（支持 `include_deleted`）|
-| 跨 Execution 派生数据列表 | `GET /studies/{id}/derived-datasets`（含多维过滤 + limit/offset，详见 [3-45 §7](3-45-DerivedDataset.md)）|
-| 派生数据详情 | `GET /studies/{id}/derived-datasets/{ds_id}` |
-| 派生数据 PATCH | `PATCH /studies/{id}/derived-datasets/{ds_id}` 统一改 display_name / tags / retention_status |
-| 派生数据批量改 | `POST /studies/{id}/derived-datasets/batch-update` |
+| 单 Execution 派生数据列表 | `GET /studies/{id}/pipeline-executions/{rid}/outputs`（支持 `include_deleted`）|
+| 跨 Execution 派生数据列表 | `GET /studies/{id}/outputs`（含多维过滤 + limit/offset，详见 [3-45 §7](3-45-StudyOutput.md)）|
+| 派生数据详情 | `GET /studies/{id}/outputs/{ds_id}` |
+| 派生数据 PATCH | `PATCH /studies/{id}/outputs/{ds_id}` 统一改 display_name / tags / retention_status |
+| 派生数据批量改 | `POST /studies/{id}/outputs/batch-update` |
 | 派生数据预览 | `GET .../{ds_id}/preview`，deleted 返回 409 |
 | 派生数据下载 | `GET .../{ds_id}/download`，display_name 作为文件名 |
-| 清理任务 | `POST .../cleanup` 创建 `derived_dataset_cleanup` 异步任务 |
+| 清理任务 | `POST .../cleanup` 创建 `study_output_cleanup` 异步任务 |
 | Execution manifest | `GET /pipeline-executions/{rid}/manifest` |
 | Task 列表 | 支持状态枚举 |
 | Task events | 已有只读查询 |
@@ -359,9 +359,9 @@ pipeline_execution_dependencies
 ## 11. 相关页面
 
 - [5-20 Pipeline 工作流管理](5-20-Pipeline工作流管理.md)
-- [3-40 Execution 与 DerivedDataset 追溯表](3-40-Execution与Artifact追溯表.md)
-- [3-45 派生数据集（DerivedDataset）](3-45-DerivedDataset.md)
-- [4-30 Study 输出与 DerivedDataset](4-30-Study输出与Artifact.md)
+- [3-40 Execution 与 StudyOutput 追溯表](3-40-Execution与Artifact追溯表.md)
+- [3-45 输出（StudyOutput）](3-45-StudyOutput.md)
+- [4-30 Study 输出与 StudyOutput](4-30-Study输出与Artifact.md)
 - [6-00 前端页面总览](6-00-前端页面总览.md)
 - [7-40 工作流执行与后台任务](7-40-工作流执行与后台任务.md)
 ```

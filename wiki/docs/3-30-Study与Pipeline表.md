@@ -1,4 +1,4 @@
-﻿# 3-30 Study 与 Pipeline 表
+# 3-30 Study 与 Pipeline 表
 
 > 本页维护 Study、成员、Dataset 挂载、Pipeline 和 Pipeline Version。它是研究项协作和工作流定义的数据库依据。
 
@@ -28,7 +28,7 @@
 | `created_at` / `updated_at` / `archived_at` | 时间戳 |
 | `deleted_at` / `deleted_by` / `delete_reason` | 软删除信息 |
 
-> 运行锁策略、默认数据选择器、派生数据保留策略等**不在 `studies` 表里**，而在独立的 `study_settings` 表（`default_dataset_filter` / `run_policy` / `derived_dataset_retention_policy` / `storage_policy` 四个 JSONB，主键即 `study_id`）。`studies` 没有 `settings_json` 列。
+> 运行锁策略、默认数据选择器、派生数据保留策略等**不在 `studies` 表里**，而在独立的 `study_settings` 表（`default_dataset_filter` / `run_policy` / `study_output_retention_policy` / `storage_policy` 四个 JSONB，主键即 `study_id`）。`studies` 没有 `settings_json` 列。
 
 ## 2. `study_members`
 
@@ -85,7 +85,7 @@ Study 不复制 Dataset 文件，而是挂载 Dataset 或 Dataset 的一个选�
 | `node_count` | 节点数量（冗余计数） |
 | `created_by` / `created_at` / `updated_at` | 创建和更新信息 |
 
-"当前认可结果"（指这条 Pipeline 被采纳为正式结论的那一次 Execution，区分于最新一次）目前不由 `pipeline_definitions` 上的指针列承载：设计中的 `current_execution_id` 经核实在后端代码与 SQL schema 中均查无，`PipelineDefinition` 模型（`backend/app/models/study.py`）和建表脚本（`database/schema/04_pipelines.sql`）都未定义此列，它只存在于本设计页与规划端点 `POST .../set-current-execution`（见 [2-50 API 设计总览](2-50-API设计总览.md)，标注"规划"）。该语义现由 `current` 保留档（retention tier，按"保留多久、能否清理"给产物分档的一档）承载——Execution 以 `save_policy='current'`（`backend/app/schemas/pipeline.py`）落库、产物落在 `derived_datasets.retention_status='current'`（即"被 Save 节点引用"的正式结果，见 [4-30 Study输出与Artifact](4-30-Study输出与Artifact.md)），再经 `derived_datasets.produced_by_execution_id` 反查到对应的 Execution。专用指针列 `current_execution_id` 仍是设计项、尚未落地。
+"当前认可结果"（指这条 Pipeline 被采纳为正式结论的那一次 Execution，区分于最新一次）目前不由 `pipeline_definitions` 上的指针列承载：设计中的 `current_execution_id` 经核实在后端代码与 SQL schema 中均查无，`PipelineDefinition` 模型（`backend/app/models/study.py`）和建表脚本（`database/schema/04_pipelines.sql`）都未定义此列，它只存在于本设计页与规划端点 `POST .../set-current-execution`（见 [2-50 API 设计总览](2-50-API设计总览.md)，标注"规划"）。该语义现由 `current` 保留档（retention tier，按"保留多久、能否清理"给产物分档的一档）承载——Execution 以 `save_policy='current'`（`backend/app/schemas/pipeline.py`）落库、产物落在 `study_outputs.retention_status='current'`（即"被 Save 节点引用"的正式结果，见 [4-30 Study输出与Artifact](4-30-Study输出与Artifact.md)），再经 `study_outputs.produced_by_execution_id` 反查到对应的 Execution。专用指针列 `current_execution_id` 仍是设计项、尚未落地。
 
 ## 5. 当前代码映射
 

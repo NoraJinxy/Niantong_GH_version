@@ -1,4 +1,4 @@
-﻿# 5-10 Study 研究项管理
+# 5-10 Study 研究项管理
 
 > 本页说明 Study 的功能边界、管理方式和后端实现方案。当前代码层仍使用 Study 命名，产品语义统一称 Study / 研究项。
 
@@ -29,7 +29,7 @@ Study 是围绕一个研究问题的协作空间。它负责：
 - Dataset 挂载和默认数据选择范围。
 - 工作流定义的组织。
 - Execution 的运行策略、并发控制和审计。
-- 研究内 DerivedDataset、预览、报告和导出入口。
+- 研究内 StudyOutput、预览、报告和导出入口。
 
 Study 不负责：
 
@@ -39,7 +39,7 @@ Study 不负责：
 
 ### 1.1 Dataset-first 下的 Study 角色
 
-Dataset-first 导入时，用户创建的是 Dataset。系统可以自动创建一个配套 Study，或让用户选择已有 Study，并把 Dataset 通过 `study_dataset_mounts` 挂进去。这个配套 Study 的职责是承载导入上下文、QC、Pipeline、Execution、DerivedDataset 和审计，不是 Dataset 的所有者。
+Dataset-first 导入时，用户创建的是 Dataset。系统可以自动创建一个配套 Study，或让用户选择已有 Study，并把 Dataset 通过 `study_dataset_mounts` 挂进去。这个配套 Study 的职责是承载导入上下文、QC、Pipeline、Execution、StudyOutput 和审计，不是 Dataset 的所有者。
 
 这个配套 / 承载导入的 Study 就是该数据集的**主研究项**，记在 `dataset_assets.primary_study_id`（见 [3-25](3-25-数据集生命周期与发布机制.md)）。它是数据集**私有可见范围**的判定基准：当 `visibility=private`（发布默认即此档）时，能看见 / 能挂载该数据集的就是负责人、管理员与**主研究项成员**；其他研究项要访问，需数据集开放为共享（按用户授权）或公开。即「私有 = 仅主研究项可见」。
 
@@ -59,7 +59,7 @@ Study B mounts Dataset X v0001 as external-control
 | 边界 | Dataset | Study |
 |---|---|---|
 | 核心职责 | 管数据资产本身 | 管研究协作和分析过程 |
-| 文件 | 原始上传证据、Raw BIDS、canonical FIF、sidecar、QC、基础 metadata | Execution 输出、DerivedDataset、预览、日志、报告、导出包 |
+| 文件 | 原始上传证据、Raw BIDS、canonical FIF、sidecar、QC、基础 metadata | Execution 输出、StudyOutput、预览、日志、报告、导出包 |
 | 权限 | 数据资产级 owner/member/share，MVP 可先简化 | 研究项成员、编辑、运行、导出和删除权限 |
 | 变化 | 可以增量上传、重传和补充 metadata | 引用关系和默认筛选可以调整，但历史 Execution 不变 |
 
@@ -101,7 +101,7 @@ Dataset-first bootstrap 会创建或选择配套 Study，并创建 active `study
 |---|---|---|
 | `default_dataset_filter` | LoadData 默认筛选范围 | 已被 LoadData 消费 |
 | `run_policy` | 是否同一 Study 只允许一个活跃 Execution、是否需要运行锁 | 字段已存在，运行时待完整接入 |
-| `derived_dataset_retention_policy` | 新 DerivedDataset 默认保存策略、缓存清理开关（DDL 字段名，非 `artifact_retention_policy`） | 字段已存在，清理服务待接入 |
+| `study_output_retention_policy` | 新 StudyOutput 默认保存策略、缓存清理开关（DDL 字段名，非 `artifact_retention_policy`） | 字段已存在，清理服务待接入 |
 | `storage_policy` | Study 级配额、冷热存储或导出策略 | 预留 |
 
 Settings 必须成为运行时事实源，不能只是前端可写配置。
@@ -157,10 +157,10 @@ Study 级关键行为要留痕：
 | 挂载/停用 Dataset | `dataset_mount.created` / `dataset_mount.disabled` |
 | 修改 Study Settings | `study.settings.updated` |
 | 启动/取消/重试 Execution | `pipeline.execution.queued` / `pipeline.execution.canceled` / `pipeline.execution.retry_queued` |
-| 固定/清理 DerivedDataset | `derived_dataset.retention.pinned` / `derived_dataset.retention.deleted` |
+| 固定/清理 StudyOutput | `study_output.retention.pinned` / `study_output.retention.deleted` |
 | 永久删除被阻断 | `study.purge_blocked` |
 
-当前代码已经覆盖 settings、mount、pipeline、Pipeline edit lock、Execution cancel/retry、Task cancel/retry、derived_dataset retention、purge blocked 等部分行为；运行中长节点的协作式取消检查仍需补齐。
+当前代码已经覆盖 settings、mount、pipeline、Pipeline edit lock、Execution cancel/retry、Task cancel/retry、study_output retention、purge blocked 等部分行为；运行中长节点的协作式取消检查仍需补齐。
 
 ## 7. 文件边界
 
@@ -196,7 +196,7 @@ Dataset 原始文件和 canonical FIF 放在 Dataset 目录中，Study 通过数
 1. Study 路径已确定为 `/studies`（产品语义即「研究项」，无迁名计划）。
 2. 前端接入 Pipeline 编辑锁的获取、续期和释放。
 3. `run_policy` 真正控制并发 Execution。
-4. `derived_dataset_retention_policy` 接入 DerivedDatasetStore（写 `derived_datasets`）和清理服务。
+4. `study_output_retention_policy` 接入 StudyOutputStore（写 `study_outputs`）和清理服务。
 5. Study activity 页面展示最近谁改了 Pipeline、谁运行、谁固定结果。
 
 ## 10. 相关页面

@@ -1,4 +1,4 @@
-﻿# 5-20 Pipeline 工作流管理
+# 5-20 Pipeline 工作流管理
 
 > 本页说明 Pipeline 的功能边界、定义管理、版本策略、LoadData 选择规则、NodeSpec 和实现方案。
 
@@ -186,11 +186,11 @@ flowchart LR
   Resolve --> Inputs[(pipeline_execution_inputs)]
   Inputs --> Task[(async_tasks)]
   Task --> Worker[Celery Worker]
-  Worker --> Derived[(derived_datasets)]
+  Worker --> Derived[(study_outputs)]
   Worker --> Manifest[execution_manifest.json]
 ```
 
-预处理 → ICA → Epoch → ERP 整条链的执行器已接通，时频 / 微状态 / 脑连接 / 溯源 / 统计节点仍规划中（见 [5-25 工作流节点路线图](5-25-工作流节点路线图.md)）。当前实现重点是：Execution 创建冻结输入，运行前校验 NodeSpec 与 executor 是否匹配，Worker 执行后写 DerivedDataset、依赖和 manifest，历史 Execution 不再依赖 Pipeline 的当前定义或 Dataset 的当前状态。
+预处理 → ICA → Epoch → ERP 整条链的执行器已接通，时频 / 微状态 / 脑连接 / 溯源 / 统计节点仍规划中（见 [5-25 工作流节点路线图](5-25-工作流节点路线图.md)）。当前实现重点是：Execution 创建冻结输入，运行前校验 NodeSpec 与 executor 是否匹配，Worker 执行后写 StudyOutput、依赖和 manifest，历史 Execution 不再依赖 Pipeline 的当前定义或 Dataset 的当前状态。
 
 ## 9. API 和数据库实现
 
@@ -204,7 +204,7 @@ flowchart LR
 | 定义表 | `pipeline_definitions` |
 | Execution 表 | `pipeline_executions`，含 `definition_snapshot` 和 `manifest_json` |
 | 输入快照 | `pipeline_execution_inputs` |
-| 输出与依赖 | `derived_datasets`、`pipeline_execution_dependencies` |
+| 输出与依赖 | `study_outputs`、`pipeline_execution_dependencies` |
 
 ## 10. 后续实现任务
 
