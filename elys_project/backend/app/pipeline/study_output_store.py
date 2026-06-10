@@ -1,6 +1,6 @@
 """
 Purpose: StudyOutputStore — Pipeline 节点产出的派生数据集统一登记与物理存储。
-负责把节点写出的文件 / 目录 / JSON content-addressed 落到 `derived/{sha256[0:2]}/{sha256}/`，
+负责把节点写出的文件 / 目录 / JSON content-addressed 落到 `outputs/{sha256[0:2]}/{sha256}/`，
 同时在 `study_outputs` 表登记一行（产出来源、上游、BIDS 维度、retention 等）。
 
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, wiki/docs/5-00 and wiki/docs/7-40.
@@ -541,7 +541,7 @@ class StudyOutputStore:
         digest = str(checksum or "").strip().lower()
         if len(digest) < 8:
             raise ValueError("Derived dataset checksum is required for content-addressed storage.")
-        return self.study_root / "derived" / digest[:2] / digest / self._safe_name(filename)
+        return self.study_root / "outputs" / digest[:2] / digest / self._safe_name(filename)
 
     def _storage_path(self, path: Path) -> str:
         return path.relative_to(self.study_root).as_posix()

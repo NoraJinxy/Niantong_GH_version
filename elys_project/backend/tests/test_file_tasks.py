@@ -104,8 +104,8 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
         keep=False,
         cache_eligible=True,
         retention_expires_at=datetime(2026, 1, 1, 0, 0, 0),  # 已过期
-        storage_uri=f"elys://studies/{study_id}/derived/aa/hash/clean.fif",
-        storage_path="derived/aa/hash/clean.fif",
+        storage_uri=f"elys://studies/{study_id}/outputs/aa/hash/clean.fif",
+        storage_path="outputs/aa/hash/clean.fif",
         deleted_at=None,
         deleted_by=None,
         last_accessed_at=None,
@@ -117,8 +117,8 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
         keep=False,
         cache_eligible=False,
         retention_expires_at=datetime(2026, 1, 1, 0, 0, 0),  # 已过期，但有下游依赖会被跳过
-        storage_uri=f"elys://studies/{study_id}/derived/bb/hash/blocked.fif",
-        storage_path="derived/bb/hash/blocked.fif",
+        storage_uri=f"elys://studies/{study_id}/outputs/bb/hash/blocked.fif",
+        storage_path="outputs/bb/hash/blocked.fif",
         deleted_at=None,
         deleted_by=None,
         last_accessed_at=None,

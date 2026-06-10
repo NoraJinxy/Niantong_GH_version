@@ -101,8 +101,8 @@ def test_record_execution_artifact_dependencies_writes_input_snapshot_and_cross_
     artifact = SimpleNamespace(
         id=artifact_id,
         execution_id=upstream_execution_id,
-        storage_uri=f"elys://studies/{study.id}/derived/aa/hash/output.fif",
-        storage_path="derived/aa/hash/output.fif",
+        storage_uri=f"elys://studies/{study.id}/outputs/aa/hash/output.fif",
+        storage_path="outputs/aa/hash/output.fif",
         sha256="artifact-sha",
     )
     db = FakeDb(rows={StudyOutput: [artifact]})
@@ -180,7 +180,7 @@ def test_artifact_dependency_blockers_prevent_cleanup() -> None:
         input_index=0,
         upstream_execution_id=uuid.uuid4(),
         upstream_dataset_id=artifact_id,
-        storage_uri="elys://studies/202605000001/derived/aa/hash/output.fif",
+        storage_uri="elys://studies/202605000001/outputs/aa/hash/output.fif",
         created_at=datetime(2026, 5, 21, 9, 0, 0),
     )
     dependency_row = SimpleNamespace(

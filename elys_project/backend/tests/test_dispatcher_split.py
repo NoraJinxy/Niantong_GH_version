@@ -134,8 +134,8 @@ class FakeStudyOutputStore:
         # 模拟成功写入的返回值（最小必要键）
         return {
             "artifact_id": f"ds-{len(self.calls)}",
-            "storage_path": f"derived/ab/cd/{filename}",
-            "storage_uri": f"elys://studies/study-1/derived/ab/cd/{filename}",
+            "storage_path": f"outputs/ab/cd/{filename}",
+            "storage_uri": f"elys://studies/study-1/outputs/ab/cd/{filename}",
             "file_size": 100,
             "checksum": "abcdef",
             "sha256": "abcdef",

@@ -180,8 +180,8 @@ def make_rows(execution, *, failed: bool = False) -> dict[type, list]:
         source_dataset_id=None,
         kind="metadata",
         data_type="json",
-        storage_path="derived/ab/hash/summary.json",
-        storage_uri=f"elys://studies/{execution.study_id}/derived/ab/hash/summary.json",
+        storage_path="outputs/ab/hash/summary.json",
+        storage_uri=f"elys://studies/{execution.study_id}/outputs/ab/hash/summary.json",
         file_size=32,
         checksum="artifact-sha",
         sha256="artifact-sha",
@@ -263,7 +263,7 @@ def test_execution_manifest_writes_completed_execution_file_and_summary(tmp_path
     assert manifest["inputs"][0]["dataset_file_id"]
     assert manifest["inputs"][0]["selector_json"]["override_applied"] is True
     assert manifest["inputs"][0]["selector_json"]["selection_override"]["selection_mode"] == "explicit"
-    assert manifest["outputs"]["artifacts"][0]["storage_uri"].startswith(f"elys://studies/{study.id}/derived/")
+    assert manifest["outputs"]["artifacts"][0]["storage_uri"].startswith(f"elys://studies/{study.id}/outputs/")
     assert manifest["tasks"][0]["events"][0]["status"] == "succeeded"
     assert execution.manifest_json["manifest_uri"] == f"elys://studies/{study.id}/executions/{execution.id}/execution_manifest.json"
     assert execution.manifest_json["input_count"] == 1

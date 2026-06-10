@@ -33,7 +33,7 @@ LEGACY_PROJECT_DIRECTORIES = (
 
 STUDY_STORAGE_DIRECTORIES = (
     "executions",
-    "derived",
+    "outputs",
     "previews",
     "temp",
     "exports",

@@ -92,8 +92,8 @@ def test_study_output_store_writes_new_files_to_study_content_addressed_storage(
         preview={"ok": True},
     )
 
-    assert summary["storage_uri"].startswith(f"elys://studies/{study.id}/derived/")
-    assert summary["storage_path"].startswith("derived/")
+    assert summary["storage_uri"].startswith(f"elys://studies/{study.id}/outputs/")
+    assert summary["storage_path"].startswith("outputs/")
     derived_path = resolve_study_output_path(study, db.added[0])
     assert derived_path.exists()
     assert derived_path.name == "metrics.json"
