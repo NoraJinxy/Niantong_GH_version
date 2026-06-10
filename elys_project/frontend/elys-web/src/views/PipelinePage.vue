@@ -58,7 +58,6 @@
         }"
       >
         <header class="toolbar">
-          <Teleport to=".study-layout__extra" :disabled="!teleportActive">
           <div class="toolbar-row toolbar-row--context">
             <label class="toolbar-select">
               <span>工作流</span>
@@ -78,7 +77,6 @@
               新建工作流
             </button>
           </div>
-          </Teleport>
 
           <div class="toolbar-row toolbar-row--actions">
             <button
@@ -2375,9 +2373,6 @@ watch([executionJobs, runArtifacts], () => {
   void loadSelectedIcaInteraction()
 })
 
-// 工作流页顶部「工作流选择器/新建」用 Teleport 吊到容器标题栏；keep-alive 切走时关掉、回原位（随页面一起隐藏）
-const teleportActive = ref(true)
-
 onMounted(async () => {
   restoreLayoutState()
   await nextTick()
@@ -2392,7 +2387,6 @@ onMounted(async () => {
 
 // keep-alive：本页在容器 4-tab 中被缓存。切回时重绑快捷键 + 重算画布尺寸（隐藏期 ResizeObserver 不触发，防错位/糊）
 onActivated(() => {
-  teleportActive.value = true
   document.addEventListener('keydown', handleLayoutKeydown)
   // 切回本页：画布在就补尺寸；万一画布没了（异常 / HMR）就重建，避免卡在“正在初始化”
   if (liteGraphCanvas) {
@@ -2405,7 +2399,6 @@ onActivated(() => {
 
 // 切走时解绑快捷键 + 停运行轮询，避免后台空转
 onDeactivated(() => {
-  teleportActive.value = false
   document.removeEventListener('keydown', handleLayoutKeydown)
   stopRunPolling()
 })
