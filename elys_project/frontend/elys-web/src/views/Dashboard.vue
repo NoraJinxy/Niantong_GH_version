@@ -889,7 +889,7 @@ function executionQueueDetail(execution: DashboardExecutionItem) {
   if ('stage_label' in execution && execution.stage_label) {
     return `${executionStatusLabel(execution.status)} · ${execution.stage_label}`
   }
-  return `${executionStatusLabel(execution.status)} · ${executionModeLabel(execution.execution_mode)} · ${savePolicyLabel(execution.save_policy)}`
+  return `${executionStatusLabel(execution.status)} · ${executionModeLabel(execution.execution_mode)}`
 }
 
 function isActiveExecutionStatus(status: string) {
@@ -998,16 +998,6 @@ function executionModeLabel(mode: string) {
     system: '系统',
   }
   return labels[mode] || mode
-}
-
-function savePolicyLabel(policy: string) {
-  const labels: Record<string, string> = {
-    temporary: '临时',
-    current: '当前',
-    pinned: '固定',
-    discard: '不保存',
-  }
-  return labels[policy] || policy
 }
 
 function isDatasetAssetErrorStatus(status: string) {

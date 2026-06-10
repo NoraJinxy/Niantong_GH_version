@@ -97,7 +97,7 @@
               <article v-for="execution in summary.executions" :key="execution.id" class="study-compact-item">
                 <div>
                   <strong>第 {{ execution.execution_seq }} 次运行</strong>
-                  <p>{{ executionModeLabel(execution.execution_mode) }} / {{ savePolicyLabel(execution.save_policy) }} · {{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
+                  <p>{{ executionModeLabel(execution.execution_mode) }} · {{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
                 </div>
                 <span class="status-pill" :class="executionPillClass(execution.status)">
                   {{ executionStatusLabel(execution.status) }}
@@ -262,20 +262,16 @@ function executionModeLabel(mode: string) {
   const labels: Record<string, string> = { trial: '试运行', analysis: '正式分析', replay: '重放', system: '系统' }
   return labels[mode] || mode
 }
-function savePolicyLabel(policy: string) {
-  const labels: Record<string, string> = { temporary: '临时', current: '保留', pinned: '固定', discard: '不保留' }
-  return labels[policy] || policy
-}
 function retentionStatusLabel(status: string | null | undefined) {
   const labels: Record<string, string> = {
-    current: '当前', pinned: '已固定', cached: '缓存', temporary: '临时', deleted: '已删除', quarantined: '已隔离',
+    current: '当前', pinned: '已固定', cached: '缓存', temporary: '临时', deleted: '已删除',
   }
   return status ? labels[status] || status : '当前'
 }
 function artifactPillClass(status: string | null | undefined) {
   if (status === 'pinned') return 'status-pill--success'
   if (status === 'temporary' || status === 'cached') return 'status-pill--warn'
-  if (status === 'deleted' || status === 'quarantined') return 'status-pill--danger'
+  if (status === 'deleted') return 'status-pill--danger'
   return 'status-pill--muted'
 }
 function formatFileSize(bytes?: number | null) {

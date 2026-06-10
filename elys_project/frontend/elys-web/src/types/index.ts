@@ -97,7 +97,6 @@ export interface StudySummaryExecution {
   id: string
   execution_seq: number
   execution_mode: string
-  save_policy: string
   status: string
   started_at: string | null
   finished_at: string | null
@@ -184,7 +183,6 @@ export interface DashboardActiveExecution {
   execution_seq: number
   status: string
   execution_mode: PipelineExecutionMode | string
-  save_policy: PipelineExecutionSavePolicy | string
   stage_label: string
   started_at?: string | null
   finished_at?: string | null
@@ -788,7 +786,6 @@ export interface PipelineUpdateRequest {
 }
 
 export type PipelineExecutionMode = 'trial' | 'analysis' | 'replay' | 'system'
-export type PipelineExecutionSavePolicy = 'temporary' | 'current' | 'pinned' | 'discard'
 
 export interface PipelineExecutionSelectionOverride {
   selection_mode?: 'filter' | 'explicit'
@@ -801,7 +798,6 @@ export interface PipelineExecutionSelectionOverride {
 export interface PipelineExecutionCreateRequest {
   trigger?: 'manual'
   execution_mode: PipelineExecutionMode
-  save_policy: PipelineExecutionSavePolicy
   selection_override?: Record<string, PipelineExecutionSelectionOverride>
 }
 
@@ -845,7 +841,6 @@ export interface PipelineExecution {
   execution_seq: number
   trigger: string
   execution_mode: PipelineExecutionMode | string
-  save_policy: PipelineExecutionSavePolicy | string
   status: 'running' | 'completed' | 'failed' | string
   node_count: number
   dataset_count: number
@@ -888,7 +883,6 @@ export type DerivedDatasetRetentionStatus =
   | 'cached'
   | 'temporary'
   | 'deleted'
-  | 'quarantined'
 
 export interface DerivedDataset {
   id: string
@@ -1155,7 +1149,6 @@ export interface ExecutionManifestSummary {
   pipeline_version?: number | null
   status?: string | null
   execution_mode?: PipelineExecutionMode | string | null
-  save_policy?: PipelineExecutionSavePolicy | string | null
   input_count?: number | null
   artifact_count?: number | null
   task_count?: number | null

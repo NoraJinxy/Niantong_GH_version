@@ -194,21 +194,12 @@ export function formatExecutionMode(mode?: string | null) {
   return mode || '-'
 }
 
-export function formatSavePolicy(policy?: string | null) {
-  if (policy === 'temporary') return '临时保存'
-  if (policy === 'current') return '当前结果'
-  if (policy === 'pinned') return '固定保留'
-  if (policy === 'discard') return '不保留输出'
-  return policy || '-'
-}
-
 export function formatArtifactRetention(status?: string | null) {
   if (status === 'pinned') return '固定'
   if (status === 'current') return '当前'
   if (status === 'cached') return '缓存'
   if (status === 'temporary') return '临时'
   if (status === 'deleted') return '已隐藏'
-  if (status === 'quarantined') return '隔离'
   return status || '未标记'
 }
 

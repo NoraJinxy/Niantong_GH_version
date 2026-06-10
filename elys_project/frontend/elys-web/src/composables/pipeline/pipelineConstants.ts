@@ -1,7 +1,7 @@
 // 从 PipelinePage.vue 抽出的集中常量（模块级 `const 大写名 = 字面量`）。
 // 另有 composable / 函数会按原名 import 这些常量，导出名与原变量名保持一致。
 
-import type { PipelineExecutionMode, PipelineExecutionSavePolicy } from '@/types'
+import type { PipelineExecutionMode } from '@/types'
 
 export const LOAD_DATA_NODE_TYPE = 'eeg/data/load'
 export const EPOCH_NODE_TYPE = 'eeg/epoch/segment'
@@ -86,12 +86,6 @@ export const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label
   { value: 'analysis', label: '正式分析', description: '用于正式结果和报告追溯' },
   { value: 'replay', label: '重放', description: '复用历史快照重放一次执行；当前后端通常由 Retry 触发' },
   { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
-]
-export const SAVE_POLICY_OPTIONS: Array<{ value: PipelineExecutionSavePolicy; label: string; description: string }> = [
-  { value: 'temporary', label: '临时', description: '可清理的试跑输出' },
-  { value: 'current', label: '当前', description: '当前认可的分析结果' },
-  { value: 'pinned', label: '固定', description: '长期保留的重要输出' },
-  { value: 'discard', label: '丢弃', description: '仅保留执行记录' },
 ]
 export const NODE_CARD_WIDTH = 264
 export const NODE_CARD_MIN_HEIGHT = 112

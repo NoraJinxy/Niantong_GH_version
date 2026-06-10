@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS derived_datasets (
     retention_status         VARCHAR(32) NOT NULL DEFAULT 'current'
                              CHECK (retention_status IN (
                                 'current', 'pinned', 'cached',
-                                'temporary', 'deleted', 'quarantined'
+                                'temporary', 'deleted'
                              )),
     retention_expires_at     TIMESTAMP,
 

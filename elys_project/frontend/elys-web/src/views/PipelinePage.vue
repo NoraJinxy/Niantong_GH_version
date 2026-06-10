@@ -293,16 +293,6 @@
               </select>
               <small>{{ executionModeDescription }}</small>
             </label>
-
-            <label class="field">
-              <span>保存策略</span>
-              <select v-model="savePolicy" class="control">
-                <option v-for="option in SAVE_POLICY_OPTIONS" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-              <small>{{ savePolicyDescription }}</small>
-            </label>
           </div>
 
           <div class="run-dialog__notice" :class="{ 'is-error': !executionModeAllowed }">
@@ -353,7 +343,7 @@
             <span class="status-pill" :class="jobStatusClass(latestPipelineExecution.status)">
               {{ formatPipelineExecutionStatus(latestPipelineExecution.status) }}
             </span>
-            <small>{{ formatExecutionMode(latestPipelineExecution.execution_mode) }} · {{ formatSavePolicy(latestPipelineExecution.save_policy) }}</small>
+            <small>{{ formatExecutionMode(latestPipelineExecution.execution_mode) }}</small>
           </div>
           <div class="run-action-strip">
             <button
@@ -1132,7 +1122,6 @@ import type {
   PipelineExecutionDetail,
   PipelineExecutionLineage,
   PipelineExecutionMode,
-  PipelineExecutionSavePolicy,
   PipelineExecutionSelectionOverride,
   PipelineValidationResponse,
   TaskEvent,
@@ -1159,7 +1148,6 @@ import {
   TASK_CANCELABLE_STATUSES,
   TASK_RETRYABLE_STATUSES,
   EXECUTION_MODE_OPTIONS,
-  SAVE_POLICY_OPTIONS,
   NODE_CARD_WIDTH,
   NODE_CARD_MIN_HEIGHT,
   NODE_GAP_X,
@@ -1196,7 +1184,6 @@ import {
   formatPipelineStatus,
   allowedExecutionModeText,
   formatExecutionMode,
-  formatSavePolicy,
   formatArtifactRetention,
   categoryColor,
   categorySoftColor,
@@ -1354,7 +1341,6 @@ const runPolling = ref(false)
 const runPollingError = ref('')
 const runDialogOpen = ref(false)
 const executionMode = ref<PipelineExecutionMode>('analysis')
-const savePolicy = ref<PipelineExecutionSavePolicy>('current')
 const loadDataExecutionOverrides = reactive<Record<string, LoadDataExecutionOverride>>({})
 const runDrawerOpen = ref(false)
 const editingDisplayId = ref('')
@@ -2270,9 +2256,8 @@ const showIcaInteractionPanel = computed(
 )
 const icaInteractionComponents = computed(() => icaInteraction.value?.components || [])
 const executionModeDescription = computed(() => EXECUTION_MODE_OPTIONS.find((option) => option.value === executionMode.value)?.description || '')
-const savePolicyDescription = computed(() => SAVE_POLICY_OPTIONS.find((option) => option.value === savePolicy.value)?.description || '')
 const runDialogSummary = computed(
-  () => `${formatExecutionMode(executionMode.value)} · ${formatSavePolicy(savePolicy.value)} · ${definition.value.graph.nodes.length} 节点`,
+  () => `${formatExecutionMode(executionMode.value)} · ${definition.value.graph.nodes.length} 节点`,
 )
 const executionDetailTabs: Array<{ key: ExecutionDetailTab; label: string }> = [
   { key: 'artifacts', label: '派生数据' },
@@ -4725,7 +4710,6 @@ async function validatePipeline() {
 function openRunDialog() {
   if (!canOpenRunDialog.value) return
   executionMode.value = currentPipelineStatus.value === 'draft' ? 'trial' : 'analysis'
-  savePolicy.value = executionMode.value === 'trial' ? 'temporary' : 'current'
   runDialogOpen.value = true
 }
 
@@ -4758,7 +4742,6 @@ async function runPipeline() {
     const selectionOverride = buildRunSelectionOverridePayload()
     const res = await pipelineApi.run(selectedStudyId.value, currentPipeline.value.id, {
       execution_mode: executionMode.value,
-      save_policy: savePolicy.value,
       ...(Object.keys(selectionOverride).length ? { selection_override: selectionOverride } : {}),
     })
     latestPipelineExecution.value = res.data
@@ -4873,7 +4856,6 @@ function derivedRetentionPillClass(status?: string | null): string {
     case 'temporary':
       return 'status-pill--temporary'
     case 'deleted':
-    case 'quarantined':
       return 'status-pill--deleted'
     default:
       return 'status-pill--unknown'

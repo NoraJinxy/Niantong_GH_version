@@ -970,8 +970,7 @@ function retentionBadgeClass(status?: string | null): string {
     case 'current': return 'badge--success'
     case 'cached': return 'badge--outline'
     case 'temporary': return 'badge--warning'
-    case 'deleted':
-    case 'quarantined': return 'badge--danger'
+    case 'deleted': return 'badge--danger'
     default: return 'badge--outline'
   }
 }
