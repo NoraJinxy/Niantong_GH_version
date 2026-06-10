@@ -33,14 +33,14 @@
 | `description` | 数据说明 |
 | `owner_id` | 数据集负责人 |
 | `status` | `working`（在建草稿）默认值，配套 `active` · `archived` · `deleted` · `quarantined`（隔离待核） |
-| `visibility` | `private`（默认）· `shared` · `public`。可见范围，也是数据集 UI 的状态徽章轴（6-05 B 方案）；发布时自动 `private→shared`，旧 `workspace` 档已去掉 |
+| `visibility` | `private`（默认）· `shared` · `public`。可见范围，也是数据集 UI 的状态徽章轴（6-05 B 方案）；发布默认私有，由负责人显式开放，**只升不降、无降级接口**，旧 `workspace` 档已去掉 |
 | `metadata`（ORM 属性 `metadata_json`）| 设备、采样范式、伦理说明、采集说明等扩展信息 |
 | `primary_study_id` | 主属 Study，发布/生命周期口径下的归属锚点（见 3-25），可空 |
 | `concept_doi` | 概念级 DOI（指向资产本身而非某个版本），可空 |
 | `current_version_id` | 指向 `dataset_versions` 的当前有效发布版本，可空 |
 | `created_by` / `created_at` / `updated_at` | 创建人、创建和更新时间 |
 
-发布、共享、撤回等生命周期通过 `dataset_versions` 的 `draft / published / withdrawn` 状态机管理，working 数据不会被发布改写，详见 [3-25 数据集生命周期与发布机制](3-25-数据集生命周期与发布机制.md)。
+发布、撤回等生命周期通过 `dataset_versions.state` 的 `unpublished / published / withdraw_requested / withdrawn` 状态机管理，未发布数据不会被发布改写，详见 [3-25 数据集生命周期与发布机制](3-25-数据集生命周期与发布机制.md)。
 
 唯一的 Dataset 创建入口是 `POST /api/v1/dataset-assets/bootstrap`：一次性创建 Dataset Asset、working Dataset Version、配套 Study 和 active mount（裸建端点 `POST /dataset-assets` 已删除）。
 
@@ -133,7 +133,7 @@ Dataset 可以同时包含原始上传证据、Raw BIDS 标准入口和系统生
 | 表 | 当前角色 | 备注 |
 |---|---|---|
 | `dataset_assets` | 标准 Dataset 资产 | 已接入 `primary_study_id` / `concept_doi` / `current_version_id` 等 3-25 生命周期字段 |
-| `dataset_versions` | Dataset 发布版本 | `draft / published / withdrawn` 状态机，见 3-25 |
+| `dataset_versions` | Dataset 发布版本 | `unpublished / published / withdraw_requested / withdrawn` 状态机（字段 `state`），见 3-25 |
 | `recordings` | 采集记录真实主表 | 由原 `datasets` 改名；无兼容视图 |
 | `recording_versions` | 采集记录版本真实主表 | 由原 `dataset_uploads` 改名；`recording_id` / `version_seq` 均为原生字段 |
 | `dataset_files` | 文件统一索引 | 外键为 `recording_id` + `recording_version_id`（不再是 `dataset_id` / `dataset_upload_id`） |

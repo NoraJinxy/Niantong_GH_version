@@ -77,6 +77,12 @@ CREATE TABLE derived_datasets (
                            )),
   retention_expires_at     TIMESTAMP,
 
+  -- 发布生命周期（派生数据集自有轴，继承上游状态；详见 §3.6）
+  lifecycle_state          VARCHAR(32) NOT NULL DEFAULT 'draft'
+                           CHECK (lifecycle_state IN ('draft', 'published', 'withdrawn')),
+  visibility               VARCHAR(32) NOT NULL DEFAULT 'private'
+                           CHECK (visibility IN ('private', 'shared')),
+
   -- 预览索引
   preview_json             JSONB NOT NULL DEFAULT '{}',
 
@@ -154,6 +160,23 @@ CREATE TABLE derived_datasets (
 - 跳过被下游 Execution 依赖的项（依靠 `execution_dependencies`，源码 `elys_project/backend/app/services/execution_dependencies.py`）
 - 把命中的项 `retention_status` 改为 `deleted` 并设 `deleted_at`
 - 物理文件保留（后续 garbage collector 单独处理）
+
+### 3.6 发布生命周期（`lifecycle_state` / `visibility`）
+
+除了上面管「留不留、什么时候回收」的 `retention_status`，派生数据集还有一根**自己的发布轴**，用来回答「这份产出能不能被本研究项之外的人看到 / 引用」。它和数据集本体（`DatasetAsset` / `DatasetVersion`）那套发布机制是**两码事、各管各的表**：本表这两列只描述派生数据自己的对外可见性。
+
+| 字段 | 取值（CHECK） | 默认 | 含义 |
+|---|---|---|---|
+| `lifecycle_state` | `draft` / `published` / `withdrawn` | `draft` | 派生数据集的发布状态。`draft`＝仅本研究项可见；`published`＝可跨研究项被看到 / 引用；`withdrawn`＝已下架，旧引用保留、禁新引用 |
+| `visibility` | `private` / `shared` | `private` | 可见范围。`private`＝仅本研究项；`shared`＝被授权的其他研究项可见。仅两档（无 `public`） |
+
+**继承上游状态**（产出时按其直接上游派生数据决定初值，对应 DDL 注释）：
+
+- 上游 `draft` → 本行 `lifecycle_state=draft`，跨研究项不可见。
+- 上游 `published` → 主研究项负责人可手动把本行升到 `published`，此后跨研究项可见。
+- 上游 `withdrawn` → 联动 `withdrawn`，禁止新引用、旧引用保留。
+
+> 说明：这两列是 §5 两个索引（`idx_derived_lifecycle`、`idx_derived_shared_published`）的依赖列，用于快速筛「已发布且共享」的派生数据。派生数据集是否要跟随数据集本体 v2 的「发布≠分享、可见范围只升不降」一并调整（如取消「已发布＋共享」自动模型、补齐公开档），属**待确认项**，本页先如实记录代码现状（详见《数据集生命周期重构_综合报告》§3 P2）。
 
 ## 4. 关联表
 

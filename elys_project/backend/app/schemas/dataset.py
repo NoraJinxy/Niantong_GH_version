@@ -23,7 +23,8 @@ DatasetQaMode = Literal["mock", "real"]
 DatasetQaReviewConclusion = Literal["accept", "reject", "hold"]
 DatasetQaStageStatus = Literal["pass", "warning", "fail", "not_computed", "skipped", "pending"]
 DatasetQaSeverity = Literal["info", "warning", "error"]
-DatasetAssetStatus = Literal["working", "active", "archived", "deleted", "quarantined"]
+# 内部记账轴（不上界面徽章）：存活态统一 working（原 working/active 已合并）
+DatasetAssetStatus = Literal["working", "archived", "deleted", "quarantined"]
 DatasetAssetVisibility = Literal["private", "shared", "public"]
 
 
@@ -61,10 +62,11 @@ class DatasetAssetCreate(BaseModel):
 
 
 class DatasetAssetUpdate(BaseModel):
+    # 通用 PATCH 不再处理 visibility——可见范围只升不降，走专门的 open-visibility 端点
+    # （堵降级口子；综合报告 §E/§I、规则 5）
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     status: Optional[DatasetAssetStatus] = None
-    visibility: Optional[DatasetAssetVisibility] = None
     metadata_json: Optional[dict[str, Any]] = None
 
     @field_validator("name")
@@ -198,8 +200,7 @@ class DatasetVersionResponse(BaseModel):
     id: str
     dataset_asset_id: str
     version_label: str
-    status: str
-    # Phase 3 (docs_v2/3-25): 生命周期相关字段
+    # 发布状态轴（旧 status 列已删，state 为唯一状态来源）
     state: Optional[str] = None
     qa_status: Optional[str] = None
     content_hash: Optional[str] = None
@@ -255,7 +256,7 @@ class StudyDatasetMountUpdate(BaseModel):
     mount_name: Optional[str] = Field(default=None, min_length=1, max_length=128)
     selection_json: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
-    # Phase 3 (docs_v2/3-25) C: 升级 mount 锁定的版本（draft 仅主 Study；withdrawn 禁止；published OK）
+    # Phase 3 (docs_v2/3-25) C: 升级 mount 锁定的版本（unpublished 仅主 Study；withdrawn 禁止；published OK）
     dataset_version_id: Optional[UUID] = None
 
     @field_validator("mount_name")

@@ -935,7 +935,8 @@ async function handleStudyAction() {
   flex-direction: column;
   gap: 14px;
   border-right: 1px solid #e5ecf5;
-  background: var(--c-bg-soft);
+  /* 左侧研究项列表面板用白色，与灰色页面背景(--c-bg-soft)拉开；与右侧详情靠 border-right 分隔 */
+  background: var(--c-surface);
   padding: 18px;
 }
 

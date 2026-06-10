@@ -319,7 +319,8 @@ export interface DatasetQaReviewResponse {
   qa_report: DatasetQaReport
 }
 
-export type DatasetAssetStatus = 'working' | 'active' | 'archived' | 'deleted' | 'quarantined'
+// 存活态统一 working（去掉 active）；archived/deleted/quarantined 为内部记账态
+export type DatasetAssetStatus = 'working' | 'archived' | 'deleted' | 'quarantined'
 export type DatasetAssetVisibility = 'private' | 'shared' | 'public'
 
 export interface DatasetAssetCreateRequest {
@@ -330,12 +331,36 @@ export interface DatasetAssetCreateRequest {
   metadata_json?: Record<string, unknown>
 }
 
+// PATCH 仅保留 name/description（owner+admin 可改）；可见范围改走专用「开放」端点 openVisibility
 export interface DatasetAssetUpdateRequest {
   name?: string
   description?: string | null
-  status?: DatasetAssetStatus
-  visibility?: DatasetAssetVisibility
   metadata_json?: Record<string, unknown>
+}
+
+// 可见范围「开放」请求：只升不降（private<shared<public），target 必须 > 当前
+export interface DatasetAssetOpenVisibilityRequest {
+  target: Extract<DatasetAssetVisibility, 'shared' | 'public'>
+}
+
+// 邀请制授权（dataset_members，按用户授权）
+export interface DatasetMember {
+  id: string
+  asset_id: string
+  user_id: string
+  username?: string | null
+  full_name?: string | null
+  granted_by: string | null
+  granted_at: string | null
+}
+
+export interface DatasetMemberListResponse {
+  members: DatasetMember[]
+}
+
+export interface DatasetMemberAddRequest {
+  // #14：接受用户名 / 邮箱 / 用户 UUID，后端统一解析为用户
+  user_identifier: string
 }
 
 export interface DatasetAsset {
@@ -367,7 +392,8 @@ export interface DatasetAssetListResponse {
 }
 
 // Phase 3 (docs_v2/3-25): 数据集版本生命周期状态机
-export type DatasetVersionState = 'draft' | 'published' | 'withdraw_requested' | 'withdrawn'
+// unpublished=未发布(原 draft) / published=已发布 / withdraw_requested=撤回审核中 / withdrawn=已撤回
+export type DatasetVersionState = 'unpublished' | 'published' | 'withdraw_requested' | 'withdrawn'
 export type DatasetVersionQaStatus = 'pass' | 'fail' | 'not_run'
 export type WithdrawalDecision = 'approved' | 'rejected' | 'emergency'
 
@@ -375,8 +401,7 @@ export interface DatasetVersion {
   id: string
   dataset_asset_id: string
   version_label: string
-  status: string
-  // Phase 3 (docs_v2/3-25): 生命周期字段
+  // Phase 3 (docs_v2/3-25): 生命周期字段（旧 status 列已删除，发布状态以 state 为准）
   state?: DatasetVersionState
   qa_status?: DatasetVersionQaStatus
   content_hash?: string | null
@@ -397,6 +422,10 @@ export interface DatasetVersion {
 
 export interface DatasetVersionPublishRequest {
   version_label: string
+  // 发布合规关口（规则 3）：每次发布都需重做脱敏确认 + 伦理/版权声明
+  deidentified_confirmed: boolean
+  ethics_statement: string
+  license_statement: string
 }
 
 export interface DatasetVersionPublishResponse {

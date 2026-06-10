@@ -4,6 +4,7 @@
 -- ============================================
 
 INSERT INTO roles (code, name, name_en, description, is_system) VALUES
+    ('superadmin', '超级管理员', 'Super Admin', '平台治理与管理员管理（管理员的管理者），独立于数据集生命周期', TRUE),
     ('admin',     '管理员',    'Admin',       '系统管理员，拥有全部权限', TRUE),
     ('pi',        'PI',        'Principal Investigator', '可创建研究项，也可作为成员参与其他研究项', TRUE)
 ON CONFLICT (code) DO UPDATE SET
@@ -60,7 +61,13 @@ ON CONFLICT (code) DO NOTHING;
 -- ============================================
 
 DELETE FROM role_permissions
-WHERE role_id IN (SELECT id FROM roles WHERE code IN ('admin', 'pi'));
+WHERE role_id IN (SELECT id FROM roles WHERE code IN ('superadmin', 'admin', 'pi'));
+
+-- superadmin: 平台治理与管理员管理，授予全部权限（管理员之上的超级角色，与数据集生命周期无关）
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'superadmin'
+ON CONFLICT DO NOTHING;
 
 -- admin: 全部权限
 INSERT INTO role_permissions (role_id, permission_id)

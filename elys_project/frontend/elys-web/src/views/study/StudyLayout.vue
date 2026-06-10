@@ -1,6 +1,6 @@
 <template>
   <!-- 版心对齐主页 .hero__inner(1200)：限宽 tab(数据/结果) 走 .page--narrow=1200；工作流 tab(isNarrow=false) 不限宽、仍是宽画布。--page-pad-x=0 与其余 live 页齐边。 -->
-  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="isNarrow" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
+  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="isNarrow" :style="{ '--content-w': '1200px', '--page-pad-x': '0px', '--page-pad-y': '8px' }">
     <div class="study-layout" :class="{ 'study-layout--full': activeTab === 'workflow' }">
       <header class="study-layout__bar">
         <div class="study-layout__id">
@@ -27,6 +27,9 @@
             {{ tab.label }}
           </RouterLink>
         </nav>
+
+        <!-- 当前 tab 的工具条挂载点：工作流页用 Teleport 把「工作流选择器/新建」吊到这里 -->
+        <div class="study-layout__extra"></div>
       </header>
 
       <div v-if="study.error" class="alert alert--error">{{ study.error }}</div>
@@ -98,7 +101,7 @@ function statusPillClass(status: string | null | undefined) {
 /* 工作流 tab：容器吃满视口剩余高度、画布按 flex 填充，
    修掉 .pipeline-page 硬算 100vh-header 没扣容器 bar 导致的下溢 */
 .study-layout--full {
-  height: calc(100vh - var(--header-h) - 2 * var(--s-5));
+  height: calc(100vh - var(--header-h) - 2 * var(--page-pad-y, var(--s-5)));
   min-height: 0;
   gap: 8px;
   overflow: hidden;
@@ -107,17 +110,26 @@ function statusPillClass(status: string | null | undefined) {
 .study-layout__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px 24px;
+  gap: 10px 18px;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--c-border);
+}
+.study-layout__extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+/* 非工作流 tab 时挂载点为空，不占位 */
+.study-layout__extra:empty {
+  display: none;
 }
 .study-layout__id {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding-bottom: 8px;
+  padding-bottom: 5px;
 }
 .study-layout__crumb {
   color: var(--c-text-3);

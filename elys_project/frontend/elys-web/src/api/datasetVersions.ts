@@ -25,6 +25,10 @@ export const datasetVersionApi = {
       `/dataset-versions/${versionId}/emergency-takedown`,
       payload,
     ),
+
+  // 丢弃已发布资产上的 v+1 未发布版本（仅负责人；非纯未发布则后端 409）
+  discardDraft: (versionId: string) =>
+    api.delete<void>(`/dataset-versions/${versionId}`),
 }
 
 export const datasetWithdrawalApi = {
@@ -38,8 +42,8 @@ export const datasetWithdrawalApi = {
 // 工具：把后端 DatasetVersion 的状态翻成中文显示标签
 export function datasetVersionStateLabel(state: string | undefined | null): string {
   switch (state) {
-    case 'draft':
-      return '草稿'
+    case 'unpublished':
+      return '未发布'
     case 'published':
       return '已发布'
     case 'withdraw_requested':
@@ -53,8 +57,8 @@ export function datasetVersionStateLabel(state: string | undefined | null): stri
 
 export function datasetVersionStateClass(state: string | undefined | null): string {
   switch (state) {
-    case 'draft':
-      return 'state-draft'
+    case 'unpublished':
+      return 'state-unpublished'
     case 'published':
       return 'state-published'
     case 'withdraw_requested':

@@ -182,7 +182,7 @@ def test_bootstrap_dataset_create_mode_creates_asset_version_study_mount_and_nex
     assert result.mount.mount_name == "primary"
     assert result.dataset_asset.metadata_json["paired_study"]["study_id"] == result.study.id
     # Phase 2 (docs_v2/3-25): 新模型字段
-    assert result.dataset_version.state == "draft"
+    assert result.dataset_version.state == "unpublished"
     assert result.dataset_version.qa_status == "not_run"
     assert result.dataset_asset.primary_study_id == result.study.id
     assert result.dataset_asset.current_version_id == result.dataset_version.id
@@ -236,7 +236,7 @@ def test_bootstrap_dataset_existing_mode_mounts_existing_study_without_creating_
     assert result.next_upload.study_id == "202605000999"
     assert not any(isinstance(item, Study) for item in db.added)
     # Phase 2 (docs_v2/3-25): 新模型字段（existing mode 下主 Study 是已有的）
-    assert result.dataset_version.state == "draft"
+    assert result.dataset_version.state == "unpublished"
     assert result.dataset_asset.primary_study_id == "202605000999"
     assert result.dataset_asset.current_version_id == result.dataset_version.id
     assert result.mount.dataset_version_id == result.dataset_version.id

@@ -32,11 +32,13 @@ from app.models import (
     DatasetFile,
     DatasetFileDerivation,
     DatasetVersion,
+    DatasetVersionReference,
     Study,
     AuditEvent,
     Recording,
     RecordingVersion,
     StudyDatasetMount,
+    StudyMember,
     Subject,
     User,
 )
@@ -75,6 +77,12 @@ from app.schemas.dataset import (
     StudyDatasetMountResponse,
     StudyDatasetMountUpdate,
 )
+from app.schemas.dataset_lifecycle import (
+    DatasetMemberAddRequest,
+    DatasetMemberListResponse,
+    DatasetMemberResponse,
+    OpenVisibilityRequest,
+)
 from app.schemas.pipeline import AsyncTaskResponse
 from app.schemas.study import StudyResponse
 from app.services.dataset_qa import build_mock_qa_report
@@ -90,9 +98,12 @@ from app.services.dataset_assets import (
     get_or_create_working_dataset_asset,
     get_study_dataset_mount,
     get_study_dataset_mount_by_name,
+    grant_member,
+    list_members,
     list_study_dataset_mounts,
     list_visible_dataset_assets,
     mount_dataset_asset_to_study,
+    revoke_member,
     update_study_dataset_mount,
 )
 from app.services.dataset_bootstrap import (
@@ -289,8 +300,7 @@ def dataset_version_to_response(version: DatasetVersion) -> DatasetVersionRespon
         id=str(version.id),
         dataset_asset_id=str(version.dataset_asset_id),
         version_label=version.version_label,
-        status=version.status,
-        # Phase 3 (docs_v2/3-25): 生命周期相关字段
+        # 发布状态轴（旧 status 列已删，state 为唯一状态来源）
         state=version.state,
         qa_status=version.qa_status,
         content_hash=version.content_hash,
@@ -401,6 +411,15 @@ def ensure_dataset_file_readable(db: Session, file_record: DatasetFile, current_
         asset = get_dataset_asset_for_user(db, asset_id=dataset_asset_id, user=current_user)
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset file 不存在或无权访问")
+        # 规则 12 / 清单 R7：非「全部版本可见者」（admin / owner / 创建者 / 主研究项成员之外的、
+        # 经可见范围放行者）只能读已发布版本的文件，未发布 / 撤回审核中 / 已撤回（或无版本归属）
+        # 的文件对其一律 404，堵草稿外泄。
+        if not _can_see_all_versions(db, asset=asset, user=current_user):
+            version = getattr(file_record, "dataset_version", None)
+            if version is None or version.state != "published":
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset file 不存在或无权访问"
+                )
         return study
     require_study_read(study, db, current_user)
     return study
@@ -508,6 +527,124 @@ def ensure_dataset_asset_uploadable(asset: DatasetAsset, current_user: User) -> 
         )
     if not can_write_dataset_asset(current_user, asset):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权向该 Dataset Asset 上传数据")
+
+
+# 可见范围开放度（私有 < 共享 < 公开）—— 只升不降，open-visibility 端点据此判 target > current。
+VISIBILITY_RANK = {"private": 0, "shared": 1, "public": 2}
+
+
+def ensure_dataset_asset_owner(asset: DatasetAsset, current_user: User) -> None:
+    """开放可见范围 / 授权管理 / 删除 = 仅负责人（不含创建者、不含管理员；综合报告 §D/§E/规则9）。"""
+    if asset.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅数据集负责人可执行此操作")
+
+
+def asset_has_published_version(db: Session, asset: DatasetAsset) -> bool:
+    """该资产是否已有 ≥1 个已发布版本（open-visibility 的前置：纯未发布资产无可分享内容）。"""
+    return (
+        db.query(DatasetVersion.id)
+        .filter(
+            DatasetVersion.dataset_asset_id == asset.id,
+            DatasetVersion.state == "published",
+        )
+        .first()
+        is not None
+    )
+
+
+def asset_has_published_or_withdrawn_version(db: Session, asset: DatasetAsset) -> bool:
+    """该资产是否存在任何已发布 / 已撤回历史（整体删除的禁区：只有纯未发布资产可整体删）。
+
+    撤回审核中（withdraw_requested）也属「不可整体删」：那是从 published 出发的进行中流程，
+    必须先走完审核，不能绕过历史直接抹掉资产。
+    """
+    return (
+        db.query(DatasetVersion.id)
+        .filter(
+            DatasetVersion.dataset_asset_id == asset.id,
+            DatasetVersion.state.in_(("published", "withdraw_requested", "withdrawn")),
+        )
+        .first()
+        is not None
+    )
+
+
+def dataset_member_to_response(member, *, user_obj: User | None = None) -> DatasetMemberResponse:
+    """把 DatasetMember ORM 转响应；user_obj 给定时带上用户名 / 全名（授权面板展示用）。"""
+    member_user = user_obj if user_obj is not None else getattr(member, "user", None)
+    return DatasetMemberResponse(
+        id=str(member.id),
+        asset_id=str(member.asset_id),
+        user_id=str(member.user_id),
+        username=getattr(member_user, "username", None) if member_user else None,
+        full_name=getattr(member_user, "full_name", None) if member_user else None,
+        granted_by=str(member.granted_by) if member.granted_by else None,
+        granted_at=member.granted_at,
+    )
+
+
+def is_asset_primary_study_member(db: Session, *, asset: DatasetAsset, user: User) -> bool:
+    """user 是否为该资产「主研究项」的成员（含负责人）。
+
+    与 dataset_assets._is_primary_study_member 同口径，用于文件读链的「仅暴露已发布版本」过滤
+    （规则 12、清单 R7）：主研究项成员看全部版本文件，其他访问者（含 admin 经可见范围放行的）
+    只能看 state=='published' 版本的文件。
+    """
+    study_id = asset.primary_study_id
+    if study_id is None:
+        return False
+    owner_id = db.query(Study.owner_id).filter(Study.id == study_id).scalar()
+    if owner_id is not None and owner_id == user.id:
+        return True
+    return (
+        db.query(StudyMember.id)
+        .filter(
+            StudyMember.study_id == study_id,
+            StudyMember.user_id == user.id,
+            StudyMember.can_read.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def _can_see_all_versions(db: Session, *, asset: DatasetAsset, user: User) -> bool:
+    """user 是否有资格看该资产的「全部版本」（含未发布 / 撤回审核中 / 已撤回）文件。
+
+    放行范围：admin（平台兜底）/ 资产 owner（负责人）/ 创建者 / 主研究项成员。
+    主研究项在被删（primary_study SET NULL）后负责人不再是「主研究项成员」，故必须显式
+    把 admin / owner / 创建者并进来，否则他们读未发布文件会被错误地挡成 404 / 列表空
+    （清单 R7、规则 12）。其余可见范围放行进来的访问者仍只能见 state=='published' 版本。
+    """
+    return (
+        user.has_role("admin")
+        or asset.owner_id == user.id
+        or asset.created_by == user.id
+        or is_asset_primary_study_member(db, asset=asset, user=user)
+    )
+
+
+def restrict_dataset_files_to_published(query, *, asset: DatasetAsset, db: Session, current_user: User):
+    """对「非全部版本可见者」把文件查询收窄到 state=='published' 的版本（规则 12、清单 R7）。
+
+    可见全部版本者（admin / owner / 创建者 / 主研究项成员，见 _can_see_all_versions）不受限；
+    其余可见范围放行进来的访问者只能见已发布版本，避免未发布草稿 / 撤回审核中 / 已撤回内容
+    经文件列举 / 树 / 下载外泄。
+
+    用 dataset_version_id ∈ (该资产已发布版本子查询) 过滤，而非 join——避免与端点里
+    version_label 的 DatasetVersion join 冲突；NULL version 的文件对非成员一律不暴露。
+    """
+    if _can_see_all_versions(db, asset=asset, user=current_user):
+        return query
+    published_version_ids = (
+        db.query(DatasetVersion.id)
+        .filter(
+            DatasetVersion.dataset_asset_id == asset.id,
+            DatasetVersion.state == "published",
+        )
+        .subquery()
+    )
+    return query.filter(DatasetFile.dataset_version_id.in_(published_version_ids))
 
 
 def active_study_dataset_mounts(db: Session, *, study: Study) -> list[StudyDatasetMount]:
@@ -998,7 +1135,6 @@ def get_or_create_working_dataset_version(
     version = DatasetVersion(
         dataset_asset_id=dataset_asset.id,
         version_label=WORKING_DATASET_VERSION_LABEL,
-        status="working",
         storage_uri=dataset_version_storage_uri(dataset_asset.id),
         metadata_json={"auto_created": True, "source": "upload"},
         created_by=current_user.id,
@@ -2188,22 +2324,22 @@ def list_dataset_asset_versions(
     response_model=DatasetVersionResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_new_draft_version(
+def create_new_version_endpoint(
     asset_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Phase 3 (docs_v2/3-25) 在已发布过版本的 Asset 上新建 draft 版本。
+    """在已发布过版本的 Asset 上新建未发布版本（v+1 前向演进）。
 
-    与 bootstrap 不同: bootstrap 用于首次创建 Asset, 此端点是 owner 在已发布基础上推 v+1。
-    新 draft 的 version_label='working' (storage slot 已被上次 publish rename 释放)。
+    与 bootstrap 不同: bootstrap 用于首次创建 Asset, 此端点是负责人在已发布基础上推 v+1。
+    新版本的 version_label='working' (storage slot 已被上次 publish rename 释放)。
     """
     from app.services.dataset_bootstrap import ensure_dataset_version_storage
     from app.services.dataset_lifecycle import (
         DatasetLifecyclePermissionError,
         DatasetLifecycleStateError,
         DatasetLifecycleValidationError,
-        create_new_draft_version as create_draft_service,
+        create_new_version as create_draft_service,
     )
 
     require_system_permission(current_user, "data:write", "当前用户没有创建 Dataset 资产权限")
@@ -2256,6 +2392,8 @@ def list_dataset_asset_files(
         .join(Recording, DatasetFile.recording_id == Recording.id)
         .filter(Recording.dataset_asset_id == asset.id)
     )
+    # 规则 12 / 清单 R7：非主研究项访问者只见已发布版本的文件（堵草稿外泄）
+    query = restrict_dataset_files_to_published(query, asset=asset, db=db, current_user=current_user)
     if version_label:
         query = query.join(DatasetVersion, DatasetFile.dataset_version_id == DatasetVersion.id).filter(
             DatasetVersion.version_label == version_label
@@ -2283,6 +2421,8 @@ def get_dataset_asset_bids_tree(
         .join(Recording, DatasetFile.recording_id == Recording.id)
         .filter(Recording.dataset_asset_id == asset.id)
     )
+    # 规则 12 / 清单 R7：非主研究项访问者只见已发布版本的文件（堵草稿外泄）
+    query = restrict_dataset_files_to_published(query, asset=asset, db=db, current_user=current_user)
     if version_label:
         query = query.join(DatasetVersion, DatasetFile.dataset_version_id == DatasetVersion.id).filter(
             DatasetVersion.version_label == version_label
@@ -2404,7 +2544,9 @@ def update_dataset_asset(
     asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-    if not (current_user.has_role("admin") or asset.owner_id == current_user.id or asset.created_by == current_user.id):
+    # 改名 / 描述 = 负责人 + 管理员（管理员作平台兜底，可改错别字 / 接管离职负责人；
+    # 综合报告 §D / 清单 R2）。不含创建者。可见范围不在此端点处理（见 open-visibility）。
+    if not (current_user.has_role("admin") or asset.owner_id == current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权修改该 Dataset 资产")
 
     fields_set = payload.model_fields_set
@@ -2414,11 +2556,19 @@ def update_dataset_asset(
     if "description" in fields_set:
         asset.description = payload.description
     if "status" in fields_set and payload.status is not None:
-        if payload.status == "quarantined" and not current_user.has_role("admin"):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有管理员可以隔离 Dataset 资产")
+        # 通用 PATCH 只允许管理员在「隔离 / 解除隔离」之间切换，堵掉用 status='deleted'/'archived'
+        # 把已发布资产硬隐藏、绕过 DELETE 端点「已发布历史→409」守卫的后门（清单 R？/ 综合报告 §D）。
+        # 删除一律走 DELETE /dataset-assets/{id}；归档等其它语义未开放。
+        if not current_user.has_role("admin"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有管理员可以修改 Dataset 资产状态")
+        if payload.status not in ("quarantined", "working"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="status 仅支持 'quarantined'（隔离）或 'working'（解除隔离）；删除请走 DELETE /dataset-assets/{id} 端点",
+            )
         asset.status = payload.status
-    if "visibility" in fields_set and payload.visibility is not None:
-        asset.visibility = payload.visibility
+    # 可见范围（visibility）已移出通用 PATCH——只升不降，走专门的 open-visibility 端点
+    # （堵降级口子；综合报告 §E/§I、规则 5、清单 R1）。
     if "metadata_json" in fields_set and payload.metadata_json is not None:
         asset.metadata_json = payload.metadata_json
     asset.updated_at = datetime.utcnow()
@@ -2435,12 +2585,259 @@ def update_dataset_asset(
             "fields": sorted(fields_set),
             "old_status": old_status,
             "new_status": asset.status,
-            "visibility": asset.visibility,
         },
     )
     db.commit()
     db.refresh(asset)
     return dataset_asset_to_response(asset)
+
+
+@asset_router.post("/{asset_id}/open-visibility", response_model=DatasetAssetResponse)
+def open_dataset_asset_visibility(
+    asset_id: uuid.UUID,
+    payload: OpenVisibilityRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """负责人显式开放可见范围（只升不降，无降级接口；综合报告 §E/§I、规则 5、清单 R3）。
+
+    约束：仅负责人；target ∈ {shared, public} 且严格高于当前可见范围（可跳级 private→public，禁降级）；
+    资产须已有 ≥1 个已发布版本（纯未发布资产恒私有，无可分享内容；规则 J）。
+    """
+    require_system_permission(current_user, "data:write", "当前用户没有修改 Dataset 资产权限")
+    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
+    ensure_dataset_asset_owner(asset, current_user)
+
+    current_rank = VISIBILITY_RANK.get(asset.visibility, 0)
+    target_rank = VISIBILITY_RANK[payload.target]
+    if target_rank <= current_rank:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"可见范围只升不降：当前为「{asset.visibility}」，不能开放为「{payload.target}」。"
+                "如需可撤销的协作，请保持私有并把人加入主研究项团队"
+            ),
+        )
+    if not asset_has_published_version(db, asset):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="资产尚无已发布版本，无可分享内容；请先发布至少一个版本再开放可见范围",
+        )
+
+    old_visibility = asset.visibility
+    asset.visibility = payload.target
+    asset.updated_at = datetime.utcnow()
+    record_audit_event(
+        db,
+        action="dataset_asset.visibility_opened",
+        actor_id=current_user.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset.id,
+        resource_label=asset.name,
+        metadata={"old_visibility": old_visibility, "new_visibility": asset.visibility},
+    )
+    db.commit()
+    db.refresh(asset)
+    return dataset_asset_to_response(asset)
+
+
+@asset_router.get("/{asset_id}/members", response_model=DatasetMemberListResponse)
+def list_dataset_asset_members(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """列出共享授权名单（dataset_members，邀请制；规则 7、清单 R4）。仅负责人可见。"""
+    require_system_permission(current_user, "data:read", "当前用户没有查看 Dataset 资产权限")
+    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
+    ensure_dataset_asset_owner(asset, current_user)
+
+    members = list_members(db, asset=asset)
+    # 批量取用户，避免 N+1（授权面板要展示用户名 / 全名）
+    user_ids = [m.user_id for m in members]
+    users_by_id = {
+        u.id: u
+        for u in (db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else [])
+    }
+    return DatasetMemberListResponse(
+        members=[
+            dataset_member_to_response(m, user_obj=users_by_id.get(m.user_id))
+            for m in members
+        ],
+    )
+
+
+@asset_router.post(
+    "/{asset_id}/members",
+    response_model=DatasetMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_dataset_asset_member(
+    asset_id: uuid.UUID,
+    payload: DatasetMemberAddRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """授权一个用户访问该数据集（shared 邀请制；规则 7、清单 R4）。仅负责人。幂等。"""
+    require_system_permission(current_user, "data:write", "当前用户没有修改 Dataset 资产权限")
+    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
+    ensure_dataset_asset_owner(asset, current_user)
+
+    # 解析 user_identifier：先当 UUID（按 User.id 查），否则按 User.username 查
+    # （普通用户填不出 UUID，故支持按用户名授权；User 模型无 email 字段）。
+    identifier = payload.user_identifier.strip()
+    target_user = None
+    try:
+        parsed_uuid = uuid.UUID(identifier)
+    except (ValueError, AttributeError, TypeError):
+        parsed_uuid = None
+    if parsed_uuid is not None:
+        target_user = db.query(User).filter(User.id == parsed_uuid).first()
+    if target_user is None:
+        target_user = db.query(User).filter(User.username == identifier).first()
+    if target_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="未找到该用户（可填用户名 / 用户 ID）",
+        )
+
+    member = grant_member(db, asset=asset, user_id=target_user.id, granted_by=current_user.id)
+    record_audit_event(
+        db,
+        action="dataset_asset.member_granted",
+        actor_id=current_user.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset.id,
+        resource_label=asset.name,
+        metadata={"user_id": str(target_user.id)},
+    )
+    db.commit()
+    db.refresh(member)
+    return dataset_member_to_response(member, user_obj=target_user)
+
+
+@asset_router.delete("/{asset_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_dataset_asset_member(
+    asset_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """取消某用户对该数据集的授权（规则 7、清单 R4）。仅负责人。"""
+    require_system_permission(current_user, "data:write", "当前用户没有修改 Dataset 资产权限")
+    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
+    ensure_dataset_asset_owner(asset, current_user)
+
+    removed = revoke_member(db, asset=asset, user_id=user_id)
+    if not removed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该用户未被授权，无需取消")
+    record_audit_event(
+        db,
+        action="dataset_asset.member_revoked",
+        actor_id=current_user.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset.id,
+        resource_label=asset.name,
+        metadata={"user_id": str(user_id)},
+    )
+    db.commit()
+    return None
+
+
+@asset_router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_dataset_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """整体真删除纯未发布资产（行 + 物理文件；仅负责人；规则 4、清单 R5）。
+
+    守卫：资产存在任何已发布 / 撤回审核中 / 已撤回版本 → 409（已发布历史不可删，只能撤回）。
+    仅「无任何已发布/撤回历史」的纯未发布资产可整体删。删除是真删除：先按外键顺序清掉
+    RESTRICT 拦路项（挂载、采集记录），再删资产行（versions / members 等 CASCADE 自动清），
+    最后 best-effort 清物理存储目录。审计事件用 snapshot 留痕（行已删，无法事后回查）。
+    """
+    require_system_permission(current_user, "data:write", "当前用户没有删除 Dataset 资产权限")
+    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
+    ensure_dataset_asset_owner(asset, current_user)
+
+    if asset_has_published_or_withdrawn_version(db, asset):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="资产存在已发布 / 撤回审核中 / 已撤回版本，不能整体删除；已发布历史只能撤回",
+        )
+
+    # 行已删后无法事后回查，先取 snapshot 供审计留痕。
+    asset_code = asset.code
+    asset_name = asset.name
+
+    # 1) 先删该资产的挂载（study_dataset_mounts 对 asset_id / version_id 均 ON DELETE RESTRICT，
+    #    不先删会 IntegrityError）。每个 mount 先删其 mount 类版本引用，再删 mount 本身。
+    mounts = (
+        db.query(StudyDatasetMount)
+        .filter(StudyDatasetMount.dataset_asset_id == asset.id)
+        .all()
+    )
+    for mount in mounts:
+        db.query(DatasetVersionReference).filter(
+            DatasetVersionReference.reference_kind == "mount",
+            DatasetVersionReference.reference_id == mount.id,
+        ).delete(synchronize_session=False)
+        db.delete(mount)
+
+    # 2) 再删采集记录（recordings 对 asset 是 RESTRICT；删 recordings 会级联清掉
+    #    recording_versions / dataset_files —— 二者对 recording 是 CASCADE）。
+    recordings = (
+        db.query(Recording)
+        .filter(Recording.dataset_asset_id == asset.id)
+        .all()
+    )
+    for recording in recordings:
+        db.delete(recording)
+
+    # 3) 断开自引用外键（current_version_id → dataset_versions），避免删版本时被阻塞。
+    asset.current_version_id = None
+    db.flush()
+
+    # 4) 删资产行：dataset_versions / dataset_members 对 asset 是 CASCADE 自动删；
+    #    versions 的 version_references / withdrawal_requests 也 CASCADE。
+    db.delete(asset)
+
+    record_audit_event(
+        db,
+        action="dataset_asset.deleted",
+        actor_id=current_user.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset_id,
+        resource_label=asset_name,
+        metadata={"code": asset_code, "name": asset_name, "hard_deleted": True},
+    )
+    db.commit()
+
+    # 6) best-effort 清物理存储：资产存储根 = DATASETS_STORAGE_ROOT / {asset_id}
+    #    （dataset_bootstrap.dataset_version_root 的 .../versions/{label} 之父级）。
+    #    清理失败不回滚已提交的删除。
+    try:
+        storage_root = Path(settings.DATASETS_STORAGE_ROOT) / str(asset_id)
+        shutil.rmtree(storage_root, ignore_errors=True)
+    except Exception:
+        pass
+
+    return None
 
 
 @router.get("/mounts", response_model=StudyDatasetMountListResponse)
@@ -2541,6 +2938,8 @@ def update_dataset_mount(
             is_active=payload.is_active,
             # Phase 3 (docs_v2/3-25) C: 版本升级
             dataset_version_id=payload.dataset_version_id,
+            # 可见性网关按当前操作者校验授权（而非原始挂载人）
+            actor=current_user,
         )
     except DatasetAssetConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

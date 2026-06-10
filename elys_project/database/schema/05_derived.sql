@@ -52,12 +52,12 @@ CREATE TABLE IF NOT EXISTS derived_datasets (
                              )),
     retention_expires_at     TIMESTAMP,
 
-    -- Phase 1 (3-25): 派生数据集生命周期。继承 upstream 状态：
-    --   upstream draft        → lifecycle_state=draft，跨 Study 不可见
-    --   upstream published    → 主 Study owner 可手动升级到 published，跨 Study 可见
+    -- 派生数据集生命周期（与 DatasetVersion.state 同口径，2026-06-09 v2）。继承 upstream 状态：
+    --   upstream unpublished  → lifecycle_state=unpublished，跨研究项不可见
+    --   upstream published    → 主研究项 owner 可手动升级到 published，跨研究项可见
     --   upstream withdrawn    → 联动 withdrawn，新引用禁止但旧引用保留
-    lifecycle_state          VARCHAR(32) NOT NULL DEFAULT 'draft'
-                             CHECK (lifecycle_state IN ('draft', 'published', 'withdrawn')),
+    lifecycle_state          VARCHAR(32) NOT NULL DEFAULT 'unpublished'
+                             CHECK (lifecycle_state IN ('unpublished', 'published', 'withdrawn')),
     visibility               VARCHAR(32) NOT NULL DEFAULT 'private'
                              CHECK (visibility IN ('private', 'shared')),
 

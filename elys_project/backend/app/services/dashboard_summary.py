@@ -178,15 +178,14 @@ def count_executions(db: Session, study_ids: list[str]) -> int:
 
 
 def dataset_states(dataset_assets: Iterable[DatasetAsset]) -> DashboardDatasetStates:
-    working = active = error = 0
+    # status 合并后存活态统一 working（不再有 active），active 永远 0。
+    working = error = 0
     for asset in dataset_assets:
         if asset.status == "working":
             working += 1
-        elif asset.status == "active":
-            active += 1
         elif asset.status in DASHBOARD_DATASET_ERROR_STATUSES:
             error += 1
-    return DashboardDatasetStates(working=working, active=active, error=error)
+    return DashboardDatasetStates(working=working, active=0, error=error)
 
 
 def study_states(studies: Iterable[Study]) -> DashboardStudyStates:

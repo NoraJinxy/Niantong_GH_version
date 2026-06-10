@@ -138,11 +138,11 @@ class DerivedDataset(Base):
     )
     retention_expires_at = Column(DateTime)
 
-    # Phase 1 (docs_v2/3-25): 派生数据生命周期, 继承自 upstream
-    # draft       = upstream draft / 主 Study 调试用, 跨 Study 不可见
-    # published   = upstream published 且 owner 升级后, 跨 Study 可见
+    # 派生数据生命周期, 继承自 upstream（与 DatasetVersion.state 同口径，2026-06-09 v2）
+    # unpublished = upstream 未发布 / 主研究项调试用, 跨研究项不可见
+    # published   = upstream published 且 owner 升级后, 跨研究项可见
     # withdrawn   = upstream withdrawn 联动, 新引用禁止
-    lifecycle_state = Column(String(32), nullable=False, default="draft")
+    lifecycle_state = Column(String(32), nullable=False, default="unpublished")
     visibility = Column(String(32), nullable=False, default="private")
 
     # ---- Preview index -----------------------------------------------------

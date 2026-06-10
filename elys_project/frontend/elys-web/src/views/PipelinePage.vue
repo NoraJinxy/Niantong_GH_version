@@ -3591,9 +3591,20 @@ function syncDefinitionToLiteGraph() {
     const from = graphNodes.get(link.from.node)
     const to = graphNodes.get(link.to.node)
     if (!from || !to) continue
-    const outputSlot = Math.max(0, from.findOutputSlot(link.from.port))
-    const inputSlot = Math.max(0, to.findInputSlot(link.to.port))
-    if (outputSlot >= 0 && inputSlot >= 0) from.connect(outputSlot, to, inputSlot)
+    // 端口名失配时 findXxxSlot 返回 -1：直接跳过这条悬空连线。
+    // 不能再用 Math.max(0,-1)→0 强连到 0 号槽 —— 那会塞一条畸形连线进图，
+    // LiteGraph 之后遍历它就抛 'value' in null，连带卡死整个画布初始化和右键菜单。
+    const outputSlot = from.findOutputSlot(link.from.port)
+    const inputSlot = to.findInputSlot(link.to.port)
+    if (outputSlot < 0 || inputSlot < 0) {
+      console.warn('[pipeline] 跳过端口失配的悬空连线', link)
+      continue
+    }
+    try {
+      from.connect(outputSlot, to, inputSlot)
+    } catch (error) {
+      console.error('[pipeline] 连线失败，已跳过', link, error)
+    }
   }
 
   if (selectedNodeId.value) selectLiteGraphNode(selectedNodeId.value)

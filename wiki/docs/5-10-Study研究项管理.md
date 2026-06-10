@@ -17,7 +17,7 @@
 : `studies` · `study_members` · `study_settings` · `study_dataset_mounts` · `study_locks` · `audit_events`
 
 更新
-: 2026-06-04
+: 2026-06-09
 
 </div>
 
@@ -40,6 +40,8 @@ Study 不负责：
 ### 1.1 Dataset-first 下的 Study 角色
 
 Dataset-first 导入时，用户创建的是 Dataset。系统可以自动创建一个配套 Study，或让用户选择已有 Study，并把 Dataset 通过 `study_dataset_mounts` 挂进去。这个配套 Study 的职责是承载导入上下文、QC、Pipeline、Execution、DerivedDataset 和审计，不是 Dataset 的所有者。
+
+这个配套 / 承载导入的 Study 就是该数据集的**主研究项**，记在 `dataset_assets.primary_study_id`（见 [3-25](3-25-数据集生命周期与发布机制.md)）。它是数据集**私有可见范围**的判定基准：当 `visibility=private`（发布默认即此档）时，能看见 / 能挂载该数据集的就是负责人、管理员与**主研究项成员**；其他研究项要访问，需数据集开放为共享（按用户授权）或公开。即「私有 = 仅主研究项可见」。
 
 因此，删除、归档或切换某个 Study 不应直接删除 Dataset 原始文件；要停用某个研究项对数据的使用，应调整挂载关系。只有 Dataset 自身的归档、隔离、删除和权限策略，才决定数据资产本体的生命周期。
 
@@ -85,7 +87,7 @@ Study mount + Pipeline selector + Execution override
 - 旧 Execution 可以追溯到当时实际用过的文件、版本、hash 和 selector 快照。
 - Dataset 被隔离、禁用或下架后，普通用户不能继续挂载或新运行，但已有 Execution 的追溯记录仍保留。
 
-MVP 阶段 Dataset 版本仍以 working 为主；未来若引入发布版 Dataset，应优先让 Study 挂载不可变发布版本，working 只用于导入、整理和内部迭代。
+Dataset 已有发布版机制（`DatasetVersion.state`，见 [3-25](3-25-数据集生命周期与发布机制.md)）：未发布版（物理槽位 `working`）只用于导入、整理和内部迭代，发布后版本不可变。跨研究项关联（即非主研究项挂载）只暴露**已发布**版本，应优先让 Study 挂载这些不可变发布版本；未发布版本始终仅主研究项可见、可挂载。
 
 ### 2.4 当前接入状态
 

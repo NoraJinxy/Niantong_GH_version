@@ -219,6 +219,12 @@ class DatasetAsset(Base):
     current_version = relationship("DatasetVersion", foreign_keys=[current_version_id], post_update=True)
     mounts = relationship("StudyDatasetMount", back_populates="dataset_asset", passive_deletes=True)
     recordings = relationship("Recording", back_populates="dataset_asset", passive_deletes=True)
+    members = relationship(
+        "DatasetMember",
+        cascade="all, delete-orphan",
+        back_populates="dataset_asset",
+        foreign_keys="DatasetMember.asset_id",
+    )
     versions = relationship(
         "DatasetVersion",
         cascade="all, delete-orphan",
@@ -230,7 +236,7 @@ class DatasetAsset(Base):
 class DatasetVersion(Base):
     __tablename__ = "dataset_versions"
     __table_args__ = (
-        Index("idx_dataset_versions_asset", "dataset_asset_id", "status"),
+        Index("idx_dataset_versions_asset", "dataset_asset_id", "state"),
         Index("idx_dataset_versions_created_by", "created_by"),
         Index("idx_dataset_versions_state", "state"),
     )
@@ -238,9 +244,8 @@ class DatasetVersion(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     dataset_asset_id = Column(UUID(as_uuid=True), ForeignKey("dataset_assets.id", ondelete="CASCADE"), nullable=False)
     version_label = Column(String(64), nullable=False, default="working")
-    # Phase 1 (3-25): 旧 status 字段保留兼容；新 state 进入 draft/published/withdrawn 生命周期
-    status = Column(String(32), nullable=False, default="working")
-    state = Column(String(32), nullable=False, default="draft")
+    # 发布状态轴：unpublished → published → withdraw_requested → withdrawn
+    state = Column(String(32), nullable=False, default="unpublished")
     content_hash = Column(String(64))
     version_doi = Column(String(256))
     published_at = Column(DateTime)
@@ -293,6 +298,31 @@ class StudyDatasetMount(Base):
     dataset_asset = relationship("DatasetAsset", foreign_keys=[dataset_asset_id], back_populates="mounts")
     dataset_version = relationship("DatasetVersion", foreign_keys=[dataset_version_id])
     mounted_by_user = relationship("User", foreign_keys=[mounted_by])
+
+
+class DatasetMember(Base):
+    """数据集共享授权（邀请制，按用户）。
+
+    可见范围 = shared 时，由负责人按用户逐一授权；被授权者可读该资产、可关联到自己研究项。
+    仅 shared 档生效：private 走主研究项成员、public 对任意注册用户放行（详见 wiki/docs/3-25）。
+    """
+
+    __tablename__ = "dataset_members"
+    __table_args__ = (
+        Index("idx_dataset_members_asset", "asset_id"),
+        Index("idx_dataset_members_user", "user_id"),
+        Index("uq_dataset_members_asset_user", "asset_id", "user_id", unique=True),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("dataset_assets.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    granted_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    granted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    dataset_asset = relationship("DatasetAsset", foreign_keys=[asset_id], back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+    granted_by_user = relationship("User", foreign_keys=[granted_by])
 
 
 class Subject(Base):

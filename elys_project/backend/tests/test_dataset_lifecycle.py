@@ -137,8 +137,7 @@ def make_draft_asset_and_version(*, owner: FakeUser, primary_study_id="study-001
         id=uuid4(),
         dataset_asset_id=asset.id,
         version_label="working",
-        status="working",
-        state="draft",
+        state="unpublished",
         qa_status="not_run",
         storage_uri=f"elys://datasets/{asset.id}/versions/working",
         metadata_json={},
@@ -228,11 +227,13 @@ def test_publish_draft_to_published_succeeds(monkeypatch):
         version=version,
         new_version_label="1.0.0",
         actor=owner,
+        deidentified_confirmed=True,
+        ethics_statement="已通过伦理审查",
+        license_statement="CC-BY-4.0",
         commit=True,
     )
 
     assert result.dataset_version.state == "published"
-    assert result.dataset_version.status == "published"
     assert result.dataset_version.version_label == "1.0.0"
     assert result.dataset_version.published_by == owner.id
     assert result.dataset_version.published_at is not None
@@ -256,7 +257,14 @@ def test_publish_rejects_non_increasing_version(monkeypatch):
 
     try:
         dataset_lifecycle.publish_dataset_version(
-            db, version=version, new_version_label="1.4.9", actor=owner, commit=False
+            db,
+            version=version,
+            new_version_label="1.4.9",
+            actor=owner,
+            deidentified_confirmed=True,
+            ethics_statement="已通过伦理审查",
+            license_statement="CC-BY-4.0",
+            commit=False,
         )
         raise AssertionError("should reject non-increasing version")
     except DatasetLifecycleValidationError as exc:
@@ -275,7 +283,14 @@ def test_publish_rejects_duplicate_version_label(monkeypatch):
 
     try:
         dataset_lifecycle.publish_dataset_version(
-            db, version=version, new_version_label="1.0.0", actor=owner, commit=False
+            db,
+            version=version,
+            new_version_label="1.0.0",
+            actor=owner,
+            deidentified_confirmed=True,
+            ethics_statement="已通过伦理审查",
+            license_statement="CC-BY-4.0",
+            commit=False,
         )
         raise AssertionError("should reject duplicate")
     except DatasetLifecycleValidationError as exc:
@@ -291,11 +306,18 @@ def test_publish_rejects_non_draft():
 
     try:
         dataset_lifecycle.publish_dataset_version(
-            db, version=version, new_version_label="1.0.0", actor=owner, commit=False
+            db,
+            version=version,
+            new_version_label="1.0.0",
+            actor=owner,
+            deidentified_confirmed=True,
+            ethics_statement="已通过伦理审查",
+            license_statement="CC-BY-4.0",
+            commit=False,
         )
         raise AssertionError("should reject")
     except DatasetLifecycleStateError as exc:
-        assert "draft" in str(exc)
+        assert "未发布" in str(exc)
 
 
 def test_publish_rejects_invalid_semver():
@@ -307,7 +329,14 @@ def test_publish_rejects_invalid_semver():
     for bad in ["1.0", "v1.0.0", "1.0.0-alpha", "01.0.0", "foo", ""]:
         try:
             dataset_lifecycle.publish_dataset_version(
-                db, version=version, new_version_label=bad, actor=owner, commit=False
+                db,
+                version=version,
+                new_version_label=bad,
+                actor=owner,
+                deidentified_confirmed=True,
+                ethics_statement="已通过伦理审查",
+                license_statement="CC-BY-4.0",
+                commit=False,
             )
             raise AssertionError(f"should reject {bad!r}")
         except DatasetLifecycleValidationError:
@@ -323,14 +352,22 @@ def test_publish_rejects_non_owner():
 
     try:
         dataset_lifecycle.publish_dataset_version(
-            db, version=version, new_version_label="1.0.0", actor=other, commit=False
+            db,
+            version=version,
+            new_version_label="1.0.0",
+            actor=other,
+            deidentified_confirmed=True,
+            ethics_statement="已通过伦理审查",
+            license_statement="CC-BY-4.0",
+            commit=False,
         )
         raise AssertionError("should reject")
     except DatasetLifecyclePermissionError:
         pass
 
 
-def test_publish_admin_can_publish_others_asset(monkeypatch):
+def test_publish_rejects_admin_non_owner(monkeypatch):
+    """发布权限收紧为仅负责人：管理员（非 owner）发布他人资产应被拒。"""
     owner = FakeUser()
     admin = FakeUser(roles=("admin",))
     asset, version = make_draft_asset_and_version(owner=owner)
@@ -338,11 +375,20 @@ def test_publish_admin_can_publish_others_asset(monkeypatch):
     db.added.extend([asset, version])
     _patch_publish_queries(monkeypatch, latest_published=None, conflicting=None)
 
-    result = dataset_lifecycle.publish_dataset_version(
-        db, version=version, new_version_label="1.0.0", actor=admin, commit=False
-    )
-    assert result.dataset_version.state == "published"
-    assert result.dataset_version.published_by == admin.id
+    try:
+        dataset_lifecycle.publish_dataset_version(
+            db,
+            version=version,
+            new_version_label="1.0.0",
+            actor=admin,
+            deidentified_confirmed=True,
+            ethics_statement="已通过伦理审查",
+            license_statement="CC-BY-4.0",
+            commit=False,
+        )
+        raise AssertionError("admin (non-owner) should be rejected, only owner can publish")
+    except DatasetLifecyclePermissionError:
+        pass
 
 
 # ============================================
@@ -374,7 +420,7 @@ def test_withdraw_request_published_succeeds():
 def test_withdraw_request_rejects_non_published():
     owner = FakeUser()
     asset, version = make_draft_asset_and_version(owner=owner)
-    # state 还是 draft
+    # state 还是 unpublished
     db = FakeDb()
     db.added.extend([asset, version])
 

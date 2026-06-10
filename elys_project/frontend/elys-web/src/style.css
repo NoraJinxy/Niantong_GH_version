@@ -484,7 +484,7 @@ code, kbd {
 
 /* ====== Page main area ====== */
 .page {
-  padding: var(--s-5) var(--page-pad-x, var(--s-6));
+  padding: var(--page-pad-y, var(--s-5)) var(--page-pad-x, var(--s-6));
   min-height: calc(100vh - var(--header-h));
 }
 .page--narrow {

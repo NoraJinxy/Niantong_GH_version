@@ -82,12 +82,11 @@ def create_working_dataset_version(
     settings_obj=None,
 ) -> DatasetVersion:
     # Phase 2 (docs_v2/3-25): version_label='working' 保留作物理 label（兼容现有 storage_uri 路径 + 旧代码查找）；
-    # state='draft' 表达生命周期；publish 时 owner 输入 SemVer 版本号（DEC-2026-0531-C），届时 rename version_label。
+    # state='unpublished' 表达生命周期；publish 时 owner 输入 SemVer 版本号（DEC-2026-0531-C），届时 rename version_label。
     version = DatasetVersion(
         dataset_asset_id=dataset_asset.id,
         version_label=WORKING_DATASET_VERSION_LABEL,
-        status="working",
-        state="draft",
+        state="unpublished",
         qa_status="not_run",
         storage_uri=dataset_version_storage_uri(dataset_asset.id),
         metadata_json=metadata_json or {"auto_created": True, "source": "dataset_bootstrap"},

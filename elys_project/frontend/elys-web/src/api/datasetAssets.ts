@@ -5,10 +5,14 @@ import type {
   DatasetBootstrapResponse,
   DatasetAssetCreateRequest,
   DatasetAssetListResponse,
+  DatasetAssetOpenVisibilityRequest,
   DatasetAssetTaskRequest,
   DatasetAssetUpdateRequest,
   DatasetFileListResponse,
   DatasetFileTreeResponse,
+  DatasetMember,
+  DatasetMemberAddRequest,
+  DatasetMemberListResponse,
   RecordingListResponse,
   RecordingVersionListResponse,
   StudyDatasetMount,
@@ -50,6 +54,12 @@ export const datasetAssetApi = {
     api.post<DatasetBootstrapResponse>('/dataset-assets/bootstrap', data),
   update: (assetId: string, data: DatasetAssetUpdateRequest) =>
     api.patch<DatasetAsset>(`/dataset-assets/${assetId}`, data),
+  // 可见范围「开放」：只升不降（private<shared<public），要求资产≥1 已发布版本，仅负责人
+  openVisibility: (assetId: string, data: DatasetAssetOpenVisibilityRequest) =>
+    api.post<DatasetAsset>(`/dataset-assets/${assetId}/open-visibility`, data),
+  // 整体删除资产：仅纯未发布资产可删（无任何已发布/已撤回版本），仅负责人，否则后端 409
+  remove: (assetId: string) =>
+    api.delete<void>(`/dataset-assets/${assetId}`),
   listFiles: (assetId: string, params: DatasetFileListParams = {}) =>
     dataApi.get<DatasetFileListResponse>(`/dataset-assets/${assetId}/files`, { params }),
   // Phase 3 (docs_v2/3-25): 列出某个 asset 的所有版本
@@ -64,6 +74,17 @@ export const datasetAssetApi = {
     api.post<AsyncTask>(`/dataset-assets/${assetId}/raw-bids-build`, data),
   rebuildCanonicalFif: (assetId: string, data: DatasetAssetTaskRequest = {}) =>
     api.post<AsyncTask>(`/dataset-assets/${assetId}/canonical-fif-rebuild`, data),
+}
+
+// 共享态邀请制授权（dataset_members，按用户授权）；均仅负责人
+export const datasetMemberApi = {
+  list: (assetId: string) =>
+    api.get<DatasetMemberListResponse>(`/dataset-assets/${assetId}/members`),
+  // #14：data.user_identifier 可为用户名 / 邮箱 / 用户 UUID，后端统一解析
+  add: (assetId: string, data: DatasetMemberAddRequest) =>
+    api.post<DatasetMember>(`/dataset-assets/${assetId}/members`, data),
+  remove: (assetId: string, userId: string) =>
+    api.delete<void>(`/dataset-assets/${assetId}/members/${userId}`),
 }
 
 export const studyDatasetMountApi = {

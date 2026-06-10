@@ -13,11 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     DatasetAsset,
+    DatasetMember,
     Recording,
     DatasetVersion,
     DatasetVersionReference,
     Study,
     StudyDatasetMount,
+    StudyMember,
     User,
 )
 
@@ -27,7 +29,7 @@ class DatasetAssetConflictError(Exception):
 
 
 class DatasetMountStateError(Exception):
-    """挂载操作违反生命周期状态约束（Phase 3, docs_v2/3-25）。"""
+    """关联（Link）操作违反生命周期状态 / 可见性约束（3-25）。"""
 
 
 def working_dataset_asset_code(study: Study) -> str:
@@ -130,7 +132,7 @@ def create_dataset_asset(
         status="working",
         visibility=visibility,
         metadata_json=metadata_json or {},
-        # Phase 2 (docs_v2/3-25): 主 Study，draft 时必填；published 后保留作出身记录
+        # 主研究项（primary study）：unpublished 时必填；published 后保留作出身记录（3-25）
         primary_study_id=primary_study_id,
         created_by=created_by,
     )
@@ -190,7 +192,50 @@ def get_or_create_working_dataset_asset(
     return asset
 
 
-def can_read_dataset_asset(user: User, asset: DatasetAsset) -> bool:
+def _is_primary_study_member(db: Session, *, study_id: str | None, user: User) -> bool:
+    """user 是否为某研究项的成员（含负责人）。
+
+    判据：研究项负责人（owner_id），或在 study_members 里有一行。
+    private 可见档据此放行——「私有 = 负责人 + 管理员 + 主研究项成员」（3-25 规则 6）。
+    """
+    if study_id is None:
+        return False
+    owner_id = (
+        db.query(Study.owner_id)
+        .filter(Study.id == study_id)
+        .scalar()
+    )
+    if owner_id is not None and owner_id == user.id:
+        return True
+    return (
+        db.query(StudyMember.id)
+        .filter(
+            StudyMember.study_id == study_id,
+            StudyMember.user_id == user.id,
+            StudyMember.can_read.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def is_user_authorized(db: Session, asset: DatasetAsset, user: User) -> bool:
+    """user 是否在该资产的 dataset_members 授权名单里（shared 邀请制，3-25 规则 7）。"""
+    return (
+        db.query(DatasetMember.id)
+        .filter(DatasetMember.asset_id == asset.id, DatasetMember.user_id == user.id)
+        .first()
+        is not None
+    )
+
+
+def can_read_dataset_asset(db: Session, user: User, asset: DatasetAsset) -> bool:
+    """资产读权限（3-25 §1.4 可见范围轴）。
+
+    deleted → False；quarantined → 仅管理员；管理员 / 负责人 / 创建者 → True；
+    主研究项成员 → True（规则 6）；public → 任意注册用户 True（规则 8）；
+    shared → 仅 dataset_members 授权用户 True（规则 7，邀请制）；否则 False。
+    """
     if asset.status == "deleted":
         return False
     if asset.status == "quarantined":
@@ -199,11 +244,17 @@ def can_read_dataset_asset(user: User, asset: DatasetAsset) -> bool:
         return True
     if asset.owner_id == user.id or asset.created_by == user.id:
         return True
-    return asset.visibility in {"shared", "public"}
+    if _is_primary_study_member(db, study_id=asset.primary_study_id, user=user):
+        return True
+    if asset.visibility == "public":
+        return True
+    if asset.visibility == "shared" and is_user_authorized(db, asset, user):
+        return True
+    return False
 
 
 def can_write_dataset_asset(user: User, asset: DatasetAsset) -> bool:
-    if asset.status not in {"working", "active"}:
+    if asset.status != "working":
         return False
     if user.has_role("admin"):
         return True
@@ -211,17 +262,52 @@ def can_write_dataset_asset(user: User, asset: DatasetAsset) -> bool:
 
 
 def list_visible_dataset_assets(db: Session, *, user: User) -> list[DatasetAsset]:
+    """与 can_read_dataset_asset 同口径列出可见资产（dashboard 计数随之对齐）。"""
     query = db.query(DatasetAsset).filter(DatasetAsset.status != "deleted")
     if user.has_role("admin"):
         return query.order_by(DatasetAsset.created_at.desc(), DatasetAsset.id.desc()).all()
+
+    # 当前用户作为成员（含负责人）的研究项 id 集合 —— 用于「主研究项成员可见」
+    member_study_ids = {
+        row[0]
+        for row in (
+            db.query(StudyMember.study_id)
+            .filter(StudyMember.user_id == user.id, StudyMember.can_read.is_(True))
+            .all()
+        )
+    }
+    member_study_ids.update(
+        row[0]
+        for row in (
+            db.query(Study.id).filter(Study.owner_id == user.id).all()
+        )
+    )
+    # 当前用户被授权（dataset_members）的资产 id 集合 —— 用于「shared 邀请制」
+    authorized_asset_ids = {
+        row[0]
+        for row in (
+            db.query(DatasetMember.asset_id)
+            .filter(DatasetMember.user_id == user.id)
+            .all()
+        )
+    }
+
+    conditions = [
+        DatasetAsset.owner_id == user.id,
+        DatasetAsset.created_by == user.id,
+        DatasetAsset.visibility == "public",
+    ]
+    if member_study_ids:
+        conditions.append(DatasetAsset.primary_study_id.in_(member_study_ids))
+    if authorized_asset_ids:
+        conditions.append(
+            (DatasetAsset.visibility == "shared") & DatasetAsset.id.in_(authorized_asset_ids)
+        )
+
     return (
         query.filter(
             DatasetAsset.status != "quarantined",
-            or_(
-                DatasetAsset.owner_id == user.id,
-                DatasetAsset.created_by == user.id,
-                DatasetAsset.visibility.in_(("shared", "public")),
-            )
+            or_(*conditions),
         )
         .order_by(DatasetAsset.created_at.desc(), DatasetAsset.id.desc())
         .all()
@@ -230,9 +316,61 @@ def list_visible_dataset_assets(db: Session, *, user: User) -> list[DatasetAsset
 
 def get_dataset_asset_for_user(db: Session, *, asset_id: UUID, user: User) -> DatasetAsset | None:
     asset = db.query(DatasetAsset).filter(DatasetAsset.id == asset_id).first()
-    if asset is None or not can_read_dataset_asset(user, asset):
+    if asset is None or not can_read_dataset_asset(db, user, asset):
         return None
     return asset
+
+
+def list_members(db: Session, *, asset: DatasetAsset) -> list[DatasetMember]:
+    """列出资产的 dataset_members 授权名单（仅 owner 调用，鉴权在路由层）。"""
+    return (
+        db.query(DatasetMember)
+        .filter(DatasetMember.asset_id == asset.id)
+        .order_by(DatasetMember.granted_at.asc(), DatasetMember.id.asc())
+        .all()
+    )
+
+
+def grant_member(
+    db: Session, *, asset: DatasetAsset, user_id, granted_by
+) -> DatasetMember:
+    """授权一个用户访问该资产（shared 邀请制）。幂等：已授权则原样返回。"""
+    existing = (
+        db.query(DatasetMember)
+        .filter(DatasetMember.asset_id == asset.id, DatasetMember.user_id == user_id)
+        .first()
+    )
+    if existing is not None:
+        return existing
+    member = DatasetMember(
+        asset_id=asset.id,
+        user_id=user_id,
+        granted_by=granted_by,
+    )
+    db.add(member)
+    db.flush()
+    return member
+
+
+def revoke_member(db: Session, *, asset: DatasetAsset, user_id) -> bool:
+    """取消某用户的授权。返回是否确有一行被删。"""
+    member = (
+        db.query(DatasetMember)
+        .filter(DatasetMember.asset_id == asset.id, DatasetMember.user_id == user_id)
+        .first()
+    )
+    if member is None:
+        return False
+    db.delete(member)
+    db.flush()
+    return True
+
+
+def _resolve_actor_id(actor):
+    """把传入的 actor 归一为用户 id：接受 User 对象或裸 UUID。"""
+    if actor is None:
+        return None
+    return getattr(actor, "id", actor)
 
 
 def _ensure_version_mountable(
@@ -241,13 +379,17 @@ def _ensure_version_mountable(
     dataset_asset: DatasetAsset,
     dataset_version_id,
     target_study_id: str,
+    actor=None,
 ) -> None:
-    """Phase 3 (docs_v2/3-25) 挂载版本状态校验。
+    """关联（Link）版本的状态 + 可见性网关（3-25 §1.6 规则 10/12/13）。
 
-    规则：
-    - withdrawn 版本：完全禁止新挂载（已有挂载在撤回时保留）
-    - draft 版本：仅主 Study 可挂；其他 Study 必须等 published
-    - published 版本：任何 Study 可挂
+    发布状态门槛：
+    - withdraw_requested / withdrawn：拒绝新关联（已有关联在撤回时保留，不接受新增）。
+    - unpublished：仅主研究项可关联；其他研究项须等版本发布。
+    可见性网关（仅 published 且跨研究项时生效，规则 13）：
+    - public：任何研究项可关联。
+    - shared：仅当 actor 在 dataset_members 授权名单里才可关联。
+    - private：仅主研究项；非主研究项一律拒绝。
     """
     if dataset_version_id is None:
         return  # 兼容期 nullable，Phase 5 起转为必填
@@ -260,19 +402,42 @@ def _ensure_version_mountable(
         raise DatasetMountStateError("指定的数据集版本不存在")
     if version.dataset_asset_id != dataset_asset.id:
         raise DatasetMountStateError("数据集版本与 Asset 不匹配")
-    if version.state == "withdrawn":
+    if version.state in {"withdraw_requested", "withdrawn"}:
         raise DatasetMountStateError(
-            f"版本 {version.version_label} 已撤回，不能创建新挂载"
+            f"版本 {version.version_label} 处于「{version.state}」状态，不能创建新关联；"
+            "已有关联保留，但撤回审核中 / 已撤回的版本不接受新关联"
         )
-    if version.state == "draft":
-        primary_study_id = dataset_asset.primary_study_id
-        if primary_study_id is None or primary_study_id != target_study_id:
+    primary_study_id = dataset_asset.primary_study_id
+    is_primary_target = primary_study_id is not None and primary_study_id == target_study_id
+    if version.state == "unpublished":
+        if not is_primary_target:
             raise DatasetMountStateError(
-                f"版本 {version.version_label} 处于 draft 状态，仅主 Study 可挂载；"
+                f"版本 {version.version_label} 尚未发布，仅主研究项可关联；"
                 "请先发布该版本（POST /api/v1/dataset-versions/{id}/publish）"
             )
-    # withdraw_requested 状态：保持挂载现状（DB 已挂的可继续用），新挂载也允许
-    #   原因：审核可能 rejected 回到 published，不该过早阻止
+        return
+    # version.state == "published"：跨研究项时按可见范围放行
+    if is_primary_target:
+        return
+    if dataset_asset.visibility == "public":
+        return
+    if dataset_asset.visibility == "shared":
+        actor_id = _resolve_actor_id(actor)
+        authorized = actor_id is not None and (
+            db.query(DatasetMember.id)
+            .filter(DatasetMember.asset_id == dataset_asset.id, DatasetMember.user_id == actor_id)
+            .first()
+            is not None
+        )
+        if authorized:
+            return
+        raise DatasetMountStateError(
+            "该数据集为共享（邀请制）且非主研究项，需先获得负责人授权才能关联"
+        )
+    # private 且非主研究项
+    raise DatasetMountStateError(
+        "该数据集为私有，仅主研究项可关联；如需他人使用请由负责人开放可见范围或加入主研究项团队"
+    )
 
 
 def mount_dataset_asset_to_study(
@@ -294,12 +459,13 @@ def mount_dataset_asset_to_study(
     if existing is not None:
         raise DatasetAssetConflictError(f"Study dataset mount name already exists: {mount_name}")
 
-    # Phase 3 (docs_v2/3-25): 校验版本状态
+    # 3-25 规则 10/12/13：校验版本发布状态 + 跨研究项可见性网关（actor = 发起关联者）
     _ensure_version_mountable(
         db,
         dataset_asset=dataset_asset,
         dataset_version_id=dataset_version_id,
         target_study_id=study.id,
+        actor=mounted_by,
     )
 
     mount = StudyDatasetMount(
@@ -418,6 +584,7 @@ def update_study_dataset_mount(
     selection_json: dict[str, Any] | None = None,
     is_active: bool | None = None,
     dataset_version_id=None,
+    actor=None,
 ) -> StudyDatasetMount:
     if mount_name is not None and mount_name != mount.mount_name:
         existing = (
@@ -432,13 +599,16 @@ def update_study_dataset_mount(
         mount.selection_json = selection_json
     if is_active is not None:
         mount.is_active = is_active
-    # Phase 3 (docs_v2/3-25) C: 升级 mount 锁定的版本（同样走状态校验）
+    # Phase 3 (docs_v2/3-25) C: 升级 mount 锁定的版本（同样走状态 + 可见性网关校验）
     if dataset_version_id is not None and dataset_version_id != mount.dataset_version_id:
+        # 可见性网关用「当前操作者」校验，而非原始挂载人 mount.mounted_by——后者可能早已
+        # 不在 dataset_members 授权名单里，升级版本时该用此刻发起者的授权。
         _ensure_version_mountable(
             db,
             dataset_asset=mount.dataset_asset,
             dataset_version_id=dataset_version_id,
             target_study_id=mount.study_id,
+            actor=actor,
         )
         mount.dataset_version_id = dataset_version_id
         # Phase 4 (docs_v2/3-25) D: 升级到新版本时登记一条新引用（旧引用保留作历史）

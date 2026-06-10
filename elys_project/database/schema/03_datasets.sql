@@ -13,13 +13,14 @@ CREATE TABLE IF NOT EXISTS dataset_assets (
     description         TEXT,
     owner_id            UUID REFERENCES users(id) ON DELETE SET NULL,
     status              VARCHAR(32) NOT NULL DEFAULT 'working'
-                            CHECK (status IN ('working', 'active', 'archived', 'deleted', 'quarantined')),
+                            CHECK (status IN ('working', 'archived', 'deleted', 'quarantined')),
     -- 可见范围（用户可见徽章轴）：private 私有 / shared 共享 / public 公开。
-    -- 发布时自动 private→shared（见 services/dataset_lifecycle.py）；workspace 档已废弃（6-05 B 方案）。
+    -- 发布≠分享：发布后可见范围保持不变，默认私有；只升不降、无降级接口（负责人显式开放，见 routers/datasets.py open-visibility）。
+    -- shared = 邀请制（dataset_members 按用户授权）；public = 任意注册用户。workspace 档已废弃（6-05 B 方案）。
     visibility          VARCHAR(32) NOT NULL DEFAULT 'private'
                             CHECK (visibility IN ('private', 'shared', 'public')),
     metadata            JSONB NOT NULL DEFAULT '{}',
-    -- Phase 1 (3-25): 生命周期相关字段，draft 时 primary_study_id 必填，published 后保留作出身记录
+    -- Phase 1 (3-25): 生命周期相关字段，unpublished 时 primary_study_id 必填，published 后保留作出身记录
     primary_study_id    CHAR(12) REFERENCES studies(id) ON DELETE SET NULL,
     concept_doi         VARCHAR(256),                  -- Concept DOI，永远指向最新 published 版本（Zenodo 模式）
     current_version_id  UUID,                          -- 当前默认版本指针；外键在 dataset_versions 创建后延后添加
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS dataset_assets (
     updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON COLUMN dataset_assets.primary_study_id IS '主 Study（DEC-2026-0531-B）。draft 时必填，published 后保留作出身记录。';
+COMMENT ON COLUMN dataset_assets.primary_study_id IS '主 Study（DEC-2026-0531-B）。unpublished 时必填，published 后保留作出身记录。';
 COMMENT ON COLUMN dataset_assets.concept_doi IS 'Concept DOI，永远指向 Asset 最新 published 版本（Zenodo 双 DOI 模式）。';
 COMMENT ON COLUMN dataset_assets.current_version_id IS '当前默认展示版本，通常指向最新 published 版本。';
 
@@ -40,11 +41,9 @@ CREATE TABLE IF NOT EXISTS dataset_versions (
     id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dataset_asset_id            UUID NOT NULL REFERENCES dataset_assets(id) ON DELETE CASCADE,
     version_label               VARCHAR(64) NOT NULL DEFAULT 'working',
-    -- Phase 1 (3-25): 旧 status 保留用于向后兼容，Phase 6 删除；新 state 进入 draft/published/withdrawn 生命周期
-    status                      VARCHAR(32) NOT NULL DEFAULT 'working'
-                                    CHECK (status IN ('working', 'published', 'archived', 'deleted', 'quarantined')),
-    state                       VARCHAR(32) NOT NULL DEFAULT 'draft'
-                                    CHECK (state IN ('draft', 'published', 'withdraw_requested', 'withdrawn')),
+    -- 发布状态轴（生命周期）：unpublished → published → withdraw_requested → withdrawn。
+    state                       VARCHAR(32) NOT NULL DEFAULT 'unpublished'
+                                    CHECK (state IN ('unpublished', 'published', 'withdraw_requested', 'withdrawn')),
     content_hash                VARCHAR(64),                       -- 整版本 fingerprint，发布时异步计算
     version_doi                 VARCHAR(256),                      -- 该版本独有的 Version DOI
     published_at                TIMESTAMP,
@@ -65,14 +64,14 @@ CREATE TABLE IF NOT EXISTS dataset_versions (
     UNIQUE(dataset_asset_id, version_label)
 );
 
-COMMENT ON TABLE dataset_versions IS 'Dataset 数据资产版本表。state 字段进入 draft/published/withdraw_requested/withdrawn 生命周期（详见 wiki/docs/3-25）。';
+COMMENT ON TABLE dataset_versions IS 'Dataset 数据资产版本表。state 字段进入 unpublished/published/withdraw_requested/withdrawn 生命周期（详见 wiki/docs/3-25）。';
 COMMENT ON COLUMN dataset_versions.version_label IS '版本标签，强制 SemVer x.y.z（DEC-2026-0531-C）。首版默认 1.0.0，允许 0.x.y 表示 pre-release。';
-COMMENT ON COLUMN dataset_versions.state IS '生命周期状态：draft → published → withdraw_requested → withdrawn。withdrawn 是终态，要修改必须开新版本。';
+COMMENT ON COLUMN dataset_versions.state IS '生命周期状态：unpublished → published → withdraw_requested → withdrawn。withdrawn 是终态，要修改必须开新版本。';
 COMMENT ON COLUMN dataset_versions.content_hash IS '整版本指纹，published 时异步计算（per-file SHA-256 + manifest hash）。';
 COMMENT ON COLUMN dataset_versions.version_doi IS '该版本独有的 DOI（DataCite Version DOI）。';
 COMMENT ON COLUMN dataset_versions.qa_status IS '展示用，不阻塞发布（DEC-2026-0531-C）。';
 COMMENT ON COLUMN dataset_versions.withdraw_reason IS '撤回理由，owner 申请时填写。';
-COMMENT ON COLUMN dataset_versions.withdrawal_admin_notes IS '审核管理员备注 / 紧急下架原因。紧急下架仅超级管理员可触发（DEC-2026-0531-D）。';
+COMMENT ON COLUMN dataset_versions.withdrawal_admin_notes IS '审核管理员备注 / 紧急下架原因。紧急下架由管理员触发（2026-06-09 v2：归管理员，superadmin 另作平台治理）。';
 COMMENT ON COLUMN dataset_versions.storage_uri IS '版本根 URI，例如 elys://datasets/{dataset_asset_id}/versions/working。';
 
 -- ============================================
@@ -83,7 +82,7 @@ CREATE TABLE IF NOT EXISTS study_dataset_mounts (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     study_id            CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
     dataset_asset_id    UUID NOT NULL REFERENCES dataset_assets(id) ON DELETE RESTRICT,
-    -- Phase 1 (3-25): 挂载锁定到具体版本；Phase 1 nullable，Phase 3 起非空。draft 版本仅主 Study 可挂
+    -- Phase 1 (3-25): 挂载锁定到具体版本；Phase 1 nullable，Phase 3 起非空。unpublished 版本仅主 Study 可挂
     dataset_version_id  UUID REFERENCES dataset_versions(id) ON DELETE RESTRICT,
     mount_name          VARCHAR(128) NOT NULL,
     selection_json      JSONB NOT NULL DEFAULT '{}',
@@ -94,6 +93,24 @@ CREATE TABLE IF NOT EXISTS study_dataset_mounts (
 );
 
 COMMENT ON COLUMN study_dataset_mounts.dataset_version_id IS '挂载锁定到的具体版本。Phase 1 nullable 兼容历史 mount，Phase 3 起非空（DEC-2026-0531 Q-6 待定历史回填策略）。';
+
+-- ============================================
+-- 数据集共享授权（邀请制，按用户）
+-- ============================================
+-- 可见范围 = shared 时，由负责人按用户逐一授权；被授权者可读该资产、可把它关联到自己的研究项。
+-- 仅 shared 档生效：private 走主研究项成员、public 对任意注册用户放行（详见 wiki/docs/3-25）。
+
+CREATE TABLE IF NOT EXISTS dataset_members (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id            UUID NOT NULL REFERENCES dataset_assets(id) ON DELETE CASCADE,
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    granted_by          UUID REFERENCES users(id) ON DELETE SET NULL,
+    granted_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(asset_id, user_id)
+);
+
+COMMENT ON TABLE dataset_members IS '数据集共享授权表（邀请制，按用户）。可见范围 shared 时由负责人授权；被授权者可读该资产、可关联到自己研究项。';
+COMMENT ON COLUMN dataset_members.granted_by IS '执行授权的用户（通常为负责人）。';
 
 -- ============================================
 -- 受试者（BIDS subjects）
@@ -272,7 +289,7 @@ CREATE TABLE IF NOT EXISTS dataset_withdrawal_requests (
     notification_sent_at    TIMESTAMP
 );
 
-COMMENT ON TABLE dataset_withdrawal_requests IS '撤回申请审计表（DEC-2026-0531-A / D）。decision = emergency 表示超级管理员紧急下架，事后补录。';
+COMMENT ON TABLE dataset_withdrawal_requests IS '撤回申请审计表（DEC-2026-0531-A / D）。decision = emergency 表示管理员紧急下架，事后补录。';
 COMMENT ON COLUMN dataset_withdrawal_requests.decision IS 'approved / rejected = 管理员正常审核结果；emergency = 紧急下架补审计。';
 
 -- ============================================
@@ -283,11 +300,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_assets_code ON dataset_assets(code)
 CREATE INDEX IF NOT EXISTS idx_dataset_assets_owner ON dataset_assets(owner_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_assets_visibility_status ON dataset_assets(visibility, status);
 CREATE INDEX IF NOT EXISTS idx_dataset_assets_created_by ON dataset_assets(created_by);
-CREATE INDEX IF NOT EXISTS idx_dataset_versions_asset ON dataset_versions(dataset_asset_id, status);
+CREATE INDEX IF NOT EXISTS idx_dataset_versions_asset ON dataset_versions(dataset_asset_id, state);
 CREATE INDEX IF NOT EXISTS idx_dataset_versions_created_by ON dataset_versions(created_by);
 CREATE INDEX IF NOT EXISTS idx_study_dataset_mounts_study ON study_dataset_mounts(study_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_study_dataset_mounts_asset ON study_dataset_mounts(dataset_asset_id);
 CREATE INDEX IF NOT EXISTS idx_study_dataset_mounts_mounted_by ON study_dataset_mounts(mounted_by);
+CREATE INDEX IF NOT EXISTS idx_dataset_members_asset ON dataset_members(asset_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_members_user ON dataset_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_subjects_study ON subjects(study_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_study ON recordings(study_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_subject ON recordings(subject_id);

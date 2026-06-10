@@ -26,6 +26,9 @@
       </div>
     </div>
 
+    <!-- #15：页面级成功提示（在详情面板之外，删除后选中清空、面板卸载仍可见） -->
+    <div v-if="pageNotice" class="inline-success" role="status" style="margin-bottom: 16px;">{{ pageNotice }}</div>
+
     <!-- UI Phase (docs_v2/6-05) 统一顶部 stat 条 - 仅展示用户关心的 4 张数字卡 -->
     <section class="page-stat-strip" aria-label="数据集概览">
       <article class="page-stat">
@@ -51,7 +54,7 @@
       <AppIcon name="studies" :size="18" />
       <div>
         <strong>当前处于处理工作空间快捷入口</strong>
-        <span>上传目标会挂载到 {{ shortcutStudyLabel }}；普通入口会自动生成处理工作空间。</span>
+        <span>上传目标会关联到 {{ shortcutStudyLabel }}；普通入口会自动生成处理工作空间。</span>
       </div>
     </section>
 
@@ -190,14 +193,14 @@
             <details class="dataset-advanced-settings">
               <summary>高级设置</summary>
               <label class="field">
-                <span class="field__label">挂载名称</span>
+                <span class="field__label">关联名称</span>
                 <input
                   v-model.trim="mountName"
                   class="input"
                   placeholder="primary"
                   @input="clearBootstrapResult"
                 />
-                <span class="field__hint">默认 primary；仅在同一处理工作空间挂载多个数据集时需要调整。</span>
+                <span class="field__hint">默认 primary；仅在同一处理工作空间关联多个数据集时需要调整。</span>
               </label>
             </details>
           </div>
@@ -206,7 +209,7 @@
           <div v-if="bootstrapSuccess" class="inline-success">{{ bootstrapSuccess }}</div>
 
           <div class="dataset-action-bar">
-            <span>创建后自动准备导入目标，并上传到当前草稿版本。</span>
+            <span>创建后自动准备导入目标，并上传到当前未发布版本。</span>
             <button class="btn btn--primary" type="submit" :disabled="isBootstrapping || !canCreateDataset">
               <span v-if="isBootstrapping" class="spinner"></span>
               {{ isBootstrapping ? '正在准备...' : '创建并准备导入' }}
@@ -238,9 +241,8 @@
                 <p>{{ datasetDecisionSummary.message }}</p>
               </div>
               <div class="dataset-profile__badges">
-                <!-- 6-05 B 方案：徽章只读展示可见范围（私有/共享/公开）。
-                     可见范围是严肃决策（类比论文发表），不提供随意下拉；
-                     私有→共享由「发布版本」流程郑重触发，收回走撤回流程。 -->
+                <!-- 数据集生命周期 v2（3-25）：可见范围与发布解耦。徽章只读展示可见范围（私有/共享/公开）；
+                     负责人可显式「开放」——只升不降（私有→共享→公开，可跳级），无降级入口（不可逆释放，类比论文发表）。 -->
                 <span
                   class="badge"
                   :class="getVisibilityClass(selectedDatasetAsset.visibility)"
@@ -248,6 +250,27 @@
                 >
                   {{ getVisibilityLabel(selectedDatasetAsset.visibility) }}
                 </span>
+                <!-- 仅负责人可开放；需至少 1 个已发布版本；只能升级 -->
+                <button
+                  v-if="canOpenVisibility('shared')"
+                  class="btn btn--sm btn--ghost"
+                  type="button"
+                  title="把可见范围开放为「共享」（邀请制授权用户可用）。开放不可逆。"
+                  @click="openVisibilityModalFor('shared')"
+                >
+                  <AppIcon name="network" :size="14" />
+                  开放为共享
+                </button>
+                <button
+                  v-if="canOpenVisibility('public')"
+                  class="btn btn--sm btn--ghost"
+                  type="button"
+                  title="把可见范围开放为「公开」（全平台注册用户可用）。开放不可逆。"
+                  @click="openVisibilityModalFor('public')"
+                >
+                  <AppIcon name="observe" :size="14" />
+                  开放为公开
+                </button>
               </div>
             </div>
 
@@ -268,7 +291,7 @@
                 </div>
                 <div class="dataset-version-card__actions">
                   <button
-                    v-if="currentVersion.state === 'draft'"
+                    v-if="currentVersion.state === 'unpublished'"
                     class="btn btn--primary"
                     type="button"
                     @click="openPublishModal"
@@ -295,17 +318,17 @@
                   </button>
                 </div>
               </div>
-              <p v-if="currentVersion.state === 'draft'" class="dataset-version-card__hint">
-                此版本仅主研究项可挂载使用。发布后才能被其他研究项引用，且发布后不可修改文件（要改请开新版本）。
+              <p v-if="currentVersion.state === 'unpublished'" class="dataset-version-card__hint">
+                此版本仅主研究项可关联使用。发布后才能被其他研究项引用，且发布后不可修改文件（要改请开新版本）。发布≠分享：发布只冻结并铸 DOI，可见范围默认保持私有，是否对外开放由你单独决定。
               </p>
               <p v-else-if="currentVersion.state === 'published'" class="dataset-version-card__hint">
-                已发布版本不可修改。如需变更内容请创建新的草稿版本；如需下架请提交撤回申请由管理员审核。
+                已发布版本不可修改。如需变更内容请创建新的未发布版本；如需下架请提交撤回申请由管理员审核。
               </p>
               <p v-else-if="currentVersion.state === 'withdraw_requested'" class="dataset-version-card__hint">
-                撤回申请审核中。审核通过后此版本将转为已撤回（终态），已有挂载和引用会保留但禁止新引用。
+                撤回申请审核中。审核通过后此版本将转为已撤回（终态），已有关联和引用会保留但禁止新引用。
               </p>
               <p v-else-if="currentVersion.state === 'withdrawn'" class="dataset-version-card__hint">
-                此版本已撤回。如需继续工作请创建新的草稿版本（前向演进，不可回滚）。
+                此版本已撤回。如需继续工作请创建新的未发布版本（前向演进，不可回滚）。
               </p>
               <dl class="dataset-version-card__meta">
                 <div>
@@ -349,7 +372,7 @@
                   :disabled="isCreatingDraft"
                   @click="createNewDraft"
                 >
-                  {{ isCreatingDraft ? '创建中...' : '+ 新建草稿版本' }}
+                  {{ isCreatingDraft ? '创建中...' : '+ 新建未发布版本' }}
                 </button>
               </header>
               <ol class="version-timeline__list">
@@ -374,7 +397,7 @@
                   <!-- Phase 3 C+ (docs_v2/3-25): 每行的快捷操作 -->
                   <div class="version-timeline__actions">
                     <button
-                      v-if="version.state === 'draft'"
+                      v-if="version.state === 'unpublished'"
                       class="btn btn--primary btn--small"
                       type="button"
                       @click="openPublishModalForVersion(version)"
@@ -389,12 +412,81 @@
                     >
                       申请撤回
                     </button>
+                    <!-- 规则 4：已发布资产上的 v+1 未发布版本可单独丢弃（仅负责人） -->
+                    <button
+                      v-if="canDiscardVersion(version)"
+                      class="btn btn--danger btn--small"
+                      type="button"
+                      title="丢弃这个未发布版本（不影响已发布历史）"
+                      @click="openDiscardVersionModal(version)"
+                    >
+                      丢弃
+                    </button>
                   </div>
                 </li>
               </ol>
               <p v-if="canCreateNewDraftBlockedReason" class="version-timeline__hint">
                 {{ canCreateNewDraftBlockedReason }}
               </p>
+            </section>
+
+            <!-- 规则 7：邀请制授权用户面板（仅负责人、仅共享态可管理）。
+                 共享 = 负责人按用户授权（dataset_members）；被授权者可读、可把数据集关联进自己的研究项。 -->
+            <section v-if="showMemberPanel" class="dataset-member-panel" aria-label="授权用户">
+              <header class="dataset-member-panel__head">
+                <div>
+                  <span class="section-kicker">授权用户</span>
+                  <strong>{{ datasetMembers.length }} 位已授权</strong>
+                  <p>共享数据集为邀请制：仅你授权的用户可读、可把它关联到自己的研究项。授权某用户即信任其及其协作研究项。</p>
+                </div>
+                <button
+                  class="btn btn--sm"
+                  type="button"
+                  :disabled="isLoadingMembers"
+                  @click="loadSelectedAssetMembers"
+                >
+                  <AppIcon name="restore" :size="14" />
+                  刷新
+                </button>
+              </header>
+
+              <form class="dataset-member-add" @submit.prevent="submitAddMember">
+                <input
+                  v-model.trim="memberAddUserId"
+                  class="input"
+                  type="text"
+                  placeholder="用户名 / 用户 ID"
+                  :disabled="isAddingMember"
+                />
+                <button class="btn btn--primary btn--sm" type="submit" :disabled="isAddingMember || !memberAddUserId">
+                  <span v-if="isAddingMember" class="spinner"></span>
+                  {{ isAddingMember ? '授权中...' : '授权' }}
+                </button>
+              </form>
+              <div v-if="memberError" class="inline-error">{{ memberError }}</div>
+
+              <div v-if="isLoadingMembers" class="dataset-list-empty">正在读取授权用户...</div>
+              <div v-else-if="!datasetMembers.length" class="dataset-list-empty">
+                还没有授权任何用户。在上方输入用户 ID 即可授权。
+              </div>
+              <ul v-else class="dataset-member-list">
+                <li v-for="member in datasetMembers" :key="member.id">
+                  <div class="dataset-member-identity">
+                    <strong>{{ member.full_name || member.username || member.user_id }}</strong>
+                    <small v-if="member.username && (member.full_name || member.username !== member.user_id)">{{ member.username }}</small>
+                    <small class="mono">{{ member.user_id }}</small>
+                  </div>
+                  <span class="dataset-member-time" v-if="member.granted_at">授权于 {{ formatDate(member.granted_at) }}</span>
+                  <button
+                    class="btn btn--sm btn--danger"
+                    type="button"
+                    :disabled="removingMemberId === member.user_id"
+                    @click="revokeMember(member)"
+                  >
+                    {{ removingMemberId === member.user_id ? '取消中...' : '取消授权' }}
+                  </button>
+                </li>
+              </ul>
             </section>
 
             <div class="dataset-decision-panel" :class="datasetDecisionSummary.className">
@@ -549,6 +641,19 @@
                 </div>
               </dl>
             </TechnicalFold>
+
+            <!-- 规则 4：纯未发布资产（无任何已发布/已撤回版本）才可整体删除，仅负责人。已发布历史一律不可删、只能撤回。 -->
+            <section v-if="canDeleteAsset" class="dataset-danger-zone" aria-label="危险操作">
+              <div>
+                <span class="section-kicker section-kicker--danger">危险操作</span>
+                <strong>删除整个数据集</strong>
+                <p>该数据集所有版本均为未发布（从未发布、且无撤回审核中 / 已撤回记录），可整体永久删除（文件、版本、记录一并清除，不可恢复）。一旦发布过版本就只能撤回、无法删除。</p>
+              </div>
+              <button class="btn btn--danger" type="button" @click="openDeleteAssetModal">
+                <AppIcon name="trash" :size="14" />
+                删除数据集
+              </button>
+            </section>
           </section>
 
           <section v-else-if="activeTab === 'import'" ref="uploadSectionRef" class="dataset-tab-panel" aria-label="导入数据">
@@ -577,7 +682,7 @@
             <details class="dataset-advanced-settings">
               <summary>高级设置</summary>
               <label class="dataset-mount-field">
-                <span>挂载名称</span>
+                <span>关联名称</span>
                 <input
                   v-model.trim="mountName"
                   class="input"
@@ -1072,7 +1177,7 @@
             <details class="dataset-technical-details">
               <summary>
                 <span>技术追溯信息</span>
-                <small>{{ copyStatus || '按需展开查看 ID、挂载和上传端点' }}</small>
+                <small>{{ copyStatus || '按需展开查看 ID、关联和上传端点' }}</small>
               </summary>
               <div class="dataset-technical-grid">
                 <div v-for="item in technicalInfoItems" :key="item.key">
@@ -1110,8 +1215,9 @@
           <button class="icon-button" type="button" aria-label="关闭" @click="closePublishModal">x</button>
         </header>
         <p class="modal-copy">
-          发布后该版本将变为只读（不可修改），其他研究项可挂载和引用。版本号必须遵循语义化版本（SemVer）规则
+          发布后该版本将变为只读（不可修改），并铸造学术 DOI。版本号必须遵循语义化版本（SemVer）规则
           <code>x.y.z</code>，且严格大于已发布的最新版本。
+          <strong>发布≠分享</strong>：发布只冻结并铸 DOI，可见范围默认保持私有；是否对外开放由你在发布后单独决定。
         </p>
         <label>
           <span>新版本号</span>
@@ -1128,9 +1234,35 @@
             {{ publishModal.error || '格式 主版本.次版本.修订号；主版本=实验设计变更 / 次版本=加被试 / 修订号=元数据修正' }}
           </small>
         </label>
+
+        <!-- 规则 3：发布为 PII / 伦理 / 版权关口，每次发布都需重做。三项缺一不可。 -->
+        <div class="publish-compliance">
+          <p class="publish-compliance__title">发布合规确认（每个已发布版本都是独立不可变制品，需逐次确认）</p>
+          <label class="publish-compliance__check">
+            <input v-model="publishModal.deidentified" type="checkbox" />
+            <span>我确认本版本数据已完成<strong>去标识化（脱敏）</strong>，不含可识别被试身份的个人信息（姓名、住院号、人脸等）。</span>
+          </label>
+          <label>
+            <span>伦理声明（必填）</span>
+            <textarea
+              v-model.trim="publishModal.ethics"
+              rows="2"
+              placeholder="例如：本研究经 XX 单位伦理委员会批准（批件号 …），受试者均已知情同意。"
+            />
+          </label>
+          <label>
+            <span>版权 / 许可声明（必填）</span>
+            <textarea
+              v-model.trim="publishModal.license"
+              rows="2"
+              placeholder="例如：CC BY 4.0；或注明数据归属与允许的使用范围。"
+            />
+          </label>
+        </div>
+
         <footer>
           <button class="btn btn--ghost" type="button" @click="closePublishModal">取消</button>
-          <button class="btn btn--primary" type="submit" :disabled="publishModal.submitting">
+          <button class="btn btn--primary" type="submit" :disabled="publishModal.submitting || !canSubmitPublish">
             {{ publishModal.submitting ? '发布中...' : '发布' }}
           </button>
         </footer>
@@ -1149,7 +1281,7 @@
         </header>
         <p class="modal-copy">
           撤回申请将由平台管理员审核。审核通过后版本将转为<strong>已撤回</strong>（终态），
-          已有挂载和引用保留但禁止新引用。要继续工作请创建新版本（不能从已撤回状态回退）。
+          已有关联和引用保留但禁止新引用。要继续工作请创建新版本（不能从已撤回状态回退）。
         </p>
         <label>
           <span>撤回原因（必填）</span>
@@ -1211,11 +1343,108 @@
         </footer>
       </form>
     </div>
+
+    <!-- 数据集生命周期 v2（3-25）规则 5：可见范围「开放」单向确认弹窗（只升不降，不可逆释放） -->
+    <div v-if="visibilityModal.open" class="modal-backdrop" role="presentation" @click.self="closeVisibilityModal">
+      <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitOpenVisibility">
+        <header>
+          <div>
+            <p class="eyebrow eyebrow--danger">开放可见范围（不可逆）</p>
+            <h2>{{ selectedDatasetAsset?.name || '未命名' }} → {{ getVisibilityLabel(visibilityModal.target) }}</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭" @click="closeVisibilityModal">x</button>
+        </header>
+        <p class="modal-copy modal-copy--danger">
+          你正要把可见范围从「{{ getVisibilityLabel(selectedDatasetAsset?.visibility) }}」开放为
+          <strong>「{{ getVisibilityLabel(visibilityModal.target) }}」</strong>。
+          <template v-if="visibilityModal.target === 'shared'">
+            共享后由你授权的用户可读、可把数据集关联进其研究项。
+          </template>
+          <template v-else>
+            公开后<strong>全平台所有注册用户</strong>都可读取并关联此数据集。
+          </template>
+          <br />
+          <strong>开放不可逆、无降级入口</strong>：开放即等于把数据交出去（对方可能已复制，无法真正收回）。
+          要可撤销地给特定人用，请改用「私有 + 把人加进主研究项」。
+        </p>
+        <div v-if="visibilityModal.error" class="inline-error">{{ visibilityModal.error }}</div>
+        <footer>
+          <button class="btn btn--ghost" type="button" @click="closeVisibilityModal">取消</button>
+          <button class="btn btn--danger" type="submit" :disabled="visibilityModal.submitting">
+            {{ visibilityModal.submitting ? '开放中...' : `确认开放为${getVisibilityLabel(visibilityModal.target)}` }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <!-- 规则 4：删除整个数据集（仅纯未发布资产）强确认弹窗 -->
+    <div v-if="deleteAssetModal.open" class="modal-backdrop" role="presentation" @click.self="closeDeleteAssetModal">
+      <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitDeleteAsset">
+        <header>
+          <div>
+            <p class="eyebrow eyebrow--danger">删除数据集（不可恢复）</p>
+            <h2>{{ selectedDatasetAsset?.name || '未命名' }}</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭" @click="closeDeleteAssetModal">x</button>
+        </header>
+        <p class="modal-copy modal-copy--danger">
+          这将<strong>永久删除</strong>该数据集及其全部版本、文件与采集记录，无法恢复。
+          仅当数据集从未发布过任何版本时才允许删除。
+        </p>
+        <label>
+          <span>请输入数据集名称 <code>{{ selectedDatasetAsset?.name }}</code> 以确认</span>
+          <input
+            v-model.trim="deleteAssetModal.confirmName"
+            type="text"
+            :class="{ 'has-error': deleteAssetModal.error }"
+            placeholder="逐字输入数据集名称"
+            autofocus
+          />
+          <small class="field-hint" :class="{ 'is-error': deleteAssetModal.error }">
+            {{ deleteAssetModal.error || '名称一致才会启用删除按钮' }}
+          </small>
+        </label>
+        <footer>
+          <button class="btn btn--ghost" type="button" @click="closeDeleteAssetModal">取消</button>
+          <button
+            class="btn btn--danger"
+            type="submit"
+            :disabled="deleteAssetModal.submitting || deleteAssetModal.confirmName !== selectedDatasetAsset?.name"
+          >
+            {{ deleteAssetModal.submitting ? '删除中...' : '永久删除' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <!-- 规则 4：丢弃已发布资产上的 v+1 未发布版本强确认弹窗 -->
+    <div v-if="discardVersionModal.open" class="modal-backdrop" role="presentation" @click.self="closeDiscardVersionModal">
+      <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitDiscardVersion">
+        <header>
+          <div>
+            <p class="eyebrow eyebrow--danger">丢弃未发布版本</p>
+            <h2>{{ selectedDatasetAsset?.name || '未命名' }} {{ formatVersionLabel(discardVersionModal.versionLabel) }}</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭" @click="closeDiscardVersionModal">x</button>
+        </header>
+        <p class="modal-copy modal-copy--danger">
+          这将丢弃当前正在编辑的<strong>未发布版本</strong>及其未发布内容，不可恢复。
+          已发布的历史版本不受影响。
+        </p>
+        <div v-if="discardVersionModal.error" class="inline-error">{{ discardVersionModal.error }}</div>
+        <footer>
+          <button class="btn btn--ghost" type="button" @click="closeDiscardVersionModal">取消</button>
+          <button class="btn btn--danger" type="submit" :disabled="discardVersionModal.submitting">
+            {{ discardVersionModal.submitting ? '丢弃中...' : '确认丢弃' }}
+          </button>
+        </footer>
+      </form>
+    </div>
   </WorkbenchShell>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
@@ -1223,7 +1452,7 @@ import BidsUploadPanel from '@/components/BidsUploadPanel.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { useAuthStore } from '@/stores/auth'
-import { datasetAssetApi, recordingApi, studyDatasetMountApi } from '@/api/datasetAssets'
+import { datasetAssetApi, datasetMemberApi, recordingApi, studyDatasetMountApi } from '@/api/datasetAssets'
 import {
   datasetVersionApi,
   datasetVersionStateClass,
@@ -1232,8 +1461,10 @@ import {
 import { studyApi } from '@/api/studies'
 import type {
   DatasetAsset,
+  DatasetAssetVisibility,
   DatasetBootstrapResponse,
   DatasetFile,
+  DatasetMember,
   DatasetUploadContext,
   DatasetVersion,
   Recording,
@@ -1342,7 +1573,11 @@ const publishModal = ref<{
   submitting: boolean
   error: string
   targetVersionId: string | null
-}>({ open: false, versionLabel: '1.0.0', submitting: false, error: '', targetVersionId: null })
+  // 规则 3：发布合规关口（每次发布都需重做）
+  deidentified: boolean
+  ethics: string
+  license: string
+}>({ open: false, versionLabel: '1.0.0', submitting: false, error: '', targetVersionId: null, deidentified: false, ethics: '', license: '' })
 const withdrawModal = ref<{
   open: boolean
   reason: string
@@ -1356,6 +1591,51 @@ const emergencyModal = ref<{
   submitting: boolean
   error: string
 }>({ open: false, reason: '', submitting: false, error: '' })
+
+// 数据集生命周期 v2（3-25）：可见范围「开放」（只升不降，目标只能是 shared/public）
+const visibilityModal = ref<{
+  open: boolean
+  target: Extract<DatasetAssetVisibility, 'shared' | 'public'>
+  submitting: boolean
+  error: string
+}>({ open: false, target: 'shared', submitting: false, error: '' })
+
+// 规则 7：邀请制授权用户面板
+const datasetMembers = ref<DatasetMember[]>([])
+const isLoadingMembers = ref(false)
+const isAddingMember = ref(false)
+const memberAddUserId = ref('')
+const memberError = ref('')
+const removingMemberId = ref('')
+
+// 规则 4：删除整个数据集（仅纯未发布资产）
+const deleteAssetModal = ref<{
+  open: boolean
+  confirmName: string
+  submitting: boolean
+  error: string
+}>({ open: false, confirmName: '', submitting: false, error: '' })
+// #15：页面级提示（渲染在详情面板之外）。删除成功后详情面板随选中清空而卸载，
+// 详情内的 lifecycleMessage 看不到，故另设页面级 pageNotice，~4s 后自动清空。
+const pageNotice = ref('')
+let pageNoticeTimer: ReturnType<typeof setTimeout> | null = null
+function showPageNotice(message: string) {
+  pageNotice.value = message
+  if (pageNoticeTimer) clearTimeout(pageNoticeTimer)
+  pageNoticeTimer = setTimeout(() => {
+    pageNotice.value = ''
+    pageNoticeTimer = null
+  }, 4000)
+}
+
+// 规则 4：丢弃已发布资产上的 v+1 未发布版本
+const discardVersionModal = ref<{
+  open: boolean
+  versionId: string | null
+  versionLabel: string
+  submitting: boolean
+  error: string
+}>({ open: false, versionId: null, versionLabel: '', submitting: false, error: '' })
 
 const queryStudyId = computed(() => queryString(route.query.study_id) || queryString(route.query.studyId))
 const selectedStudy = computed(() =>
@@ -1383,10 +1663,10 @@ const currentVersion = computed<DatasetVersion | null>(() => {
   return datasetVersions.value[0]
 })
 
-// Phase 3 (docs_v2/3-25) C: 版本时间线排序（draft 在最上，其次按发布时间倒序）
+// Phase 3 (docs_v2/3-25) C: 版本时间线排序（未发布在最上，其次按发布时间倒序）
 const sortedVersions = computed<DatasetVersion[]>(() => {
   return [...datasetVersions.value].sort((a, b) => {
-    const stateOrder: Record<string, number> = { draft: 0, withdraw_requested: 1, published: 2, withdrawn: 3 }
+    const stateOrder: Record<string, number> = { unpublished: 0, withdraw_requested: 1, published: 2, withdrawn: 3 }
     const ao = stateOrder[a.state || 'published'] ?? 4
     const bo = stateOrder[b.state || 'published'] ?? 4
     if (ao !== bo) return ao - bo
@@ -1396,30 +1676,76 @@ const sortedVersions = computed<DatasetVersion[]>(() => {
   })
 })
 
-// 6-05 B 方案：可见范围只读展示。私有→共享是严肃决策（类比论文发表），
-// 由「发布版本」流程郑重触发、收回走撤回流程，不提供随意下拉。这里只给徽章一个解释性 tooltip。
+// 数据集生命周期 v2（3-25）：可见范围与发布解耦。徽章只读展示，开放走专门的单向「开放」动作（只升不降）。
 function visibilityHint(visibility: string) {
-  if (visibility === 'private') return '仅本研究项可见。发布版本后会自动转为「共享」，供其他研究项引用。'
-  if (visibility === 'shared') return '其他研究项可挂载 / 引用。如需收回请走撤回流程。'
-  if (visibility === 'public') return '全平台可见。'
+  if (visibility === 'private') return '仅主研究项可见（负责人 / 管理员 / 主研究项成员）。开放为共享 / 公开后才能被其他研究项引用。'
+  if (visibility === 'shared') return '邀请制：仅负责人授权的用户可读、可关联到自己的研究项。开放不可逆，无降级入口。'
+  if (visibility === 'public') return '全平台所有注册用户可读 / 可关联。开放不可逆。'
   return ''
 }
 
 const hasOpenDraft = computed<boolean>(() =>
-  datasetVersions.value.some((v) => v.state === 'draft' || v.state === 'withdraw_requested'),
+  datasetVersions.value.some((v) => v.state === 'unpublished' || v.state === 'withdraw_requested'),
 )
 const hasAnyPublished = computed<boolean>(() =>
   datasetVersions.value.some((v) => v.state === 'published' || v.state === 'withdrawn'),
+)
+// 删除口径（与后端「整体删除」一致）：资产有任何 published / withdraw_requested / withdrawn 版本即视为「发布过」，不可删，只能撤回。
+const hasPublishedHistory = computed<boolean>(() =>
+  datasetVersions.value.some(
+    (v) => v.state === 'published' || v.state === 'withdraw_requested' || v.state === 'withdrawn',
+  ),
+)
+// 开放口径（与后端 asset_has_published_version 一致）：仅当「当前存在 state==='published' 的版本」才允许开放可见范围。withdrawn 终态不算。
+const hasCurrentlyPublished = computed<boolean>(() =>
+  datasetVersions.value.some((v) => v.state === 'published'),
 )
 const canCreateNewDraft = computed<boolean>(() => hasAnyPublished.value && !hasOpenDraft.value)
 const canCreateNewDraftBlockedReason = computed<string>(() => {
   if (!datasetVersions.value.length) return ''
   if (!hasAnyPublished.value) return ''
-  if (hasOpenDraft.value) return '已有未完结的版本（草稿 / 撤回审核中），请先处理完毕再创建新版本。'
+  if (hasOpenDraft.value) return '已有未完结的版本（未发布 / 撤回审核中），请先处理完毕再创建新版本。'
   return ''
 })
 
-// 发布弹窗里显示"要发布的源版本号"（默认 working，但可能是手动选其他 draft）
+// 数据集生命周期 v2（3-25）：负责人（owner）专属操作判定。发布/授权/撤回/开放/删除一律仅 owner。
+const isAssetOwner = computed<boolean>(() => {
+  const asset = selectedDatasetAsset.value
+  const uid = auth.user?.id
+  return Boolean(asset && uid && asset.owner_id === uid)
+})
+
+// 规则 5 + 边界规则 J：开放需「仅 owner」+「至少 1 个已发布版本」+「目标开放度严格高于当前」。
+const visibilityRank: Record<string, number> = { private: 0, shared: 1, public: 2 }
+function canOpenVisibility(target: 'shared' | 'public'): boolean {
+  const asset = selectedDatasetAsset.value
+  if (!asset || !isAssetOwner.value) return false
+  if (!hasCurrentlyPublished.value) return false
+  const current = visibilityRank[asset.visibility] ?? 0
+  return visibilityRank[target] > current
+}
+
+// 规则 7：共享态 + 仅 owner 才显示授权用户面板
+const showMemberPanel = computed<boolean>(
+  () => isAssetOwner.value && selectedDatasetAsset.value?.visibility === 'shared',
+)
+
+// 规则 4：纯未发布资产（无任何 published/withdraw_requested/withdrawn 版本）+ 仅 owner 才可整体删除
+const canDeleteAsset = computed<boolean>(
+  () => isAssetOwner.value && datasetVersions.value.length > 0 && !hasPublishedHistory.value,
+)
+
+// 规则 4：已发布资产上的 v+1 未发布版本可单独丢弃（仅 owner）；纯未发布资产用「删除数据集」而非丢弃单版本
+function canDiscardVersion(version: DatasetVersion): boolean {
+  return isAssetOwner.value && version.state === 'unpublished' && hasAnyPublished.value
+}
+
+// 规则 3：发布合规三项齐全才允许提交
+const canSubmitPublish = computed<boolean>(
+  () => publishModal.value.deidentified && Boolean(publishModal.value.ethics) && Boolean(publishModal.value.license),
+)
+
+// 发布弹窗里显示"要发布的源版本号"（默认 working，但可能是手动选其他未发布版本）
 const publishTargetLabel = computed<string>(() => {
   const id = publishModal.value.targetVersionId
   if (!id) return 'working'
@@ -1760,6 +2086,11 @@ onMounted(async () => {
   if (selectedDatasetAssetId.value) void loadSelectedAssetVersions()
 })
 
+// #15：组件卸载时清掉页面级提示定时器，避免泄漏
+onUnmounted(() => {
+  if (pageNoticeTimer) clearTimeout(pageNoticeTimer)
+})
+
 async function reloadAll() {
   await Promise.all([loadStudies(), loadDatasetAssets()])
   await loadSelectedAssetFiles()
@@ -1824,6 +2155,8 @@ async function loadSelectedAssetVersions() {
   } finally {
     isLoadingVersions.value = false
   }
+  // 规则 7：版本载入后同步授权用户面板（函数内部按 owner + 共享态自守卫，否则为空操作）
+  void loadSelectedAssetMembers()
 }
 
 function qaStatusLabel(status: string | null | undefined): string {
@@ -1867,6 +2200,9 @@ function openPublishModalForVersion(version: DatasetVersion | null) {
     submitting: false,
     error: '',
     targetVersionId: version.id,
+    deidentified: false,
+    ethics: '',
+    license: '',
   }
 }
 function closePublishModal() {
@@ -1882,10 +2218,26 @@ async function submitPublish() {
     publishModal.value.error = '版本号必须是 SemVer x.y.z 格式（如 1.0.0）'
     return
   }
+  // 规则 3：发布合规关口，三项缺一不可
+  if (!publishModal.value.deidentified) {
+    publishModal.value.error = '请先勾选「已完成去标识化（脱敏）」确认'
+    return
+  }
+  const ethics = publishModal.value.ethics.trim()
+  const license = publishModal.value.license.trim()
+  if (!ethics || !license) {
+    publishModal.value.error = '请填写伦理声明与版权 / 许可声明'
+    return
+  }
   publishModal.value.submitting = true
   publishModal.value.error = ''
   try {
-    await datasetVersionApi.publish(versionId, { version_label: label })
+    await datasetVersionApi.publish(versionId, {
+      version_label: label,
+      deidentified_confirmed: true,
+      ethics_statement: ethics,
+      license_statement: license,
+    })
     lifecycleMessage.value = `已发布 ${label}`
     publishModal.value.open = false
     await Promise.all([loadDatasetAssets(), loadSelectedAssetVersions()])
@@ -1967,7 +2319,7 @@ async function submitEmergencyTakedown() {
   }
 }
 
-// Phase 3 (docs_v2/3-25) C: 创建新 draft 版本（已发布过的 Asset 推 v+1）
+// Phase 3 (docs_v2/3-25) C: 创建新未发布版本（已发布过的 Asset 推 v+1）
 async function createNewDraft() {
   const asset = selectedDatasetAsset.value
   if (!asset) return
@@ -1975,12 +2327,159 @@ async function createNewDraft() {
   isCreatingDraft.value = true
   try {
     const res = await datasetAssetApi.createDraftVersion(asset.id)
-    lifecycleMessage.value = `已新建 draft 版本（${res.data.version_label}）`
+    lifecycleMessage.value = `已新建未发布版本（${res.data.version_label}）`
     await loadSelectedAssetVersions()
   } catch (err) {
-    lifecycleMessage.value = lifecycleErrorMessage(err, '创建新 draft 失败')
+    lifecycleMessage.value = lifecycleErrorMessage(err, '创建新未发布版本失败')
   } finally {
     isCreatingDraft.value = false
+  }
+}
+
+// ===== 数据集生命周期 v2（3-25）：可见范围「开放」（只升不降，单向不可逆） =====
+function openVisibilityModalFor(target: 'shared' | 'public') {
+  if (!canOpenVisibility(target)) return
+  visibilityModal.value = { open: true, target, submitting: false, error: '' }
+}
+function closeVisibilityModal() {
+  if (visibilityModal.value.submitting) return
+  visibilityModal.value.open = false
+  visibilityModal.value.error = ''
+}
+async function submitOpenVisibility() {
+  const asset = selectedDatasetAsset.value
+  if (!asset) return
+  const target = visibilityModal.value.target
+  visibilityModal.value.submitting = true
+  visibilityModal.value.error = ''
+  try {
+    await datasetAssetApi.openVisibility(asset.id, { target })
+    lifecycleMessage.value = `可见范围已开放为「${getVisibilityLabel(target)}」`
+    visibilityModal.value.open = false
+    await loadDatasetAssets()
+    // 开放为共享后立即拉取授权用户列表（面板随之出现）
+    if (target === 'shared') await loadSelectedAssetMembers()
+  } catch (err) {
+    visibilityModal.value.error = lifecycleErrorMessage(err, '开放失败')
+  } finally {
+    visibilityModal.value.submitting = false
+  }
+}
+
+// ===== 规则 7：邀请制授权用户（dataset_members）=====
+async function loadSelectedAssetMembers() {
+  const asset = selectedDatasetAsset.value
+  datasetMembers.value = []
+  memberError.value = ''
+  if (!asset || !isAssetOwner.value || asset.visibility !== 'shared') return
+  isLoadingMembers.value = true
+  try {
+    const res = await datasetMemberApi.list(asset.id)
+    datasetMembers.value = res.data.members
+  } catch (err) {
+    memberError.value = lifecycleErrorMessage(err, '读取授权用户失败')
+  } finally {
+    isLoadingMembers.value = false
+  }
+}
+async function submitAddMember() {
+  const asset = selectedDatasetAsset.value
+  const userId = memberAddUserId.value.trim()
+  if (!asset || !userId) return
+  isAddingMember.value = true
+  memberError.value = ''
+  try {
+    // #14：原样把输入值（用户名 / 邮箱 / UUID）传给后端，不在前端做格式校验
+    await datasetMemberApi.add(asset.id, { user_identifier: userId })
+    memberAddUserId.value = ''
+    await loadSelectedAssetMembers()
+  } catch (err) {
+    memberError.value = lifecycleErrorMessage(err, '授权失败')
+  } finally {
+    isAddingMember.value = false
+  }
+}
+async function revokeMember(member: DatasetMember) {
+  const asset = selectedDatasetAsset.value
+  if (!asset) return
+  removingMemberId.value = member.user_id
+  memberError.value = ''
+  try {
+    await datasetMemberApi.remove(asset.id, member.user_id)
+    await loadSelectedAssetMembers()
+  } catch (err) {
+    memberError.value = lifecycleErrorMessage(err, '取消授权失败')
+  } finally {
+    removingMemberId.value = ''
+  }
+}
+
+// ===== 规则 4：删除整个数据集（仅纯未发布资产，仅 owner）=====
+function openDeleteAssetModal() {
+  if (!canDeleteAsset.value) return
+  deleteAssetModal.value = { open: true, confirmName: '', submitting: false, error: '' }
+}
+function closeDeleteAssetModal() {
+  if (deleteAssetModal.value.submitting) return
+  deleteAssetModal.value.open = false
+  deleteAssetModal.value.error = ''
+}
+async function submitDeleteAsset() {
+  const asset = selectedDatasetAsset.value
+  if (!asset) return
+  if (deleteAssetModal.value.confirmName !== asset.name) {
+    deleteAssetModal.value.error = '名称不一致'
+    return
+  }
+  // #15：删之前先存好名字，删完详情面板会卸载，提示要用页面级 pageNotice 展示
+  const assetName = asset.name
+  deleteAssetModal.value.submitting = true
+  deleteAssetModal.value.error = ''
+  try {
+    await datasetAssetApi.remove(asset.id)
+    deleteAssetModal.value.open = false
+    lifecycleMessage.value = ''
+    selectedDatasetAssetId.value = ''
+    datasetVersions.value = []
+    await loadDatasetAssets()
+    showPageNotice(`已永久删除数据集「${assetName}」`)
+  } catch (err) {
+    deleteAssetModal.value.error = lifecycleErrorMessage(err, '删除失败')
+  } finally {
+    deleteAssetModal.value.submitting = false
+  }
+}
+
+// ===== 规则 4：丢弃已发布资产上的 v+1 未发布版本（仅 owner）=====
+function openDiscardVersionModal(version: DatasetVersion) {
+  if (!canDiscardVersion(version)) return
+  discardVersionModal.value = {
+    open: true,
+    versionId: version.id,
+    versionLabel: version.version_label,
+    submitting: false,
+    error: '',
+  }
+}
+function closeDiscardVersionModal() {
+  if (discardVersionModal.value.submitting) return
+  discardVersionModal.value.open = false
+  discardVersionModal.value.error = ''
+}
+async function submitDiscardVersion() {
+  const versionId = discardVersionModal.value.versionId
+  if (!versionId) return
+  discardVersionModal.value.submitting = true
+  discardVersionModal.value.error = ''
+  try {
+    await datasetVersionApi.discardDraft(versionId)
+    discardVersionModal.value.open = false
+    lifecycleMessage.value = '已丢弃未发布版本'
+    await Promise.all([loadDatasetAssets(), loadSelectedAssetVersions()])
+  } catch (err) {
+    discardVersionModal.value.error = lifecycleErrorMessage(err, '丢弃失败')
+  } finally {
+    discardVersionModal.value.submitting = false
   }
 }
 
@@ -2740,7 +3239,8 @@ function formatFileSize(bytes: number) {
   gap: 10px;
   padding: 12px;
   border-right: 1px solid var(--c-border);
-  background: var(--c-bg-soft);
+  /* 左侧目录面板用白色，与灰色页面背景(--c-bg-soft)拉开；与右侧详情靠 border-right 分隔 */
+  background: var(--c-surface);
 }
 
 .dataset-catalog__head,
@@ -3969,7 +4469,7 @@ function formatFileSize(bytes: number) {
   background: #fff;
   padding: 16px 18px;
 }
-.dataset-version-card.state-draft {
+.dataset-version-card.state-unpublished {
   border-color: var(--c-warning-soft);
   background: var(--c-warning-soft);
 }
@@ -4011,7 +4511,7 @@ function formatFileSize(bytes: number) {
   background: var(--c-bg-tint);
   color: var(--c-text-2);
 }
-.version-state-pill.state-draft {
+.version-state-pill.state-unpublished {
   background: var(--c-warning-soft);
   color: var(--c-warning);
 }
@@ -4055,6 +4555,133 @@ function formatFileSize(bytes: number) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   font-weight: 500;
+}
+
+/* 数据集生命周期 v2（3-25）：授权用户面板（规则 7 邀请制） */
+.dataset-member-panel {
+  border: 1px solid var(--c-border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+.dataset-member-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dataset-member-panel__head p {
+  margin: 6px 0 0;
+  color: var(--c-text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.dataset-member-add {
+  display: flex;
+  gap: 8px;
+}
+.dataset-member-add .input {
+  flex: 1;
+  min-width: 0;
+}
+.dataset-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.dataset-member-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  background: var(--c-bg-tint);
+}
+.dataset-member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.dataset-member-identity strong {
+  font-size: 14px;
+  color: var(--c-text);
+}
+.dataset-member-identity small {
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+.dataset-member-identity .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dataset-member-time {
+  font-size: 12px;
+  color: var(--c-text-3);
+  white-space: nowrap;
+}
+
+/* 危险删除区（规则 4：纯未发布资产整体删） */
+.dataset-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-danger-soft);
+  border-radius: 14px;
+  background: var(--c-danger-soft);
+}
+.dataset-danger-zone strong {
+  display: block;
+  margin: 2px 0;
+  font-size: 15px;
+  color: var(--c-text);
+}
+.dataset-danger-zone p {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--c-text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.section-kicker--danger {
+  color: var(--c-danger);
+}
+
+/* 发布合规关口（规则 3） */
+.publish-compliance {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  background: var(--c-bg-tint);
+}
+.publish-compliance__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+.publish-compliance__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-text-2);
+}
+.publish-compliance__check input {
+  margin-top: 3px;
+  flex-shrink: 0;
 }
 
 /* lifecycle 弹窗：modal 基础样式 */

@@ -3,20 +3,22 @@ Purpose: Dataset lifecycle state machine — publish / withdraw-request / withdr
 Related: app/services/dataset_bootstrap.py, app/services/dataset_assets.py, app/routers/datasets.py, docs_v2/3-25.
 
 按 docs_v2/3-25 第 3 章状态机：
-    draft → published      (Asset owner, 强制 SemVer)
+    unpublished → published      (Asset owner, 强制 SemVer + 脱敏/伦理/版权合规声明)
     published → withdraw_requested  (Asset owner, 必填 reason)
     withdraw_requested → withdrawn  (Admin 审核通过)
     withdraw_requested → published  (Admin 审核拒绝, 回到原状态)
-    published → withdrawn  (Superadmin 紧急下架, 跳过审核, 事后补审计)
+    published → withdrawn  (Admin 紧急下架, 跳过审核, 事后补审计)
 
 withdrawn 是终态。要继续工作必须开新版本 (前向演进, 不是状态回退)。
+
+发布 ≠ 分享：发布只冻结 + 铸 DOI（私有也铸），可见范围默认私有、不自动转共享；
+对外开放由负责人在发布后经专门「开放」端点单向决定（只升不降）。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -36,8 +38,8 @@ from app.services.semver import (
 )
 
 
-WORKING_LABEL = "working"
-_OPEN_DRAFT_STATES = {"draft", "withdraw_requested"}
+# 同一 Asset 同时只能有一个「进行中」版本：未发布草稿，或正等审批的撤回。
+_OPEN_UNPUBLISHED_STATES = {"unpublished", "withdraw_requested"}
 
 
 def _notify_referrers_of_withdrawal(
@@ -112,35 +114,35 @@ class DatasetLifecycleValidationError(DatasetLifecycleError):
 
 
 # ============================================
-# Create new draft (Phase 3 C: Asset 已 published 后新开 draft)
+# Create new version (Phase 3 C: Asset 已 published 后新开未发布版本)
 # ============================================
 
 
 @dataclass
-class CreateDraftResult:
+class CreateVersionResult:
     dataset_version: DatasetVersion
     dataset_asset: DatasetAsset
 
 
-def create_new_draft_version(
+def create_new_version(
     db: Session,
     *,
     asset: DatasetAsset,
     actor: User,
     commit: bool = True,
-) -> CreateDraftResult:
-    """在已发布过版本的 Asset 上创建新的 working draft。
+) -> CreateVersionResult:
+    """在已发布过版本的 Asset 上创建新的 working 未发布版本（v+1 前向演进）。
 
     校验:
-      - actor 是 asset owner 或 admin
-      - Asset 当前没有其他 draft 或 withdraw_requested 版本 (同时只能有一个 in-progress)
+      - actor 是 asset owner（仅负责人，不含创建者 / 管理员）
+      - Asset 当前没有其他未发布或 withdraw_requested 版本 (同时只能有一个 in-progress)
       - Asset 至少已有一个 published / withdrawn 版本 (否则应该走 bootstrap)
 
     副作用:
-      - 新建 DatasetVersion: version_label='working', state='draft', qa_status='not_run'
+      - 新建 DatasetVersion: version_label='working', state='unpublished', qa_status='not_run'
       - storage_uri 用 working slot (上一次 publish 已把它 rename 成 SemVer, working 空出)
       - **不更新 asset.current_version_id** — 其他 Study 仍默认挂稳定的 published 版本
-      - 写 dataset_version.draft_created 审计
+      - 写 dataset_version.unpublished_created 审计
 
     注意: 物理存储目录创建留给路由层（避免 service 层耦合 settings）。
     """
@@ -150,20 +152,20 @@ def create_new_draft_version(
         dataset_version_storage_uri,
     )
 
-    _ensure_asset_writer(asset, actor)
+    _ensure_asset_owner(asset, actor)
 
-    open_drafts = (
+    open_versions = (
         db.query(DatasetVersion)
         .filter(
             DatasetVersion.dataset_asset_id == asset.id,
-            DatasetVersion.state.in_(_OPEN_DRAFT_STATES),
+            DatasetVersion.state.in_(_OPEN_UNPUBLISHED_STATES),
         )
         .all()
     )
-    if open_drafts:
-        existing_label = open_drafts[0].version_label
+    if open_versions:
+        existing_label = open_versions[0].version_label
         raise DatasetLifecycleStateError(
-            f"Asset 已有未完结的版本 ({existing_label})，请先发布或处理完毕再新建 draft"
+            f"Asset 已有未完结的版本 ({existing_label})，请先发布或处理完毕再新建版本"
         )
 
     existing_versions = (
@@ -179,11 +181,10 @@ def create_new_draft_version(
     version = DatasetVersion(
         dataset_asset_id=asset.id,
         version_label=WORKING_DATASET_VERSION_LABEL,
-        status="working",
-        state="draft",
+        state="unpublished",
         qa_status="not_run",
         storage_uri=dataset_version_storage_uri(asset.id),
-        metadata_json={"auto_created": True, "source": "create_new_draft_version"},
+        metadata_json={"auto_created": True, "source": "create_new_version"},
         created_by=actor.id,
     )
     db.add(version)
@@ -191,7 +192,7 @@ def create_new_draft_version(
 
     record_audit_event(
         db,
-        action="dataset_version.draft_created",
+        action="dataset_version.unpublished_created",
         actor_id=actor.id,
         event_scope="dataset_asset",
         resource_kind="dataset_version",
@@ -209,7 +210,7 @@ def create_new_draft_version(
         db.refresh(version)
         db.refresh(asset)
 
-    return CreateDraftResult(dataset_version=version, dataset_asset=asset)
+    return CreateVersionResult(dataset_version=version, dataset_asset=asset)
 
 
 # ============================================
@@ -225,24 +226,25 @@ class PublishResult:
     is_first_published_version: bool
 
 
-def _ensure_asset_writer(asset: DatasetAsset, user: User) -> None:
-    """publish/withdraw 需要 Asset owner 或 admin 权限。"""
-    if user.has_role("admin"):
-        return
-    if asset.owner_id == user.id or asset.created_by == user.id:
-        return
-    raise DatasetLifecyclePermissionError("仅 Asset 负责人或管理员可执行此操作")
+def _ensure_asset_owner(asset: DatasetAsset, user: User) -> None:
+    """发布 / 申请撤回 / 开新版本 = 仅负责人（2026-06-09 决策3 / 规则9）。
 
-
-def _ensure_superadmin(user: User) -> None:
-    """紧急下架仅限超级管理员（DEC-2026-0531-D）。
-
-    注：seed（seeds/01_roles_permissions.sql）当前只建 admin / pi 两个系统角色、
-    没有 superadmin。admin 在 seed 里被赋予全部权限、是事实上的最高权限角色，因此
-    一并放行——否则从零自建的环境里没有任何用户能执行紧急下架（永远 403）。
-    将来若引入独立 superadmin 角色，可收窄此处。
+    严格只放行 owner_id == user.id：**不含创建者、不含管理员**。管理员仅保留撤回审核、
+    紧急下架、隔离等平台治理职责，不替负责人做发布/授权/撤回申请。
     """
-    if user.has_role("superadmin") or user.has_role("admin"):
+    if asset.owner_id == user.id:
+        return
+    raise DatasetLifecyclePermissionError("仅数据集负责人可执行此操作")
+
+
+def _ensure_admin(user: User) -> None:
+    """紧急下架归管理员（2026-06-09 决策A / 规则9，收敛自旧 superadmin 校验）。
+
+    紧急下架属平台治理职责，由管理员执行（不再要求 superadmin）。seed
+    （seeds/01_roles_permissions.sql）里 admin 被赋予全部权限、是事实上的最高权限角色。
+    `superadmin` 角色另作管理员管理 / 平台治理之用，与数据集生命周期无关。
+    """
+    if user.has_role("admin"):
         return
     raise DatasetLifecyclePermissionError("紧急下架仅限管理员")
 
@@ -269,13 +271,19 @@ def publish_dataset_version(
     version: DatasetVersion,
     new_version_label: str,
     actor: User,
+    deidentified_confirmed: bool,
+    ethics_statement: str,
+    license_statement: str,
     commit: bool = True,
 ) -> PublishResult:
-    """把 draft 版本发布为 published。
+    """把未发布版本发布为 published。
 
     校验:
-      - actor 是 asset owner 或 admin
-      - version.state 必须是 'draft'
+      - actor 是 asset owner（仅负责人）
+      - version.state 必须是 'unpublished'
+      - **合规关口（每次发布都重做，规则3 / 决策4）**：
+          deidentified_confirmed 必须为 True（脱敏确认）；
+          ethics_statement / license_statement 必须非空（伦理与版权声明）；缺/未确认 → 422
       - new_version_label 必须是合法 SemVer
       - new_version_label 必须严格大于该 Asset 已有最新 published 版本号
       - new_version_label 必须在该 Asset 下唯一 (UNIQUE 约束已在 DB 层保证)
@@ -285,9 +293,10 @@ def publish_dataset_version(
       - version.version_label rename 为 new_version_label (从 'working' 改为 SemVer)
       - asset.current_version_id 指向该版本
       - asset.concept_doi 首次发布时初始化 (内部类 DOI 字符串, Phase 3 暂不接 DataCite)
-      - version.version_doi 同步写入
+      - version.version_doi 同步写入（**私有也铸 DOI**，解析到受限落地页，决策M）
       - content_hash 暂留 None, 后续异步任务计算 (Phase 3 后续任务)
-      - 写 dataset_version.published 审计事件
+      - 写 dataset_version.published 审计事件（含合规声明留痕）
+      - **可见范围不变**：发布 ≠ 分享，默认私有、不自动转共享（决策C-1 / 规则2）
 
     暂未做 (Phase 4):
       - 通知挂载该版本的 Study
@@ -299,12 +308,22 @@ def publish_dataset_version(
         if asset is None:
             raise DatasetLifecycleStateError("版本对应的 Asset 不存在")
 
-    _ensure_asset_writer(asset, actor)
+    _ensure_asset_owner(asset, actor)
 
-    if version.state != "draft":
+    if version.state != "unpublished":
         raise DatasetLifecycleStateError(
-            f"只有 draft 版本可以发布，当前状态: {version.state}"
+            f"只有未发布版本可以发布，当前状态: {version.state}"
         )
+
+    # 合规关口（规则3 / 决策4）：发布是 PII / 伦理 / 版权的强制关口，每次发布都要重做。
+    if not deidentified_confirmed:
+        raise DatasetLifecycleValidationError("发布前必须确认数据已脱敏（去标识）")
+    normalized_ethics = (ethics_statement or "").strip()
+    if not normalized_ethics:
+        raise DatasetLifecycleValidationError("发布前必须填写伦理声明")
+    normalized_license = (license_statement or "").strip()
+    if not normalized_license:
+        raise DatasetLifecycleValidationError("发布前必须填写版权（许可）声明")
 
     try:
         new_label = str(parse_semver(new_version_label))
@@ -338,22 +357,19 @@ def publish_dataset_version(
 
     now = datetime.utcnow()
     version.state = "published"
-    version.status = "published"  # 同步旧 status 字段, 兼容期
     version.version_label = new_label
     version.published_at = now
     version.published_by = actor.id
 
-    # Version DOI 暂用内部类 DOI 字符串 (Q-2 待定真接 DataCite 时机)
+    # Version DOI 暂用内部类 DOI 字符串 (Q-2 待定真接 DataCite 时机)。
+    # 私有的已发布版本同样铸 DOI（解析到受限落地页，决策M），与「已发布不可删」一致。
     version.version_doi = f"elys:dataset/{asset.id}/v{new_label}"
 
     asset.current_version_id = version.id
     asset.updated_at = now
 
-    # Phase 3 C1 (docs_v2/3-25): 发布即公开 — visibility 自动升级为 shared,
-    # 让其他研究项能挂载这份数据。撤回 / 紧急下架不反向降级,因为已发布过
-    # 的资产视为永久"曾公开"标签 (类似学术界论文一旦印刷就进入公共流通)。
-    if asset.visibility == "private":
-        asset.visibility = "shared"
+    # 发布 ≠ 分享（决策C-1 / 规则2）：发布只冻结 + 铸 DOI，**不改可见范围**。
+    # 是否对外开放由负责人在发布后经专门「开放」端点单向决定（只升不降）。
 
     # Concept DOI 首次发布时初始化
     if is_first_published and not asset.concept_doi:
@@ -376,7 +392,11 @@ def publish_dataset_version(
             "version_doi": version.version_doi,
             "concept_doi": asset.concept_doi,
             "qa_status": version.qa_status,
-            "asset_visibility": asset.visibility,  # Phase 3 C1: 留痕
+            "asset_visibility": asset.visibility,  # 留痕：发布不改可见范围
+            # 合规声明留痕（规则3 / 决策4）：每个已发布版本独立、不可变。
+            "deidentified_confirmed": True,
+            "ethics_statement": normalized_ethics,
+            "license_statement": normalized_license,
         },
         occurred_at=now,
     )
@@ -407,7 +427,7 @@ def request_version_withdrawal(
     actor: User,
     commit: bool = True,
 ) -> DatasetWithdrawalRequest:
-    """owner 提交撤回申请，version 状态 published → withdraw_requested。
+    """负责人提交撤回申请，version 状态 published → withdraw_requested。
 
     Admin 审核：通过则 withdrawn，拒绝则回到 published。
     """
@@ -417,7 +437,7 @@ def request_version_withdrawal(
         if asset is None:
             raise DatasetLifecycleStateError("版本对应的 Asset 不存在")
 
-    _ensure_asset_writer(asset, actor)
+    _ensure_asset_owner(asset, actor)
 
     if version.state != "published":
         raise DatasetLifecycleStateError(
@@ -574,11 +594,11 @@ def emergency_takedown_version(
     actor: User,
     commit: bool = True,
 ) -> DatasetWithdrawalRequest:
-    """超级管理员紧急下架, 跳过审核流程, 直接 published → withdrawn。
+    """管理员紧急下架, 跳过审核流程, 直接 published → withdrawn。
 
     必须事后补审计 (DEC-2026-0531-D): 创建一条 decision='emergency' 的 DatasetWithdrawalRequest。
     """
-    _ensure_superadmin(actor)
+    _ensure_admin(actor)
 
     if version.state not in {"published", "withdraw_requested"}:
         raise DatasetLifecycleStateError(
