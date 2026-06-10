@@ -118,8 +118,8 @@
                 <strong>{{ artifact.display_name || artifact.data_type }}</strong>
                 <p>{{ artifact.data_type }} · {{ formatFileSize(artifact.file_size) }}</p>
               </div>
-              <span class="status-pill" :class="artifactPillClass(artifact.retention_status)">
-                {{ retentionStatusLabel(artifact.retention_status) }}
+              <span class="status-pill" :class="artifactPillClass(artifact)">
+                {{ retentionStatusLabel(artifact) }}
               </span>
             </article>
           </div>
@@ -262,17 +262,16 @@ function executionModeLabel(mode: string) {
   const labels: Record<string, string> = { trial: '试运行', analysis: '正式分析', replay: '重放', system: '系统' }
   return labels[mode] || mode
 }
-function retentionStatusLabel(status: string | null | undefined) {
-  const labels: Record<string, string> = {
-    current: '当前', pinned: '已固定', cached: '缓存', temporary: '临时', deleted: '已删除',
-  }
-  return status ? labels[status] || status : '当前'
+function retentionStatusLabel(artifact: { keep?: boolean; cache_eligible?: boolean; deleted_at?: string | null }) {
+  if (artifact.deleted_at) return '已删除'
+  if (artifact.keep) return '保留'
+  if (artifact.cache_eligible) return '缓存'
+  return '临时'
 }
-function artifactPillClass(status: string | null | undefined) {
-  if (status === 'pinned') return 'status-pill--success'
-  if (status === 'temporary' || status === 'cached') return 'status-pill--warn'
-  if (status === 'deleted') return 'status-pill--danger'
-  return 'status-pill--muted'
+function artifactPillClass(artifact: { keep?: boolean; deleted_at?: string | null }) {
+  if (artifact.deleted_at) return 'status-pill--danger'
+  if (artifact.keep) return 'status-pill--success'
+  return 'status-pill--warn'
 }
 function formatFileSize(bytes?: number | null) {
   if (!bytes) return '未知大小'

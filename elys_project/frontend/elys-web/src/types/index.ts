@@ -877,13 +877,6 @@ export interface PipelineJob {
   duration_ms?: number | null
 }
 
-export type StudyOutputRetentionStatus =
-  | 'current'
-  | 'pinned'
-  | 'cached'
-  | 'temporary'
-  | 'deleted'
-
 export interface StudyOutput {
   id: string
   study_id: string
@@ -919,8 +912,9 @@ export interface StudyOutput {
   sha256?: string | null
   mime_type?: string | null
 
-  /** 生命周期 */
-  retention_status: StudyOutputRetentionStatus | string
+  /** 保留与缓存（三层解耦：keep=用户是否保留 / cache_eligible=系统是否缓存 / deleted_at=回收站） */
+  keep: boolean
+  cache_eligible: boolean
   retention_expires_at?: string | null
 
   /** 预览 */
@@ -946,7 +940,7 @@ export interface StudyOutputPreview {
   data_type: string
   storage_uri?: string | null
   sha256?: string | null
-  retention_status?: string | null
+  keep?: boolean
   preview_json: Record<string, unknown>
   observe_route: string
   observe_query: Record<string, string>
@@ -989,8 +983,8 @@ export interface StudyOutputUpdatePayload {
   display_name?: string | null
   description?: string | null
   tags?: string[]
-  retention_status?: 'current' | 'pinned' | 'cached' | 'temporary' | 'deleted'
-  retention_expires_at?: string | null
+  keep?: boolean
+  deleted?: boolean
   reason?: string | null
 }
 
@@ -1000,7 +994,6 @@ export interface StudyOutputBatchUpdatePayload {
 }
 
 export interface StudyOutputCleanupRequest {
-  retention_statuses?: Array<'temporary' | 'cached'>
   dry_run?: boolean
   limit?: number
   reason?: string | null
@@ -1015,7 +1008,7 @@ export interface StudyOutputListQuery {
   tasks?: string[]
   conditions?: string[]
   tags?: string[]
-  retention_statuses?: string[]
+  keep?: boolean
   include_deleted?: boolean
   limit?: number
   offset?: number
@@ -1176,13 +1169,6 @@ export interface StudyOverview {
   failed_execution_count?: number
   artifact_count?: number
   updated_at?: string | null
-}
-
-export interface ArtifactCleanupTaskRequest {
-  retention_statuses?: Array<'temporary' | 'cached'>
-  dry_run?: boolean
-  limit?: number
-  reason?: string | null
 }
 
 export interface PipelineIcaComponentPreview {

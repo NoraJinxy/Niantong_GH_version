@@ -209,15 +209,15 @@
             <transition name="results-toolbar-bulk">
               <div v-if="selectedIds.size" class="results-toolbar__bulk">
                 <span class="results-toolbar__selection">已选 {{ selectedIds.size }} 项</span>
-                <button class="btn btn--sm" type="button" @click="bulkSetRetention('pinned')">
-                  <AppIcon name="check" :size="12" />固定
+                <button class="btn btn--sm" type="button" @click="bulkSetKeep(true)">
+                  <AppIcon name="check" :size="12" />保留
                 </button>
-                <button class="btn btn--sm" type="button" @click="bulkSetRetention('current')">设为正式</button>
+                <button class="btn btn--sm" type="button" @click="bulkSetKeep(false)">设为不保留</button>
                 <button class="btn btn--sm" type="button" @click="openBulkTagDialog">
                   <AppIcon name="plus" :size="12" />加标签
                 </button>
-                <button class="btn btn--sm btn--ghost" type="button" @click="bulkSetRetention('deleted')">
-                  <AppIcon name="trash" :size="12" />隐藏
+                <button class="btn btn--sm btn--ghost" type="button" @click="bulkDelete">
+                  <AppIcon name="trash" :size="12" />删除
                 </button>
                 <button class="btn btn--sm btn--ghost" type="button" @click="clearSelection">取消</button>
               </div>
@@ -291,8 +291,8 @@
               <div class="result-row__main">
                 <div class="result-row__title">
                   <strong>{{ rowDisplayName(row) }}</strong>
-                  <span class="badge" :class="retentionBadgeClass(row.retention_status)">
-                    {{ retentionLabel(row.retention_status) }}
+                  <span class="badge" :class="retentionBadgeClass(row)">
+                    {{ retentionLabel(row) }}
                   </span>
                 </div>
                 <div class="result-row__meta">
@@ -354,14 +354,26 @@
                 </template>
               </div>
               <div class="result-detail__retention">
-                <span class="result-detail__retention-label">保留策略</span>
+                <span class="result-detail__retention-label">保留</span>
                 <select
                   class="input input--sm"
-                  :value="activeRow.retention_status"
-                  @change="changeRetention(activeRow, ($event.target as HTMLSelectElement).value)"
+                  :value="activeRow.keep ? 'keep' : 'discard'"
+                  @change="setRowKeep(activeRow, ($event.target as HTMLSelectElement).value === 'keep')"
                 >
-                  <option v-for="opt in retentionOptions" :key="'sd-' + opt.value" :value="opt.value">{{ opt.label }}</option>
+                  <option v-for="opt in keepOptions" :key="'sd-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
+                <button
+                  v-if="!activeRow.deleted_at"
+                  class="btn btn--sm btn--ghost"
+                  type="button"
+                  @click="setRowDeleted(activeRow, true)"
+                >删除</button>
+                <button
+                  v-else
+                  class="btn btn--sm btn--ghost"
+                  type="button"
+                  @click="setRowDeleted(activeRow, false)"
+                >恢复</button>
               </div>
             </header>
 
@@ -441,7 +453,8 @@
                 <div v-if="activeRow.produced_by_execution_id"><dt>来源运行 ID</dt><dd>{{ activeRow.produced_by_execution_id }}</dd></div>
                 <div v-if="activeRow.produced_by_job_id"><dt>节点任务 ID</dt><dd>{{ activeRow.produced_by_job_id }}</dd></div>
                 <div v-if="activeRow.data_type"><dt>数据类型枚举</dt><dd>{{ activeRow.data_type }}</dd></div>
-                <div v-if="activeRow.retention_status"><dt>保留策略枚举</dt><dd>{{ activeRow.retention_status }}</dd></div>
+                <div><dt>保留</dt><dd>{{ activeRow.keep ? '是' : '否' }}</dd></div>
+                <div><dt>系统缓存</dt><dd>{{ activeRow.cache_eligible ? '是' : '否' }}</dd></div>
                 <div v-if="activeRow.storage_uri"><dt>存储 URI</dt><dd>{{ activeRow.storage_uri }}</dd></div>
                 <div v-if="activeRow.sha256"><dt>SHA-256</dt><dd>{{ activeRow.sha256 }}</dd></div>
                 <div v-if="activeRow.mime_type"><dt>MIME 类型</dt><dd>{{ activeRow.mime_type }}</dd></div>
@@ -486,14 +499,11 @@ import type {
   StudyOutputListQuery,
 } from '@/types'
 
-type RetentionValue = 'current' | 'pinned' | 'cached' | 'temporary' | 'deleted'
+type StatusFilter = 'all' | 'kept' | 'transient' | 'deleted'
 
-const retentionOptions: Array<{ value: RetentionValue; label: string }> = [
-  { value: 'pinned', label: '固定' },
-  { value: 'current', label: '正式' },
-  { value: 'cached', label: '缓存' },
-  { value: 'temporary', label: '临时' },
-  { value: 'deleted', label: '已隐藏' },
+const keepOptions: Array<{ value: 'keep' | 'discard'; label: string }> = [
+  { value: 'keep', label: '保留' },
+  { value: 'discard', label: '不保留' },
 ]
 
 const route = useRoute()
@@ -530,7 +540,7 @@ const filters = reactive({
   data_types: [] as string[],
   bids_subject_ids: [] as string[],
   tasks: [] as string[],
-  retention_statuses: [] as string[],
+  status: 'all' as StatusFilter,
   tags: [] as string[],
 })
 
@@ -561,16 +571,19 @@ const tagOptions = computed(() => {
 
 const filtered = computed(() => {
   const q = searchText.value.trim().toLowerCase()
-  const hasStatus = filters.retention_statuses.length > 0
   return datasets.value.filter((d) => {
     if (filters.data_types.length && !filters.data_types.includes(d.data_type)) return false
     if (filters.bids_subject_ids.length && !filters.bids_subject_ids.includes(d.bids_subject_id || '')) return false
     if (filters.tasks.length && !filters.tasks.includes(d.task || '')) return false
-    const status = String(d.retention_status || '').toLowerCase()
-    if (hasStatus) {
-      if (!filters.retention_statuses.includes(status)) return false
-    } else if (status === 'deleted') {
-      // 默认不显示已隐藏，除非用户主动选了
+    const deleted = Boolean(d.deleted_at)
+    if (filters.status === 'deleted') {
+      if (!deleted) return false
+    } else if (deleted) {
+      // 默认不显示已删除，除非用户主动选「已删除」
+      return false
+    } else if (filters.status === 'kept' && !d.keep) {
+      return false
+    } else if (filters.status === 'transient' && d.keep) {
       return false
     }
     if (filters.tags.length && !filters.tags.some((t) => (d.tags || []).includes(t))) return false
@@ -594,19 +607,18 @@ const filtered = computed(() => {
 })
 
 const summaryCards = computed(() => {
-  const counts = { all: 0, pinned: 0, current: 0, cached: 0, temporary: 0, deleted: 0 }
+  let all = 0, kept = 0, transient = 0, deleted = 0
   for (const d of datasets.value) {
-    counts.all++
-    const s = String(d.retention_status || '').toLowerCase()
-    if (s in counts) (counts as Record<string, number>)[s]++
+    all++
+    if (d.deleted_at) deleted++
+    else if (d.keep) kept++
+    else transient++
   }
   return [
-    { key: 'all', label: '总数', value: counts.all, tone: 'neutral' },
-    { key: 'pinned', label: '固定', value: counts.pinned, tone: 'primary' },
-    { key: 'current', label: '正式', value: counts.current, tone: 'success' },
-    { key: 'cached', label: '缓存', value: counts.cached, tone: 'muted' },
-    { key: 'temporary', label: '临时', value: counts.temporary, tone: 'warning' },
-    { key: 'deleted', label: '已隐藏', value: counts.deleted, tone: 'danger' },
+    { key: 'all', label: '总数', value: all, tone: 'neutral' },
+    { key: 'kept', label: '保留', value: kept, tone: 'success' },
+    { key: 'transient', label: '不保留', value: transient, tone: 'muted' },
+    { key: 'deleted', label: '已删除', value: deleted, tone: 'danger' },
   ]
 })
 
@@ -616,7 +628,7 @@ const hasActiveFilters = computed(() =>
     || filters.data_types.length
     || filters.bids_subject_ids.length
     || filters.tasks.length
-    || filters.retention_statuses.length
+    || filters.status !== 'all'
     || filters.tags.length,
   ),
 )
@@ -713,26 +725,20 @@ function resetFiltersSilent() {
   filters.data_types = []
   filters.bids_subject_ids = []
   filters.tasks = []
-  filters.retention_statuses = []
+  filters.status = 'all'
   filters.tags = []
 }
 
 function isSummaryActive(key: string): boolean {
-  if (key === 'all') return filters.retention_statuses.length === 0
-  return filters.retention_statuses.includes(key)
+  return filters.status === key
 }
 
 function toggleSummaryFilter(key: string) {
   if (key === 'all') {
-    filters.retention_statuses = []
+    filters.status = 'all'
     return
   }
-  const idx = filters.retention_statuses.indexOf(key)
-  if (idx >= 0) {
-    filters.retention_statuses.splice(idx, 1)
-  } else {
-    filters.retention_statuses = [key]
-  }
+  filters.status = filters.status === key ? 'all' : (key as StatusFilter)
 }
 
 function toggleRowChecked(id: string, event: Event) {
@@ -760,18 +766,33 @@ function setActive(id: string) {
   copyHint.value = ''
 }
 
-async function bulkSetRetention(target: RetentionValue) {
+async function bulkSetKeep(keep: boolean) {
   if (!selectedStudyId.value || !selectedIds.size) return
   try {
     const res = await pipelineApi.batchUpdateStudyOutputs(selectedStudyId.value, {
       ids: Array.from(selectedIds),
-      update: { retention_status: target, reason: 'results_page_bulk' },
+      update: { keep, reason: 'results_page_bulk' },
     })
     const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
     datasets.value = datasets.value.map((d) => map.get(d.id) || d)
     selectedIds.clear()
   } catch (err) {
     error.value = describeError(err, '批量操作失败')
+  }
+}
+
+async function bulkDelete() {
+  if (!selectedStudyId.value || !selectedIds.size) return
+  try {
+    const res = await pipelineApi.batchUpdateStudyOutputs(selectedStudyId.value, {
+      ids: Array.from(selectedIds),
+      update: { deleted: true, reason: 'results_page_bulk' },
+    })
+    const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
+    datasets.value = datasets.value.map((d) => map.get(d.id) || d)
+    selectedIds.clear()
+  } catch (err) {
+    error.value = describeError(err, '批量删除失败')
   }
 }
 
@@ -797,15 +818,23 @@ async function commitBulkTag() {
   }
 }
 
-async function changeRetention(row: StudyOutput, value: string) {
+async function setRowKeep(row: StudyOutput, keep: boolean) {
   if (!selectedStudyId.value) return
   try {
-    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, {
-      retention_status: value as RetentionValue,
-    })
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { keep })
     datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
   } catch (err) {
-    error.value = describeError(err, '保留策略修改失败')
+    error.value = describeError(err, '保留设置修改失败')
+  }
+}
+
+async function setRowDeleted(row: StudyOutput, deleted: boolean) {
+  if (!selectedStudyId.value) return
+  try {
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { deleted })
+    datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
+  } catch (err) {
+    error.value = describeError(err, deleted ? '删除失败' : '恢复失败')
   }
 }
 
@@ -901,11 +930,10 @@ async function onCleanupAndClose() {
 
 async function onCleanup() {
   if (!selectedStudyId.value || cleanupLoading.value) return
-  if (!confirm('确认清理本研究项里所有 cached / 临时 的派生数据吗？')) return
+  if (!confirm('确认清理本研究项里所有不保留且已过期的输出吗？')) return
   cleanupLoading.value = true
   try {
     await pipelineApi.cleanupStudyOutputs(selectedStudyId.value, {
-      retention_statuses: ['temporary', 'cached'],
       dry_run: false,
       limit: 500,
       reason: 'results_page_cleanup',
@@ -959,20 +987,18 @@ function formatSize(value?: number | null): string {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-function retentionLabel(status?: string | null): string {
-  const v = String(status || '').toLowerCase()
-  return retentionOptions.find((opt) => opt.value === v)?.label || v || '未知'
+function retentionLabel(row: StudyOutput): string {
+  if (row.deleted_at) return '已删除'
+  if (row.keep) return '保留'
+  if (row.cache_eligible) return '缓存'
+  return '临时'
 }
 
-function retentionBadgeClass(status?: string | null): string {
-  switch (String(status || '').toLowerCase()) {
-    case 'pinned': return 'badge--primary'
-    case 'current': return 'badge--success'
-    case 'cached': return 'badge--outline'
-    case 'temporary': return 'badge--warning'
-    case 'deleted': return 'badge--danger'
-    default: return 'badge--outline'
-  }
+function retentionBadgeClass(row: StudyOutput): string {
+  if (row.deleted_at) return 'badge--danger'
+  if (row.keep) return 'badge--success'
+  if (row.cache_eligible) return 'badge--outline'
+  return 'badge--warning'
 }
 
 function dataTypeClass(type?: string | null): string {

@@ -194,13 +194,14 @@ export function formatExecutionMode(mode?: string | null) {
   return mode || '-'
 }
 
-export function formatArtifactRetention(status?: string | null) {
-  if (status === 'pinned') return '固定'
-  if (status === 'current') return '当前'
-  if (status === 'cached') return '缓存'
-  if (status === 'temporary') return '临时'
-  if (status === 'deleted') return '已隐藏'
-  return status || '未标记'
+export function formatArtifactRetention(
+  artifact?: { keep?: boolean; cache_eligible?: boolean; deleted_at?: string | null } | null,
+) {
+  if (!artifact) return '未标记'
+  if (artifact.deleted_at) return '已删除'
+  if (artifact.keep) return '保留'
+  if (artifact.cache_eligible) return '缓存'
+  return '临时'
 }
 
 export function categoryColor(category?: string | null) {

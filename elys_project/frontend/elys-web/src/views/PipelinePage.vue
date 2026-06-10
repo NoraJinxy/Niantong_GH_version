@@ -472,8 +472,8 @@
                   />
                 </button>
                 <span class="derived-row__type">{{ artifact.data_type }}</span>
-                <span class="status-pill" :class="derivedRetentionPillClass(artifact.retention_status)">
-                  {{ formatArtifactRetention(artifact.retention_status) }}
+                <span class="status-pill" :class="derivedRetentionPillClass(artifact)">
+                  {{ formatArtifactRetention(artifact) }}
                 </span>
               </header>
 
@@ -509,13 +509,13 @@
 
               <div class="artifact-actions">
                 <button type="button" :disabled="isArtifactActionLoading(artifact, 'pin')" @click="setArtifactRetentionAction(artifact, 'pin')">
-                  固定结果
+                  保留
                 </button>
                 <button type="button" :disabled="isArtifactActionLoading(artifact, 'unpin')" @click="setArtifactRetentionAction(artifact, 'unpin')">
-                  取消固定
+                  设为不保留
                 </button>
                 <button type="button" :disabled="isArtifactActionLoading(artifact, 'hide')" @click="setArtifactRetentionAction(artifact, 'hide')">
-                  隐藏
+                  删除
                 </button>
                 <button type="button" :disabled="isArtifactActionLoading(artifact, 'download')" @click="downloadArtifact(artifact)">
                   下载
@@ -2826,9 +2826,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     return
   }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
-  const saved = artifacts.filter(
-    (item) => item.retention_status !== 'none' && item.retention_status !== 'deleted' && !item.deleted_at,
-  )
+  const saved = artifacts.filter((item) => !item.deleted_at)
   if (!saved.length) {
     statusMessage.value = '该节点输出未保存（未保留的中间结果），无法查看时域图'
     return
@@ -4844,22 +4842,11 @@ async function loadExecutionLineage(executionId = activeExecutionId.value) {
   }
 }
 
-function derivedRetentionPillClass(status?: string | null): string {
-  const value = String(status || '').toLowerCase()
-  switch (value) {
-    case 'pinned':
-      return 'status-pill--pinned'
-    case 'current':
-      return 'status-pill--current'
-    case 'cached':
-      return 'status-pill--cached'
-    case 'temporary':
-      return 'status-pill--temporary'
-    case 'deleted':
-      return 'status-pill--deleted'
-    default:
-      return 'status-pill--unknown'
-  }
+function derivedRetentionPillClass(artifact: StudyOutput): string {
+  if (artifact.deleted_at) return 'status-pill--deleted'
+  if (artifact.keep) return 'status-pill--current'
+  if (artifact.cache_eligible) return 'status-pill--cached'
+  return 'status-pill--temporary'
 }
 
 function startEditDisplayName(artifact: StudyOutput) {
@@ -4937,10 +4924,10 @@ async function setArtifactRetentionAction(artifact: StudyOutput, action: Artifac
   artifactActionLoading[artifact.id] = action
   try {
     const reason = `frontend_${action}`
-    const retention: 'pinned' | 'current' | 'deleted' =
-      action === 'pin' ? 'pinned' : action === 'unpin' ? 'current' : 'deleted'
+    const payload: { keep?: boolean; deleted?: boolean } =
+      action === 'pin' ? { keep: true } : action === 'unpin' ? { keep: false } : { deleted: true }
     const res = await pipelineApi.updateStudyOutput(studyId, artifact.id, {
-      retention_status: retention,
+      ...payload,
       reason,
     })
     const updated = res.data as StudyOutput
@@ -4952,7 +4939,7 @@ async function setArtifactRetentionAction(artifact: StudyOutput, action: Artifac
     }
     if (activeExecutionId.value) {
       if (executionDetailTab.value === 'lineage') void loadExecutionLineage(activeExecutionId.value)
-      statusMessage.value = artifactActionStatusText(action, String(updated.retention_status))
+      statusMessage.value = artifactActionStatusText(action, updated)
     }
   } catch (error) {
     statusMessage.value = describeError(error, '派生数据集操作失败')
@@ -4971,7 +4958,6 @@ async function cleanupCachedArtifacts() {
   artifactCleanupLoading.value = true
   try {
     const res = await pipelineApi.cleanupStudyOutputs(studyId, {
-      retention_statuses: ['temporary', 'cached'],
       dry_run: false,
       limit: 500,
       reason: 'frontend_cleanup_cached_derived',
@@ -5026,11 +5012,11 @@ function buildDefinitionPayload(): PipelineDefinitionPayload {
   }
 }
 
-function artifactActionStatusText(action: ArtifactAction, retentionStatus?: string | null) {
-  if (action === 'pin') return `Artifact 已固定：${formatArtifactRetention(retentionStatus)}`
-  if (action === 'unpin') return `Artifact 已取消固定：${formatArtifactRetention(retentionStatus)}`
-  if (action === 'download') return 'Artifact 已下载'
-  return 'Artifact 已隐藏'
+function artifactActionStatusText(action: ArtifactAction, artifact?: StudyOutput | null) {
+  if (action === 'pin') return `输出已设为保留：${formatArtifactRetention(artifact)}`
+  if (action === 'unpin') return `输出已设为不保留：${formatArtifactRetention(artifact)}`
+  if (action === 'download') return '输出已下载'
+  return '输出已删除'
 }
 
 function artifactDownloadName(artifact: StudyOutput) {

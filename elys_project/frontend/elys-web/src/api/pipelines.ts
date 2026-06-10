@@ -94,7 +94,7 @@ export const pipelineApi = {
     appendListParam(params, 'tasks', query.tasks)
     appendListParam(params, 'conditions', query.conditions)
     appendListParam(params, 'tags', query.tags)
-    appendListParam(params, 'retention_statuses', query.retention_statuses)
+    if (query.keep !== undefined) params.set('keep', String(query.keep))
     if (query.include_deleted) params.set('include_deleted', 'true')
     if (query.limit !== undefined) params.set('limit', String(query.limit))
     if (query.offset !== undefined) params.set('offset', String(query.offset))
