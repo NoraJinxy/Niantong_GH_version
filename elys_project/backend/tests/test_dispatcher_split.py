@@ -42,7 +42,6 @@ class _StudyOutput:
     display_name = _FakeColumn("display_name")
     study_id = _FakeColumn("study_id")
     deleted_at = _FakeColumn("deleted_at")
-    retention_status = _FakeColumn("retention_status")
 
 
 _fake_models.StudyOutput = _StudyOutput

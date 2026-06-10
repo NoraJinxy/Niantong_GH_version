@@ -1,6 +1,6 @@
 """
 Purpose: 单元测试 app/pipeline/save_settings.py 的纯函数与组合函数：
-         render_template / merge_tags / default_retention_for_role /
+         render_template / merge_tags / default_keep_for_role /
          resolve_display_name_conflict / apply_save_settings。
 
 不依赖真实 DB —— 用 _FakeDb 模拟 SQLAlchemy session 的 query 链。
@@ -76,7 +76,6 @@ class _StudyOutput:  # placeholder with column-like attrs
     display_name = _FakeColumn("display_name")
     study_id = _FakeColumn("study_id")
     deleted_at = _FakeColumn("deleted_at")
-    retention_status = _FakeColumn("retention_status")
 
 
 _fake_models.StudyOutput = _StudyOutput
@@ -91,7 +90,7 @@ if "sqlalchemy" not in sys.modules:
 
 from app.pipeline.save_settings import (  # noqa: E402
     apply_save_settings,
-    default_retention_for_role,
+    default_keep_for_role,
     merge_tags,
     render_template,
     resolve_display_name_conflict,
@@ -103,25 +102,7 @@ from app.pipeline.topology import (  # noqa: E402
 )
 
 
-# cache_retention_for_role 单独导入，避免拉起 PipelineCache 类需要的 storage 依赖
-def _import_cache_retention():
-    """从 cache.py 提取 cache_retention_for_role —— 用源码 exec 避免 import 拉 storage_service。"""
-    import importlib.util
-    spec_path = BACKEND_DIR / "app" / "pipeline" / "cache.py"
-    source = spec_path.read_text(encoding="utf-8")
-    # 只取 cache_retention_for_role 函数（独立、无外部依赖）
-    namespace: dict = {}
-    # 提取 def cache_retention_for_role 开始到下一个空行后的 def/class
-    lines = source.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("def cache_retention_for_role"))
-    end = start + 1
-    while end < len(lines) and (lines[end].startswith((" ", "\t")) or not lines[end].strip()):
-        end += 1
-    exec("\n".join(lines[start:end]), namespace)
-    return namespace["cache_retention_for_role"]
-
-
-cache_retention_for_role = _import_cache_retention()
+# (P3：cache_retention_for_role 已删除，按拓扑分级缓存改由 cache_eligible/keep 承担，无对应测试)
 
 
 # ---- render_template -------------------------------------------------------
@@ -180,33 +161,22 @@ def test_merge_tags_handles_none_sources():
     assert out == ["a", "b"]
 
 
-# ---- default_retention_for_role -------------------------------------------
+# ---- default_keep_for_role ------------------------------------------------
 
-def test_retention_leaf_is_current_no_expiry():
-    status, expires = default_retention_for_role(ROLE_LEAF)
-    assert status == "current"
-    assert expires is None
+def test_keep_leaf_is_true():
+    assert default_keep_for_role(ROLE_LEAF) is True
 
 
-def test_retention_intermediate_is_cached_with_expiry():
-    status, expires = default_retention_for_role(ROLE_INTERMEDIATE)
-    assert status == "cached"
-    assert expires is not None
-    # 默认 7 天，允许 +/- 5 秒抖动
-    delta = expires - datetime.utcnow()
-    assert timedelta(days=6, hours=23) < delta <= timedelta(days=7, seconds=5)
+def test_keep_intermediate_is_false():
+    assert default_keep_for_role(ROLE_INTERMEDIATE) is False
 
 
-def test_retention_source_role_defaults_to_current():
-    status, expires = default_retention_for_role(ROLE_SOURCE_ONLY)
-    assert status == "current"
-    assert expires is None
+def test_keep_source_role_is_true():
+    assert default_keep_for_role(ROLE_SOURCE_ONLY) is True
 
 
-def test_retention_none_role_defaults_to_current():
-    status, expires = default_retention_for_role(None)
-    assert status == "current"
-    assert expires is None
+def test_keep_none_role_is_true():
+    assert default_keep_for_role(None) is True
 
 
 # ---- resolve_display_name_conflict ----------------------------------------
@@ -306,8 +276,9 @@ def test_apply_save_settings_butter_leaf():
     )
     assert out["display_name"] == "sub-01_rest_Butter"
     assert out["tags"] == ["step:butter", "type:raw"]
-    assert out["retention_status"] == "cached"
-    assert out["retention_expires_at"] is not None
+    assert out["keep"] is False
+    assert out["cache_eligible"] is False  # _spec_butter 无 compute_cost/output_footprint 标签
+    assert out["retention_expires_at"] is not None  # keep=False → 有 TTL（不缓存即立即过期）
     assert out["data_type"] == "raw"
     assert out["step_label"] == "butter"
 
@@ -324,23 +295,23 @@ def test_apply_save_settings_leaf_node_is_current():
         bids_entities={"bids_subject_id": "sub-01", "task": "rest"},
         index=0,
     )
-    assert out["retention_status"] == "current"
+    assert out["keep"] is True
     assert out["retention_expires_at"] is None
 
 
-def test_apply_save_settings_user_retention_override():
-    """用户在 params.retention 显式 pinned，覆盖拓扑默认。"""
+def test_apply_save_settings_user_keep_override():
+    """用户在 params.keep 显式 True，覆盖拓扑默认（intermediate 本应 False）。"""
     out = apply_save_settings(
         db=_FakeDb(rows=[]),
         study_id="study-1",
         node=_node(),
         node_spec=_spec_butter(),
-        params={"retention": "pinned"},
+        params={"keep": True},
         topology={"butter-1": ROLE_INTERMEDIATE},
         bids_entities={"bids_subject_id": "sub-01", "task": "rest"},
         index=0,
     )
-    assert out["retention_status"] == "pinned"
+    assert out["keep"] is True
     assert out["retention_expires_at"] is None
 
 
@@ -480,25 +451,6 @@ def test_apply_save_settings_no_spec_uses_fallback_template():
     # fallback "{subject}_{task}_{node_title}"
     assert out["display_name"] == "sub-01_rest_Butter"
     assert out["tags"] == []
-
-
-# ---- cache_retention_for_role (P2) ----------------------------------------
-
-def test_cache_retention_leaf_is_current():
-    assert cache_retention_for_role("leaf") == "current"
-
-
-def test_cache_retention_intermediate_is_cached():
-    assert cache_retention_for_role("intermediate") == "cached"
-
-
-def test_cache_retention_source_falls_back_to_cached():
-    """source 节点（LoadData）即使被 cache 也不应是 current —— LoadData 没有 study_output，不会真发生。"""
-    assert cache_retention_for_role("source") == "cached"
-
-
-def test_cache_retention_none_role_defaults_to_cached():
-    assert cache_retention_for_role(None) == "cached"
 
 
 if __name__ == "__main__":

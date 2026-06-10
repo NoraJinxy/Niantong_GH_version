@@ -39,7 +39,7 @@ clear_lightweight_app_stubs()
 
 from app.models import StudyOutput  # noqa: E402
 from app.services.async_tasks import create_async_task  # noqa: E402
-from app.tasks.file_tasks import run_artifact_cleanup  # noqa: E402
+from app.tasks.file_tasks import run_study_output_cleanup  # noqa: E402
 
 
 class FakeQuery:
@@ -101,7 +101,9 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
     clean_artifact = SimpleNamespace(
         id=uuid.uuid4(),
         study_id=study_id,
-        retention_status="cached",
+        keep=False,
+        cache_eligible=True,
+        retention_expires_at=datetime(2026, 1, 1, 0, 0, 0),  # 已过期
         storage_uri=f"elys://studies/{study_id}/derived/aa/hash/clean.fif",
         storage_path="derived/aa/hash/clean.fif",
         deleted_at=None,
@@ -112,7 +114,9 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
     blocked_artifact = SimpleNamespace(
         id=uuid.uuid4(),
         study_id=study_id,
-        retention_status="temporary",
+        keep=False,
+        cache_eligible=False,
+        retention_expires_at=datetime(2026, 1, 1, 0, 0, 0),  # 已过期，但有下游依赖会被跳过
         storage_uri=f"elys://studies/{study_id}/derived/bb/hash/blocked.fif",
         storage_path="derived/bb/hash/blocked.fif",
         deleted_at=None,
@@ -123,7 +127,7 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
     task = SimpleNamespace(
         study_id=study_id,
         created_by=uuid.uuid4(),
-        payload_json={"retention_statuses": ["cached", "temporary"], "dry_run": False, "limit": 100},
+        payload_json={"dry_run": False, "limit": 100},
     )
     db = FakeDb(rows={StudyOutput: [clean_artifact, blocked_artifact]})
 
@@ -135,11 +139,10 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
         lambda db, artifact, limit=5: [{"execution_id": "downstream"}] if artifact.id == blocked_artifact.id else [],
     )
 
-    result = run_artifact_cleanup(db, task)
+    result = run_study_output_cleanup(db, task)
 
     assert result["cleaned_count"] == 1
     assert result["skipped_count"] == 1
-    assert clean_artifact.retention_status == "deleted"
-    assert clean_artifact.deleted_by == task.created_by
-    assert blocked_artifact.retention_status == "temporary"
+    assert clean_artifact.deleted_at is not None  # 软删到回收站
+    assert blocked_artifact.deleted_at is None  # 有下游依赖，跳过未删
     assert result["skipped"][0]["reason"] == "has_downstream_dependencies"
