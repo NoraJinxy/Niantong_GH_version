@@ -382,10 +382,41 @@ def test_pipeline_execution_lineage_aggregates_inputs_artifacts_dependencies_and
 def test_study_output_retention_patch_shares_delete_blocker() -> None:
     helper_segment = router_function_source("apply_study_output_retention_action")
 
-    assert "if target_status == ARTIFACT_DELETED_STATUS" in helper_segment
     assert "assert_artifact_can_be_deleted(db, artifact=dataset)" in helper_segment
     assert "ArtifactDependencyError" in helper_segment
     assert "status.HTTP_409_CONFLICT" in helper_segment
+
+
+def test_study_output_restore_rejects_purged_rows_before_clearing_deleted_at() -> None:
+    # GC 已物理清盘（purged_at 非空）的行磁盘文件已删，恢复必须 409，
+    # 且守卫要排在清 deleted_at 之前，不能先恢复再报错。
+    helper_segment = router_function_source("apply_study_output_retention_action")
+
+    purged_guard_index = helper_segment.index("dataset.purged_at is not None")
+    clear_deleted_index = helper_segment.index("dataset.deleted_at = None")
+    assert purged_guard_index < clear_deleted_index
+    assert '"code": "OUTPUT_PURGED"' in helper_segment
+
+
+def test_study_output_unkeep_and_restore_refresh_retention_ttl() -> None:
+    # keep=false / 回收站恢复后必须按用户动作口径重算 TTL，否则 NULL/已过期的
+    # retention_expires_at 会让下一轮每日 cleanup 立即把行再次软删。
+    helper_segment = router_function_source("apply_study_output_retention_action")
+
+    assert helper_segment.count("retention_expiry_after_user_action(") == 2
+    assert "restoring = deleted is False" in helper_segment
+    assert "elif restoring and not dataset.keep:" in helper_segment
+
+
+def test_study_output_batch_restore_pre_checks_purged_rows() -> None:
+    # 批量恢复与批量删除同口径：先全量预检，任一被挡在改动任何数据之前整体 409。
+    batch_segment = router_function_source("batch_update_study_outputs")
+
+    assert "if upd.deleted is False:" in batch_segment
+    assert '"code": "OUTPUT_BATCH_PURGED"' in batch_segment
+    precheck_index = batch_segment.index("OUTPUT_BATCH_PURGED")
+    apply_loop_index = batch_segment.index("apply_study_output_retention_action(")
+    assert precheck_index < apply_loop_index
 
 
 def test_file_task_worker_skips_pre_canceled_tasks() -> None:

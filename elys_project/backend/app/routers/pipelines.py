@@ -59,6 +59,7 @@ from app.pipeline.previews import (
 )
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.execution_manifest import ensure_execution_manifest, generate_execution_manifest
+from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.pipeline.selection_override import apply_load_data_selection_overrides, normalize_selection_override
 from app.pipeline.validator import validate_definition
 from app.routers.auth import get_current_user
@@ -637,11 +638,17 @@ def apply_study_output_retention_action(
     """统一改 keep（保留意图）/ deleted（回收站软删），两者正交、按传入项分别应用。
 
     - deleted=True：删到回收站（先做下游依赖检查，被引用则 409 整体不改）
-    - deleted=False：从回收站恢复
+    - deleted=False：从回收站恢复（GC 已清盘的行磁盘文件已没了，恢复一律 409）
     - keep=True：用户保留（清掉缓存 TTL、永不自动清）
-    - keep=False：交回系统按 cache_eligible / TTL 管理
+    - keep=False：交回系统管理（按缓存档 / 宽限期补 TTL，到期由每日 cleanup 回收）
+
+    凡是动作后行处于 keep=false 活跃态的，都重算 retention_expires_at——否则
+    NULL / 已过期的 TTL 会让下一轮每日 cleanup（tasks/file_tasks.py 的
+    run_study_output_cleanup 把两者都视为立即可回收）马上再次软删，用户的
+    「恢复 / 不保留」操作形同无效。
     """
     previous = {"keep": bool(dataset.keep), "deleted": dataset.deleted_at is not None}
+    restoring = deleted is False
 
     # 1) 软删 / 恢复
     if deleted is not None:
@@ -665,13 +672,42 @@ def apply_study_output_retention_action(
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
             dataset.deleted_at = datetime.utcnow()
         else:
+            if dataset.purged_at is not None:
+                # GC 已物理删盘：恢复只会得到"活跃但磁盘无文件"的幽灵行（预览/下载必挂），
+                # 且占用 (study_id, sha256) 唯一索引、挡住同内容输出再登记。
+                record_study_output_action_audit(
+                    db,
+                    study=study,
+                    dataset=dataset,
+                    current_user=current_user,
+                    action=f"{action}.blocked",
+                    reason=reason,
+                    operation=operation,
+                    previous=previous,
+                    blocked=True,
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "OUTPUT_PURGED",
+                        "message": "该输出已物理清盘（磁盘文件已删除），无法恢复。",
+                        "study_output_id": str(dataset.id),
+                        "purged_at": dataset.purged_at.isoformat(),
+                    },
+                )
             dataset.deleted_at = None
 
-    # 2) 保留意图
+    # 2) 保留意图 + TTL 重算
     if keep is not None:
         dataset.keep = keep
-        if keep:
-            dataset.retention_expires_at = None
+        dataset.retention_expires_at = retention_expiry_after_user_action(
+            keep=keep, cache_eligible=bool(dataset.cache_eligible)
+        )
+    elif restoring and not dataset.keep:
+        dataset.retention_expires_at = retention_expiry_after_user_action(
+            keep=False, cache_eligible=bool(dataset.cache_eligible)
+        )
 
     dataset.updated_at = datetime.utcnow()
     record_study_output_action_audit(
@@ -3037,6 +3073,19 @@ def batch_update_study_outputs(
                     "code": "DERIVED_DATASET_BATCH_BLOCKED",
                     "message": "部分输出被下游引用，无法删除；批量操作已整体取消。",
                     "blocked": blocked,
+                },
+            )
+    # 同理：恢复（deleted=False）撞到 GC 已清盘的行时，单条路径是 commit-then-raise，
+    # 批量循环中途触发会部分成功；先全量预检 purged_at，任一命中整体 409。
+    if upd.deleted is False:
+        purged_ids = [str(ds.id) for ds in datasets if ds.purged_at is not None]
+        if purged_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "OUTPUT_BATCH_PURGED",
+                    "message": "部分输出已物理清盘（磁盘文件已删除），无法恢复；批量操作已整体取消。",
+                    "purged_ids": purged_ids,
                 },
             )
     for ds in datasets:

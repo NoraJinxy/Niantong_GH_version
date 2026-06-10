@@ -89,11 +89,14 @@ if "sqlalchemy" not in sys.modules:
 
 
 from app.pipeline.save_settings import (  # noqa: E402
+    DEFAULT_INTERMEDIATE_RETENTION_DAYS,
+    USER_ACTION_GRACE_DAYS,
     apply_save_settings,
     default_keep_for_role,
     merge_tags,
     render_template,
     resolve_display_name_conflict,
+    retention_expiry_after_user_action,
 )
 from app.pipeline.topology import (  # noqa: E402
     ROLE_INTERMEDIATE,
@@ -177,6 +180,40 @@ def test_keep_source_role_is_true():
 
 def test_keep_none_role_is_true():
     assert default_keep_for_role(None) is True
+
+
+# ---- retention_expiry_after_user_action ------------------------------------
+# 用户动作（PATCH keep=false / 回收站恢复）后的 TTL 重算口径——缺陷修复锚点：
+# 不补 TTL 的话，NULL / 已过期的 retention_expires_at 会让下一轮每日 cleanup
+# 立即再次软删，用户的「恢复 / 不保留」操作形同无效。
+
+
+def test_user_action_keep_true_clears_ttl():
+    assert retention_expiry_after_user_action(keep=True, cache_eligible=True) is None
+    assert retention_expiry_after_user_action(keep=True, cache_eligible=False) is None
+
+
+def test_user_action_unkeep_cache_eligible_gets_cache_ttl():
+    before = datetime.utcnow()
+    expires = retention_expiry_after_user_action(keep=False, cache_eligible=True)
+    assert expires is not None
+    assert (
+        timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS)
+        <= expires - before
+        <= timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS, minutes=1)
+    )
+
+
+def test_user_action_unkeep_non_cache_gets_grace_not_immediate():
+    before = datetime.utcnow()
+    expires = retention_expiry_after_user_action(keep=False, cache_eligible=False)
+    assert expires is not None
+    assert expires > before  # 关键：必须在未来，不能沿用产出时"登记即过期"的口径
+    assert (
+        timedelta(days=USER_ACTION_GRACE_DAYS)
+        <= expires - before
+        <= timedelta(days=USER_ACTION_GRACE_DAYS, minutes=1)
+    )
 
 
 # ---- resolve_display_name_conflict ----------------------------------------

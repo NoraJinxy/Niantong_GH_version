@@ -36,6 +36,25 @@ _TEMPLATE_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 # 中间节点的默认缓存保留天数（cleanup task 在到期后清理磁盘文件）
 DEFAULT_INTERMEDIATE_RETENTION_DAYS = 7
 
+# 用户动作（取消保留 / 回收站恢复）后给非缓存行的宽限天数。
+# 产出时临时档"登记即过期"（TTL=now）没问题，但用户显式操作后若 TTL 仍为
+# NULL / 已过期，下一轮每日 cleanup 会立即再次软删，动作形同无效；
+# 天数对齐决策清单 P3-g~l 拍板的"删除/恢复 TTL 7 天"。
+USER_ACTION_GRACE_DAYS = 7
+
+
+def retention_expiry_after_user_action(*, keep: bool, cache_eligible: bool) -> datetime | None:
+    """用户动作（PATCH keep / 回收站恢复）后的 retention_expires_at 重算口径。
+
+    与产出时 apply_save_settings 一致：keep=True → None（永不自动清）、
+    缓存档 → now + DEFAULT_INTERMEDIATE_RETENTION_DAYS；唯一差别是非缓存行
+    不再"立即过期"，而是给 USER_ACTION_GRACE_DAYS 宽限期。
+    """
+    if keep:
+        return None
+    days = DEFAULT_INTERMEDIATE_RETENTION_DAYS if cache_eligible else USER_ACTION_GRACE_DAYS
+    return datetime.utcnow() + timedelta(days=days)
+
 
 def render_template(template: str, ctx: dict[str, Any]) -> str:
     """渲染模板字符串，支持 {subject} {task} {session} {run} {condition}
@@ -305,5 +324,7 @@ __all__ = [
     "resolve_display_name_conflict",
     "default_keep_for_role",
     "apply_save_settings",
+    "retention_expiry_after_user_action",
     "DEFAULT_INTERMEDIATE_RETENTION_DAYS",
+    "USER_ACTION_GRACE_DAYS",
 ]
