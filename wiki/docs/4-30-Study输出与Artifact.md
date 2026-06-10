@@ -70,7 +70,7 @@ flowchart LR
 - 正式输出必须有 `study_outputs` 记录。
 - 输出必须记录 `produced_by_execution_id`、`produced_by_job_id`、`file_role`、`data_type`、`storage_uri`、`sha256`。
 - 如果内容哈希已存在，可以复用已有文件，只新增新的引用记录。
-- 用户要长期保留某条输出，置 `keep=true`（永不自动清理）。
+- 用户要长期保存某条输出，置 `keep=true`（永不自动清理）。
 
 ## 3. 输出保留状态
 
@@ -78,14 +78,14 @@ flowchart LR
 
 | 维度 | 字段 | 含义 |
 |---|---|---|
-| 用户保留 | `keep` | true＝正式结果、永不自动清理；false＝交回系统按 TTL 管理 |
+| 用户保存 | `keep` | true＝正式结果、永不自动清理；false＝交回系统按 TTL 管理 |
 | 系统缓存 | `cache_eligible` | P4 评分快照（计算贵、产物小才值得缓存），决定 keep=false 行的 TTL 档位 |
 | 回收站 | `deleted_at` / `purged_at` | 软删可恢复；GC 物理删盘后置 `purged_at`（终态，DB 行保留可追溯） |
 
 TTL（`retention_expires_at`，仅 keep=false 行有值）口径：
 
 - 产出时：缓存档 `now+7d`；临时档 `now`（登记即过期）。
-- 用户动作后（取消保留 / 回收站恢复）：缓存档 `now+7d`；非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保留 / 恢复」不会被下一轮每日 cleanup 立即软删。
+- 用户动作后（取消保存 / 回收站恢复）：缓存档 `now+7d`；非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保存 / 恢复」不会被下一轮每日 cleanup 立即软删。
 
 统一 PATCH 入口 `PATCH /outputs/{id}` 改 `keep` / `deleted`；批量改走 `POST /outputs/batch-update`。删除（deleted=true）先做下游依赖检查，被下游 Execution 引用则 409 并附依赖详情；恢复（deleted=false）对 GC 已清盘（`purged_at` 非空）的行 409 `OUTPUT_PURGED`（磁盘文件已删、恢复只会得到无文件的幽灵行）。
 

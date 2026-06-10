@@ -100,7 +100,7 @@ Execution 创建 API 已支持两个轻量控制字段：
 | 字段 | 当前值 | 默认值 | 说明 |
 |---|---|---|---|
 | `execution_mode` | `trial` / `analysis` / `replay` / `system` | `analysis` | 区分试跑、正式分析、重放和系统触发 |
-| `save_policy` | `temporary` / `current` / `pinned` / `discard` | `current` | 描述输出保留意图 |
+| `save_policy` | `temporary` / `current` / `pinned` / `discard` | `current` | 描述输出保存意图 |
 
 当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。StudyOutputStore 尚未按 Execution 级 `save_policy` 自动改变输出保留策略（当前 retention 由节点拓扑角色经 `save_settings.py` 决定：leaf=current、intermediate=cached+7d），后续再强化。
 
@@ -263,8 +263,8 @@ Execution 输出进入 `study_outputs`（详见 [3-45](3-45-StudyOutput.md)）�
 
 | 操作 | API | 内部映射 | 规则 |
 |---|---|---|---|
-| 保留 | `PATCH /studies/{id}/outputs/{ds_id}` body `{keep: true}` | `keep=true` + 清 `retention_expires_at` | 永不自动清理 |
-| 取消保留 | `PATCH ... body {keep: false}` | `keep=false` + 重算 TTL（缓存档 7 天 / 非缓存宽限 7 天） | 到期由每日 cleanup 软删进回收站 |
+| 保存 | `PATCH /studies/{id}/outputs/{ds_id}` body `{keep: true}` | `keep=true` + 清 `retention_expires_at` | 永不自动清理 |
+| 取消保存 | `PATCH ... body {keep: false}` | `keep=false` + 重算 TTL（缓存档 7 天 / 非缓存宽限 7 天） | 到期由每日 cleanup 软删进回收站 |
 | 删除（回收站） | `PATCH ... body {deleted: true}` | 写 `deleted_at` | 不物理删除；被下游依赖时 409 |
 | 恢复 | `PATCH ... body {deleted: false}` | 清 `deleted_at`，keep=false 行重算 TTL | GC 已清盘（`purged_at` 非空）的行 409 `OUTPUT_PURGED` |
 | 改名/打标签 | `PATCH ... body {display_name, tags, description}` | UPDATE 对应字段 | 不影响保留状态 |

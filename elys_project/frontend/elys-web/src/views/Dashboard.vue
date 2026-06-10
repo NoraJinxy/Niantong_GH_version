@@ -877,7 +877,7 @@ function pipelineNameForExecution(execution: DashboardExecutionItem) {
 
 function pipelineExecutionRoute(execution: DashboardExecutionItem): RouteLocationRaw {
   return {
-    path: `/studies/${execution.study_id}/workflow`,
+    path: `/studies/${execution.study_id}/pipeline`,
     query: {
       pipeline_id: String(execution.pipeline_id),
       execution_id: execution.id,

@@ -177,7 +177,7 @@
                 </div>
               </div>
               <div class="study-detail__actions">
-                <RouterLink class="btn btn--primary" :to="`/studies/${selectedStudy.id}/workflow`">
+                <RouterLink class="btn btn--primary" :to="`/studies/${selectedStudy.id}/pipeline`">
                   <AppIcon name="pipeline" :size="16" />
                   进入工作区
                 </RouterLink>

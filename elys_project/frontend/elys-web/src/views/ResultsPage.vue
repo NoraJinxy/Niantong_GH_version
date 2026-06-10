@@ -245,7 +245,7 @@
               <div class="results-empty-inline__icon"><AppIcon name="figure" :size="28" /></div>
               <strong>这个研究项还没有结果</strong>
               <p>执行一个工作流试试，输出结果会在这里汇总。</p>
-              <RouterLink class="btn btn--primary btn--sm" :to="`/studies/${selectedStudyId}/workflow`">
+              <RouterLink class="btn btn--primary btn--sm" :to="`/studies/${selectedStudyId}/pipeline`">
                 <AppIcon name="pipeline" :size="14" />
                 进入工作流
               </RouterLink>
@@ -386,7 +386,7 @@
               <RouterLink
                 v-if="activeRow.produced_by_execution_id"
                 class="btn btn--sm"
-                :to="{ path: `/studies/${selectedStudyId}/workflow`, query: { execution_id: activeRow.produced_by_execution_id } }"
+                :to="{ path: `/studies/${selectedStudyId}/pipeline`, query: { execution_id: activeRow.produced_by_execution_id } }"
               >
                 <AppIcon name="pipeline" :size="14" />跳转工作流
               </RouterLink>

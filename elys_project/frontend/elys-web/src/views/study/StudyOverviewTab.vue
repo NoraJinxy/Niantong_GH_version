@@ -195,12 +195,12 @@ const decision = computed(() => {
     return { title: '先导入数据集', description: '当前研究项还没有可处理的数据引用。导入或挂载数据集后再进入后续处理。', action: '导入数据集', to: `/datasets?study_id=${sid}` }
   }
   if (s.counts.pipelines === 0) {
-    return { title: '配置工作流', description: '已有数据引用，但还没有工作流。下一步是创建或选择分析流程。', action: '进入工作流', to: `/studies/${sid}/workflow` }
+    return { title: '配置工作流', description: '已有数据引用，但还没有工作流。下一步是创建或选择分析流程。', action: '进入工作流', to: `/studies/${sid}/pipeline` }
   }
   if (s.running_execution_count > 0) {
-    return { title: '查看运行状态', description: '当前有运行正在进行，建议先查看进度、日志和输出状态。', action: '查看运行记录', to: `/studies/${sid}/workflow` }
+    return { title: '查看运行状态', description: '当前有运行正在进行，建议先查看进度、日志和输出状态。', action: '查看运行记录', to: `/studies/${sid}/pipeline` }
   }
-  return { title: '可以继续分析', description: '数据和工作流已就绪，可以创建新运行或查看既有运行结果。', action: '进入工作流', to: `/studies/${sid}/workflow` }
+  return { title: '可以继续分析', description: '数据和工作流已就绪，可以创建新运行或查看既有运行结果。', action: '进入工作流', to: `/studies/${sid}/pipeline` }
 })
 
 const pipelineReadinessText = computed(() => {

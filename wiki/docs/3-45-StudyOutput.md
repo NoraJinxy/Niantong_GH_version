@@ -27,7 +27,7 @@ sub-093 raw → filtered.fif → epochs.fif → erp.fif
 `study_outputs` 把所有产物用单一概念统一登记：
 
 - **每个节点产出的文件**都登记一行
-- **是否保留**通过 `keep`（布尔，二元开关）控制；**是否缓存**由 `cache_eligible`（系统按算力 / 产物大小自动评分）控制
+- **是否保存**通过 `keep`（布尔，二元开关）控制；**是否缓存**由 `cache_eligible`（系统按算力 / 产物大小自动评分）控制
 - **用户层面**有 `display_name` + `tags` 可以编辑
 - **追溯**通过 `upstream_dataset_ids` + `upstream_recording_ids` 两套引用
 
@@ -69,7 +69,7 @@ CREATE TABLE study_outputs (
   sha256                   VARCHAR(64),
   mime_type                VARCHAR(128),
 
-  -- 保留与缓存（三层解耦：keep=用户是否保留 / cache_eligible=系统是否缓存 / deleted_at+purged_at=回收站）
+  -- 保存与缓存（三层解耦：keep=用户是否保存 / cache_eligible=系统是否缓存 / deleted_at+purged_at=回收站）
   keep                     BOOLEAN NOT NULL DEFAULT false,
   cache_eligible           BOOLEAN NOT NULL DEFAULT false,
   retention_expires_at     TIMESTAMP,   -- 仅 keep=false 的缓存行 TTL
@@ -139,15 +139,15 @@ CREATE TABLE study_outputs (
 
 ### 3.5 生命周期
 
-保留 / 缓存 / 回收站 **三层解耦**（取代旧的 `retention_status` 五值状态机；用户只面对「保留 / 不保留」二元，缓存全自动）：
+保存 / 缓存 / 回收站 **三层解耦**（取代旧的 `retention_status` 五值状态机；用户只面对「保存 / 不保存」二元，缓存全自动）：
 
 | 维度 | 字段 | 含义 |
 |---|---|---|
-| **保留意图** | `keep` (bool) | 用户要不要这个产物。leaf（终）节点默认 `true`、中间节点默认 `false`，用户可在节点参数 `keep` 或结果页二元开关覆盖 |
+| **保存意图** | `keep` (bool) | 用户要不要这个产物。leaf（终）节点默认 `true`、中间节点默认 `false`，用户可在节点参数 `keep` 或结果页二元开关覆盖 |
 | **系统缓存** | `cache_eligible` (bool) | 系统按 P4 存储优先评分（算力 vs 产物大小）自动判定是否值得缓存，与 `keep` 独立 |
 | **回收站** | `deleted_at` / `purged_at` | `deleted_at`＝软删（文件还在、可恢复）；`purged_at`＝GC 物理清盘磁盘文件后置位（DB 行保留可追溯） |
 
-`retention_expires_at`：仅 `keep=false` 的行有 TTL。产出时：值得缓存→7 天、不值得→立即过期。用户动作后（取消保留 / 回收站恢复）重算：缓存档 7 天、非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保留 / 恢复」不会被下一轮每日 cleanup 立即软删（口径函数 `save_settings.retention_expiry_after_user_action`）。
+`retention_expires_at`：仅 `keep=false` 的行有 TTL。产出时：值得缓存→7 天、不值得→立即过期。用户动作后（取消保存 / 回收站恢复）重算：缓存档 7 天、非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保存 / 恢复」不会被下一轮每日 cleanup 立即软删（口径函数 `save_settings.retention_expiry_after_user_action`）。
 
 **清理（软删，`study_output_cleanup`）**：回收 `keep=false AND retention_expires_at<now AND deleted_at IS NULL` 的项，跳过被下游 Execution 依赖的项（`execution_dependencies`，源码 `elys_project/backend/app/services/execution_dependencies.py`），命中项置 `deleted_at`（软删到回收站、文件保留）。
 
@@ -206,7 +206,7 @@ CREATE INDEX idx_study_output_shared_published ON study_outputs (lifecycle_state
 
 1. **名字**：用户模板 > spec 默认模板 > 兜底 `{subject}_{task}_{node_title}`，渲染 BIDS 占位符（`{subject} {task} {session} {run} {condition}` 等），同名自动加 `(2)(3)` 后缀。
 2. **标签**：spec 的 `auto_tags` / `dynamic_tags` 与用户标签三路合并、保序去重。
-3. **保留**：`keep` 默认按拓扑角色（leaf=true / intermediate=false），节点参数 `keep` 可覆盖；`cache_eligible` 由 P4 评分自动判定；TTL 按 keep / cache_eligible 计算（口径见 §3.5）。
+3. **保存**：`keep` 默认按拓扑角色（leaf=true / intermediate=false），节点参数 `keep` 可覆盖；`cache_eligible` 由 P4 评分自动判定；TTL 按 keep / cache_eligible 计算（口径见 §3.5）。
 
 产物落盘与登记走 `StudyOutputStore.save_file_from_writer` + `register`（content-addressed，同 `(study_id, sha256)` 活跃行复用不重插）。
 
@@ -217,7 +217,7 @@ CREATE INDEX idx_study_output_shared_published ON study_outputs (lifecycle_state
 | `GET /studies/{id}/pipeline-executions/{execution_id}/outputs` | 某次 Execution 的结果列表 |
 | `GET /studies/{id}/outputs` | 跨 Execution 列出（`/results` 页面用）；支持 `run_ids / node_types / data_types / bids_subject_ids / sessions / tasks / conditions / tags / keep / include_deleted / limit / offset` 过滤 |
 | `GET /studies/{id}/outputs/{id}` | 单条详情 |
-| `PATCH /studies/{id}/outputs/{id}` | 统一修改 display_name / description / tags / `keep`（保留）/ `deleted`（软删 / 恢复）|
+| `PATCH /studies/{id}/outputs/{id}` | 统一修改 display_name / description / tags / `keep`（保存）/ `deleted`（软删 / 恢复）|
 | `POST /studies/{id}/outputs/batch-update` | 批量改 |
 | `POST /studies/{id}/outputs/cleanup` | 异步清理任务（软删 keep=false 且已过期的）|
 | `POST /studies/{id}/outputs/gc` | 异步 GC 物理清盘任务（删回收站超 30 天的磁盘文件、置 purged_at）|
