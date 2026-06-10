@@ -18,18 +18,6 @@ from app.services.storage import StorageService, StorageUriError
 CACHEABLE_NODE_STATUSES = ("success", "cached")
 
 
-def cache_retention_for_role(role: str | None) -> str:
-    """Cache 命中复制 study_output 时的 retention：
-    - leaf 节点 → "current"（用户可见、永久保留）
-    - 其他 → "cached"（短期保留，可能被清理任务回收）
-
-    注：当前 cache 命中路径 _register_artifact_references 仍硬编码 "current"，
-    本函数是按拓扑角色分级 retention 的预期实现（见 test_save_settings P2），
-    待接入 _register_artifact_references 替换硬编码值。
-    """
-    return "current" if role == "leaf" else "cached"
-
-
 @dataclass
 class CacheLookupResult:
     output: NodeOutput
@@ -58,8 +46,8 @@ class PipelineCache:
         self._artifact_model = artifact_model
         self._job_model = job_model
         self.study_root = self._resolve_study_root(study, base_dir)
-        # 拓扑角色字典 {node_id: "leaf" | "intermediate" | "source"}
-        # 用于 cache 命中时按角色决定复制行的 retention（leaf=current, intermediate=cached）
+        # 拓扑角色字典 {node_id: "leaf" | "intermediate" | "source"}（保留备用；
+        # 命中复用直接沿用源行 keep/cache_eligible，不再按角色重算）
         self.topology: dict[str, str] = topology or {}
 
     def restore_node_output(self, *, node_hash: str, node: dict[str, Any]) -> CacheLookupResult | None:
@@ -101,10 +89,10 @@ class PipelineCache:
 
     def _artifacts_for_job(self, job: Any) -> list[Any]:
         model = self._get_artifact_model()
-        # 必须排除已被 cleanup 标记 deleted 的派生数据：cleanup 只改 retention_status /
-        # deleted_at、物理文件保留，所以"文件在 + sha256 对"仍成立，但这些行用户视角是
-        # 已删除的，不能当作缓存命中复用（否则下游会引用一条 deleted 行）。与
-        # study_output_store 的 content-addressed dedup 过滤口径保持一致。
+        # 必须排除已被 cleanup/用户删除的输出：删除只置 deleted_at、物理文件可能仍在，
+        # 所以"文件在 + sha256 对"仍成立，但这些行用户视角是已删除的，不能当作缓存命中
+        # 复用（否则下游会引用一条已删除行）。与 study_output_store 的 content-addressed
+        # dedup 过滤口径保持一致。
         return (
             self.db.query(model)
             .filter(
@@ -166,7 +154,8 @@ class PipelineCache:
                     "checksum": sha256,
                     "sha256": sha256,
                     "content_hash": sha256,
-                    "retention_status": getattr(source, "retention_status", None) or "current",
+                    "keep": bool(getattr(source, "keep", False)),
+                    "cache_eligible": bool(getattr(source, "cache_eligible", False)),
                     "metadata_json": {},
                     "preview_json": getattr(source, "preview_json", None) or {},
                 }

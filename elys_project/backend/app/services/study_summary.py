@@ -99,7 +99,7 @@ def build_study_summary(db: Session, *, study: Study, current_user: User) -> Stu
         db.query(func.count(StudyOutput.id))
         .filter(
             StudyOutput.study_id == study.id,
-            StudyOutput.retention_status != "deleted",
+            StudyOutput.deleted_at.is_(None),
         )
         .scalar()
         or 0
@@ -242,7 +242,7 @@ def recent_study_outputs(db: Session, *, study: Study) -> list:
         db.query(StudyOutput)
         .filter(
             StudyOutput.study_id == study.id,
-            StudyOutput.retention_status != "deleted",
+            StudyOutput.deleted_at.is_(None),
         )
         .order_by(StudyOutput.created_at.desc(), StudyOutput.id.desc())
         .limit(STUDY_SUMMARY_DERIVED_LIMIT)

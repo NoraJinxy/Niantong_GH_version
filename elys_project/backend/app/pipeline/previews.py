@@ -81,7 +81,7 @@ def build_study_output_preview(
         "storage_path": str(storage_path),
         "storage_uri": getattr(derived, "storage_uri", None),
         "sha256": sha256,
-        "retention_status": getattr(derived, "retention_status", None),
+        "keep": bool(getattr(derived, "keep", False)),
         "preview_json": preview_json,
         "observe_route": observe_route_for_data_type(data_type),
         "observe_query": observe_query(study, derived, execution_id=execution_id),

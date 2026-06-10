@@ -100,13 +100,13 @@ def run_file_task(self, task_id: str) -> dict[str, Any]:
 
 
 def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
-    """Cleanup study_outputs whose retention is temporary/cached and (optionally) expired.
+    """回收 keep=false 且已过期(retention_expires_at<now)的输出（软删到回收站）。
 
-    被下游 Execution/节点输入引用的派生数据集会被跳过；其它候选的 retention_status 改为
-    "deleted"，物理文件保留以便恢复（实际清盘由后续 garbage collector 完成）。
+    清理条件：keep=false AND retention_expires_at<now AND deleted_at IS NULL。
+    被下游 Execution/节点输入引用的输出会被跳过；其它候选只置 deleted_at（软删，
+    物理文件保留以便恢复，实际清盘由后续 garbage collector 完成）。
     """
     payload = task.payload_json or {}
-    allowed_statuses = _cleanup_statuses(payload.get("retention_statuses"))
     dry_run = bool(payload.get("dry_run", False))
     limit = int(payload.get("limit") or 500)
     study_id = task.study_id
@@ -116,9 +116,10 @@ def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
     now = datetime.utcnow()
     query = db.query(StudyOutput).filter(
         StudyOutput.study_id == study_id,
-        StudyOutput.retention_status.in_(allowed_statuses),
+        StudyOutput.keep.is_(False),
+        StudyOutput.deleted_at.is_(None),
     )
-    # 优先回收已过期的临时项；过期为空（pinned/current）的不进
+    # 优先回收最早过期的；retention_expires_at 为空（理论上不该出现在 keep=false 行）排后
     query = query.order_by(
         StudyOutput.retention_expires_at.asc().nullslast(),
         StudyOutput.created_at.asc(),
@@ -129,7 +130,7 @@ def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
     cleaned = []
     skipped = []
     for dataset in candidates:
-        # 没过期且不是 dry_run 的临时项也跳过
+        # 未到期的（expires 在未来）跳过；expires 为空视为立即可回收
         if (
             dataset.retention_expires_at is not None
             and dataset.retention_expires_at > now
@@ -155,18 +156,15 @@ def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
             "study_output_id": str(dataset.id),
             "storage_uri": dataset.storage_uri,
             "logical_path": dataset.logical_path,
-            "previous_retention_status": dataset.retention_status,
             "retention_expires_at": dataset.retention_expires_at.isoformat() if dataset.retention_expires_at else None,
         }
         cleaned.append(item)
         if not dry_run:
-            dataset.retention_status = "deleted"
             dataset.deleted_at = now
             dataset.updated_at = now
 
     return {
         "dry_run": dry_run,
-        "allowed_retention_statuses": allowed_statuses,
         "candidate_count": len(candidates),
         "cleaned_count": len(cleaned),
         "skipped_count": len(skipped),
@@ -336,14 +334,6 @@ def run_dataset_import(db, task: AsyncTask) -> dict[str, Any]:
 
 def _find_task(db, task_id: str, celery_task_id: str | None) -> AsyncTask | None:
     return find_async_task_by_celery_id(db, celery_task_id) or db.query(AsyncTask).filter(AsyncTask.id == UUID(str(task_id))).first()
-
-
-def _cleanup_statuses(value: Any) -> list[str]:
-    if isinstance(value, list):
-        statuses = [str(item) for item in value if str(item) in {"temporary", "cached"}]
-        if statuses:
-            return statuses
-    return ["temporary", "cached"]
 
 
 def _uuid_or_none(value: Any) -> UUID | None:

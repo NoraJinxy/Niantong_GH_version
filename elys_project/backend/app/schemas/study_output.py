@@ -11,7 +11,7 @@ Related:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,8 +59,9 @@ class StudyOutputResponse(BaseModel):
     sha256: Optional[str] = None
     mime_type: Optional[str] = None
 
-    # 生命周期
-    retention_status: str
+    # 保留与缓存（三层解耦）
+    keep: bool = False
+    cache_eligible: bool = False
     retention_expires_at: Optional[datetime] = None
 
     # 预览
@@ -83,7 +84,7 @@ class StudyOutputPreviewResponse(BaseModel):
     data_type: str
     storage_uri: Optional[str] = None
     sha256: Optional[str] = None
-    retention_status: Optional[str] = None
+    keep: bool = False
     preview_json: dict[str, Any] = Field(default_factory=dict)
     observe_route: str = "/observe"
     observe_query: dict[str, str] = Field(default_factory=dict)
@@ -100,18 +101,18 @@ class StudyOutputListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class StudyOutputUpdate(BaseModel):
-    """PATCH /outputs/{id} — change user-facing label/tags/retention.
+    """PATCH /outputs/{id} — change user-facing label/tags/keep/deleted.
 
     All fields are optional; only sent fields are applied.
+    - keep:    用户保留意图（true=保留 / false=不保留，交回系统缓存/TTL 管理）
+    - deleted: 回收站软删（true=删到回收站 / false=恢复）
     """
 
     display_name: Optional[str] = Field(default=None, max_length=256)
     description: Optional[str] = None
     tags: Optional[list[str]] = None
-    retention_status: Optional[
-        Literal["current", "pinned", "cached", "temporary", "deleted"]
-    ] = None
-    retention_expires_at: Optional[datetime] = None
+    keep: Optional[bool] = None
+    deleted: Optional[bool] = None
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -123,11 +124,12 @@ class StudyOutputBatchUpdate(BaseModel):
 
 
 class StudyOutputCleanupRequest(BaseModel):
-    """POST /outputs/cleanup — kick off a cleanup async task."""
+    """POST /outputs/cleanup — 回收 keep=false 且已过期(retention_expires_at<now)的输出。
 
-    retention_statuses: list[Literal["temporary", "cached"]] = Field(
-        default_factory=lambda: ["temporary", "cached"]
-    )
+    清理条件固定（keep=false AND retention_expires_at<now AND deleted_at IS NULL），
+    不再按 retention_status 枚举筛选。
+    """
+
     dry_run: bool = False
     limit: int = Field(default=500, ge=1, le=5000)
     reason: Optional[str] = Field(default=None, max_length=500)
@@ -153,7 +155,7 @@ class StudyOutputListQuery(BaseModel):
     tasks: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
     tags: Optional[list[str]] = None
-    retention_statuses: Optional[list[str]] = None
+    keep: Optional[bool] = None
     include_deleted: bool = False
     created_after: Optional[datetime] = None
     created_before: Optional[datetime] = None

@@ -336,13 +336,12 @@ class StudyOutputStore:
         bids_entities = self._safe_dict(
             metadata.get("input_data_info") if isinstance(metadata, dict) else None
         )
-        retention_status = (
-            self._safe_str(metadata.get("retention_status")) if isinstance(metadata, dict) else None
-        ) or "current"
+        keep = bool(metadata.get("keep")) if isinstance(metadata, dict) else False
+        cache_eligible = bool(metadata.get("cache_eligible")) if isinstance(metadata, dict) else False
         retention_expires_at = (
             metadata.get("retention_expires_at") if isinstance(metadata, dict) else None
         )
-        if retention_status in ("current", "pinned"):
+        if keep:
             retention_expires_at = None
 
         derived = derived_model(
@@ -377,7 +376,8 @@ class StudyOutputStore:
             file_size=file_size,
             sha256=checksum,
             mime_type=self._safe_str(metadata.get("mime_type") if isinstance(metadata, dict) else None),
-            retention_status=retention_status,
+            keep=keep,
+            cache_eligible=cache_eligible,
             retention_expires_at=retention_expires_at,
             preview_json=preview,
             created_at=datetime.utcnow(),
@@ -410,7 +410,8 @@ class StudyOutputStore:
             file_size=file_size,
             sha256=checksum,
             mime_type=derived.mime_type,
-            retention_status=retention_status,
+            keep=keep,
+            cache_eligible=cache_eligible,
             retention_expires_at=retention_expires_at.isoformat() if isinstance(retention_expires_at, datetime) else None,
             preview_json=preview,
             produced_by_params=produced_by_params,
@@ -448,7 +449,8 @@ class StudyOutputStore:
             file_size=getattr(row, "file_size", None),
             sha256=getattr(row, "sha256", None),
             mime_type=getattr(row, "mime_type", None),
-            retention_status=getattr(row, "retention_status", None),
+            keep=bool(getattr(row, "keep", False)),
+            cache_eligible=bool(getattr(row, "cache_eligible", False)),
             retention_expires_at=retention_expires_at.isoformat() if isinstance(retention_expires_at, datetime) else None,
             preview_json=dict(getattr(row, "preview_json", None) or {}),
             produced_by_params=dict(getattr(row, "produced_by_params", None) or {}),

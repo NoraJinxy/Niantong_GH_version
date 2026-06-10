@@ -133,7 +133,6 @@ TASK_EVENT_STREAM_BATCH_LIMIT = 100
 TASK_EVENT_STREAM_POLL_INTERVAL_SECONDS = 1.0
 TASK_EVENT_STREAM_HEARTBEAT_SECONDS = 15.0
 TASK_EVENT_STREAM_MAX_SECONDS = 300.0
-ARTIFACT_DELETED_STATUS = "deleted"
 PIPELINE_EXECUTION_MODES = {"auto", "celery", "inline"}
 
 
@@ -374,7 +373,8 @@ def study_output_to_response(dataset: StudyOutput) -> StudyOutputResponse:
         file_size=dataset.file_size,
         sha256=dataset.sha256,
         mime_type=dataset.mime_type,
-        retention_status=dataset.retention_status,
+        keep=bool(dataset.keep),
+        cache_eligible=bool(dataset.cache_eligible),
         retention_expires_at=dataset.retention_expires_at,
         preview_json=dataset.preview_json or {},
         created_at=dataset.created_at,
@@ -588,16 +588,6 @@ def get_study_output_or_404(db: Session, study_id: str, dataset_id: UUID) -> Stu
     return dataset
 
 
-def study_output_hidden_conflict_detail(dataset: StudyOutput, *, operation: str) -> dict[str, Any]:
-    return {
-        "code": "DERIVED_DATASET_HIDDEN",
-        "message": "已隐藏的派生数据集不能再被 pin/unpin。如果要恢复，请显式调用 PATCH 把 retention_status 切回 current。",
-        "study_output_id": str(dataset.id),
-        "operation": operation,
-        "retention_status": dataset.retention_status,
-    }
-
-
 def record_study_output_action_audit(
     db: Session,
     *,
@@ -607,8 +597,7 @@ def record_study_output_action_audit(
     action: str,
     reason: str | None,
     operation: str,
-    previous_status: str,
-    target_status: str,
+    previous: dict[str, Any],
     blocked: bool = False,
     dependencies: list[dict[str, Any]] | None = None,
 ) -> None:
@@ -622,8 +611,9 @@ def record_study_output_action_audit(
         resource_label=dataset.display_name or dataset.storage_uri,
         metadata={
             "operation": operation,
-            "previous_status": previous_status,
-            "retention_status": target_status,
+            "previous": previous,
+            "keep": bool(dataset.keep),
+            "deleted": dataset.deleted_at is not None,
             "reason": reason,
             "execution_id": str(dataset.produced_by_execution_id) if dataset.produced_by_execution_id else None,
             "blocked": blocked,
@@ -638,60 +628,52 @@ def apply_study_output_retention_action(
     study: Study,
     dataset: StudyOutput,
     current_user: User,
-    target_status: str,
+    keep: bool | None = None,
+    deleted: bool | None = None,
     action: str,
     reason: str | None = None,
     operation: str = "retention_update",
-    allow_restore_deleted: bool = True,
 ) -> StudyOutput:
-    previous_status = dataset.retention_status
-    if previous_status == ARTIFACT_DELETED_STATUS and target_status != ARTIFACT_DELETED_STATUS and not allow_restore_deleted:
-        record_study_output_action_audit(
-            db,
-            study=study,
-            dataset=dataset,
-            current_user=current_user,
-            action=f"{action}.blocked",
-            reason=reason,
-            operation=operation,
-            previous_status=previous_status,
-            target_status=target_status,
-            blocked=True,
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=study_output_hidden_conflict_detail(dataset, operation=operation),
-        )
-    if target_status == ARTIFACT_DELETED_STATUS:
-        try:
-            assert_artifact_can_be_deleted(db, artifact=dataset)
-        except ArtifactDependencyError as exc:
-            record_study_output_action_audit(
-                db,
-                study=study,
-                dataset=dataset,
-                current_user=current_user,
-                action=f"{action}.blocked",
-                reason=reason,
-                operation=operation,
-                previous_status=previous_status,
-                target_status=target_status,
-                blocked=True,
-                dependencies=exc.blockers,
-            )
-            db.commit()
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
+    """统一改 keep（保留意图）/ deleted（回收站软删），两者正交、按传入项分别应用。
 
-    dataset.retention_status = target_status
-    if target_status == ARTIFACT_DELETED_STATUS:
-        dataset.deleted_at = datetime.utcnow()
-    else:
-        dataset.deleted_at = None
-    if target_status in ("current", "pinned"):
-        dataset.retention_expires_at = None
+    - deleted=True：删到回收站（先做下游依赖检查，被引用则 409 整体不改）
+    - deleted=False：从回收站恢复
+    - keep=True：用户保留（清掉缓存 TTL、永不自动清）
+    - keep=False：交回系统按 cache_eligible / TTL 管理
+    """
+    previous = {"keep": bool(dataset.keep), "deleted": dataset.deleted_at is not None}
+
+    # 1) 软删 / 恢复
+    if deleted is not None:
+        if deleted:
+            try:
+                assert_artifact_can_be_deleted(db, artifact=dataset)
+            except ArtifactDependencyError as exc:
+                record_study_output_action_audit(
+                    db,
+                    study=study,
+                    dataset=dataset,
+                    current_user=current_user,
+                    action=f"{action}.blocked",
+                    reason=reason,
+                    operation=operation,
+                    previous=previous,
+                    blocked=True,
+                    dependencies=exc.blockers,
+                )
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
+            dataset.deleted_at = datetime.utcnow()
+        else:
+            dataset.deleted_at = None
+
+    # 2) 保留意图
+    if keep is not None:
+        dataset.keep = keep
+        if keep:
+            dataset.retention_expires_at = None
+
     dataset.updated_at = datetime.utcnow()
-
     record_study_output_action_audit(
         db,
         study=study,
@@ -700,8 +682,7 @@ def apply_study_output_retention_action(
         action=action,
         reason=reason,
         operation=operation,
-        previous_status=previous_status,
-        target_status=dataset.retention_status,
+        previous=previous,
     )
     return dataset
 
@@ -2292,7 +2273,7 @@ def build_pipeline_execution_lineage_response(
             label=dataset.display_name or f"{dataset.data_type} {dataset.bids_subject_id or ''}".strip(),
             resource_kind="study_output",
             resource_id=dataset.id,
-            status=dataset.retention_status,
+            status="kept" if dataset.keep else "transient",
             metadata={
                 "job_id": str(dataset.produced_by_job_id) if dataset.produced_by_job_id else None,
                 "node_type": dataset.produced_by_node_type,
@@ -2308,7 +2289,7 @@ def build_pipeline_execution_lineage_response(
             source=lineage_execution_node_id(execution.id),
             target=dataset_node_id,
             edge_type="produces",
-            metadata={"retention_status": dataset.retention_status},
+            metadata={"keep": bool(dataset.keep)},
         )
 
     for dependency in upstream_dependencies:
@@ -2391,7 +2372,7 @@ def get_pipeline_execution(
         .filter(
             StudyOutput.study_id == study.id,
             StudyOutput.produced_by_execution_id == execution.id,
-            StudyOutput.retention_status != "deleted",
+            StudyOutput.deleted_at.is_(None),
         )
         .order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc())
         .all()
@@ -2855,7 +2836,7 @@ def list_pipeline_execution_study_outputs(
         StudyOutput.produced_by_execution_id == execution.id,
     )
     if not include_deleted:
-        query = query.filter(StudyOutput.retention_status != "deleted")
+        query = query.filter(StudyOutput.deleted_at.is_(None))
     datasets = query.order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc()).all()
     return StudyOutputListResponse(
         study_outputs=[study_output_to_response(item) for item in datasets],
@@ -2877,7 +2858,7 @@ def list_study_outputs(
     tasks: list[str] | None = Query(default=None),
     conditions: list[str] | None = Query(default=None),
     tags: list[str] | None = Query(default=None),
-    retention_statuses: list[str] | None = Query(default=None),
+    keep: bool | None = Query(default=None),
     include_deleted: bool = Query(default=False),
     include_cross_study: bool = Query(
         default=False,
@@ -2911,7 +2892,7 @@ def list_study_outputs(
     else:
         query = db.query(StudyOutput).filter(StudyOutput.study_id == study.id)
     if not include_deleted:
-        query = query.filter(StudyOutput.retention_status != "deleted")
+        query = query.filter(StudyOutput.deleted_at.is_(None))
     if execution_ids:
         query = query.filter(StudyOutput.produced_by_execution_id.in_(execution_ids))
     if node_types:
@@ -2926,8 +2907,8 @@ def list_study_outputs(
         query = query.filter(StudyOutput.task.in_(tasks))
     if conditions:
         query = query.filter(StudyOutput.condition.in_(conditions))
-    if retention_statuses:
-        query = query.filter(StudyOutput.retention_status.in_(retention_statuses))
+    if keep is not None:
+        query = query.filter(StudyOutput.keep.is_(keep))
     if tags:
         # JSONB contains: 任一 tag 匹配即可
         from sqlalchemy import or_ as _or
@@ -2973,7 +2954,7 @@ def update_study_output(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """统一的 PATCH 入口：可改 display_name / description / tags / retention_status。"""
+    """统一的 PATCH 入口：可改 display_name / description / tags / keep / deleted。"""
     study = get_study_for_write(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
 
@@ -2990,18 +2971,17 @@ def update_study_output(
                 seen.add(text)
                 cleaned.append(text)
         dataset.tags = cleaned
-    if payload.retention_status is not None:
+    if payload.keep is not None or payload.deleted is not None:
         apply_study_output_retention_action(
             db,
             study=study,
             dataset=dataset,
             current_user=current_user,
-            target_status=payload.retention_status,
-            action=f"study_output.retention.{payload.retention_status}",
+            keep=payload.keep,
+            deleted=payload.deleted,
+            action="study_output.retention",
             reason=payload.reason,
         )
-    if payload.retention_expires_at is not None:
-        dataset.retention_expires_at = payload.retention_expires_at
     dataset.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(dataset)
@@ -3041,7 +3021,7 @@ def batch_update_study_outputs(
     # 再抛 409。批量循环里若第 N 条撞 blocker，会把前 N-1 条的改动一并提交后抛错，造成
     # "部分成功 + 无回滚"。因此当目标是 deleted 时，先全量预检所有 blocker，任一被挡就
     # 在改动任何数据之前一次性 409，循环内便不会再触发 commit-then-raise。
-    if upd.retention_status == ARTIFACT_DELETED_STATUS:
+    if upd.deleted is True:
         blocked: list[dict[str, Any]] = []
         for ds in datasets:
             try:
@@ -3055,7 +3035,7 @@ def batch_update_study_outputs(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "code": "DERIVED_DATASET_BATCH_BLOCKED",
-                    "message": "部分派生数据集被下游引用，无法删除/隐藏；批量操作已整体取消。",
+                    "message": "部分输出被下游引用，无法删除；批量操作已整体取消。",
                     "blocked": blocked,
                 },
             )
@@ -3073,18 +3053,17 @@ def batch_update_study_outputs(
                     seen.add(text)
                     cleaned.append(text)
             ds.tags = cleaned
-        if upd.retention_status is not None:
+        if upd.keep is not None or upd.deleted is not None:
             apply_study_output_retention_action(
                 db,
                 study=study,
                 dataset=ds,
                 current_user=current_user,
-                target_status=upd.retention_status,
-                action=f"study_output.batch.retention.{upd.retention_status}",
+                keep=upd.keep,
+                deleted=upd.deleted,
+                action="study_output.batch.retention",
                 reason=upd.reason,
             )
-        if upd.retention_expires_at is not None:
-            ds.retention_expires_at = upd.retention_expires_at
         ds.updated_at = datetime.utcnow()
     db.commit()
     for ds in datasets:
@@ -3106,12 +3085,11 @@ def create_study_output_cleanup_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """派生数据集清理任务：按 retention_status + retention_expires_at 决定回收。"""
+    """输出清理任务：回收 keep=false 且已过期(retention_expires_at<now)的输出。"""
     study = get_study_for_write(study_id, db, current_user)
     payload = payload or StudyOutputCleanupRequest()
     payload_json = {
         "study_id": study.id,
-        "retention_statuses": payload.retention_statuses,
         "dry_run": payload.dry_run,
         "limit": payload.limit,
         "reason": payload.reason,
@@ -3140,10 +3118,10 @@ def get_study_output_preview(
 ):
     study = get_study_for_read(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
-    if dataset.retention_status == "deleted":
+    if dataset.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "DERIVED_DATASET_DELETED", "message": "派生数据集已被隐藏，预览不可用。"},
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，预览不可用。"},
         )
     try:
         preview = build_study_output_preview(study, dataset, sample_channels=max_channels)
@@ -3170,7 +3148,7 @@ def get_study_output_preview(
         data_type=preview.get("data_type") or dataset.data_type,
         storage_uri=preview.get("storage_uri"),
         sha256=preview.get("sha256"),
-        retention_status=preview.get("retention_status"),
+        keep=bool(preview.get("keep")),
         preview_json=preview.get("preview_json") or {},
         observe_route=preview.get("observe_route") or "/observe",
         observe_query=preview.get("observe_query") or {},
@@ -3192,10 +3170,10 @@ def get_study_output_timeseries(
 ):
     study = get_study_for_read(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
-    if dataset.retention_status == "deleted":
+    if dataset.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "DERIVED_DATASET_DELETED", "message": "派生数据集已被隐藏，时域数据不可用。"},
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，时域数据不可用。"},
         )
     try:
         return build_timeseries(
@@ -3228,10 +3206,10 @@ def download_study_output(
 ):
     study = get_study_for_read(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
-    if dataset.retention_status == "deleted":
+    if dataset.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "DERIVED_DATASET_DELETED", "message": "派生数据集已被隐藏，下载不可用。"},
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，下载不可用。"},
         )
     try:
         path = resolve_study_output_path(study, dataset)

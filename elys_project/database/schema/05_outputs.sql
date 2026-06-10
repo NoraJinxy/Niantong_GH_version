@@ -44,13 +44,10 @@ CREATE TABLE IF NOT EXISTS study_outputs (
     sha256                   VARCHAR(64),
     mime_type                VARCHAR(128),
 
-    -- 生命周期
-    retention_status         VARCHAR(32) NOT NULL DEFAULT 'current'
-                             CHECK (retention_status IN (
-                                'current', 'pinned', 'cached',
-                                'temporary', 'deleted'
-                             )),
-    retention_expires_at     TIMESTAMP,
+    -- 保留与缓存（三层解耦：keep=用户是否保留 / cache_eligible=系统是否缓存 / deleted_at=回收站）
+    keep                     BOOLEAN NOT NULL DEFAULT false,
+    cache_eligible           BOOLEAN NOT NULL DEFAULT false,
+    retention_expires_at     TIMESTAMP,   -- 仅缓存行(keep=false)的 TTL；keep=true 恒为 NULL(永久保留)
 
     -- 派生数据集生命周期（与 DatasetVersion.state 同口径，2026-06-09 v2）。继承 upstream 状态：
     --   upstream unpublished  → lifecycle_state=unpublished，跨研究项不可见
@@ -72,8 +69,8 @@ CREATE TABLE IF NOT EXISTS study_outputs (
 );
 
 COMMENT ON TABLE study_outputs IS
-    '派生数据集表。Pipeline 各节点产出的文件统一登记于此，取代旧的 pipeline_artifacts + analysis_results。'
-    '用户视角通过 display_name + tags 命名分类；retention_status 控制生命周期。';
+    '输出表。Pipeline 各节点产出的文件统一登记于此，取代旧的 pipeline_artifacts + analysis_results。'
+    '用户视角通过 display_name + tags 命名分类；keep 控制是否保留、cache_eligible 控制是否缓存。';
 
 -- ============================================
 -- 数据集文件派生关系
@@ -156,7 +153,7 @@ CREATE TABLE IF NOT EXISTS pipeline_execution_dependencies (
 -- 索引
 -- ============================================
 
-CREATE INDEX IF NOT EXISTS idx_study_output_study ON study_outputs (study_id, retention_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_output_study ON study_outputs (study_id, keep, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_output_subject_type ON study_outputs (study_id, bids_subject_id, data_type);
 CREATE INDEX IF NOT EXISTS idx_study_output_execution ON study_outputs (produced_by_execution_id);
 CREATE INDEX IF NOT EXISTS idx_study_output_job ON study_outputs (produced_by_job_id);

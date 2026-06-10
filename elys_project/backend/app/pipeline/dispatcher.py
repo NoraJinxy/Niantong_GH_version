@@ -917,7 +917,7 @@ class NodeDispatcher:
         """调 apply_save_settings 并返回可直接 merge 进 metadata 的 dict。
 
         返回字段:
-          display_name / tags / retention_status / retention_expires_at /
+          display_name / tags / keep / cache_eligible / retention_expires_at /
           step_label / data_type
 
         dispatcher 把它 update 到传给 study_output_store.save_file_from_writer 的

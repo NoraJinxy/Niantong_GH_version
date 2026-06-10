@@ -2,7 +2,7 @@
 Purpose: 节点保存设置统一计算 —— 把 NodeSpec 的 save 子对象（step_label /
          auto_tags / name_template / dynamic_tags）与拓扑角色 (leaf /
          intermediate) + BIDS 实体 + 用户参数合成最终
-         {display_name, tags, retention_status, retention_expires_at}，
+         {display_name, tags, keep, cache_eligible, retention_expires_at}，
          注入到 StudyOutput metadata。
 
 设计目标:
@@ -10,8 +10,9 @@ Purpose: 节点保存设置统一计算 —— 把 NodeSpec 的 save 子对象�
 - 模板渲染允许 {subject} {task} {condition} {node_title} 等占位符；
 - 自动 tag 前缀 step:* / type:* / cond:* 由 spec 写死；用户额外加的 tag 与之合并；
 - display_name 冲突时自动加 (2) (3) 后缀（无配对中转事务，单 execution 内事务可见）；
-- retention 默认由拓扑决定 —— leaf=current(永久) / intermediate=cached(7 天)；
-  用户可在节点参数里通过 `retention` 显式覆盖。
+- 保留三层解耦 —— keep(用户是否保留)默认由拓扑决定(leaf=True / intermediate=False)，
+  用户可在节点参数里通过 `keep` 显式覆盖；cache_eligible(系统是否缓存)由 P4 评分自动定；
+  retention_expires_at 仅 keep=False 的缓存/临时行需要。
 
 Related:
 - app/pipeline/nodes/*.json (save 子对象)
@@ -26,6 +27,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.pipeline.cache_policy import is_cache_eligible
 from app.pipeline.topology import ROLE_INTERMEDIATE
 
 
@@ -108,7 +110,6 @@ def resolve_display_name_conflict(
 
     匹配规则:
       - 排除 deleted_at IS NOT NULL 的行
-      - 排除 retention_status = 'none' 的行（不应保留的不参与冲突）
       - 命中 display_name = base 或 display_name LIKE 'base (N)'
 
     返回:
@@ -135,7 +136,6 @@ def resolve_display_name_conflict(
         .filter(
             StudyOutput.study_id == study_id,
             StudyOutput.deleted_at.is_(None),
-            StudyOutput.retention_status != "none",
             or_(
                 StudyOutput.display_name == base,
                 StudyOutput.display_name.like(like_pattern, escape="\\"),
@@ -170,34 +170,29 @@ def resolve_display_name_conflict(
     return f"{base} ({n})"
 
 
-def default_retention_for_role(role: str | None) -> tuple[str, datetime | None]:
-    """根据拓扑角色返回 (retention_status, retention_expires_at)。
+def default_keep_for_role(role: str | None) -> bool:
+    """根据拓扑角色返回默认 keep（用户是否保留）。
 
-    - leaf → ("current", None)            保留，用户在结果页可见
-    - intermediate → ("cached", now+7d)   临时存盘供 cache/重启续跑用，7 天后清理
-    - 其他 / None → ("current", None)     保守默认
+    - leaf → True            终产物，结果页可见、永久保留
+    - intermediate → False   中间产物，默认不保留，仅按缓存判定临时存盘
+    - 其他 / None → True      保守默认：宁可保留
     """
-    if role == ROLE_INTERMEDIATE:
-        return "cached", datetime.utcnow() + timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS)
-    return "current", None
+    return role != ROLE_INTERMEDIATE
 
 
-def _normalise_retention_param(value: Any) -> str | None:
-    """把用户参数里的 retention override 标准化为 'current' / 'pinned' / 'none' / None。"""
+def _normalise_keep_param(value: Any) -> bool | None:
+    """把用户参数里的 keep override 标准化为 True / False / None（None=走拓扑默认）。"""
     if value is None:
         return None
+    if isinstance(value, bool):
+        return value
     text = str(value).strip().lower()
     if not text:
         return None
-    if text in {"current", "pinned", "none"}:
-        return text
-    # 兼容旧 NodeSpec 的 "study" / "temporary" 字面值
-    if text in {"study", "permanent", "keep"}:
-        return "current"
-    if text in {"temporary", "trash"}:
-        return "none"
-    if text in {"cache", "cached"}:
-        return None  # 走拓扑默认（cached 7d）
+    if text in {"true", "1", "yes", "keep", "current", "pinned", "study", "permanent"}:
+        return True
+    if text in {"false", "0", "no", "discard", "none", "temporary", "trash", "cache", "cached"}:
+        return False
     return None
 
 
@@ -218,8 +213,9 @@ def apply_save_settings(
     返回键:
       display_name              冲突已自动解决的最终名字
       tags                      list[str]，已合并 auto/dynamic/user，保序去重
-      retention_status          'current' / 'cached' / 'pinned' / 'none'
-      retention_expires_at      datetime 或 None
+      keep                      bool，用户是否保留（leaf 默认 True / intermediate False）
+      cache_eligible            bool，系统是否缓存（= is_cache_eligible(spec)，P4 评分）
+      retention_expires_at      datetime 或 None（仅 keep=False 的行有 TTL）
       step_label                来自 spec.save.step_label（透传给 metadata）
       data_type                 来自 spec.save.data_type（透传给 metadata）
 
@@ -275,25 +271,28 @@ def apply_save_settings(
     user_tags = params.get("tags")
     tags = merge_tags(auto_tags, dynamic_tags, user_tags, ctx=ctx)
 
-    # 5) Retention：用户 override > 拓扑默认
-    retention_override = _normalise_retention_param(params.get("retention"))
-    if retention_override == "current":
-        retention_status, retention_expires_at = "current", None
-    elif retention_override == "pinned":
-        retention_status, retention_expires_at = "pinned", None
-    elif retention_override == "none":
-        # "不保留"映射到合法的 'temporary'（expires 为空 → 下次 cleanup 立即可回收）。
-        # 不能写 'none'：study_outputs.retention_status 的 CHECK 只允许
-        # current/pinned/cached/temporary/deleted/quarantined，写 'none' 会撞约束、
-        # 整个节点产物登记失败。
-        retention_status, retention_expires_at = "temporary", None
+    # 5) 保留与缓存（三层解耦）
+    #    keep：用户 override（params.keep）> 拓扑默认（leaf=True / intermediate=False）
+    #    cache_eligible：系统按 P4 存储优先评分自动判定（与 keep 独立）
+    #    retention_expires_at：仅 keep=False 的行需要 TTL
+    #      - keep=False 且值得缓存 → now+7d（临时存盘供 cache/续跑复用）
+    #      - keep=False 且不值得缓存 → now（登记即过期，交给 GC 清）
+    keep_override = _normalise_keep_param(params.get("keep"))
+    keep = keep_override if keep_override is not None else default_keep_for_role(role)
+    cache_eligible = is_cache_eligible(node_spec or {})
+    retention_expires_at: datetime | None
+    if keep:
+        retention_expires_at = None
+    elif cache_eligible:
+        retention_expires_at = datetime.utcnow() + timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS)
     else:
-        retention_status, retention_expires_at = default_retention_for_role(role)
+        retention_expires_at = datetime.utcnow()
 
     return {
         "display_name": display_name,
         "tags": tags,
-        "retention_status": retention_status,
+        "keep": keep,
+        "cache_eligible": cache_eligible,
         "retention_expires_at": retention_expires_at,
         "step_label": save_cfg.get("step_label"),
         "data_type": save_cfg.get("data_type"),
@@ -304,7 +303,7 @@ __all__ = [
     "render_template",
     "merge_tags",
     "resolve_display_name_conflict",
-    "default_retention_for_role",
+    "default_keep_for_role",
     "apply_save_settings",
     "DEFAULT_INTERMEDIATE_RETENTION_DAYS",
 ]

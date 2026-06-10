@@ -3,9 +3,8 @@ Purpose: Define StudyOutput SQLAlchemy ORM model.
 
 StudyOutput is the unified user-facing concept that replaces both
 pipeline_artifacts (节点产物文件) and analysis_results (Save 登记的正式结果).
-每个 Pipeline 节点产出的文件都登记为一条 study_outputs 行；Save 节点
-通过提升 retention_status + 设置 display_name / tags 来把上游派生数据
-"晋升"为正式结果。
+每个 Pipeline 节点产出的文件都登记为一条 study_outputs 行；keep=true
+的行在结果页作为正式输出展示，keep=false 的为缓存/临时产物。
 
 Related:
 - database/schema/05_outputs.sql (table definition)
@@ -18,6 +17,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -38,7 +38,7 @@ class StudyOutput(Base):
         Index(
             "idx_study_output_study",
             "study_id",
-            "retention_status",
+            "keep",
             "created_at",
         ),
         Index(
@@ -130,12 +130,12 @@ class StudyOutput(Base):
     sha256 = Column(String(64))
     mime_type = Column(String(128))
 
-    # ---- Lifecycle ---------------------------------------------------------
-    retention_status = Column(
-        String(32),
-        nullable=False,
-        default="current",
-    )
+    # ---- 保留与缓存（三层解耦） --------------------------------------------
+    # keep           = 用户是否保留（true=结果页可见、永不自动清；false=缓存/临时）
+    # cache_eligible = 系统是否值得缓存（= is_cache_eligible(node_spec)，P4 存储优先评分）
+    # retention_expires_at = 仅 keep=false 的缓存行 TTL；keep=true 恒为 None（永久）
+    keep = Column(Boolean, nullable=False, default=False)
+    cache_eligible = Column(Boolean, nullable=False, default=False)
     retention_expires_at = Column(DateTime)
 
     # 派生数据生命周期, 继承自 upstream（与 DatasetVersion.state 同口径，2026-06-09 v2）

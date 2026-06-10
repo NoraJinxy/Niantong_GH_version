@@ -51,8 +51,9 @@ class StudyOutputSummary:
     file_size: int | None = None
     sha256: str | None = None
     mime_type: str | None = None
-    retention_status: str | None = None
-    retention_expires_at: str | None = None  # ISO timestamp
+    keep: bool = False
+    cache_eligible: bool = False
+    retention_expires_at: str | None = None  # ISO timestamp（仅 keep=False 的缓存行）
     preview_json: dict[str, Any] = field(default_factory=dict)
     produced_by_params: dict[str, Any] = field(default_factory=dict)
 
@@ -90,7 +91,8 @@ class StudyOutputSummary:
             "checksum": self.sha256,  # 兼容旧 dispatcher
             "content_hash": self.sha256,  # 兼容旧 dispatcher
             "mime_type": self.mime_type,
-            "retention_status": self.retention_status,
+            "keep": self.keep,
+            "cache_eligible": self.cache_eligible,
             "retention_expires_at": self.retention_expires_at,
             "preview_json": self.preview_json,
             "produced_by_params": self.produced_by_params,
