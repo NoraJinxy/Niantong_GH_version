@@ -123,7 +123,7 @@ nav:
       - 数据集生命周期与发布机制: 3-25-数据集生命周期与发布机制.md
       - Study 与 Pipeline 表: 3-30-Study与Pipeline表.md
       - Execution 与 Artifact 追溯表: 3-40-Execution与Artifact追溯表.md
-      - 派生数据集（DerivedDataset）: 3-45-DerivedDataset.md
+      - 输出（StudyOutput）: 3-45-StudyOutput.md
       - 协作权限、状态与迁移: 3-50-协作权限状态与迁移.md
   - 4 文件管理:
       - 文件管理总览: 4-00-文件管理总览.md

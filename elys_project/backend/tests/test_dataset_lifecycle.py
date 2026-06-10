@@ -455,9 +455,9 @@ def test_withdraw_request_rejects_empty_reason():
 # ============================================
 
 
-def test_emergency_takedown_superadmin_can_takedown():
+def test_emergency_takedown_admin_can_takedown():
     owner = FakeUser()
-    super_admin = FakeUser(roles=("superadmin",))
+    admin = FakeUser(roles=("admin",))
     asset, version = make_draft_asset_and_version(owner=owner)
     version.state = "published"
     version.version_label = "1.0.0"
@@ -465,43 +465,45 @@ def test_emergency_takedown_superadmin_can_takedown():
     db.added.extend([asset, version])
 
     req = dataset_lifecycle.emergency_takedown_version(
-        db, version=version, reason="PII 泄露", actor=super_admin, commit=True
+        db, version=version, reason="PII 泄露", actor=admin, commit=True
     )
     assert version.state == "withdrawn"
-    assert version.withdrawn_by == super_admin.id
+    assert version.withdrawn_by == admin.id
     assert req.decision == "emergency"
-    assert req.reviewed_by == super_admin.id
+    assert req.reviewed_by == admin.id
     audit = [a for a in db.added if isinstance(a, AuditEvent)]
     assert any(e.action == "dataset_version.emergency_takedown" for e in audit)
 
 
-def test_emergency_takedown_rejects_non_superadmin():
+def test_emergency_takedown_rejects_non_admin():
+    # superadmin 另作平台治理，不参与数据集生命周期（3-25 §6.4），同样应被拒
     owner = FakeUser()
-    admin = FakeUser(roles=("admin",))
+    super_admin = FakeUser(roles=("superadmin",))
     asset, version = make_draft_asset_and_version(owner=owner)
     version.state = "published"
     db = FakeDb()
     db.added.extend([asset, version])
 
-    try:
-        dataset_lifecycle.emergency_takedown_version(
-            db, version=version, reason="x", actor=admin, commit=False
-        )
-        raise AssertionError("admin should be rejected, only superadmin allowed")
-    except DatasetLifecyclePermissionError:
-        pass
+    for actor in (owner, super_admin):
+        try:
+            dataset_lifecycle.emergency_takedown_version(
+                db, version=version, reason="x", actor=actor, commit=False
+            )
+            raise AssertionError("only admin can emergency-takedown")
+        except DatasetLifecyclePermissionError:
+            pass
 
 
 def test_emergency_takedown_requires_reason():
-    super_admin = FakeUser(roles=("superadmin",))
-    asset, version = make_draft_asset_and_version(owner=super_admin)
+    admin = FakeUser(roles=("admin",))
+    asset, version = make_draft_asset_and_version(owner=admin)
     version.state = "published"
     db = FakeDb()
     db.added.extend([asset, version])
 
     try:
         dataset_lifecycle.emergency_takedown_version(
-            db, version=version, reason="", actor=super_admin, commit=False
+            db, version=version, reason="", actor=admin, commit=False
         )
         raise AssertionError("should reject empty reason")
     except DatasetLifecycleValidationError:

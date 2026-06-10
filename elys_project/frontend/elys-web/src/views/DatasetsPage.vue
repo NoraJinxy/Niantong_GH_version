@@ -306,9 +306,9 @@
                   >
                     申请撤回
                   </button>
-                  <!-- Phase 3 (docs_v2/3-25) DEC-D: 紧急下架仅 superadmin 可见，跳过审核，事后补审计 -->
+                  <!-- 紧急下架仅 admin 可见（3-25 §6.4：superadmin 另作平台治理，不参与数据集生命周期），跳过审核，事后补审计 -->
                   <button
-                    v-if="isSuperadmin && (currentVersion.state === 'published' || currentVersion.state === 'withdraw_requested')"
+                    v-if="isAdmin && (currentVersion.state === 'published' || currentVersion.state === 'withdraw_requested')"
                     class="btn btn--danger"
                     type="button"
                     title="跳过审核流程直接撤下版本（仅适用于被试隐私泄露 / 法律强制下架等紧急场景）"
@@ -1306,7 +1306,7 @@
       </form>
     </div>
 
-    <!-- Phase 3 (docs_v2/3-25) DEC-D: 紧急下架弹窗（仅 superadmin 触发） -->
+    <!-- 紧急下架弹窗（仅 admin 触发，3-25 §6.4） -->
     <div v-if="emergencyModal.open" class="modal-backdrop" role="presentation" @click.self="closeEmergencyModal">
       <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitEmergencyTakedown">
         <header>
@@ -1522,7 +1522,6 @@ const fileRoleOptions: Array<{ value: DatasetFileRoleFilter; label: string }> = 
 const route = useRoute()
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.roles?.includes('admin') ?? false)
-const isSuperadmin = computed(() => auth.user?.roles?.includes('superadmin') ?? false)
 const studies = ref<Study[]>([])
 const datasetAssets = ref<DatasetAsset[]>([])
 const selectedAssetFiles = ref<DatasetFile[]>([])
@@ -2288,7 +2287,7 @@ async function submitWithdraw() {
   }
 }
 
-// Phase 3 (docs_v2/3-25) DEC-D: 紧急下架（仅 superadmin）
+// 紧急下架（仅 admin，3-25 §6.4）
 function openEmergencyTakedownModal() {
   emergencyModal.value = { open: true, reason: '', submitting: false, error: '' }
 }
