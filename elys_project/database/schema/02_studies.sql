@@ -127,7 +127,6 @@ CREATE TABLE IF NOT EXISTS study_settings (
     study_id                    CHAR(12) PRIMARY KEY REFERENCES studies(id) ON DELETE CASCADE,
     default_dataset_filter      JSONB NOT NULL DEFAULT '{"subjects":"all","sessions":"all","tasks":"all","runs":"all","qa_status":"all","require_fif":true}',
     run_policy                  JSONB NOT NULL DEFAULT '{"single_active_pipeline_run":true}',
-    derived_dataset_retention_policy JSONB NOT NULL DEFAULT '{"default_status":"current","cleanup_enabled":false}',
     storage_policy              JSONB NOT NULL DEFAULT '{}',
     updated_by                  UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_at                  TIMESTAMP NOT NULL DEFAULT NOW()

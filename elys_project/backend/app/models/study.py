@@ -174,11 +174,6 @@ class StudySettings(Base):
         },
     )
     run_policy = Column(JSONB, nullable=False, default=lambda: {"single_active_pipeline_run": True})
-    derived_dataset_retention_policy = Column(
-        JSONB,
-        nullable=False,
-        default=lambda: {"default_status": "current", "cleanup_enabled": False},
-    )
     storage_policy = Column(JSONB, nullable=False, default=dict)
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -518,7 +513,6 @@ class PipelineExecution(Base):
     definition_snapshot = Column(JSONB, nullable=False, default=dict)
     manifest_json = Column(JSONB, nullable=False, default=dict)
     execution_mode = Column(String(32), nullable=False, default="analysis")
-    save_policy = Column(String(32), nullable=False, default="current")
     result_json = Column(JSONB, nullable=False, default=dict)
     error_json = Column(JSONB, nullable=False, default=dict)
     started_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))

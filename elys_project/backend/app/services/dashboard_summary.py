@@ -260,7 +260,6 @@ def build_active_executions(db: Session, study_ids: list[str]) -> list[Dashboard
             execution_seq=execution.execution_seq,
             status=execution.status,
             execution_mode=getattr(execution, "execution_mode", None) or "analysis",
-            save_policy=getattr(execution, "save_policy", None) or "current",
             stage_label=execution_stage_label(execution.status),
             started_at=execution.started_at,
             finished_at=execution.finished_at,

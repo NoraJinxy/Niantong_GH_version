@@ -300,7 +300,6 @@ def pipeline_execution_to_response(execution: PipelineExecution) -> PipelineExec
         execution_seq=execution.execution_seq,
         trigger=execution.trigger,
         execution_mode=getattr(execution, "execution_mode", None) or "analysis",
-        save_policy=getattr(execution, "save_policy", None) or "current",
         status=execution.status,
         node_count=execution.node_count,
         dataset_count=execution.dataset_count,
@@ -2630,7 +2629,6 @@ def retry_pipeline_execution(
         execution_seq=next_pipeline_execution_seq(db, study.id, source_execution.pipeline_id),
         trigger="retry",
         execution_mode=source_execution.execution_mode or "analysis",
-        save_policy=source_execution.save_policy or "current",
         status="queued",
         node_count=count_nodes(definition_snapshot),
         dataset_count=source_execution.dataset_count if payload.input_policy == "reuse_snapshot" else 0,
@@ -2645,7 +2643,6 @@ def retry_pipeline_execution(
             "execution_lock_id": str(execution_lock.id),
             "execution_lock_expires_at": execution_lock.expires_at.isoformat(),
             "execution_mode": source_execution.execution_mode or "analysis",
-            "save_policy": source_execution.save_policy or "current",
             "retry_of_execution_id": str(source_execution.id),
             "retry_input_policy": payload.input_policy,
             "node_results": [],
@@ -2694,7 +2691,6 @@ def retry_pipeline_execution(
             "execution_seq": retry_execution.execution_seq,
             "trigger": "retry",
             "execution_mode": retry_execution.execution_mode,
-            "save_policy": retry_execution.save_policy,
             "retry_of_execution_id": str(source_execution.id),
             "input_policy": payload.input_policy,
             "cloned_input_count": cloned_input_count,
@@ -3362,7 +3358,6 @@ def _create_pipeline_execution(
     pipeline = get_pipeline_or_404(db, study.id, pipeline_id)
     trigger = payload.trigger
     execution_mode = payload.execution_mode
-    save_policy = payload.save_policy
     selection_override = normalize_selection_override(
         payload.model_dump(mode="json", exclude_none=True).get("selection_override")
     )
@@ -3434,7 +3429,6 @@ def _create_pipeline_execution(
                 "pipeline_version": pipeline.version,
                 "trigger": trigger,
                 "execution_mode": execution_mode,
-                "save_policy": save_policy,
                 "reason": "pipeline_execution",
             },
         )
@@ -3472,7 +3466,6 @@ def _create_pipeline_execution(
         execution_seq=next_pipeline_execution_seq(db, study.id, pipeline.id),
         trigger=trigger,
         execution_mode=execution_mode,
-        save_policy=save_policy,
         status="queued",
         node_count=count_nodes(pipeline.definition_json),
         dataset_count=0,
@@ -3487,7 +3480,6 @@ def _create_pipeline_execution(
             "execution_lock_id": str(execution_lock.id),
             "execution_lock_expires_at": execution_lock.expires_at.isoformat(),
             "execution_mode": execution_mode,
-            "save_policy": save_policy,
             "selection_override": selection_override,
             "node_results": [],
             "data_infos_by_node": {},
@@ -3516,7 +3508,6 @@ def _create_pipeline_execution(
             "execution_seq": execution.execution_seq,
             "trigger": trigger,
             "execution_mode": execution_mode,
-            "save_policy": save_policy,
             "selection_override": selection_override,
             "lock_id": str(execution_lock.id),
             "lock_expires_at": execution_lock.expires_at.isoformat(),
@@ -3549,7 +3540,6 @@ def _create_pipeline_execution(
             "execution_seq": execution.execution_seq,
             "trigger": trigger,
             "execution_mode": execution_mode,
-            "save_policy": save_policy,
             "async_task_id": str(async_task.id),
             "lock_id": str(execution_lock.id),
             "lock_expires_at": execution_lock.expires_at.isoformat(),

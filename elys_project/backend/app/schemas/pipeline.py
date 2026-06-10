@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 NodePhase = Literal["phase1", "phase2", "phase3"]
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "canceled", "retrying"]
 PipelineExecutionMode = Literal["trial", "analysis", "replay", "system"]
-PipelineExecutionSavePolicy = Literal["temporary", "current", "pinned", "discard"]
 
 
 class NodePort(BaseModel):
@@ -168,7 +167,6 @@ class LoadDataSelectionOverride(BaseModel):
 class PipelineExecutionCreate(BaseModel):
     trigger: Literal["manual"] = "manual"
     execution_mode: PipelineExecutionMode = "analysis"
-    save_policy: PipelineExecutionSavePolicy = "current"
     selection_override: dict[str, LoadDataSelectionOverride] = Field(default_factory=dict)
 
 
@@ -186,7 +184,6 @@ class PipelineExecutionResponse(BaseModel):
     execution_seq: int
     trigger: str
     execution_mode: PipelineExecutionMode = "analysis"
-    save_policy: PipelineExecutionSavePolicy = "current"
     status: str
     node_count: int
     dataset_count: int

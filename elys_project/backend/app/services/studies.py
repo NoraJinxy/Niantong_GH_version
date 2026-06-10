@@ -185,7 +185,6 @@ def default_study_settings_payload() -> dict:
             "require_fif": True,
         },
         "run_policy": {"single_active_pipeline_run": True},
-        "derived_dataset_retention_policy": {"default_status": "current", "cleanup_enabled": False},
         "storage_policy": {},
     }
 

@@ -409,11 +409,9 @@ def test_pipeline_execution_policy_schema_defaults_and_validation() -> None:
     payload = PipelineExecutionCreate()
     assert payload.trigger == "manual"
     assert payload.execution_mode == "analysis"
-    assert payload.save_policy == "current"
 
-    payload = PipelineExecutionCreate(execution_mode="trial", save_policy="temporary")
+    payload = PipelineExecutionCreate(execution_mode="trial")
     assert payload.execution_mode == "trial"
-    assert payload.save_policy == "temporary"
     payload = PipelineExecutionCreate(
         selection_override={
             "load-1": {
@@ -426,12 +424,9 @@ def test_pipeline_execution_policy_schema_defaults_and_validation() -> None:
     assert payload.selection_override["load-1"].dataset_ids == ["11111111-1111-1111-1111-111111111111"]
 
     assert "execution_mode" in PipelineExecutionResponse.model_fields
-    assert "save_policy" in PipelineExecutionResponse.model_fields
 
     with pytest.raises(ValidationError):
         PipelineExecutionCreate(execution_mode="explore")
-    with pytest.raises(ValidationError):
-        PipelineExecutionCreate(save_policy="forever")
     with pytest.raises(ValidationError):
         PipelineExecutionCreate(selection_override={"load-1": {"selection_mode": "current"}})
 
@@ -441,11 +436,8 @@ def test_pipeline_execution_policy_fields_are_persisted_and_tracked() -> None:
 
     assert "payload = payload or PipelineExecutionCreate()" in source
     assert "execution_mode = payload.execution_mode" in source
-    assert "save_policy = payload.save_policy" in source
     assert "execution_mode=execution_mode" in source
-    assert "save_policy=save_policy" in source
     assert '"execution_mode": execution_mode' in source
-    assert '"save_policy": save_policy' in source
     assert "selection_override = normalize_selection_override" in source
     assert '"selection_override": selection_override' in source
 

@@ -73,7 +73,6 @@ class DashboardActiveExecution(BaseModel):
     execution_seq: int
     status: str
     execution_mode: str
-    save_policy: str
     stage_label: str
     started_at: datetime | None = None
     finished_at: datetime | None = None

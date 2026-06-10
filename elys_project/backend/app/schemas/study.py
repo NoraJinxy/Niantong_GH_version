@@ -122,7 +122,6 @@ class StudyActionResponse(BaseModel):
 class StudySettingsUpdate(BaseModel):
     default_dataset_filter: Optional[dict[str, Any]] = None
     run_policy: Optional[dict[str, Any]] = None
-    derived_dataset_retention_policy: Optional[dict[str, Any]] = None
     storage_policy: Optional[dict[str, Any]] = None
 
 
@@ -130,7 +129,6 @@ class StudySettingsResponse(BaseModel):
     study_id: str
     default_dataset_filter: dict[str, Any]
     run_policy: dict[str, Any]
-    derived_dataset_retention_policy: dict[str, Any]
     storage_policy: dict[str, Any]
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None

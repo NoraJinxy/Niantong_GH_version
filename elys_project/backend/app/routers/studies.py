@@ -125,7 +125,6 @@ def study_settings_to_response(study_id: str, settings_obj: StudySettings | None
         study_id=settings_obj.study_id,
         default_dataset_filter=settings_obj.default_dataset_filter or defaults["default_dataset_filter"],
         run_policy=settings_obj.run_policy or defaults["run_policy"],
-        derived_dataset_retention_policy=settings_obj.derived_dataset_retention_policy or defaults["derived_dataset_retention_policy"],
         storage_policy=settings_obj.storage_policy or defaults["storage_policy"],
         updated_by=str(settings_obj.updated_by) if settings_obj.updated_by else None,
         updated_at=settings_obj.updated_at,
@@ -333,8 +332,6 @@ def update_study_settings(
         settings_obj.default_dataset_filter = payload.default_dataset_filter
     if "run_policy" in fields_set and payload.run_policy is not None:
         settings_obj.run_policy = payload.run_policy
-    if "derived_dataset_retention_policy" in fields_set and payload.derived_dataset_retention_policy is not None:
-        settings_obj.derived_dataset_retention_policy = payload.derived_dataset_retention_policy
     if "storage_policy" in fields_set and payload.storage_policy is not None:
         settings_obj.storage_policy = payload.storage_policy
     settings_obj.updated_by = current_user.id
