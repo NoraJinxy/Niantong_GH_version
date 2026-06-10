@@ -31,7 +31,7 @@
 | 研究项 | `Study` | 一个分析项目与其协作、权限边界 |
 | 工作流 | `Pipeline` | 节点图定义的分析流程 |
 | 执行项 | `Execution`（`PipelineExecution`） | 工作流的一次具体运行 |
-| 派生数据 | `StudyOutput` | 执行项产出的中间 / 结果数据 |
+| 结果 | `StudyOutput` | 执行项产出的中间 / 结果数据 |
 
 ## 技术栈
 

@@ -28,7 +28,7 @@
 | `created_at` / `updated_at` / `archived_at` | 时间戳 |
 | `deleted_at` / `deleted_by` / `delete_reason` | 软删除信息 |
 
-> 运行锁策略、默认数据选择器、派生数据保留策略等**不在 `studies` 表里**，而在独立的 `study_settings` 表（`default_dataset_filter` / `run_policy` / `study_output_retention_policy` / `storage_policy` 四个 JSONB，主键即 `study_id`）。`studies` 没有 `settings_json` 列。
+> 运行锁策略、默认数据选择器、结果保留策略等**不在 `studies` 表里**，而在独立的 `study_settings` 表（`default_dataset_filter` / `run_policy` / `study_output_retention_policy` / `storage_policy` 四个 JSONB，主键即 `study_id`）。`studies` 没有 `settings_json` 列。
 
 ## 2. `study_members`
 

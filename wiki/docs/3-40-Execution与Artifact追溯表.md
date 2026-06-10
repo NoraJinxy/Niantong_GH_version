@@ -5,7 +5,7 @@
 <div class="elys-meta" markdown>
 
 定位
-: 执行项、输入快照、节点记录、派生数据、依赖关系
+: 执行项、输入快照、节点记录、结果、依赖关系
 
 更新
 : 2026-06-04 +08:00
@@ -69,7 +69,7 @@
 
 ## 4. `study_outputs`
 
-`study_outputs` 是 Execution 产生的所有派生数据登记。
+`study_outputs` 是 Execution 产生的所有结果登记。
 
 | 字段组 | 说明 |
 |---|---|
@@ -91,7 +91,7 @@
 | hide / 隐藏 | `retention_status='deleted'` + 写 `deleted_at` | 从普通列表隐藏；不物理删除文件 |
 | Save 节点 promote | retention 切到 current/pinned + 设 display_name + 合并 tags | 跑 Pipeline 时自动 |
 
-所有操作都会写 `audit_events`，用于回看谁在什么时间改动了派生数据。
+所有操作都会写 `audit_events`，用于回看谁在什么时间改动了结果。
 
 ## 5. `pipeline_execution_dependencies`
 
@@ -133,8 +133,8 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 |---|---|
 | `pipeline_executions` | Pipeline 执行记录，含 `manifest_json`、`execution_mode`、`save_policy` |
 | `pipeline_jobs` | 节点级执行记录 |
-| `study_outputs` | 派生数据登记 |
-| `pipeline_execution_dependencies` | Execution / StudyOutput 依赖保护，阻止被下游引用的派生数据 hide / 清理 |
+| `study_outputs` | 结果登记 |
+| `pipeline_execution_dependencies` | Execution / StudyOutput 依赖保护，阻止被下游引用的结果 hide / 清理 |
 | `dataset_file_derivations` | Dataset 文件级派生关系 |
 
 ## 7. 回归关注点
@@ -147,11 +147,11 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 | 任务事件 | 创建、派发、运行、完成、失败路径写 `task_events` |
 | StudyOutput 写入 | `StudyOutputStore` 新产物写 `elys://studies/...`、`sha256`；中间节点默认 `retention_status='cached'` + 7 天 expires，`save_output=true` 节点直接 `current` |
 | 缓存复用 | `PipelineCache` 复用产物时写 `retention_status='cached'`，指向同 `storage_uri` |
-| Execution manifest | 终态 Execution 生成 `execution_manifest.json` 和 `manifest_json` 摘要，含每条派生数据的完整字段快照 |
+| Execution manifest | 终态 Execution 生成 `execution_manifest.json` 和 `manifest_json` 摘要，含每条结果的完整字段快照 |
 | Execution dependency | 上游 StudyOutput 输入写入 `pipeline_execution_inputs.upstream_dataset_id` 与 `pipeline_execution_dependencies.upstream_dataset_id` |
 | Execution lineage | `/pipeline-executions/{execution_id}/lineage` 聚合输入、输出、上下游 Execution 和 graph nodes/edges |
-| 派生数据 PATCH | 统一 `PATCH /outputs/{id}` 改 display_name / tags / retention，hide/delete 复用下游依赖 blocker |
-| Cleanup blocker | 被依赖派生数据标记 deleted 返回 409；cleanup 任务跳过被依赖项 + 未到期项 |
+| 结果 PATCH | 统一 `PATCH /outputs/{id}` 改 display_name / tags / retention，hide/delete 复用下游依赖 blocker |
+| Cleanup blocker | 被依赖结果标记 deleted 返回 409；cleanup 任务跳过被依赖项 + 未到期项 |
 | Save promote | Save 节点不写新行；调用 `StudyOutputStore.save_promotion()` UPDATE 上游输出 retention/display_name/tags |
 
 ## 8. 相关页面
