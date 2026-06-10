@@ -301,7 +301,7 @@ class StudyOutputStore:
 
         content-addressed dedup：物理文件已经按 sha256 去重，DB 也保持每个 sha256 一行。
         - 已存在 (study_id, sha256) 行 → 直接返回它的 summary，不 INSERT
-          兜底场景：cache miss 导致重跑了节点，但产物字节相同；避免撞 idx_derived_sha256 unique。
+          兜底场景：cache miss 导致重跑了节点，但产物字节相同；避免撞 idx_study_output_sha256 unique。
         - 不存在 → 正常 INSERT 新行。
         """
         derived_model = self._get_study_output_model()

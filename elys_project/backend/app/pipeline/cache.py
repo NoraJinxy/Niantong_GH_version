@@ -134,7 +134,7 @@ class PipelineCache:
         return True
 
     def _register_artifact_references(self, source_artifacts: list[Any]) -> list[dict[str, Any]]:
-        """缓存命中时：不再 INSERT 复制行（会撞 idx_derived_sha256 唯一约束），
+        """缓存命中时：不再 INSERT 复制行（会撞 idx_study_output_sha256 唯一约束），
         而是**直接返回旧 study_output 的引用**作为当前 execution 的输出。
 
         语义：同一物理文件（content-addressed by sha256）只对应一行 study_output；

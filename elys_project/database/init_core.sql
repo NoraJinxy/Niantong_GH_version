@@ -17,8 +17,8 @@
 \echo 'ELYS core bootstrap [4/7]: 04_pipelines.sql'
 \ir schema/04_pipelines.sql
 
-\echo 'ELYS core bootstrap [5/7]: 05_derived.sql'
-\ir schema/05_derived.sql
+\echo 'ELYS core bootstrap [5/7]: 05_outputs.sql'
+\ir schema/05_outputs.sql
 
 \echo 'ELYS core bootstrap [6/7]: 06_async.sql'
 \ir schema/06_async.sql

@@ -9,7 +9,7 @@ database/
 │   ├── 02_studies.sql    # 研究项、成员、审计、锁、设置
 │   ├── 03_datasets.sql   # 数据集资产、版本、subjects、数据集、上传、文件、视图
 │   ├── 04_pipelines.sql  # Pipeline 定义、运行、节点运行
-│   ├── 05_derived.sql    # 派生数据集、文件派生、Run 输入与依赖
+│   ├── 05_outputs.sql    # 派生数据集、文件派生、Run 输入与依赖
 │   └── 06_async.sql      # 异步任务、任务事件
 ├── seeds/
 │   ├── 01_roles_permissions.sql  # 系统角色、权限、映射

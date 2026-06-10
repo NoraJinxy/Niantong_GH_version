@@ -1,7 +1,7 @@
 -- Purpose: Pipeline 定义、执行、节点任务 — Pipeline 核心执行链路骨架。
 -- Related: backend/app/models/study.py 中的 PipelineDefinition / PipelineExecution / PipelineJob。
 -- Notes: 依赖 02_studies.sql (studies)；本文件不含 pipeline_execution_inputs/pipeline_execution_dependencies，
---        它们引用 study_outputs，放在 05_derived.sql 加载完后再创建。
+--        它们引用 study_outputs，放在 05_outputs.sql 加载完后再创建。
 
 -- ============================================
 -- Pipeline 定义

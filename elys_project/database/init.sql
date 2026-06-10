@@ -21,8 +21,8 @@
 \echo 'ELYS bootstrap [4/8]: 04_pipelines.sql — pipeline definitions + executions + jobs'
 \ir schema/04_pipelines.sql
 
-\echo 'ELYS bootstrap [5/8]: 05_derived.sql — derived datasets + file derivations + execution inputs + dependencies'
-\ir schema/05_derived.sql
+\echo 'ELYS bootstrap [5/8]: 05_outputs.sql — derived datasets + file derivations + execution inputs + dependencies'
+\ir schema/05_outputs.sql
 
 \echo 'ELYS bootstrap [6/8]: 06_async.sql — async tasks + task events'
 \ir schema/06_async.sql

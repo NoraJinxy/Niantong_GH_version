@@ -8,7 +8,7 @@ pipeline_artifacts (节点产物文件) and analysis_results (Save 登记的正�
 "晋升"为正式结果。
 
 Related:
-- database/schema/05_derived.sql (table definition)
+- database/schema/05_outputs.sql (table definition)
 - app/pipeline/study_output_store.py (StudyOutputStore)
 - app/pipeline/dispatcher.py (writes study_outputs)
 - wiki/docs/3-45-StudyOutput.md (concept)
@@ -36,42 +36,42 @@ class StudyOutput(Base):
     __tablename__ = "study_outputs"
     __table_args__ = (
         Index(
-            "idx_derived_study",
+            "idx_study_output_study",
             "study_id",
             "retention_status",
             "created_at",
         ),
         Index(
-            "idx_derived_subject_type",
+            "idx_study_output_subject_type",
             "study_id",
             "bids_subject_id",
             "data_type",
         ),
-        Index("idx_derived_execution", "produced_by_execution_id"),
-        Index("idx_derived_job", "produced_by_job_id"),
-        Index("idx_derived_tags", "tags", postgresql_using="gin"),
+        Index("idx_study_output_execution", "produced_by_execution_id"),
+        Index("idx_study_output_job", "produced_by_job_id"),
+        Index("idx_study_output_tags", "tags", postgresql_using="gin"),
         Index(
-            "idx_derived_sha256",
+            "idx_study_output_sha256",
             "study_id",
             "sha256",
             unique=True,
             postgresql_where=text("sha256 IS NOT NULL"),
         ),
         Index(
-            "idx_derived_retention_expires",
+            "idx_study_output_retention_expires",
             "retention_expires_at",
             postgresql_where=text("retention_expires_at IS NOT NULL"),
         ),
         # Phase 1 (docs_v2/3-25): 生命周期索引（支持跨 Study 列出可引用的 published 派生数据）
-        Index("idx_derived_lifecycle", "lifecycle_state"),
+        Index("idx_study_output_lifecycle", "lifecycle_state"),
         Index(
-            "idx_derived_shared_published",
+            "idx_study_output_shared_published",
             "lifecycle_state",
             "visibility",
             postgresql_where=text("lifecycle_state = 'published' AND visibility = 'shared'"),
         ),
         Index(
-            "idx_derived_deleted",
+            "idx_study_output_deleted",
             "study_id",
             "deleted_at",
             postgresql_where=text("deleted_at IS NOT NULL"),
