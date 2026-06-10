@@ -109,11 +109,11 @@
 
         <div class="study-mounted-list">
           <span class="study-mounted-list__label">结果</span>
-          <div v-if="!summary.study_outputs.length" class="study-inline-empty">
+          <div v-if="!visibleStudyOutputs.length" class="study-inline-empty">
             暂无结果，运行完成后在「结果」tab 汇总可预览或可固定的输出。
           </div>
           <div v-else class="study-compact-list">
-            <article v-for="artifact in summary.study_outputs" :key="artifact.id" class="study-compact-item">
+            <article v-for="artifact in visibleStudyOutputs" :key="artifact.id" class="study-compact-item">
               <div>
                 <strong>{{ artifact.display_name || artifact.data_type }}</strong>
                 <p>{{ artifact.data_type }} · {{ formatFileSize(artifact.file_size) }}</p>
@@ -202,6 +202,14 @@ const decision = computed(() => {
   }
   return { title: '可以继续分析', description: '数据和工作流已就绪，可以创建新运行或查看既有运行结果。', action: '进入工作流', to: `/studies/${sid}/pipeline` }
 })
+
+// 概览结果区只展示「保存 / 缓存 / 回收站」三类；纯临时（keep=false 且 cache_eligible=false 且未删）
+// 是系统中间态，与「结果」tab 同口径藏掉，不占用户视野。
+const visibleStudyOutputs = computed(() =>
+  (summary.value?.study_outputs ?? []).filter(
+    (output) => output.keep || output.cache_eligible || Boolean(output.deleted_at),
+  ),
+)
 
 const pipelineReadinessText = computed(() => {
   const s = summary.value
