@@ -482,8 +482,8 @@ import AppIcon from '@/components/AppIcon.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
 import { pipelineApi } from '@/api/pipelines'
 import type {
-  DerivedDataset,
-  DerivedDatasetListQuery,
+  StudyOutput,
+  StudyOutputListQuery,
 } from '@/types'
 
 type RetentionValue = 'current' | 'pinned' | 'cached' | 'temporary' | 'deleted'
@@ -498,7 +498,7 @@ const retentionOptions: Array<{ value: RetentionValue; label: string }> = [
 
 const route = useRoute()
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
-const datasets = ref<DerivedDataset[]>([])
+const datasets = ref<StudyOutput[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -681,13 +681,13 @@ async function reload() {
   loading.value = true
   error.value = ''
   try {
-    const query: DerivedDatasetListQuery = {
+    const query: StudyOutputListQuery = {
       include_deleted: true,
       limit: 1000,
       offset: 0,
     }
-    const res = await pipelineApi.listDerivedDatasets(selectedStudyId.value, query)
-    datasets.value = res.data.derived_datasets
+    const res = await pipelineApi.listStudyOutputs(selectedStudyId.value, query)
+    datasets.value = res.data.study_outputs
   } catch (err) {
     datasets.value = []
     error.value = describeError(err, '派生数据读取失败')
@@ -763,11 +763,11 @@ function setActive(id: string) {
 async function bulkSetRetention(target: RetentionValue) {
   if (!selectedStudyId.value || !selectedIds.size) return
   try {
-    const res = await pipelineApi.batchUpdateDerivedDatasets(selectedStudyId.value, {
+    const res = await pipelineApi.batchUpdateStudyOutputs(selectedStudyId.value, {
       ids: Array.from(selectedIds),
       update: { retention_status: target, reason: 'results_page_bulk' },
     })
-    const map = new Map(res.data.derived_datasets.map((d) => [d.id, d]))
+    const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
     datasets.value = datasets.value.map((d) => map.get(d.id) || d)
     selectedIds.clear()
   } catch (err) {
@@ -785,11 +785,11 @@ async function commitBulkTag() {
   const tags = bulkTagDraft.value.split(',').map((s) => s.trim()).filter(Boolean)
   if (!tags.length) return
   try {
-    const res = await pipelineApi.batchUpdateDerivedDatasets(selectedStudyId.value, {
+    const res = await pipelineApi.batchUpdateStudyOutputs(selectedStudyId.value, {
       ids: Array.from(selectedIds),
       update: { tags, reason: 'results_page_bulk_tag' },
     })
-    const map = new Map(res.data.derived_datasets.map((d) => [d.id, d]))
+    const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
     datasets.value = datasets.value.map((d) => map.get(d.id) || d)
     bulkTagOpen.value = false
   } catch (err) {
@@ -797,10 +797,10 @@ async function commitBulkTag() {
   }
 }
 
-async function changeRetention(row: DerivedDataset, value: string) {
+async function changeRetention(row: StudyOutput, value: string) {
   if (!selectedStudyId.value) return
   try {
-    const res = await pipelineApi.updateDerivedDataset(selectedStudyId.value, row.id, {
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, {
       retention_status: value as RetentionValue,
     })
     datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
@@ -828,7 +828,7 @@ async function commitRename() {
   renamingActive.value = false
   if (next === previous) return
   try {
-    const res = await pipelineApi.updateDerivedDataset(selectedStudyId.value, activeRow.value.id, {
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, activeRow.value.id, {
       display_name: next || null,
     })
     datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
@@ -847,7 +847,7 @@ async function commitTagDraft() {
   }
   const next = [...(activeRow.value.tags || []), draft]
   try {
-    const res = await pipelineApi.updateDerivedDataset(selectedStudyId.value, activeRow.value.id, { tags: next })
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, activeRow.value.id, { tags: next })
     datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
     tagDraft.value = ''
   } catch (err) {
@@ -855,21 +855,21 @@ async function commitTagDraft() {
   }
 }
 
-async function removeTag(row: DerivedDataset, tag: string) {
+async function removeTag(row: StudyOutput, tag: string) {
   if (!selectedStudyId.value) return
   const next = (row.tags || []).filter((t) => t !== tag)
   try {
-    const res = await pipelineApi.updateDerivedDataset(selectedStudyId.value, row.id, { tags: next })
+    const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { tags: next })
     datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
   } catch (err) {
     error.value = describeError(err, '移除标签失败')
   }
 }
 
-async function downloadRow(row: DerivedDataset) {
+async function downloadRow(row: StudyOutput) {
   if (!selectedStudyId.value) return
   try {
-    const res = await pipelineApi.downloadDerivedDataset(selectedStudyId.value, row.id)
+    const res = await pipelineApi.downloadStudyOutput(selectedStudyId.value, row.id)
     const url = URL.createObjectURL(res.data)
     const link = document.createElement('a')
     link.href = url
@@ -904,7 +904,7 @@ async function onCleanup() {
   if (!confirm('确认清理本研究项里所有 cached / 临时 的派生数据吗？')) return
   cleanupLoading.value = true
   try {
-    await pipelineApi.cleanupDerivedDatasets(selectedStudyId.value, {
+    await pipelineApi.cleanupStudyOutputs(selectedStudyId.value, {
       retention_statuses: ['temporary', 'cached'],
       dry_run: false,
       limit: 500,
@@ -927,7 +927,7 @@ function shortId(value: string): string {
   return value.length > 8 ? value.slice(0, 8) : value
 }
 
-function rowDisplayName(row: DerivedDataset): string {
+function rowDisplayName(row: StudyOutput): string {
   return row.display_name || `${row.data_type}${row.bids_subject_id ? ' · ' + row.bids_subject_id : ''}`
 }
 

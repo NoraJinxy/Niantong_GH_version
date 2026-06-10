@@ -629,7 +629,7 @@
               v-for="artifact in selectedNodeArtifacts"
               :key="artifact.id"
               class="artifact-row"
-              :class="{ 'is-active': selectedArtifactPreview?.derived_dataset_id === artifact.id }"
+              :class="{ 'is-active': selectedArtifactPreview?.study_output_id === artifact.id }"
               type="button"
               @click="openArtifactPreview(artifact)"
             >
@@ -1109,8 +1109,8 @@ import type {
   NodeProperty,
   NodeSpec,
   Pipeline,
-  DerivedDataset,
-  DerivedDatasetPreview,
+  StudyOutput,
+  StudyOutputPreview,
   PipelineDefinitionPayload,
   PipelineEditLock,
   PipelineGraphLink,
@@ -1336,7 +1336,7 @@ const activeExecutionDetail = ref<PipelineExecutionDetail | null>(null)
 const activeExecutionManifest = ref<Record<string, unknown> | null>(null)
 const activeExecutionLineage = ref<PipelineExecutionLineage | null>(null)
 const executionJobs = ref<PipelineJob[]>([])
-const runArtifacts = ref<DerivedDataset[]>([])
+const runArtifacts = ref<StudyOutput[]>([])
 const runPolling = ref(false)
 const runPollingError = ref('')
 const runDialogOpen = ref(false)
@@ -1358,7 +1358,7 @@ const executionLineageLoading = ref(false)
 const executionLineageError = ref('')
 const artifactActionLoading = reactive<Record<string, ArtifactAction | 'cleanup'>>({})
 const artifactCleanupLoading = ref(false)
-const selectedArtifactPreview = ref<DerivedDatasetPreview | null>(null)
+const selectedArtifactPreview = ref<StudyOutputPreview | null>(null)
 const artifactPreviewOpen = ref(false)
 const artifactPreviewLoading = ref(false)
 const artifactPreviewError = ref('')
@@ -2219,7 +2219,7 @@ const executionJobByNodeId = computed(() => {
   return map
 })
 const runArtifactsByJobId = computed(() => {
-  const map = new Map<string, DerivedDataset[]>()
+  const map = new Map<string, StudyOutput[]>()
   for (const artifact of runArtifacts.value) {
     const jobId = artifact.produced_by_job_id
     if (!jobId) continue
@@ -2242,7 +2242,7 @@ const artifactPreviewEvents = computed(() => buildArtifactPreviewEvents(artifact
 const artifactPreviewCurves = computed(() => buildArtifactPreviewCurves(artifactPreviewSummary.value))
 const artifactPreviewTitle = computed(() => {
   if (!selectedArtifactPreview.value) return '派生数据预览'
-  return `${selectedArtifactPreview.value.data_type || 'derived'} · ${shortId(selectedArtifactPreview.value.derived_dataset_id)}`
+  return `${selectedArtifactPreview.value.data_type || 'derived'} · ${shortId(selectedArtifactPreview.value.study_output_id)}`
 })
 const artifactPreviewObserveTarget = computed(() => {
   if (!selectedArtifactPreview.value) return { path: '/observe', query: {} }
@@ -2784,7 +2784,7 @@ function artifactCountForJob(jobId: string) {
   return runArtifactsByJobId.value.get(jobId)?.length || 0
 }
 
-async function openArtifactPreview(artifact: DerivedDataset) {
+async function openArtifactPreview(artifact: StudyOutput) {
   if (!selectedStudyId.value) return
   const requestSeq = ++artifactPreviewSeq
   artifactPreviewOpen.value = true
@@ -2792,7 +2792,7 @@ async function openArtifactPreview(artifact: DerivedDataset) {
   artifactPreviewError.value = ''
   selectedArtifactPreview.value = null
   try {
-    const res = await pipelineApi.previewDerivedDataset(selectedStudyId.value, artifact.id)
+    const res = await pipelineApi.previewStudyOutput(selectedStudyId.value, artifact.id)
     if (requestSeq !== artifactPreviewSeq) return
     selectedArtifactPreview.value = res.data
     runArtifacts.value = runArtifacts.value.map((item) =>
@@ -2852,7 +2852,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   link.remove()
 }
 
-function artifactLabel(artifact: DerivedDataset) {
+function artifactLabel(artifact: StudyOutput) {
   const type = artifact.data_type || 'derived'
   const subject = artifact.bids_subject_id || (artifact.upstream_recording_ids?.[0] ? shortId(artifact.upstream_recording_ids[0]) : '')
   const name = artifact.display_name ? ` · ${artifact.display_name}` : (subject ? ` · ${subject}` : '')
@@ -2865,7 +2865,7 @@ function getPreviewSummary(previewJson?: Record<string, unknown>): Record<string
 }
 
 function buildArtifactPreviewMetrics(
-  preview: DerivedDatasetPreview | null,
+  preview: StudyOutputPreview | null,
   summary: Record<string, unknown>,
 ) {
   if (!preview) return []
@@ -3998,7 +3998,7 @@ async function loadPipelineExecutionById(executionId: string, pipeline: Pipeline
     const [executionRes, jobsRes, artifactsRes] = await Promise.all([
       pipelineApi.getExecution(studyId, executionId),
       pipelineApi.listExecutionJobs(studyId, executionId),
-      pipelineApi.listExecutionDerivedDatasets(studyId, executionId),
+      pipelineApi.listExecutionStudyOutputs(studyId, executionId),
     ])
     if (requestSeq !== executionPollSeq || activeExecutionId.value !== executionId) return true
     if (String(executionRes.data.pipeline_id) !== String(pipeline.id)) {
@@ -4008,7 +4008,7 @@ async function loadPipelineExecutionById(executionId: string, pipeline: Pipeline
     activeExecutionDetail.value = executionRes.data
     latestPipelineExecution.value = executionRes.data
     executionJobs.value = jobsRes.data.jobs
-    runArtifacts.value = artifactsRes.data.derived_datasets
+    runArtifacts.value = artifactsRes.data.study_outputs
     runPollingError.value = ''
     statusMessage.value = `已定位运行 #${executionRes.data.execution_seq}`
     applyLiteGraphRunState()
@@ -4072,13 +4072,13 @@ async function refreshRunState(executionId = activeExecutionId.value) {
     const [executionRes, jobsRes, artifactsRes] = await Promise.all([
       pipelineApi.getExecution(studyId, executionId),
       pipelineApi.listExecutionJobs(studyId, executionId),
-      pipelineApi.listExecutionDerivedDatasets(studyId, executionId),
+      pipelineApi.listExecutionStudyOutputs(studyId, executionId),
     ])
     if (requestSeq !== executionPollSeq || activeExecutionId.value !== executionId) return
     activeExecutionDetail.value = executionRes.data
     latestPipelineExecution.value = executionRes.data
     executionJobs.value = jobsRes.data.jobs
-    runArtifacts.value = artifactsRes.data.derived_datasets
+    runArtifacts.value = artifactsRes.data.study_outputs
     runPollingError.value = ''
     applyLiteGraphRunState()
     if (executionDetailTab.value === 'manifest') void loadExecutionManifest(executionId)
@@ -4862,7 +4862,7 @@ function derivedRetentionPillClass(status?: string | null): string {
   }
 }
 
-function startEditDisplayName(artifact: DerivedDataset) {
+function startEditDisplayName(artifact: StudyOutput) {
   editingDisplayId.value = artifact.id
   displayNameDraft.value = artifact.display_name || ''
 }
@@ -4872,7 +4872,7 @@ function cancelEditDisplayName() {
   displayNameDraft.value = ''
 }
 
-async function commitDisplayName(artifact: DerivedDataset) {
+async function commitDisplayName(artifact: StudyOutput) {
   if (editingDisplayId.value !== artifact.id) return
   const studyId = selectedStudyId.value
   const next = displayNameDraft.value.trim()
@@ -4880,7 +4880,7 @@ async function commitDisplayName(artifact: DerivedDataset) {
   editingDisplayId.value = ''
   if (!studyId || next === previous) return
   try {
-    const res = await pipelineApi.updateDerivedDataset(studyId, artifact.id, {
+    const res = await pipelineApi.updateStudyOutput(studyId, artifact.id, {
       display_name: next || null,
     })
     runArtifacts.value = runArtifacts.value.map((item) =>
@@ -4900,14 +4900,14 @@ function setTagDraft(id: string, value: string) {
   tagDrafts[id] = value
 }
 
-async function commitTagDraft(artifact: DerivedDataset) {
+async function commitTagDraft(artifact: StudyOutput) {
   const studyId = selectedStudyId.value
   const draft = (tagDrafts[artifact.id] || '').trim()
   if (!studyId || !draft) return
   const tags = [...(artifact.tags || [])]
   if (!tags.includes(draft)) tags.push(draft)
   try {
-    const res = await pipelineApi.updateDerivedDataset(studyId, artifact.id, { tags })
+    const res = await pipelineApi.updateStudyOutput(studyId, artifact.id, { tags })
     runArtifacts.value = runArtifacts.value.map((item) =>
       item.id === artifact.id ? { ...item, tags: res.data.tags } : item,
     )
@@ -4917,12 +4917,12 @@ async function commitTagDraft(artifact: DerivedDataset) {
   }
 }
 
-async function removeDerivedTag(artifact: DerivedDataset, tag: string) {
+async function removeDerivedTag(artifact: StudyOutput, tag: string) {
   const studyId = selectedStudyId.value
   if (!studyId) return
   const tags = (artifact.tags || []).filter((item) => item !== tag)
   try {
-    const res = await pipelineApi.updateDerivedDataset(studyId, artifact.id, { tags })
+    const res = await pipelineApi.updateStudyOutput(studyId, artifact.id, { tags })
     runArtifacts.value = runArtifacts.value.map((item) =>
       item.id === artifact.id ? { ...item, tags: res.data.tags } : item,
     )
@@ -4931,7 +4931,7 @@ async function removeDerivedTag(artifact: DerivedDataset, tag: string) {
   }
 }
 
-async function setArtifactRetentionAction(artifact: DerivedDataset, action: ArtifactAction) {
+async function setArtifactRetentionAction(artifact: StudyOutput, action: ArtifactAction) {
   const studyId = selectedStudyId.value
   if (!studyId || artifactActionLoading[artifact.id]) return
   artifactActionLoading[artifact.id] = action
@@ -4939,14 +4939,14 @@ async function setArtifactRetentionAction(artifact: DerivedDataset, action: Arti
     const reason = `frontend_${action}`
     const retention: 'pinned' | 'current' | 'deleted' =
       action === 'pin' ? 'pinned' : action === 'unpin' ? 'current' : 'deleted'
-    const res = await pipelineApi.updateDerivedDataset(studyId, artifact.id, {
+    const res = await pipelineApi.updateStudyOutput(studyId, artifact.id, {
       retention_status: retention,
       reason,
     })
-    const updated = res.data as DerivedDataset
+    const updated = res.data as StudyOutput
     if (action === 'hide') {
       runArtifacts.value = runArtifacts.value.filter((item) => item.id !== artifact.id)
-      if (selectedArtifactPreview.value?.derived_dataset_id === artifact.id) resetArtifactPreview()
+      if (selectedArtifactPreview.value?.study_output_id === artifact.id) resetArtifactPreview()
     } else {
       runArtifacts.value = runArtifacts.value.map((item) => (item.id === artifact.id ? { ...item, ...updated } : item))
     }
@@ -4961,7 +4961,7 @@ async function setArtifactRetentionAction(artifact: DerivedDataset, action: Arti
   }
 }
 
-function isArtifactActionLoading(artifact: DerivedDataset, action: ArtifactAction) {
+function isArtifactActionLoading(artifact: StudyOutput, action: ArtifactAction) {
   return artifactActionLoading[artifact.id] === action
 }
 
@@ -4970,7 +4970,7 @@ async function cleanupCachedArtifacts() {
   if (!studyId || artifactCleanupLoading.value) return
   artifactCleanupLoading.value = true
   try {
-    const res = await pipelineApi.cleanupDerivedDatasets(studyId, {
+    const res = await pipelineApi.cleanupStudyOutputs(studyId, {
       retention_statuses: ['temporary', 'cached'],
       dry_run: false,
       limit: 500,
@@ -4984,12 +4984,12 @@ async function cleanupCachedArtifacts() {
   }
 }
 
-async function downloadArtifact(artifact: DerivedDataset) {
+async function downloadArtifact(artifact: StudyOutput) {
   const studyId = selectedStudyId.value
   if (!studyId || artifactActionLoading[artifact.id]) return
   artifactActionLoading[artifact.id] = 'download'
   try {
-    const res = await pipelineApi.downloadDerivedDataset(studyId, artifact.id)
+    const res = await pipelineApi.downloadStudyOutput(studyId, artifact.id)
     const blob = res.data
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -5033,7 +5033,7 @@ function artifactActionStatusText(action: ArtifactAction, retentionStatus?: stri
   return 'Artifact 已隐藏'
 }
 
-function artifactDownloadName(artifact: DerivedDataset) {
+function artifactDownloadName(artifact: StudyOutput) {
   if (artifact.display_name && artifact.display_name.trim()) {
     return artifact.display_name.trim().replace(/[\\/:*?"<>|]/g, '_')
   }
@@ -5106,7 +5106,7 @@ function describeError(error: unknown, fallback: string) {
       .slice(0, 3)
       .map((item) => {
         if (!isRecord(item)) return String(item)
-        return String(item.execution_id || item.pipeline_execution_id || item.derived_dataset_id || item.upstream_dataset_id || item.artifact_id || item.resource_id || item.id || item.kind || 'dependency')
+        return String(item.execution_id || item.pipeline_execution_id || item.study_output_id || item.upstream_dataset_id || item.artifact_id || item.resource_id || item.id || item.kind || 'dependency')
       })
       .join('、')
     return `${base}；存在下游依赖阻塞：${summary}${blockers.length > 3 ? ` 等 ${blockers.length} 项` : ''}`

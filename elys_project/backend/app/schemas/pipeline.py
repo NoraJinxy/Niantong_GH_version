@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define Pydantic request/response schemas for the pipeline API area.
 Related: app/routers/*, frontend API clients, docs_v2/2-50.
 """
@@ -314,7 +314,7 @@ class PipelineExecutionDetailResponse(PipelineExecutionResponse):
     dependencies: list[PipelineExecutionDependencyResponse] = Field(default_factory=list)
     tasks: list[AsyncTaskResponse] = Field(default_factory=list)
     jobs: list[PipelineJobResponse] = Field(default_factory=list)
-    derived_datasets: list["DerivedDatasetResponse"] = Field(default_factory=list)
+    study_outputs: list["StudyOutputResponse"] = Field(default_factory=list)
 
 
 class PipelineExecutionLineageGraphNode(BaseModel):
@@ -338,7 +338,7 @@ class PipelineExecutionLineageGraphEdge(BaseModel):
 class PipelineExecutionLineageResponse(BaseModel):
     execution: PipelineExecutionResponse
     inputs: list[PipelineExecutionInputResponse] = Field(default_factory=list)
-    derived_datasets: list["DerivedDatasetResponse"] = Field(default_factory=list)
+    study_outputs: list["StudyOutputResponse"] = Field(default_factory=list)
     upstream_executions: list[PipelineExecutionResponse] = Field(default_factory=list)
     downstream_executions: list[PipelineExecutionResponse] = Field(default_factory=list)
     upstream_dependencies: list[PipelineExecutionDependencyResponse] = Field(default_factory=list)
@@ -459,7 +459,7 @@ class LoadDataResolveResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Forward references resolved at import time
 # ---------------------------------------------------------------------------
-from app.schemas.derived_dataset import DerivedDatasetResponse  # noqa: E402  pyright: ignore
+from app.schemas.study_output import StudyOutputResponse  # noqa: E402  pyright: ignore
 
 PipelineExecutionDetailResponse.model_rebuild()
 PipelineExecutionLineageResponse.model_rebuild()

@@ -686,19 +686,19 @@ class ElysClient:
 
     # ---------- derived datasets / artifacts ----------
     def list_run_derived(self, study_id: str, run_id: str) -> list[dict]:
-        # 没有独立的 per-execution 派生列表端点；执行详情(GET pipeline-executions/{id})里就带 derived_datasets
+        # 没有独立的 per-execution 派生列表端点；执行详情(GET pipeline-executions/{id})里就带 study_outputs
         self._ensure_login()
         r = self._session.get(
             f"{self.base_url}/studies/{study_id}/pipeline-executions/{run_id}",
             timeout=self.timeout,
         )
         _raise_for_status(r)
-        return r.json().get("derived_datasets", [])
+        return r.json().get("study_outputs", [])
 
     def download_derived(self, study_id: str, dataset_id: str, out_path: str | Path) -> Path:
         self._ensure_login()
         r = self._session.get(
-            f"{self.base_url}/studies/{study_id}/derived-datasets/{dataset_id}/download",
+            f"{self.base_url}/studies/{study_id}/outputs/{dataset_id}/download",
             stream=True,
             timeout=600,
         )

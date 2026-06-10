@@ -1,15 +1,15 @@
 -- Purpose: 派生数据集与 Pipeline I/O — 由 Pipeline 节点产出的数据、文件派生关系、Run 输入快照与依赖。
--- Related: backend/app/models/derived_dataset.py, backend/app/models/study.py 中的
+-- Related: backend/app/models/study_output.py, backend/app/models/study.py 中的
 --          DatasetFileDerivation / PipelineExecutionInput / PipelineExecutionDependency。
 -- Notes: 依赖 03_datasets.sql (recordings/recording_versions/dataset_files) 和 04_pipelines.sql (pipeline_executions/jobs)。
---        本文件中 derived_datasets 必须先创建，再创建 dataset_file_derivations / pipeline_execution_inputs /
---        pipeline_execution_dependencies 等引用 derived_datasets 的表。
+--        本文件中 study_outputs 必须先创建，再创建 dataset_file_derivations / pipeline_execution_inputs /
+--        pipeline_execution_dependencies 等引用 study_outputs 的表。
 
 -- ============================================
 -- 派生数据集（取代旧的 pipeline_artifacts + analysis_results）
 -- ============================================
 
-CREATE TABLE IF NOT EXISTS derived_datasets (
+CREATE TABLE IF NOT EXISTS study_outputs (
     id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     study_id               CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
 
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS derived_datasets (
     deleted_at               TIMESTAMP
 );
 
-COMMENT ON TABLE derived_datasets IS
+COMMENT ON TABLE study_outputs IS
     '派生数据集表。Pipeline 各节点产出的文件统一登记于此，取代旧的 pipeline_artifacts + analysis_results。'
     '用户视角通过 display_name + tags 命名分类；retention_status 控制生命周期。';
 
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS dataset_file_derivations (
     source_file_id      UUID NOT NULL REFERENCES dataset_files(id) ON DELETE RESTRICT,
     derived_file_id     UUID NOT NULL REFERENCES dataset_files(id) ON DELETE CASCADE,
     execution_id              UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
-    derived_dataset_id  UUID REFERENCES derived_datasets(id) ON DELETE SET NULL,
+    study_output_id  UUID REFERENCES study_outputs(id) ON DELETE SET NULL,
     derivation_kind     VARCHAR(64) NOT NULL DEFAULT 'canonical_fif',
     transform_name      VARCHAR(128),
     transform_version   VARCHAR(64),
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS pipeline_execution_inputs (
     storage_uri         VARCHAR(1024),
     logical_path        VARCHAR(1024),
     upstream_execution_id     UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
-    upstream_dataset_id UUID REFERENCES derived_datasets(id) ON DELETE SET NULL,
+    upstream_dataset_id UUID REFERENCES study_outputs(id) ON DELETE SET NULL,
     selector_json       JSONB NOT NULL DEFAULT '{}',
     resolved_metadata_json JSONB NOT NULL DEFAULT '{}',
     sha256              VARCHAR(128),
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS pipeline_execution_dependencies (
     study_id           CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
     execution_id               UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
     depends_on_execution_id    UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE RESTRICT,
-    upstream_dataset_id  UUID REFERENCES derived_datasets(id) ON DELETE RESTRICT,
+    upstream_dataset_id  UUID REFERENCES study_outputs(id) ON DELETE RESTRICT,
     dependency_kind      VARCHAR(64) NOT NULL DEFAULT 'upstream_execution',
     metadata             JSONB NOT NULL DEFAULT '{}',
     created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -156,22 +156,22 @@ CREATE TABLE IF NOT EXISTS pipeline_execution_dependencies (
 -- 索引
 -- ============================================
 
-CREATE INDEX IF NOT EXISTS idx_derived_study ON derived_datasets (study_id, retention_status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_derived_subject_type ON derived_datasets (study_id, bids_subject_id, data_type);
-CREATE INDEX IF NOT EXISTS idx_derived_execution ON derived_datasets (produced_by_execution_id);
-CREATE INDEX IF NOT EXISTS idx_derived_job ON derived_datasets (produced_by_job_id);
-CREATE INDEX IF NOT EXISTS idx_derived_tags ON derived_datasets USING GIN (tags);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_derived_sha256 ON derived_datasets (study_id, sha256) WHERE sha256 IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_derived_retention_expires ON derived_datasets (retention_expires_at) WHERE retention_expires_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_derived_deleted ON derived_datasets (study_id, deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_derived_study ON study_outputs (study_id, retention_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_derived_subject_type ON study_outputs (study_id, bids_subject_id, data_type);
+CREATE INDEX IF NOT EXISTS idx_derived_execution ON study_outputs (produced_by_execution_id);
+CREATE INDEX IF NOT EXISTS idx_derived_job ON study_outputs (produced_by_job_id);
+CREATE INDEX IF NOT EXISTS idx_derived_tags ON study_outputs USING GIN (tags);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_derived_sha256 ON study_outputs (study_id, sha256) WHERE sha256 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_derived_retention_expires ON study_outputs (retention_expires_at) WHERE retention_expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_derived_deleted ON study_outputs (study_id, deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- Phase 1 (3-25): 派生数据生命周期索引（支持跨 Study 列出可引用的 published 派生数据）
-CREATE INDEX IF NOT EXISTS idx_derived_lifecycle ON derived_datasets (lifecycle_state);
-CREATE INDEX IF NOT EXISTS idx_derived_shared_published ON derived_datasets (lifecycle_state, visibility) WHERE lifecycle_state = 'published' AND visibility = 'shared';
+CREATE INDEX IF NOT EXISTS idx_derived_lifecycle ON study_outputs (lifecycle_state);
+CREATE INDEX IF NOT EXISTS idx_derived_shared_published ON study_outputs (lifecycle_state, visibility) WHERE lifecycle_state = 'published' AND visibility = 'shared';
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_source ON dataset_file_derivations(source_file_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_derived ON dataset_file_derivations(derived_file_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_execution ON dataset_file_derivations(execution_id);
-CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_derived_dataset ON dataset_file_derivations(derived_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_study_output ON dataset_file_derivations(study_output_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_run ON pipeline_execution_inputs(execution_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_run_node ON pipeline_execution_inputs(execution_id, node_id, input_index);
 CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_study_pipeline ON pipeline_execution_inputs(study_id, pipeline_id);

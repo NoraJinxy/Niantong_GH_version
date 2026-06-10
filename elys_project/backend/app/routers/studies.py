@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define FastAPI routes for the studies API area and translate HTTP requests into services/database calls.
 Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_v2/2-50.
 """
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import DerivedDataset, PipelineExecution, PipelineExecutionDependency, Recording, Study, StudyMember, StudySettings, User
+from app.models import StudyOutput, PipelineExecution, PipelineExecutionDependency, Recording, Study, StudyMember, StudySettings, User
 from app.routers.auth import get_current_user
 from app.schemas.study import (
     StudyActionResponse,
@@ -640,7 +640,7 @@ def purge_study(
     blocking_counts = {
         "recordings": db.query(Recording).filter(Recording.study_id == study.id).count(),
         "pipeline_executions": db.query(PipelineExecution).filter(PipelineExecution.study_id == study.id).count(),
-        "derived_datasets": db.query(DerivedDataset).filter(DerivedDataset.study_id == study.id).count(),
+        "study_outputs": db.query(StudyOutput).filter(StudyOutput.study_id == study.id).count(),
         "pipeline_execution_dependencies": db.query(PipelineExecutionDependency).filter(PipelineExecutionDependency.study_id == study.id).count(),
     }
     if any(blocking_counts.values()):

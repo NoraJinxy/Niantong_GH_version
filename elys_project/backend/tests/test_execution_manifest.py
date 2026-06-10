@@ -38,7 +38,7 @@ def clear_lightweight_app_stubs() -> None:
 
 clear_lightweight_app_stubs()
 
-from app.models import AsyncTask, DerivedDataset, PipelineJob, PipelineExecutionDependency, PipelineExecutionInput, TaskEvent  # noqa: E402
+from app.models import AsyncTask, StudyOutput, PipelineJob, PipelineExecutionDependency, PipelineExecutionInput, TaskEvent  # noqa: E402
 from app.pipeline.execution_manifest import generate_execution_manifest, read_execution_manifest  # noqa: E402
 
 
@@ -237,7 +237,7 @@ def make_rows(execution, *, failed: bool = False) -> dict[type, list]:
     return {
         PipelineExecutionInput: [input_row],
         PipelineJob: [job],
-        DerivedDataset: [artifact],
+        StudyOutput: [artifact],
         PipelineExecutionDependency: [dependency],
         AsyncTask: [task],
         TaskEvent: [task_event],

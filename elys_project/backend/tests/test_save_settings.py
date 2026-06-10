@@ -43,7 +43,7 @@ class _FakeDb:
         return _FakeQuery(self.rows)
 
 
-# 让 save_settings 导入 DerivedDataset 时拿到一个能被 query() 接受的 Mock 类
+# 让 save_settings 导入 StudyOutput 时拿到一个能被 query() 接受的 Mock 类
 import types  # noqa: E402
 
 
@@ -72,14 +72,14 @@ class _FakeColumn:
 _fake_models = types.ModuleType("app.models")
 
 
-class _DerivedDataset:  # placeholder with column-like attrs
+class _StudyOutput:  # placeholder with column-like attrs
     display_name = _FakeColumn("display_name")
     study_id = _FakeColumn("study_id")
     deleted_at = _FakeColumn("deleted_at")
     retention_status = _FakeColumn("retention_status")
 
 
-_fake_models.DerivedDataset = _DerivedDataset
+_fake_models.StudyOutput = _StudyOutput
 sys.modules.setdefault("app.models", _fake_models)
 
 # sqlalchemy.or_ stub（resolve_display_name_conflict 内 from sqlalchemy import or_）
@@ -493,7 +493,7 @@ def test_cache_retention_intermediate_is_cached():
 
 
 def test_cache_retention_source_falls_back_to_cached():
-    """source 节点（LoadData）即使被 cache 也不应是 current —— LoadData 没有 derived_dataset，不会真发生。"""
+    """source 节点（LoadData）即使被 cache 也不应是 current —— LoadData 没有 study_output，不会真发生。"""
     assert cache_retention_for_role("source") == "cached"
 
 

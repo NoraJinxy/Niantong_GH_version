@@ -14,7 +14,7 @@ from uuid import UUID
 from celery.utils.log import get_task_logger
 
 from app.database import SessionLocal
-from app.models import AsyncTask, DatasetAsset, DatasetFile, DerivedDataset, Recording
+from app.models import AsyncTask, DatasetAsset, DatasetFile, StudyOutput, Recording
 from app.services.execution_dependencies import artifact_dependency_blockers
 from app.services.task_events import find_async_task_by_celery_id, record_task_event
 from app.tasks.celery_app import celery_app
@@ -46,8 +46,8 @@ def run_file_task(self, task_id: str) -> dict[str, Any]:
         )
         db.commit()
 
-        if task.task_type == "derived_dataset_cleanup":
-            result = run_derived_dataset_cleanup(db, task)
+        if task.task_type == "study_output_cleanup":
+            result = run_study_output_cleanup(db, task)
         elif task.task_type == "raw_bids_build":
             result = run_raw_bids_build(db, task)
         elif task.task_type == "canonical_fif_rebuild":
@@ -99,8 +99,8 @@ def run_file_task(self, task_id: str) -> dict[str, Any]:
         db.close()
 
 
-def run_derived_dataset_cleanup(db, task: AsyncTask) -> dict[str, Any]:
-    """Cleanup derived_datasets whose retention is temporary/cached and (optionally) expired.
+def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
+    """Cleanup study_outputs whose retention is temporary/cached and (optionally) expired.
 
     被下游 Execution/节点输入引用的派生数据集会被跳过；其它候选的 retention_status 改为
     "deleted"，物理文件保留以便恢复（实际清盘由后续 garbage collector 完成）。
@@ -111,18 +111,18 @@ def run_derived_dataset_cleanup(db, task: AsyncTask) -> dict[str, Any]:
     limit = int(payload.get("limit") or 500)
     study_id = task.study_id
     if not study_id:
-        raise ValueError("derived_dataset_cleanup requires study_id")
+        raise ValueError("study_output_cleanup requires study_id")
 
     now = datetime.utcnow()
-    query = db.query(DerivedDataset).filter(
-        DerivedDataset.study_id == study_id,
-        DerivedDataset.retention_status.in_(allowed_statuses),
+    query = db.query(StudyOutput).filter(
+        StudyOutput.study_id == study_id,
+        StudyOutput.retention_status.in_(allowed_statuses),
     )
     # 优先回收已过期的临时项；过期为空（pinned/current）的不进
     query = query.order_by(
-        DerivedDataset.retention_expires_at.asc().nullslast(),
-        DerivedDataset.created_at.asc(),
-        DerivedDataset.id.asc(),
+        StudyOutput.retention_expires_at.asc().nullslast(),
+        StudyOutput.created_at.asc(),
+        StudyOutput.id.asc(),
     )
     candidates = query.limit(limit).all()
 
@@ -137,7 +137,7 @@ def run_derived_dataset_cleanup(db, task: AsyncTask) -> dict[str, Any]:
         ):
             skipped.append(
                 {
-                    "derived_dataset_id": str(dataset.id),
+                    "study_output_id": str(dataset.id),
                     "reason": "not_yet_expired",
                     "retention_expires_at": dataset.retention_expires_at.isoformat(),
                 }
@@ -146,13 +146,13 @@ def run_derived_dataset_cleanup(db, task: AsyncTask) -> dict[str, Any]:
         blockers = artifact_dependency_blockers(db, artifact=dataset, limit=5)
         if blockers:
             skipped.append({
-                "derived_dataset_id": str(dataset.id),
+                "study_output_id": str(dataset.id),
                 "reason": "has_downstream_dependencies",
                 "dependencies": blockers,
             })
             continue
         item = {
-            "derived_dataset_id": str(dataset.id),
+            "study_output_id": str(dataset.id),
             "storage_uri": dataset.storage_uri,
             "logical_path": dataset.logical_path,
             "previous_retention_status": dataset.retention_status,

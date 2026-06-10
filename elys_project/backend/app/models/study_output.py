@@ -1,17 +1,17 @@
 """
-Purpose: Define DerivedDataset SQLAlchemy ORM model.
+Purpose: Define StudyOutput SQLAlchemy ORM model.
 
-DerivedDataset is the unified user-facing concept that replaces both
+StudyOutput is the unified user-facing concept that replaces both
 pipeline_artifacts (节点产物文件) and analysis_results (Save 登记的正式结果).
-每个 Pipeline 节点产出的文件都登记为一条 derived_datasets 行；Save 节点
+每个 Pipeline 节点产出的文件都登记为一条 study_outputs 行；Save 节点
 通过提升 retention_status + 设置 display_name / tags 来把上游派生数据
 "晋升"为正式结果。
 
 Related:
 - database/schema/05_derived.sql (table definition)
-- app/pipeline/derived_dataset_store.py (DerivedDatasetStore)
-- app/pipeline/dispatcher.py (writes derived_datasets)
-- wiki/docs/3-45-DerivedDataset.md (concept)
+- app/pipeline/study_output_store.py (StudyOutputStore)
+- app/pipeline/dispatcher.py (writes study_outputs)
+- wiki/docs/3-45-StudyOutput.md (concept)
 """
 
 from datetime import datetime
@@ -32,8 +32,8 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
-class DerivedDataset(Base):
-    __tablename__ = "derived_datasets"
+class StudyOutput(Base):
+    __tablename__ = "study_outputs"
     __table_args__ = (
         Index(
             "idx_derived_study",
@@ -167,12 +167,12 @@ class DerivedDataset(Base):
     execution = relationship(
         "PipelineExecution",
         foreign_keys=[produced_by_execution_id],
-        back_populates="derived_datasets",
+        back_populates="study_outputs",
     )
     job = relationship(
         "PipelineJob",
         foreign_keys=[produced_by_job_id],
-        back_populates="derived_datasets",
+        back_populates="study_outputs",
     )
     subject = relationship("Subject", foreign_keys=[subject_id])
     creator = relationship("User", foreign_keys=[created_by])

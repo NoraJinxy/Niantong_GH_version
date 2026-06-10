@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.models import DerivedDataset, PipelineExecution, PipelineExecutionDependency, PipelineExecutionInput
+from app.models import StudyOutput, PipelineExecution, PipelineExecutionDependency, PipelineExecutionInput
 from app.pipeline.contracts import NodeInput
 
 
@@ -25,7 +25,7 @@ class ArtifactDependencyError(Exception):
         return {
             "code": "DERIVED_DATASET_HAS_DOWNSTREAM_DEPENDENCIES",
             "message": "派生数据集已被下游 Execution 或节点输入引用，不能删除或清理。",
-            "derived_dataset_id": self.artifact_id,
+            "study_output_id": self.artifact_id,
             "dependencies": self.blockers,
         }
 
@@ -53,12 +53,12 @@ def record_execution_artifact_dependencies(
     node_type = str(node.get("type") or getattr(job, "node_type", "") or "")
 
     for index, reference in enumerate(references):
-        # 兼容新旧 key：DerivedDatasetSummary.to_dict 同时输出 derived_dataset_id 和 artifact_id
-        dataset_id = _uuid_or_none(reference.get("derived_dataset_id") or reference.get("artifact_id"))
+        # 兼容新旧 key：StudyOutputSummary.to_dict 同时输出 study_output_id 和 artifact_id
+        dataset_id = _uuid_or_none(reference.get("study_output_id") or reference.get("artifact_id"))
         if dataset_id is None:
             continue
 
-        dataset = _derived_dataset_for_reference(db, dataset_id)
+        dataset = _study_output_for_reference(db, dataset_id)
         upstream_execution_id = (
             _uuid_or_none(reference.get("pipeline_execution_id"))
             or _uuid_or_none(reference.get("execution_id"))
@@ -82,12 +82,12 @@ def record_execution_artifact_dependencies(
                     node_type=node_type,
                     input_slot=input_slot,
                     input_index=input_index,
-                    input_kind="derived_dataset",
+                    input_kind="study_output",
                     dataset_asset_id=_uuid_or_none(reference.get("dataset_asset_id")),
                     recording_id=_uuid_or_none(reference.get("source_dataset_id") or reference.get("dataset_id")),
                     recording_version_id=_uuid_or_none(reference.get("dataset_upload_id") or reference.get("current_upload_id")),
                     dataset_file_id=_uuid_or_none(reference.get("source_dataset_file_id") or reference.get("dataset_file_id")),
-                    file_role=reference.get("file_role") or "derived_dataset",
+                    file_role=reference.get("file_role") or "study_output",
                     storage_uri=storage_uri,
                     logical_path=reference.get("logical_path") or storage_path,
                     upstream_execution_id=upstream_execution_id,
@@ -98,7 +98,7 @@ def record_execution_artifact_dependencies(
                         "source_nodes": reference.get("source_nodes", []),
                     },
                     resolved_metadata_json={
-                        "derived_dataset_snapshot": _compact_reference(reference),
+                        "study_output_snapshot": _compact_reference(reference),
                         "upstream_execution_id": str(upstream_execution_id) if upstream_execution_id else None,
                         "upstream_dataset_id": str(dataset_id),
                     },
@@ -111,7 +111,7 @@ def record_execution_artifact_dependencies(
         if upstream_execution_id is None or upstream_execution_id == _uuid_or_none(execution.id):
             continue
 
-        dependency_key = (str(upstream_execution_id), str(dataset_id), "upstream_derived_dataset")
+        dependency_key = (str(upstream_execution_id), str(dataset_id), "upstream_study_output")
         if dependency_key in existing_dependencies:
             continue
         db.add(
@@ -120,7 +120,7 @@ def record_execution_artifact_dependencies(
                 execution_id=execution.id,
                 depends_on_execution_id=upstream_execution_id,
                 upstream_dataset_id=dataset_id,
-                dependency_kind="upstream_derived_dataset",
+                dependency_kind="upstream_study_output",
                 metadata_json={
                     "node_id": node_id,
                     "node_type": node_type,
@@ -200,13 +200,13 @@ def study_downstream_dependency_blockers(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     execution_ids = _ids_for_study(db, PipelineExecution, study_id)
-    derived_dataset_ids = _ids_for_study(db, DerivedDataset, study_id)
+    study_output_ids = _ids_for_study(db, StudyOutput, study_id)
     blockers: list[dict[str, Any]] = []
 
-    if derived_dataset_ids:
+    if study_output_ids:
         input_rows = (
             db.query(PipelineExecutionInput)
-            .filter(PipelineExecutionInput.upstream_dataset_id.in_(derived_dataset_ids))
+            .filter(PipelineExecutionInput.upstream_dataset_id.in_(study_output_ids))
             .order_by(PipelineExecutionInput.created_at.asc(), PipelineExecutionInput.id.asc())
             .all()
         )
@@ -218,8 +218,8 @@ def study_downstream_dependency_blockers(
     dependency_filters = []
     if execution_ids:
         dependency_filters.append(PipelineExecutionDependency.depends_on_execution_id.in_(execution_ids))
-    if derived_dataset_ids:
-        dependency_filters.append(PipelineExecutionDependency.upstream_dataset_id.in_(derived_dataset_ids))
+    if study_output_ids:
+        dependency_filters.append(PipelineExecutionDependency.upstream_dataset_id.in_(study_output_ids))
     if dependency_filters:
         dependency_rows = (
             db.query(PipelineExecutionDependency)
@@ -235,7 +235,7 @@ def study_downstream_dependency_blockers(
 
 
 def _collect_artifact_references(inputs: dict[str, NodeInput]) -> list[dict[str, Any]]:
-    """Collect references with derived_dataset_id (or legacy artifact_id) from node inputs."""
+    """Collect references with study_output_id (or legacy artifact_id) from node inputs."""
     references: list[dict[str, Any]] = []
     for port, node_input in inputs.items():
         source_nodes = node_input.metadata.get("source_nodes", []) if isinstance(node_input.metadata, dict) else []
@@ -246,7 +246,7 @@ def _collect_artifact_references(inputs: dict[str, NodeInput]) -> list[dict[str,
             reference["input_slot"] = port
             reference["input_index"] = index
             reference["source_nodes"] = source_nodes
-            if reference.get("derived_dataset_id") or reference.get("artifact_id"):
+            if reference.get("study_output_id") or reference.get("artifact_id"):
                 references.append(reference)
         for index, artifact in enumerate(node_input.artifacts, start=len(node_input.data_infos)):
             if not isinstance(artifact, dict):
@@ -255,7 +255,7 @@ def _collect_artifact_references(inputs: dict[str, NodeInput]) -> list[dict[str,
             reference["input_slot"] = port
             reference["input_index"] = index
             reference["source_nodes"] = source_nodes
-            if reference.get("derived_dataset_id") or reference.get("artifact_id"):
+            if reference.get("study_output_id") or reference.get("artifact_id"):
                 references.append(reference)
     return references
 
@@ -267,7 +267,7 @@ def _existing_input_keys(db: Session, *, execution_id: Any, job_id: Any) -> set[
             .filter(
                 PipelineExecutionInput.execution_id == execution_id,
                 PipelineExecutionInput.job_id == job_id,
-                PipelineExecutionInput.input_kind.in_(("derived_dataset", "artifact")),
+                PipelineExecutionInput.input_kind.in_(("study_output", "artifact")),
             )
             .all()
         )
@@ -303,9 +303,9 @@ def _existing_dependency_keys(db: Session, *, execution_id: Any) -> set[tuple[st
     return keys
 
 
-def _derived_dataset_for_reference(db: Session, dataset_id: UUID) -> Any | None:
+def _study_output_for_reference(db: Session, dataset_id: UUID) -> Any | None:
     try:
-        return db.query(DerivedDataset).filter(DerivedDataset.id == dataset_id).first()
+        return db.query(StudyOutput).filter(StudyOutput.id == dataset_id).first()
     except Exception:
         return None
 

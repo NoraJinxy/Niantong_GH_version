@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .previews import DerivedDatasetPreviewError, resolve_derived_dataset_path, validate_derived_dataset_file
+from .previews import StudyOutputPreviewError, resolve_study_output_path, validate_study_output_file
 
 DEFAULT_MAX_POINTS = 2000
 DEFAULT_MAX_CHANNELS = 64
@@ -69,15 +69,15 @@ def build_timeseries(
     max_channels: int = DEFAULT_MAX_CHANNELS,
 ) -> dict[str, Any]:
     data_type = str(getattr(artifact, "data_type", "") or "").strip().lower()
-    path = resolve_derived_dataset_path(study, artifact)
-    validate_derived_dataset_file(path, artifact)
+    path = resolve_study_output_path(study, artifact)
+    validate_study_output_file(path, artifact)
     if data_type in CONTINUOUS_TYPES:
         return _ts_raw(path, data_type, tmin, tmax, max_points, max_channels)
     if data_type == "epochs":
         return _ts_epochs(path, tmin, tmax, index, max_points, max_channels)
     if data_type == "evoked":
         return _ts_evoked(path, tmin, tmax, index, max_points, max_channels)
-    raise DerivedDatasetPreviewError(
+    raise StudyOutputPreviewError(
         "DERIVED_DATASET_TIMESERIES_UNSUPPORTED",
         f"暂不支持 data_type={data_type or 'unknown'} 的时域曲线",
         status_code=400,
@@ -134,7 +134,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[
     epochs = mne.read_epochs(path, preload=False, verbose="ERROR")
     n_epochs = len(epochs)
     if n_epochs == 0:
-        raise DerivedDatasetPreviewError("DERIVED_DATASET_TIMESERIES_EMPTY", "epochs 不含任何片段", status_code=422)
+        raise StudyOutputPreviewError("DERIVED_DATASET_TIMESERIES_EMPTY", "epochs 不含任何片段", status_code=422)
     ei = 0 if index is None else max(0, min(int(index), n_epochs - 1))
     times_all = epochs.times  # 秒，epoch 相对
     picks, names = _data_picks(mne, epochs.info, max_channels)
@@ -189,7 +189,7 @@ def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[
     if not isinstance(evokeds, list):
         evokeds = [evokeds]
     if not evokeds:
-        raise DerivedDatasetPreviewError("DERIVED_DATASET_TIMESERIES_EMPTY", "evoked 不含任何条件", status_code=422)
+        raise StudyOutputPreviewError("DERIVED_DATASET_TIMESERIES_EMPTY", "evoked 不含任何条件", status_code=422)
     n = len(evokeds)
     ci = 0 if index is None else max(0, min(int(index), n - 1))
     ev = evokeds[ci]

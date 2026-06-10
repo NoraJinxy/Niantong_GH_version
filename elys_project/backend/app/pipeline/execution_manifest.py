@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AsyncTask,
-    DerivedDataset,
+    StudyOutput,
     PipelineDefinition,
     PipelineJob,
     PipelineExecution,
@@ -210,11 +210,11 @@ def _query_jobs(db: Session, *, study_id: str, execution_id: str | UUID) -> list
     )
 
 
-def _query_artifacts(db: Session, *, study_id: str, execution_id: str | UUID) -> list[DerivedDataset]:
+def _query_artifacts(db: Session, *, study_id: str, execution_id: str | UUID) -> list[StudyOutput]:
     return (
-        db.query(DerivedDataset)
-        .filter(DerivedDataset.study_id == study_id, DerivedDataset.produced_by_execution_id == execution_id)
-        .order_by(DerivedDataset.created_at.asc(), DerivedDataset.id.asc())
+        db.query(StudyOutput)
+        .filter(StudyOutput.study_id == study_id, StudyOutput.produced_by_execution_id == execution_id)
+        .order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc())
         .all()
     )
 
@@ -303,11 +303,11 @@ def _serialize_job(item: PipelineJob) -> dict[str, Any]:
     }
 
 
-def _serialize_artifact(item: DerivedDataset) -> dict[str, Any]:
-    """Serialise a DerivedDataset row to its Execution manifest snapshot."""
+def _serialize_artifact(item: StudyOutput) -> dict[str, Any]:
+    """Serialise a StudyOutput row to its Execution manifest snapshot."""
     return {
         "id": str(item.id),
-        "derived_dataset_id": str(item.id),
+        "study_output_id": str(item.id),
         "produced_by_job_id": _string_or_none(item.produced_by_job_id),
         "produced_by_node_id": item.produced_by_node_id,
         "produced_by_node_type": item.produced_by_node_type,

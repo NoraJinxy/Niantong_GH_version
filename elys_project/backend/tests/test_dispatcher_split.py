@@ -7,7 +7,7 @@ Purpose: 单元测试 Epoch split_by="condition" 拆分与 ERP 自动 condition 
 - _execute_epochs_output 的 split_mode 分支（用 fake Epochs 模拟）
 - _execute_evoked_output 的 condition 推断优先级（input.condition > params.condition）
 
-不依赖 MNE / DB —— 用 FakeEpochs / FakeDerivedDatasetStore / FakeDb 模拟。
+不依赖 MNE / DB —— 用 FakeEpochs / FakeStudyOutputStore / FakeDb 模拟。
 
 Related: app/pipeline/dispatcher.py
 """
@@ -38,14 +38,14 @@ class _FakeColumn:
 _fake_models = types.ModuleType("app.models")
 
 
-class _DerivedDataset:
+class _StudyOutput:
     display_name = _FakeColumn("display_name")
     study_id = _FakeColumn("study_id")
     deleted_at = _FakeColumn("deleted_at")
     retention_status = _FakeColumn("retention_status")
 
 
-_fake_models.DerivedDataset = _DerivedDataset
+_fake_models.StudyOutput = _StudyOutput
 sys.modules.setdefault("app.models", _fake_models)
 
 if "sqlalchemy" not in sys.modules:
@@ -120,11 +120,11 @@ def test_filename_evoked_with_condition():
 
 
 # =============================================================================
-# Group 2: _save_epochs_dataset helper（用 fake derived_dataset_store 抓调用）
+# Group 2: _save_epochs_dataset helper（用 fake study_output_store 抓调用）
 # =============================================================================
 
-class FakeDerivedDatasetStore:
-    """记录所有 save_file_from_writer 调用的 fake derived_dataset_store。"""
+class FakeStudyOutputStore:
+    """记录所有 save_file_from_writer 调用的 fake study_output_store。"""
 
     def __init__(self):
         self.calls = []
@@ -181,7 +181,7 @@ def _make_context(*, params=None, node=None, topology=None, db=None):
         node=node or {"id": "epoch-1", "type": "eeg/epoch/segment", "title": "Epoch"},
         params=params or {},
         inputs={},
-        derived_dataset_store=None,
+        study_output_store=None,
         node_spec={
             "save": {
                 "step_label": "epoch",
@@ -223,7 +223,7 @@ def test_save_epochs_dataset_writes_correct_filename(monkeypatch):
     monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
     monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     artifacts = []
     ctx = _make_context(params={"event_id": ["go", "nogo"]})
     epochs = FakeEpochs({"go": 1, "nogo": 2}, count=20)
@@ -233,7 +233,7 @@ def test_save_epochs_dataset_writes_correct_filename(monkeypatch):
         context=ctx,
         data_info={"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"},
         epochs=epochs,
-        derived_dataset_store=store,
+        study_output_store=store,
         artifacts=artifacts,
         save_descriptor="epo",
         index=0,
@@ -256,7 +256,7 @@ def test_save_epochs_dataset_no_condition_no_suffix(monkeypatch):
     monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
     monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     ctx = _make_context()
     epochs = FakeEpochs({"go": 1, "nogo": 2}, count=20)
 
@@ -265,7 +265,7 @@ def test_save_epochs_dataset_no_condition_no_suffix(monkeypatch):
         context=ctx,
         data_info={"fif_path": "data.fif", "bids_subject_id": "sub-01", "task": "rest"},
         epochs=epochs,
-        derived_dataset_store=store,
+        study_output_store=store,
         artifacts=[],
         save_descriptor="epo",
         index=0,
@@ -298,12 +298,12 @@ def test_execute_epochs_output_split_condition_iterates_event_ids(monkeypatch):
     def fake_processor(raw, params):
         return FakeEpochs({"go": 1, "nogo": 2}, count=20)
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     input_data_info = {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"}
 
     ctx = _make_context(params={"split_by": "condition", "event_id": ["go", "nogo"]})
     ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
-    ctx.derived_dataset_store = store
+    ctx.study_output_store = store
 
     dispatcher = NodeDispatcher()
     result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
@@ -336,12 +336,12 @@ def test_execute_epochs_output_split_none_keeps_single_output(monkeypatch):
     def fake_processor(raw, params):
         return FakeEpochs({"go": 1, "nogo": 2}, count=20)
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     input_data_info = {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"}
 
     ctx = _make_context(params={"split_by": "none", "event_id": ["go", "nogo"]})
     ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
-    ctx.derived_dataset_store = store
+    ctx.study_output_store = store
 
     dispatcher = NodeDispatcher()
     result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
@@ -354,7 +354,7 @@ def test_execute_epochs_output_split_none_keeps_single_output(monkeypatch):
 
 
 def test_execute_epochs_output_split_skips_empty_subepochs(monkeypatch):
-    """某个 condition 子集为空 → 跳过，不写入 derived_dataset。"""
+    """某个 condition 子集为空 → 跳过，不写入 study_output。"""
     import app.pipeline.dispatcher as disp_mod
     from app.pipeline.contracts import NodeInput
 
@@ -371,10 +371,10 @@ def test_execute_epochs_output_split_skips_empty_subepochs(monkeypatch):
     def fake_processor(raw, params):
         return FakeEpochsWithEmpty({"go": 1, "nogo": 2}, count=10)
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     ctx = _make_context(params={"split_by": "condition"})
     ctx.inputs = {"input": NodeInput(port="input", data_infos=[{"fif_path": "data.fif"}])}
-    ctx.derived_dataset_store = store
+    ctx.study_output_store = store
 
     dispatcher = NodeDispatcher()
     result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
@@ -409,7 +409,7 @@ def test_execute_evoked_uses_input_condition_when_params_empty(monkeypatch):
         received_params.update(params)
         return FakeEvoked()
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     input_data_info = {
         "fif_path": "sub-01_task-rest_eeg.fif",
         "bids_subject_id": "sub-01",
@@ -432,7 +432,7 @@ def test_execute_evoked_uses_input_condition_when_params_empty(monkeypatch):
         }
     }
     ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
-    ctx.derived_dataset_store = store
+    ctx.study_output_store = store
 
     dispatcher = NodeDispatcher()
     result = dispatcher._execute_evoked_output(ctx, fake_processor, save_descriptor="erp")
@@ -463,7 +463,7 @@ def test_execute_evoked_params_condition_takes_priority(monkeypatch):
         received_params.update(params)
         return FakeEvoked()
 
-    store = FakeDerivedDatasetStore()
+    store = FakeStudyOutputStore()
     input_data_info = {
         "fif_path": "data.fif",
         "bids_subject_id": "sub-01",
@@ -486,7 +486,7 @@ def test_execute_evoked_params_condition_takes_priority(monkeypatch):
         }
     }
     ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
-    ctx.derived_dataset_store = store
+    ctx.study_output_store = store
 
     dispatcher = NodeDispatcher()
     result = dispatcher._execute_evoked_output(ctx, fake_processor, save_descriptor="erp")

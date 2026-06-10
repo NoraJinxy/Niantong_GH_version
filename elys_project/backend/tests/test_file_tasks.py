@@ -37,7 +37,7 @@ def clear_lightweight_app_stubs() -> None:
 
 clear_lightweight_app_stubs()
 
-from app.models import DerivedDataset  # noqa: E402
+from app.models import StudyOutput  # noqa: E402
 from app.services.async_tasks import create_async_task  # noqa: E402
 from app.tasks.file_tasks import run_artifact_cleanup  # noqa: E402
 
@@ -78,7 +78,7 @@ def test_create_async_task_records_created_event() -> None:
 
     task = create_async_task(
         db,
-        task_type="derived_dataset_cleanup",
+        task_type="study_output_cleanup",
         queue_name="workflow.default",
         study_id="202605000001",
         resource_kind="study_artifacts",
@@ -125,7 +125,7 @@ def test_artifact_cleanup_only_marks_unblocked_cached_or_temporary(monkeypatch) 
         created_by=uuid.uuid4(),
         payload_json={"retention_statuses": ["cached", "temporary"], "dry_run": False, "limit": 100},
     )
-    db = FakeDb(rows={DerivedDataset: [clean_artifact, blocked_artifact]})
+    db = FakeDb(rows={StudyOutput: [clean_artifact, blocked_artifact]})
 
     import app.tasks.file_tasks as file_tasks_module
 

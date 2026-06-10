@@ -1,7 +1,7 @@
 """
-Purpose: DerivedDatasetStore — Pipeline 节点产出的派生数据集统一登记与物理存储。
+Purpose: StudyOutputStore — Pipeline 节点产出的派生数据集统一登记与物理存储。
 负责把节点写出的文件 / 目录 / JSON content-addressed 落到 `derived/{sha256[0:2]}/{sha256}/`，
-同时在 `derived_datasets` 表登记一行（产出来源、上游、BIDS 维度、retention 等）。
+同时在 `study_outputs` 表登记一行（产出来源、上游、BIDS 维度、retention 等）。
 
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, wiki/docs/5-00 and wiki/docs/7-40.
 """
@@ -19,10 +19,10 @@ from typing import Any, Callable, Iterator
 
 from app.config import get_settings
 
-from .contracts import DerivedDatasetSummary
+from .contracts import StudyOutputSummary
 
 
-class DerivedDatasetStore:
+class StudyOutputStore:
     def __init__(
         self,
         db: Any,
@@ -31,13 +31,13 @@ class DerivedDatasetStore:
         job: Any | None = None,
         *,
         base_dir: str | Path | None = None,
-        derived_dataset_model: type[Any] | None = None,
+        study_output_model: type[Any] | None = None,
     ):
         self.db = db
         self.study = study
         self.execution = execution
         self.job = job
-        self._derived_dataset_model = derived_dataset_model
+        self._study_output_model = study_output_model
         self.study_root = self._resolve_legacy_study_root(study, base_dir)
         self.execution_id = getattr(execution, "id", execution)
         self.study_id = getattr(study, "id", None)
@@ -180,7 +180,7 @@ class DerivedDatasetStore:
                 shutil.move(str(staged), str(final_path))
                 published_new = True
             try:
-                summary = self._register_derived_dataset(
+                summary = self._register_study_output(
                     storage_path=self._storage_path(final_path),
                     file_size=file_size,
                     checksum=checksum,
@@ -236,7 +236,7 @@ class DerivedDatasetStore:
                 shutil.move(str(temp_path), str(final_path))
                 published_new = True
             try:
-                summary = self._register_derived_dataset(
+                summary = self._register_study_output(
                     storage_path=self._storage_path(final_path),
                     file_size=file_size,
                     checksum=checksum,
@@ -285,7 +285,7 @@ class DerivedDatasetStore:
     def _directory_size(path: Path) -> int:
         return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
 
-    def _register_derived_dataset(
+    def _register_study_output(
         self,
         *,
         storage_path: str,
@@ -296,15 +296,15 @@ class DerivedDatasetStore:
         metadata: dict[str, Any],
         preview: dict[str, Any],
         source_dataset_id: Any | None,
-    ) -> DerivedDatasetSummary:
-        """Write a derived_datasets row, or return existing row if same sha256 already exists.
+    ) -> StudyOutputSummary:
+        """Write a study_outputs row, or return existing row if same sha256 already exists.
 
         content-addressed dedup：物理文件已经按 sha256 去重，DB 也保持每个 sha256 一行。
         - 已存在 (study_id, sha256) 行 → 直接返回它的 summary，不 INSERT
           兜底场景：cache miss 导致重跑了节点，但产物字节相同；避免撞 idx_derived_sha256 unique。
         - 不存在 → 正常 INSERT 新行。
         """
-        derived_model = self._get_derived_dataset_model()
+        derived_model = self._get_study_output_model()
         storage_uri = self._storage_uri(storage_path)
 
         # === content-addressed dedup ===
@@ -386,8 +386,8 @@ class DerivedDatasetStore:
         self.db.add(derived)
         self.db.flush()
 
-        return DerivedDatasetSummary(
-            derived_dataset_id=self._stringify(getattr(derived, "id", None)),
+        return StudyOutputSummary(
+            study_output_id=self._stringify(getattr(derived, "id", None)),
             study_id=str(self.study_id),
             produced_by_execution_id=self._stringify(self.execution_id),
             produced_by_job_id=self._stringify(getattr(self.job, "id", None)),
@@ -420,12 +420,12 @@ class DerivedDatasetStore:
     # Internal helpers
     # -------------------------------------------------------------------
 
-    def _derived_summary_from_row(self, row: Any) -> DerivedDatasetSummary:
-        """把已存在的 DerivedDataset ORM 行包装成 DerivedDatasetSummary，
+    def _derived_summary_from_row(self, row: Any) -> StudyOutputSummary:
+        """把已存在的 StudyOutput ORM 行包装成 StudyOutputSummary，
         用于 content-addressed dedup 命中时复用旧行。"""
         retention_expires_at = getattr(row, "retention_expires_at", None)
-        return DerivedDatasetSummary(
-            derived_dataset_id=self._stringify(getattr(row, "id", None)),
+        return StudyOutputSummary(
+            study_output_id=self._stringify(getattr(row, "id", None)),
             study_id=str(getattr(row, "study_id", "") or ""),
             produced_by_execution_id=self._stringify(getattr(row, "produced_by_execution_id", None)),
             produced_by_job_id=self._stringify(getattr(row, "produced_by_job_id", None)),
@@ -454,12 +454,12 @@ class DerivedDatasetStore:
             produced_by_params=dict(getattr(row, "produced_by_params", None) or {}),
         )
 
-    def _get_derived_dataset_model(self) -> type[Any]:
-        if self._derived_dataset_model is None:
-            from app.models import DerivedDataset
+    def _get_study_output_model(self) -> type[Any]:
+        if self._study_output_model is None:
+            from app.models import StudyOutput
 
-            self._derived_dataset_model = DerivedDataset
-        return self._derived_dataset_model
+            self._study_output_model = StudyOutput
+        return self._study_output_model
 
     @staticmethod
     def _normalise_id_list(value: Any) -> list[str]:

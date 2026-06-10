@@ -39,7 +39,7 @@ clear_lightweight_app_stubs()
 
 import pytest  # noqa: E402
 
-from app.models import DerivedDataset, PipelineExecutionDependency, PipelineExecutionInput  # noqa: E402
+from app.models import StudyOutput, PipelineExecutionDependency, PipelineExecutionInput  # noqa: E402
 from app.pipeline.contracts import NodeInput  # noqa: E402
 from app.services.execution_dependencies import (  # noqa: E402
     ArtifactDependencyError,
@@ -105,7 +105,7 @@ def test_record_execution_artifact_dependencies_writes_input_snapshot_and_cross_
         storage_path="derived/aa/hash/output.fif",
         sha256="artifact-sha",
     )
-    db = FakeDb(rows={DerivedDataset: [artifact]})
+    db = FakeDb(rows={StudyOutput: [artifact]})
     inputs = {
         "input": NodeInput(
             port="input",
@@ -140,11 +140,11 @@ def test_record_execution_artifact_dependencies_writes_input_snapshot_and_cross_
     assert db.flushed is True
     assert input_rows[0].upstream_dataset_id == artifact_id
     assert input_rows[0].upstream_execution_id == upstream_execution_id
-    assert input_rows[0].input_kind == "derived_dataset"
+    assert input_rows[0].input_kind == "study_output"
     assert input_rows[0].storage_uri == artifact.storage_uri
     assert dependency_rows[0].depends_on_execution_id == upstream_execution_id
     assert dependency_rows[0].upstream_dataset_id == artifact_id
-    assert dependency_rows[0].dependency_kind == "upstream_derived_dataset"
+    assert dependency_rows[0].dependency_kind == "upstream_study_output"
 
 
 def test_record_execution_artifact_dependencies_does_not_write_self_execution_dependency() -> None:
@@ -189,7 +189,7 @@ def test_artifact_dependency_blockers_prevent_cleanup() -> None:
         study_id="202605000001",
         depends_on_execution_id=input_row.upstream_execution_id,
         upstream_dataset_id=artifact_id,
-        dependency_kind="upstream_derived_dataset",
+        dependency_kind="upstream_study_output",
         metadata_json={"node_id": "filter-1"},
         created_at=datetime(2026, 5, 21, 9, 0, 1),
     )

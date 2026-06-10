@@ -1,11 +1,11 @@
 """
-Purpose: Pydantic schemas for DerivedDataset — the unified user-facing replacement
+Purpose: Pydantic schemas for StudyOutput — the unified user-facing replacement
 for PipelineArtifact and AnalysisResult.
 
 Related:
-- app/models/derived_dataset.py (ORM model)
+- app/models/study_output.py (ORM model)
 - app/routers/pipelines.py (HTTP endpoints)
-- docs_v2/3-45-DerivedDataset.md (concept)
+- docs_v2/3-45-StudyOutput.md (concept)
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 # Read schemas
 # ---------------------------------------------------------------------------
 
-class DerivedDatasetResponse(BaseModel):
-    """完整的 DerivedDataset 视图。前端列表、详情与抽屉都用它。"""
+class StudyOutputResponse(BaseModel):
+    """完整的 StudyOutput 视图。前端列表、详情与抽屉都用它。"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -73,10 +73,10 @@ class DerivedDatasetResponse(BaseModel):
     deleted_at: Optional[datetime] = None
 
 
-class DerivedDatasetPreviewResponse(BaseModel):
+class StudyOutputPreviewResponse(BaseModel):
     """Lightweight preview payload used by the preview endpoint."""
 
-    derived_dataset_id: str
+    study_output_id: str
     study_id: str
     produced_by_execution_id: Optional[str] = None
     produced_by_job_id: Optional[str] = None
@@ -90,8 +90,8 @@ class DerivedDatasetPreviewResponse(BaseModel):
     generated_at: datetime
 
 
-class DerivedDatasetListResponse(BaseModel):
-    derived_datasets: list[DerivedDatasetResponse] = Field(default_factory=list)
+class StudyOutputListResponse(BaseModel):
+    study_outputs: list[StudyOutputResponse] = Field(default_factory=list)
     total: int = 0
 
 
@@ -99,8 +99,8 @@ class DerivedDatasetListResponse(BaseModel):
 # Write / mutation schemas
 # ---------------------------------------------------------------------------
 
-class DerivedDatasetUpdate(BaseModel):
-    """PATCH /derived-datasets/{id} — change user-facing label/tags/retention.
+class StudyOutputUpdate(BaseModel):
+    """PATCH /outputs/{id} — change user-facing label/tags/retention.
 
     All fields are optional; only sent fields are applied.
     """
@@ -115,15 +115,15 @@ class DerivedDatasetUpdate(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
-class DerivedDatasetBatchUpdate(BaseModel):
-    """POST /derived-datasets/batch-update — apply same change to many."""
+class StudyOutputBatchUpdate(BaseModel):
+    """POST /outputs/batch-update — apply same change to many."""
 
     ids: list[str] = Field(min_length=1, max_length=500)
-    update: DerivedDatasetUpdate
+    update: StudyOutputUpdate
 
 
-class DerivedDatasetCleanupRequest(BaseModel):
-    """POST /derived-datasets/cleanup — kick off a cleanup async task."""
+class StudyOutputCleanupRequest(BaseModel):
+    """POST /outputs/cleanup — kick off a cleanup async task."""
 
     retention_statuses: list[Literal["temporary", "cached"]] = Field(
         default_factory=lambda: ["temporary", "cached"]
@@ -137,7 +137,7 @@ class DerivedDatasetCleanupRequest(BaseModel):
 # Filter parameters (used by GET list endpoint)
 # ---------------------------------------------------------------------------
 
-class DerivedDatasetListQuery(BaseModel):
+class StudyOutputListQuery(BaseModel):
     """Query params for cross-Execution derived-dataset listing.
 
     Most fields accept a list — interpret as IN clause.

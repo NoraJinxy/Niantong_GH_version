@@ -1,6 +1,6 @@
 """
-Purpose: DerivedDataset 预览构建 —— 把 raw/epochs/evoked 等 FIF 解析成轻量 JSON preview。
-Related: app/routers/pipelines.py, app/pipeline/derived_dataset_store.py, app/pipeline/cache.py, wiki/docs/5-00 and wiki/docs/7-40.
+Purpose: StudyOutput 预览构建 —— 把 raw/epochs/evoked 等 FIF 解析成轻量 JSON preview。
+Related: app/routers/pipelines.py, app/pipeline/study_output_store.py, app/pipeline/cache.py, wiki/docs/5-00 and wiki/docs/7-40.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Any
 
 from app.services.storage import StorageService, StorageUriError
 
-from .derived_dataset_store import DerivedDatasetStore
+from .study_output_store import StudyOutputStore
 
 
 PREVIEW_VERSION = "derived-dataset-preview-v1"
@@ -22,7 +22,7 @@ MAX_EVOKED_CHANNELS = 6
 MAX_EVOKED_POINTS = 80
 
 
-class DerivedDatasetPreviewError(Exception):
+class StudyOutputPreviewError(Exception):
     def __init__(self, code: str, message: str, *, status_code: int = 400):
         super().__init__(message)
         self.code = code
@@ -30,17 +30,17 @@ class DerivedDatasetPreviewError(Exception):
         self.status_code = status_code
 
 
-def build_derived_dataset_preview(
+def build_study_output_preview(
     study: Any,
     derived: Any,
     *,
     sample_channels: int = MAX_EVOKED_CHANNELS,
     sample_points: int = MAX_EVOKED_POINTS,
 ) -> dict[str, Any]:
-    """Build a preview payload from a DerivedDataset-like object."""
+    """Build a preview payload from a StudyOutput-like object."""
     data_type = str(getattr(derived, "data_type", "") or "").strip().lower()
-    derived_path = resolve_derived_dataset_path(study, derived)
-    validate_derived_dataset_file(derived_path, derived)
+    derived_path = resolve_study_output_path(study, derived)
+    validate_study_output_file(derived_path, derived)
 
     if data_type in ("raw", "filtered_raw", "ica_cleaned"):
         preview_json = _preview_raw(derived_path)
@@ -55,10 +55,10 @@ def build_derived_dataset_preview(
                 "_preview_version": PREVIEW_VERSION,
                 "data_type": data_type or "unknown",
                 "summary": cached_preview,
-                "preview_source": "derived_dataset.preview_json",
+                "preview_source": "study_output.preview_json",
             }
         else:
-            raise DerivedDatasetPreviewError(
+            raise StudyOutputPreviewError(
                 "DERIVED_DATASET_PREVIEW_UNSUPPORTED",
                 f"Preview is not supported for data_type={data_type or 'unknown'}",
                 status_code=400,
@@ -73,7 +73,7 @@ def build_derived_dataset_preview(
     )
     sha256 = getattr(derived, "sha256", None) or getattr(derived, "checksum", None)
     return {
-        "derived_dataset_id": _stringify(getattr(derived, "id", None)) or "",
+        "study_output_id": _stringify(getattr(derived, "id", None)) or "",
         "study_id": str(getattr(derived, "study_id", getattr(study, "id", ""))),
         "execution_id": execution_id,
         "job_id": job_id,
@@ -89,7 +89,7 @@ def build_derived_dataset_preview(
     }
 
 
-def resolve_derived_dataset_path(study: Any, derived: Any) -> Path:
+def resolve_study_output_path(study: Any, derived: Any) -> Path:
     storage_uri = str(getattr(derived, "storage_uri", "") or "").strip()
     if storage_uri:
         try:
@@ -105,7 +105,7 @@ def resolve_derived_dataset_path(study: Any, derived: Any) -> Path:
         getattr(derived, "logical_path", None) or getattr(derived, "storage_path", "") or ""
     ).strip()
     if not storage_path:
-        raise DerivedDatasetPreviewError(
+        raise StudyOutputPreviewError(
             "DERIVED_DATASET_STORAGE_PATH_EMPTY",
             "派生数据集没有可解析的 storage_uri 或 logical_path。",
             status_code=422,
@@ -118,9 +118,9 @@ def resolve_derived_dataset_path(study: Any, derived: Any) -> Path:
     return study_root / storage_path
 
 
-def validate_derived_dataset_file(path: Path, derived: Any) -> None:
+def validate_study_output_file(path: Path, derived: Any) -> None:
     if not path.exists():
-        raise DerivedDatasetPreviewError(
+        raise StudyOutputPreviewError(
             "DERIVED_DATASET_FILE_MISSING",
             f"派生数据集文件不存在: {path}",
             status_code=404,
@@ -134,11 +134,11 @@ def validate_derived_dataset_file(path: Path, derived: Any) -> None:
     if not expected_checksum:
         return
 
-    actual_checksum = DerivedDatasetStore.sha256_directory(path) if path.is_dir() else DerivedDatasetStore.sha256_file(path)
+    actual_checksum = StudyOutputStore.sha256_directory(path) if path.is_dir() else StudyOutputStore.sha256_file(path)
     if actual_checksum.lower() != expected_checksum:
-        raise DerivedDatasetPreviewError(
+        raise StudyOutputPreviewError(
             "DERIVED_DATASET_CHECKSUM_MISMATCH",
-            "DerivedDataset checksum does not match the stored checksum.",
+            "StudyOutput checksum does not match the stored checksum.",
             status_code=409,
         )
 
@@ -153,7 +153,7 @@ def observe_route_for_data_type(data_type: str) -> str:
 def observe_query(study: Any, derived: Any, *, execution_id: str | None = None) -> dict[str, str]:
     query = {
         "studyId": str(getattr(study, "id", getattr(derived, "study_id", ""))),
-        "derived_dataset_id": _stringify(getattr(derived, "id", None)) or "",
+        "study_output_id": _stringify(getattr(derived, "id", None)) or "",
     }
     if execution_id:
         query["execution_id"] = execution_id
@@ -218,7 +218,7 @@ def _preview_evoked(path: Path, *, sample_channels: int, sample_points: int) -> 
     if not isinstance(evokeds, list):
         evokeds = [evokeds]
     if not evokeds:
-        raise DerivedDatasetPreviewError(
+        raise StudyOutputPreviewError(
             "DERIVED_DATASET_PREVIEW_EMPTY",
             "Evoked derived dataset does not contain any evoked data.",
             status_code=422,
@@ -297,7 +297,7 @@ def _study_root(study: Any) -> Path:
     root = _study_root_or_none(study)
     if root is not None:
         return root
-    raise DerivedDatasetPreviewError(
+    raise StudyOutputPreviewError(
         "DERIVED_DATASET_STUDY_ROOT_MISSING",
         "Study has no usable root path for resolving derived dataset storage_path.",
         status_code=422,

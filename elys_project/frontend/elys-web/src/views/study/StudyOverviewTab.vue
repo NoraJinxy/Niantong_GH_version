@@ -109,11 +109,11 @@
 
         <div class="study-mounted-list">
           <span class="study-mounted-list__label">派生数据</span>
-          <div v-if="!summary.derived_datasets.length" class="study-inline-empty">
+          <div v-if="!summary.study_outputs.length" class="study-inline-empty">
             暂无派生数据，运行完成后在「结果」tab 汇总可预览或可固定的输出。
           </div>
           <div v-else class="study-compact-list">
-            <article v-for="artifact in summary.derived_datasets" :key="artifact.id" class="study-compact-item">
+            <article v-for="artifact in summary.study_outputs" :key="artifact.id" class="study-compact-item">
               <div>
                 <strong>{{ artifact.display_name || artifact.data_type }}</strong>
                 <p>{{ artifact.data_type }} · {{ formatFileSize(artifact.file_size) }}</p>

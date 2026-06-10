@@ -1,14 +1,14 @@
 import type {
   AsyncTask,
-  DerivedDataset,
-  DerivedDatasetBatchUpdatePayload,
-  DerivedDatasetCleanupRequest,
-  DerivedDatasetListQuery,
-  DerivedDatasetListResponse,
-  DerivedDatasetPreview,
-  DerivedDatasetTimeseries,
-  DerivedDatasetTimeseriesQuery,
-  DerivedDatasetUpdatePayload,
+  StudyOutput,
+  StudyOutputBatchUpdatePayload,
+  StudyOutputCleanupRequest,
+  StudyOutputListQuery,
+  StudyOutputListResponse,
+  StudyOutputPreview,
+  StudyOutputTimeseries,
+  StudyOutputTimeseriesQuery,
+  StudyOutputUpdatePayload,
   LoadDataResolveRequest,
   LoadDataResolveResponse,
   NodeSpecListResponse,
@@ -78,13 +78,13 @@ export const pipelineApi = {
 
   // === Derived Dataset 接口（替代旧 artifact 系列） ===
   /** 某次运行的派生数据列表（替代旧 listRunArtifacts） */
-  listExecutionDerivedDatasets: (studyId: string, executionId: string, includeDeleted = false) =>
-    api.get<DerivedDatasetListResponse>(
-      `/studies/${studyId}/pipeline-executions/${executionId}/derived-datasets`,
+  listExecutionStudyOutputs: (studyId: string, executionId: string, includeDeleted = false) =>
+    api.get<StudyOutputListResponse>(
+      `/studies/${studyId}/pipeline-executions/${executionId}/outputs`,
       { params: { include_deleted: includeDeleted } },
     ),
   /** 跨运行列出研究项的派生数据（/results 页面用） */
-  listDerivedDatasets: (studyId: string, query: DerivedDatasetListQuery = {}) => {
+  listStudyOutputs: (studyId: string, query: StudyOutputListQuery = {}) => {
     const params = new URLSearchParams()
     appendListParam(params, 'execution_ids', query.execution_ids)
     appendListParam(params, 'node_types', query.node_types)
@@ -99,31 +99,31 @@ export const pipelineApi = {
     if (query.limit !== undefined) params.set('limit', String(query.limit))
     if (query.offset !== undefined) params.set('offset', String(query.offset))
     const qs = params.toString()
-    return api.get<DerivedDatasetListResponse>(
-      `/studies/${studyId}/derived-datasets${qs ? `?${qs}` : ''}`,
+    return api.get<StudyOutputListResponse>(
+      `/studies/${studyId}/outputs${qs ? `?${qs}` : ''}`,
     )
   },
-  getDerivedDataset: (studyId: string, datasetId: string) =>
-    api.get<DerivedDataset>(`/studies/${studyId}/derived-datasets/${datasetId}`),
+  getStudyOutput: (studyId: string, datasetId: string) =>
+    api.get<StudyOutput>(`/studies/${studyId}/outputs/${datasetId}`),
   /** 改名 / 改标签 / 改 retention */
-  updateDerivedDataset: (studyId: string, datasetId: string, payload: DerivedDatasetUpdatePayload) =>
-    api.patch<DerivedDataset>(`/studies/${studyId}/derived-datasets/${datasetId}`, payload),
+  updateStudyOutput: (studyId: string, datasetId: string, payload: StudyOutputUpdatePayload) =>
+    api.patch<StudyOutput>(`/studies/${studyId}/outputs/${datasetId}`, payload),
   /** 批量改：多选 ids + 一组改动 */
-  batchUpdateDerivedDatasets: (studyId: string, payload: DerivedDatasetBatchUpdatePayload) =>
-    api.post<DerivedDatasetListResponse>(`/studies/${studyId}/derived-datasets/batch-update`, payload),
-  cleanupDerivedDatasets: (studyId: string, data: DerivedDatasetCleanupRequest = {}) =>
-    api.post<AsyncTask>(`/studies/${studyId}/derived-datasets/cleanup`, data),
-  previewDerivedDataset: (studyId: string, datasetId: string, maxChannels?: number) =>
-    api.get<DerivedDatasetPreview>(
-      `/studies/${studyId}/derived-datasets/${datasetId}/preview`,
+  batchUpdateStudyOutputs: (studyId: string, payload: StudyOutputBatchUpdatePayload) =>
+    api.post<StudyOutputListResponse>(`/studies/${studyId}/outputs/batch-update`, payload),
+  cleanupStudyOutputs: (studyId: string, data: StudyOutputCleanupRequest = {}) =>
+    api.post<AsyncTask>(`/studies/${studyId}/outputs/cleanup`, data),
+  previewStudyOutput: (studyId: string, datasetId: string, maxChannels?: number) =>
+    api.get<StudyOutputPreview>(
+      `/studies/${studyId}/outputs/${datasetId}/preview`,
       maxChannels ? { params: { max_channels: maxChannels } } : undefined,
     ),
-  getDerivedDatasetTimeseries: (
+  getStudyOutputTimeseries: (
     studyId: string,
     datasetId: string,
-    query: DerivedDatasetTimeseriesQuery = {},
+    query: StudyOutputTimeseriesQuery = {},
   ) =>
-    api.get<DerivedDatasetTimeseries>(`/studies/${studyId}/derived-datasets/${datasetId}/timeseries`, {
+    api.get<StudyOutputTimeseries>(`/studies/${studyId}/outputs/${datasetId}/timeseries`, {
       params: {
         tmin: query.tmin,
         tmax: query.tmax,
@@ -132,8 +132,8 @@ export const pipelineApi = {
         max_channels: query.maxChannels,
       },
     }),
-  downloadDerivedDataset: (studyId: string, datasetId: string) =>
-    dataApi.get<Blob>(`/studies/${studyId}/derived-datasets/${datasetId}/download`, { responseType: 'blob' }),
+  downloadStudyOutput: (studyId: string, datasetId: string) =>
+    dataApi.get<Blob>(`/studies/${studyId}/outputs/${datasetId}/download`, { responseType: 'blob' }),
 
   getNodeInteraction: (studyId: string, executionId: string, jobId: string) =>
     api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`),

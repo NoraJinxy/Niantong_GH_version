@@ -82,7 +82,7 @@ export interface StudySummaryCounts {
   executions: number
   members: number
   mounts: number
-  derived_datasets: number
+  study_outputs: number
 }
 
 export interface StudySummaryPipeline {
@@ -111,7 +111,7 @@ export interface StudySummaryResponse {
   pipelines: StudySummaryPipeline[]
   executions: StudySummaryExecution[]
   mounts: StudyDatasetMount[]
-  derived_datasets: DerivedDataset[]
+  study_outputs: StudyOutput[]
 }
 
 export interface StudyMemberUpsertRequest {
@@ -877,14 +877,14 @@ export interface PipelineJob {
   duration_ms?: number | null
 }
 
-export type DerivedDatasetRetentionStatus =
+export type StudyOutputRetentionStatus =
   | 'current'
   | 'pinned'
   | 'cached'
   | 'temporary'
   | 'deleted'
 
-export interface DerivedDataset {
+export interface StudyOutput {
   id: string
   study_id: string
 
@@ -920,7 +920,7 @@ export interface DerivedDataset {
   mime_type?: string | null
 
   /** 生命周期 */
-  retention_status: DerivedDatasetRetentionStatus | string
+  retention_status: StudyOutputRetentionStatus | string
   retention_expires_at?: string | null
 
   /** 预览 */
@@ -933,13 +933,13 @@ export interface DerivedDataset {
   deleted_at?: string | null
 }
 
-export interface DerivedDatasetListResponse {
-  derived_datasets: DerivedDataset[]
+export interface StudyOutputListResponse {
+  study_outputs: StudyOutput[]
   total: number
 }
 
-export interface DerivedDatasetPreview {
-  derived_dataset_id: string
+export interface StudyOutputPreview {
+  study_output_id: string
   study_id: string
   produced_by_execution_id?: string | null
   produced_by_job_id?: string | null
@@ -958,7 +958,7 @@ export interface TimeseriesChannel {
   values: number[]
 }
 
-export interface DerivedDatasetTimeseries {
+export interface StudyOutputTimeseries {
   data_type: string
   sfreq: number
   tmin: number
@@ -977,7 +977,7 @@ export interface DerivedDatasetTimeseries {
   channels: TimeseriesChannel[]
 }
 
-export interface DerivedDatasetTimeseriesQuery {
+export interface StudyOutputTimeseriesQuery {
   tmin?: number
   tmax?: number
   index?: number
@@ -985,7 +985,7 @@ export interface DerivedDatasetTimeseriesQuery {
   maxChannels?: number
 }
 
-export interface DerivedDatasetUpdatePayload {
+export interface StudyOutputUpdatePayload {
   display_name?: string | null
   description?: string | null
   tags?: string[]
@@ -994,19 +994,19 @@ export interface DerivedDatasetUpdatePayload {
   reason?: string | null
 }
 
-export interface DerivedDatasetBatchUpdatePayload {
+export interface StudyOutputBatchUpdatePayload {
   ids: string[]
-  update: DerivedDatasetUpdatePayload
+  update: StudyOutputUpdatePayload
 }
 
-export interface DerivedDatasetCleanupRequest {
+export interface StudyOutputCleanupRequest {
   retention_statuses?: Array<'temporary' | 'cached'>
   dry_run?: boolean
   limit?: number
   reason?: string | null
 }
 
-export interface DerivedDatasetListQuery {
+export interface StudyOutputListQuery {
   execution_ids?: string[]
   node_types?: string[]
   data_types?: string[]
@@ -1026,7 +1026,7 @@ export interface PipelineExecutionDetail extends PipelineExecution {
   dependencies: PipelineExecutionDependency[]
   tasks: AsyncTask[]
   jobs: PipelineJob[]
-  derived_datasets: DerivedDataset[]
+  study_outputs: StudyOutput[]
 }
 
 export interface PipelineExecutionListResponse {
@@ -1133,7 +1133,7 @@ export interface PipelineExecutionLineageGraphEdge {
 export interface PipelineExecutionLineage {
   execution: PipelineExecution
   inputs: PipelineExecutionInput[]
-  derived_datasets: DerivedDataset[]
+  study_outputs: StudyOutput[]
   upstream_executions: PipelineExecution[]
   downstream_executions: PipelineExecution[]
   upstream_dependencies: PipelineExecutionDependency[]
@@ -1166,7 +1166,7 @@ export interface StudyOverview {
   recordings?: Recording[]
   pipelines?: Pipeline[]
   recent_executions?: PipelineExecution[]
-  recent_derived_datasets?: DerivedDataset[]
+  recent_study_outputs?: StudyOutput[]
   recent_activity?: StudyActivityItem[]
   dataset_asset_count?: number
   recording_count?: number

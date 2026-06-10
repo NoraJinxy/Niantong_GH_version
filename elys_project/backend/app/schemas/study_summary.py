@@ -5,9 +5,9 @@ Purpose: Define the aggregated "Study overview" summary response schema.
 本 schema 是后端聚合端点 GET /api/v1/studies/{study_id}/summary 的返回模型，
 用于替代前端原先并发拼约 12 个请求（N+1）的做法。
 
-复用现有 schema 序列化 mounts / derived_datasets：
+复用现有 schema 序列化 mounts / study_outputs：
 - mounts -> app.schemas.dataset.StudyDatasetMountResponse
-- derived_datasets -> app.schemas.derived_dataset.DerivedDatasetResponse
+- study_outputs -> app.schemas.study_output.StudyOutputResponse
 
 Related:
 - app/routers/studies.py (HTTP endpoint)
@@ -24,7 +24,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from app.schemas.dataset import StudyDatasetMountResponse
-from app.schemas.derived_dataset import DerivedDatasetResponse
+from app.schemas.study_output import StudyOutputResponse
 
 
 class StudySummaryCounts(BaseModel):
@@ -35,7 +35,7 @@ class StudySummaryCounts(BaseModel):
     executions: int          # 全部运行数（含已结束）
     members: int             # study_members 行数（不含 owner）
     mounts: int              # active study_dataset_mounts 数
-    derived_datasets: int    # 非 deleted 的派生数据集数
+    study_outputs: int    # 非 deleted 的派生数据集数
 
 
 class StudySummaryPipeline(BaseModel):
@@ -74,4 +74,4 @@ class StudySummaryResponse(BaseModel):
     pipelines: list[StudySummaryPipeline]      # 最近 5 条，时间倒序
     executions: list[StudySummaryExecution]    # 最近 5 条，时间倒序
     mounts: list[StudyDatasetMountResponse]    # 现有 mount 序列化（含 dataset_asset / dataset_version）
-    derived_datasets: list[DerivedDatasetResponse]  # 现有派生数据集序列化，最近 12 条
+    study_outputs: list[StudyOutputResponse]  # 现有派生数据集序列化，最近 12 条

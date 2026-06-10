@@ -1,6 +1,6 @@
 """
-Purpose: Test Pipeline DerivedDatasetStore writes to Study storage and previews resolve storage_uri.
-Related: app/pipeline/derived_dataset_store.py, app/pipeline/previews.py, app/pipeline/cache.py.
+Purpose: Test Pipeline StudyOutputStore writes to Study storage and previews resolve storage_uri.
+Related: app/pipeline/study_output_store.py, app/pipeline/previews.py, app/pipeline/cache.py.
 """
 
 from __future__ import annotations
@@ -31,11 +31,11 @@ def clear_lightweight_app_stubs() -> None:
 
 clear_lightweight_app_stubs()
 
-from app.pipeline.derived_dataset_store import DerivedDatasetStore  # noqa: E402
-from app.pipeline.previews import build_derived_dataset_preview, resolve_derived_dataset_path  # noqa: E402
+from app.pipeline.study_output_store import StudyOutputStore  # noqa: E402
+from app.pipeline.previews import build_study_output_preview, resolve_study_output_path  # noqa: E402
 
 
-class FakeDerivedDataset:
+class FakeStudyOutput:
     def __init__(self, **kwargs) -> None:
         self.id = uuid.uuid4()
         for key, value in kwargs.items():
@@ -62,11 +62,11 @@ def fake_settings(tmp_path: Path) -> SimpleNamespace:
 
 
 def patch_storage_settings(monkeypatch, tmp_path: Path) -> None:
-    import app.pipeline.derived_dataset_store as derived_dataset_store_module
+    import app.pipeline.study_output_store as study_output_store_module
     import app.services.storage as storage_module
 
     settings = fake_settings(tmp_path)
-    monkeypatch.setattr(derived_dataset_store_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(study_output_store_module, "get_settings", lambda: settings)
     monkeypatch.setattr(storage_module, "get_settings", lambda: settings)
 
 
@@ -78,13 +78,13 @@ def make_context(tmp_path: Path):
     return study, execution, job
 
 
-def test_derived_dataset_store_writes_new_files_to_study_content_addressed_storage(tmp_path, monkeypatch) -> None:
+def test_study_output_store_writes_new_files_to_study_content_addressed_storage(tmp_path, monkeypatch) -> None:
     clear_lightweight_app_stubs()
     patch_storage_settings(monkeypatch, tmp_path)
     study, execution, job = make_context(tmp_path)
     db = FakeDb()
 
-    summary = DerivedDatasetStore(db, study, execution, job, derived_dataset_model=FakeDerivedDataset).save_json(
+    summary = StudyOutputStore(db, study, execution, job, study_output_model=FakeStudyOutput).save_json(
         "metrics.json",
         {"ok": True},
         kind="metadata",
@@ -94,7 +94,7 @@ def test_derived_dataset_store_writes_new_files_to_study_content_addressed_stora
 
     assert summary["storage_uri"].startswith(f"elys://studies/{study.id}/derived/")
     assert summary["storage_path"].startswith("derived/")
-    derived_path = resolve_derived_dataset_path(study, db.added[0])
+    derived_path = resolve_study_output_path(study, db.added[0])
     assert derived_path.exists()
     assert derived_path.name == "metrics.json"
     assert derived_path.read_text(encoding="utf-8").strip().startswith("{")
@@ -102,12 +102,12 @@ def test_derived_dataset_store_writes_new_files_to_study_content_addressed_stora
     assert not (Path(study.data_root) / "pipeline_runs").exists()
 
 
-def test_derived_dataset_preview_resolves_study_storage_uri(tmp_path, monkeypatch) -> None:
+def test_study_output_preview_resolves_study_storage_uri(tmp_path, monkeypatch) -> None:
     clear_lightweight_app_stubs()
     patch_storage_settings(monkeypatch, tmp_path)
     study, execution, job = make_context(tmp_path)
     db = FakeDb()
-    summary = DerivedDatasetStore(db, study, execution, job, derived_dataset_model=FakeDerivedDataset).save_json(
+    summary = StudyOutputStore(db, study, execution, job, study_output_model=FakeStudyOutput).save_json(
         "summary.json",
         {"rows": 3},
         kind="metadata",
@@ -116,10 +116,10 @@ def test_derived_dataset_preview_resolves_study_storage_uri(tmp_path, monkeypatc
     )
     derived = db.added[0]
 
-    preview = build_derived_dataset_preview(study, derived)
+    preview = build_study_output_preview(study, derived)
 
-    assert preview["derived_dataset_id"] == str(derived.id)
+    assert preview["study_output_id"] == str(derived.id)
     assert preview["storage_path"] == summary["storage_path"]
     assert preview["storage_uri"] == summary["storage_uri"]
-    assert preview["preview_json"]["preview_source"] == "derived_dataset.preview_json"
+    assert preview["preview_json"]["preview_source"] == "study_output.preview_json"
     assert preview["preview_json"]["summary"] == {"rows": 3}

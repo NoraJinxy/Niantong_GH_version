@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Implement workflow/Pipeline runtime support for executor, including validation, execution, artifacts, cache, or data resolution.
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, docs_v2/5-00 and docs_v2/7-40.
 """
@@ -14,7 +14,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.models import DatasetFile, PipelineDefinition, PipelineJob, PipelineExecution, PipelineExecutionInput, Study
-from app.pipeline.derived_dataset_store import DerivedDatasetStore
+from app.pipeline.study_output_store import StudyOutputStore
 from app.pipeline.cache import PipelineCache
 from app.pipeline.contracts import NodeExecutionContext, NodeInput, NodeOutput
 from app.pipeline.dispatcher import NodeDispatcher, NodeExecutorNotImplemented
@@ -575,7 +575,7 @@ class PipelineExecutor:
             node=node,
             params=params,
             inputs=inputs,
-            derived_dataset_store=DerivedDatasetStore(self.db, study, execution, job),
+            study_output_store=StudyOutputStore(self.db, study, execution, job),
             node_spec=node_spec or {},
             topology=dict(self._topology),
         )

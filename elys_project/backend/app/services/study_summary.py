@@ -13,7 +13,7 @@ Purpose: Build the aggregated "Study overview" summary for one study.
 
 复用现有 Pydantic 序列化（不新造）：
 - mounts -> app.routers.datasets.study_dataset_mount_to_response + compute_asset_stats
-- derived_datasets -> app.routers.pipelines.derived_dataset_to_response
+- study_outputs -> app.routers.pipelines.study_output_to_response
 
 Related:
 - app/routers/studies.py (HTTP endpoint, 复用 require_study_read 权限依赖)
@@ -27,7 +27,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
-    DerivedDataset,
+    StudyOutput,
     PipelineDefinition,
     PipelineExecution,
     Recording,
@@ -96,10 +96,10 @@ def build_study_summary(db: Session, *, study: Study, current_user: User) -> Stu
     subject_total = subject_total_via_active_mounts(db, active_asset_ids)
 
     derived_count = (
-        db.query(func.count(DerivedDataset.id))
+        db.query(func.count(StudyOutput.id))
         .filter(
-            DerivedDataset.study_id == study.id,
-            DerivedDataset.retention_status != "deleted",
+            StudyOutput.study_id == study.id,
+            StudyOutput.retention_status != "deleted",
         )
         .scalar()
         or 0
@@ -121,7 +121,7 @@ def build_study_summary(db: Session, *, study: Study, current_user: User) -> Stu
         executions=int(execution_counts.get(study.id, 0)),
         members=int(member_count),
         mounts=len(active_mounts),
-        derived_datasets=int(derived_count),
+        study_outputs=int(derived_count),
     )
 
     # --- 当前用户角色 / 运行权限 -------------------------------------------------
@@ -136,7 +136,7 @@ def build_study_summary(db: Session, *, study: Study, current_user: User) -> Stu
         pipelines=recent_pipelines(db, study=study),
         executions=recent_executions(db, study=study),
         mounts=serialize_mounts(db, active_mounts),
-        derived_datasets=recent_derived_datasets(db, study=study),
+        study_outputs=recent_study_outputs(db, study=study),
     )
 
 
@@ -234,21 +234,21 @@ def serialize_mounts(db: Session, active_mounts: list[StudyDatasetMount]) -> lis
     ]
 
 
-def recent_derived_datasets(db: Session, *, study: Study) -> list:
-    """最近 12 条非 deleted 派生数据集，复用 pipelines 路由的 derived_dataset_to_response。"""
-    from app.routers.pipelines import derived_dataset_to_response
+def recent_study_outputs(db: Session, *, study: Study) -> list:
+    """最近 12 条非 deleted 派生数据集，复用 pipelines 路由的 study_output_to_response。"""
+    from app.routers.pipelines import study_output_to_response
 
     rows = (
-        db.query(DerivedDataset)
+        db.query(StudyOutput)
         .filter(
-            DerivedDataset.study_id == study.id,
-            DerivedDataset.retention_status != "deleted",
+            StudyOutput.study_id == study.id,
+            StudyOutput.retention_status != "deleted",
         )
-        .order_by(DerivedDataset.created_at.desc(), DerivedDataset.id.desc())
+        .order_by(StudyOutput.created_at.desc(), StudyOutput.id.desc())
         .limit(STUDY_SUMMARY_DERIVED_LIMIT)
         .all()
     )
-    return [derived_dataset_to_response(item) for item in rows]
+    return [study_output_to_response(item) for item in rows]
 
 
 def resolve_member_role_and_run(db: Session, *, study: Study, user: User) -> tuple[str | None, bool]:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Implement workflow/Pipeline runtime support for contracts, including validation, execution, artifacts, cache, or data resolution.
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, docs_v2/5-00 and docs_v2/7-40.
 """
@@ -20,14 +20,14 @@ class NodeInput:
 
 
 @dataclass
-class DerivedDatasetSummary:
-    """Lightweight return payload for DerivedDatasetStore.save_*.
+class StudyOutputSummary:
+    """Lightweight return payload for StudyOutputStore.save_*.
 
-    Mirrors the DerivedDataset row fields. dispatcher will read this directly
+    Mirrors the StudyOutput row fields. dispatcher will read this directly
     to populate output_data_infos and downstream input chains.
     """
 
-    derived_dataset_id: str | None
+    study_output_id: str | None
     study_id: str
     produced_by_execution_id: str | None
     produced_by_job_id: str | None
@@ -58,11 +58,11 @@ class DerivedDatasetSummary:
 
     def to_dict(self) -> dict[str, Any]:
         # 输出两套键，便于 dispatcher 在过渡期既能读新字段也能读旧字段：
-        # - 新键：derived_dataset_id / data_type / display_name / ...
+        # - 新键：study_output_id / data_type / display_name / ...
         # - 旧键（向后兼容）：artifact_id / storage_path / metadata_json / ...
         return {
-            "derived_dataset_id": self.derived_dataset_id,
-            "artifact_id": self.derived_dataset_id,  # 兼容旧 dispatcher
+            "study_output_id": self.study_output_id,
+            "artifact_id": self.study_output_id,  # 兼容旧 dispatcher
             "study_id": self.study_id,
             "execution_id": self.produced_by_execution_id,
             "produced_by_execution_id": self.produced_by_execution_id,
@@ -138,7 +138,7 @@ class NodeExecutionContext:
     params: dict[str, Any] = field(default_factory=dict)
     inputs: dict[str, NodeInput] = field(default_factory=dict)
     work_dir: Path | None = None
-    derived_dataset_store: Any = None
+    study_output_store: Any = None
     # 节点 spec（从 registry 读到的 JSON 字典），用于 dispatcher 读取 save 子对象
     node_spec: dict[str, Any] = field(default_factory=dict)
     # 整个 pipeline 的拓扑角色映射 {node_id: "leaf" | "intermediate" | "source"}，

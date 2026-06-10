@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define SQLAlchemy ORM models for the study database area.
 Related: database/init.sql, app/schemas/*, app/routers/*, docs_v2/3-00.
 """
@@ -523,11 +523,11 @@ class PipelineExecution(Base):
     pipeline = relationship("PipelineDefinition", foreign_keys=[pipeline_id])
     started_by_user = relationship("User", foreign_keys=[started_by])
     jobs = relationship("PipelineJob", cascade="all, delete-orphan", back_populates="execution")
-    derived_datasets = relationship(
-        "DerivedDataset",
+    study_outputs = relationship(
+        "StudyOutput",
         cascade="all, delete-orphan",
         back_populates="execution",
-        foreign_keys="DerivedDataset.produced_by_execution_id",
+        foreign_keys="StudyOutput.produced_by_execution_id",
     )
     inputs = relationship(
         "PipelineExecutionInput",
@@ -582,10 +582,10 @@ class PipelineJob(Base):
     execution = relationship("PipelineExecution", foreign_keys=[execution_id], back_populates="jobs")
     study = relationship("Study", foreign_keys=[study_id])
     pipeline = relationship("PipelineDefinition", foreign_keys=[pipeline_id])
-    derived_datasets = relationship(
-        "DerivedDataset",
+    study_outputs = relationship(
+        "StudyOutput",
         back_populates="job",
-        foreign_keys="DerivedDataset.produced_by_job_id",
+        foreign_keys="StudyOutput.produced_by_job_id",
     )
 
 
@@ -595,7 +595,7 @@ class DatasetFileDerivation(Base):
         Index("idx_dataset_file_derivations_source", "source_file_id"),
         Index("idx_dataset_file_derivations_derived", "derived_file_id"),
         Index("idx_dataset_file_derivations_run", "execution_id"),
-        Index("idx_dataset_file_derivations_derived_dataset", "derived_dataset_id"),
+        Index("idx_dataset_file_derivations_study_output", "study_output_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -603,7 +603,7 @@ class DatasetFileDerivation(Base):
     source_file_id = Column(UUID(as_uuid=True), ForeignKey("dataset_files.id", ondelete="RESTRICT"), nullable=False)
     derived_file_id = Column(UUID(as_uuid=True), ForeignKey("dataset_files.id", ondelete="CASCADE"), nullable=False)
     execution_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_executions.id", ondelete="SET NULL"))
-    derived_dataset_id = Column(UUID(as_uuid=True), ForeignKey("derived_datasets.id", ondelete="SET NULL"))
+    study_output_id = Column(UUID(as_uuid=True), ForeignKey("study_outputs.id", ondelete="SET NULL"))
     derivation_kind = Column(String(64), nullable=False, default="canonical_fif")
     transform_name = Column(String(128))
     transform_version = Column(String(64))
@@ -623,7 +623,7 @@ class DatasetFileDerivation(Base):
         back_populates="derived_derivations",
     )
     execution = relationship("PipelineExecution", foreign_keys=[execution_id])
-    derived_dataset = relationship("DerivedDataset", foreign_keys=[derived_dataset_id])
+    study_output = relationship("StudyOutput", foreign_keys=[study_output_id])
 
 
 class PipelineExecutionInput(Base):
@@ -657,7 +657,7 @@ class PipelineExecutionInput(Base):
     storage_uri = Column(String(1024))
     logical_path = Column(String(1024))
     upstream_execution_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_executions.id", ondelete="SET NULL"))
-    upstream_dataset_id = Column(UUID(as_uuid=True), ForeignKey("derived_datasets.id", ondelete="SET NULL"))
+    upstream_dataset_id = Column(UUID(as_uuid=True), ForeignKey("study_outputs.id", ondelete="SET NULL"))
     selector_json = Column(JSONB, nullable=False, default=dict)
     resolved_metadata_json = Column(JSONB, nullable=False, default=dict)
     sha256 = Column(String(128))
@@ -672,7 +672,7 @@ class PipelineExecutionInput(Base):
     recording_version = relationship("RecordingVersion", foreign_keys=[recording_version_id])
     dataset_file = relationship("DatasetFile", foreign_keys=[dataset_file_id])
     upstream_execution = relationship("PipelineExecution", foreign_keys=[upstream_execution_id])
-    upstream_derived_dataset = relationship("DerivedDataset", foreign_keys=[upstream_dataset_id])
+    upstream_study_output = relationship("StudyOutput", foreign_keys=[upstream_dataset_id])
 
 
 class PipelineExecutionDependency(Base):
@@ -687,7 +687,7 @@ class PipelineExecutionDependency(Base):
     study_id = Column(String(12), ForeignKey("studies.id", ondelete="CASCADE"), nullable=False)
     execution_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_executions.id", ondelete="CASCADE"), nullable=False)
     depends_on_execution_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_executions.id", ondelete="RESTRICT"), nullable=False)
-    upstream_dataset_id = Column(UUID(as_uuid=True), ForeignKey("derived_datasets.id", ondelete="RESTRICT"))
+    upstream_dataset_id = Column(UUID(as_uuid=True), ForeignKey("study_outputs.id", ondelete="RESTRICT"))
     dependency_kind = Column(String(64), nullable=False, default="upstream_execution")
     metadata_json = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -699,7 +699,7 @@ class PipelineExecutionDependency(Base):
         foreign_keys=[depends_on_execution_id],
         back_populates="downstream_dependencies",
     )
-    upstream_derived_dataset = relationship("DerivedDataset", foreign_keys=[upstream_dataset_id])
+    upstream_study_output = relationship("StudyOutput", foreign_keys=[upstream_dataset_id])
 
 
 class AsyncTask(Base):

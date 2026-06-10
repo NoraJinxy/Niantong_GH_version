@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Implement workflow/Pipeline runtime support for cache, including validation, execution, artifacts, cache, or data resolution.
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, docs_v2/5-00 and docs_v2/7-40.
 """
@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.pipeline.derived_dataset_store import DerivedDatasetStore
+from app.pipeline.study_output_store import StudyOutputStore
 from app.pipeline.contracts import NodeOutput
 from app.services.storage import StorageService, StorageUriError
 
@@ -19,7 +19,7 @@ CACHEABLE_NODE_STATUSES = ("success", "cached")
 
 
 def cache_retention_for_role(role: str | None) -> str:
-    """Cache 命中复制 derived_dataset 时的 retention：
+    """Cache 命中复制 study_output 时的 retention：
     - leaf 节点 → "current"（用户可见、永久保留）
     - 其他 → "cached"（短期保留，可能被清理任务回收）
 
@@ -104,7 +104,7 @@ class PipelineCache:
         # 必须排除已被 cleanup 标记 deleted 的派生数据：cleanup 只改 retention_status /
         # deleted_at、物理文件保留，所以"文件在 + sha256 对"仍成立，但这些行用户视角是
         # 已删除的，不能当作缓存命中复用（否则下游会引用一条 deleted 行）。与
-        # derived_dataset_store 的 content-addressed dedup 过滤口径保持一致。
+        # study_output_store 的 content-addressed dedup 过滤口径保持一致。
         return (
             self.db.query(model)
             .filter(
@@ -124,9 +124,9 @@ class PipelineCache:
             if not expected_checksum:
                 return False
             if path.is_dir():
-                actual_checksum = DerivedDatasetStore.sha256_directory(path)
+                actual_checksum = StudyOutputStore.sha256_directory(path)
             elif path.is_file():
-                actual_checksum = DerivedDatasetStore.sha256_file(path)
+                actual_checksum = StudyOutputStore.sha256_file(path)
             else:
                 return False
             if actual_checksum != expected_checksum:
@@ -135,9 +135,9 @@ class PipelineCache:
 
     def _register_artifact_references(self, source_artifacts: list[Any]) -> list[dict[str, Any]]:
         """缓存命中时：不再 INSERT 复制行（会撞 idx_derived_sha256 唯一约束），
-        而是**直接返回旧 derived_dataset 的引用**作为当前 execution 的输出。
+        而是**直接返回旧 study_output 的引用**作为当前 execution 的输出。
 
-        语义：同一物理文件（content-addressed by sha256）只对应一行 derived_dataset；
+        语义：同一物理文件（content-addressed by sha256）只对应一行 study_output；
         多个 execution 通过 pipeline_jobs.output_json.data_infos 引用同一行。
         produced_by_execution_id 保留为"最初产生它的 execution"，新 execution 不动该字段。
         """
@@ -149,7 +149,7 @@ class PipelineCache:
             data_type = str(getattr(source, "data_type", "") or "")
             copied.append(
                 {
-                    "derived_dataset_id": self._stringify(getattr(source, "id", None)),
+                    "study_output_id": self._stringify(getattr(source, "id", None)),
                     "artifact_id": self._stringify(getattr(source, "id", None)),  # 旧 key 别名
                     "study_id": str(getattr(self.study, "id", "")),
                     # produced_by_* 保留旧 execution 信息（canonical 来源）
@@ -342,9 +342,9 @@ class PipelineCache:
 
     def _get_artifact_model(self) -> type[Any]:
         if self._artifact_model is None:
-            from app.models import DerivedDataset
+            from app.models import StudyOutput
 
-            self._artifact_model = DerivedDataset
+            self._artifact_model = StudyOutput
         return self._artifact_model
 
     def _get_job_model(self) -> type[Any]:

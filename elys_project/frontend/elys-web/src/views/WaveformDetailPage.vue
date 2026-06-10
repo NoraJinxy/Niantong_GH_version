@@ -175,7 +175,7 @@
         <div class="wf-metric"><span class="k">可用</span><span class="v">{{ fmtX(ts.available_tmin * xFactor) }}–{{ fmtX(ts.available_tmax * xFactor) }} {{ xUnit }}</span></div>
       </div>
       <p class="wf-note">
-        数据来自 <code>GET /studies/&#123;id&#125;/derived-datasets/&#123;dd&#125;/timeseries</code>，按时间窗 / 段 / 通道下采样（每通道最多 {{ MAX_POINTS }} 点、最多 {{ MAX_CHANNELS }} 通道）。
+        数据来自 <code>GET /studies/&#123;id&#125;/outputs/&#123;dd&#125;/timeseries</code>，按时间窗 / 段 / 通道下采样（每通道最多 {{ MAX_POINTS }} 点、最多 {{ MAX_CHANNELS }} 通道）。
       </p>
     </footer>
   </div>
@@ -185,7 +185,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { pipelineApi } from '@/api/pipelines'
-import type { DerivedDatasetTimeseries } from '@/types'
+import type { StudyOutputTimeseries } from '@/types'
 
 const route = useRoute()
 
@@ -230,7 +230,7 @@ const nameHint = qstr('name')
 const typeHint = qstr('type')
 
 // ---------- 状态 ----------
-const ts = ref<DerivedDatasetTimeseries | null>(null)
+const ts = ref<StudyOutputTimeseries | null>(null)
 const loading = ref(true)
 const error = ref('')
 const segIndex = ref(0)
@@ -291,7 +291,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await pipelineApi.getDerivedDatasetTimeseries(studyId, datasetId, {
+    const res = await pipelineApi.getStudyOutputTimeseries(studyId, datasetId, {
       index: segIndex.value,
       tmin: reqTmin.value ?? undefined,
       tmax: reqTmax.value ?? undefined,

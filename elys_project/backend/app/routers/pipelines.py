@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define FastAPI routes for the pipelines API area and translate HTTP requests into services/database calls.
 Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_v2/2-50.
 """
@@ -34,7 +34,7 @@ from app.config import get_settings
 from app.database import SessionLocal, get_db
 from app.models import (
     AsyncTask,
-    DerivedDataset,
+    StudyOutput,
     PipelineDefinition,
     PipelineJob,
     PipelineExecution,
@@ -51,24 +51,24 @@ from app.pipeline.background import run_pipeline_execution_sync
 from app.pipeline.executor import PipelineExecutor
 from app.pipeline.load_data import resolve_load_data_selection
 from app.pipeline.previews import (
-    DerivedDatasetPreviewError,
+    StudyOutputPreviewError,
     MAX_EVOKED_CHANNELS,
-    build_derived_dataset_preview,
-    resolve_derived_dataset_path,
-    validate_derived_dataset_file,
+    build_study_output_preview,
+    resolve_study_output_path,
+    validate_study_output_file,
 )
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.execution_manifest import ensure_execution_manifest, generate_execution_manifest
 from app.pipeline.selection_override import apply_load_data_selection_overrides, normalize_selection_override
 from app.pipeline.validator import validate_definition
 from app.routers.auth import get_current_user
-from app.schemas.derived_dataset import (
-    DerivedDatasetBatchUpdate,
-    DerivedDatasetCleanupRequest,
-    DerivedDatasetListResponse,
-    DerivedDatasetPreviewResponse,
-    DerivedDatasetResponse,
-    DerivedDatasetUpdate,
+from app.schemas.study_output import (
+    StudyOutputBatchUpdate,
+    StudyOutputCleanupRequest,
+    StudyOutputListResponse,
+    StudyOutputPreviewResponse,
+    StudyOutputResponse,
+    StudyOutputUpdate,
 )
 from app.schemas.pipeline import (
     AsyncTaskResponse,
@@ -128,7 +128,7 @@ RUN_CANCELLED_STATUS = "canceled"
 RUN_RETRYABLE_STATUSES = {"failed", "canceled"}
 TASK_CANCELABLE_STATUSES = {"queued", "running", "retrying"}
 TASK_RETRYABLE_STATUSES = {"failed", "canceled"}
-FILE_TASK_TYPES = {"derived_dataset_cleanup", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}
+FILE_TASK_TYPES = {"study_output_cleanup", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}
 TASK_EVENT_STREAM_BATCH_LIMIT = 100
 TASK_EVENT_STREAM_POLL_INTERVAL_SECONDS = 1.0
 TASK_EVENT_STREAM_HEARTBEAT_SECONDS = 15.0
@@ -347,8 +347,8 @@ def _to_str_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def derived_dataset_to_response(dataset: DerivedDataset) -> DerivedDatasetResponse:
-    return DerivedDatasetResponse(
+def study_output_to_response(dataset: StudyOutput) -> StudyOutputResponse:
+    return StudyOutputResponse(
         id=str(dataset.id),
         study_id=dataset.study_id,
         produced_by_execution_id=str(dataset.produced_by_execution_id) if dataset.produced_by_execution_id else None,
@@ -433,12 +433,12 @@ def lineage_input_node_id(input_id: UUID | str) -> str:
     return f"input:{input_id}"
 
 
-def lineage_derived_dataset_node_id(dataset_id: UUID | str) -> str:
-    return f"derived_dataset:{dataset_id}"
+def lineage_study_output_node_id(dataset_id: UUID | str) -> str:
+    return f"study_output:{dataset_id}"
 
 
 # Backward-compatible alias; older code paths may still call this name.
-lineage_artifact_node_id = lineage_derived_dataset_node_id
+lineage_artifact_node_id = lineage_study_output_node_id
 
 
 def add_lineage_graph_node(
@@ -577,10 +577,10 @@ def get_pipeline_job_or_404(db: Session, study_id: str, execution_id: UUID, job_
     return job
 
 
-def get_derived_dataset_or_404(db: Session, study_id: str, dataset_id: UUID) -> DerivedDataset:
+def get_study_output_or_404(db: Session, study_id: str, dataset_id: UUID) -> StudyOutput:
     dataset = (
-        db.query(DerivedDataset)
-        .filter(DerivedDataset.study_id == study_id, DerivedDataset.id == dataset_id)
+        db.query(StudyOutput)
+        .filter(StudyOutput.study_id == study_id, StudyOutput.id == dataset_id)
         .first()
     )
     if dataset is None:
@@ -588,21 +588,21 @@ def get_derived_dataset_or_404(db: Session, study_id: str, dataset_id: UUID) -> 
     return dataset
 
 
-def derived_dataset_hidden_conflict_detail(dataset: DerivedDataset, *, operation: str) -> dict[str, Any]:
+def study_output_hidden_conflict_detail(dataset: StudyOutput, *, operation: str) -> dict[str, Any]:
     return {
         "code": "DERIVED_DATASET_HIDDEN",
         "message": "已隐藏的派生数据集不能再被 pin/unpin。如果要恢复，请显式调用 PATCH 把 retention_status 切回 current。",
-        "derived_dataset_id": str(dataset.id),
+        "study_output_id": str(dataset.id),
         "operation": operation,
         "retention_status": dataset.retention_status,
     }
 
 
-def record_derived_dataset_action_audit(
+def record_study_output_action_audit(
     db: Session,
     *,
     study: Study,
-    dataset: DerivedDataset,
+    dataset: StudyOutput,
     current_user: User,
     action: str,
     reason: str | None,
@@ -617,7 +617,7 @@ def record_derived_dataset_action_audit(
         study_id=study.id,
         action=action,
         actor_id=current_user.id,
-        resource_kind="derived_dataset",
+        resource_kind="study_output",
         resource_id=dataset.id,
         resource_label=dataset.display_name or dataset.storage_uri,
         metadata={
@@ -632,21 +632,21 @@ def record_derived_dataset_action_audit(
     )
 
 
-def apply_derived_dataset_retention_action(
+def apply_study_output_retention_action(
     db: Session,
     *,
     study: Study,
-    dataset: DerivedDataset,
+    dataset: StudyOutput,
     current_user: User,
     target_status: str,
     action: str,
     reason: str | None = None,
     operation: str = "retention_update",
     allow_restore_deleted: bool = True,
-) -> DerivedDataset:
+) -> StudyOutput:
     previous_status = dataset.retention_status
     if previous_status == ARTIFACT_DELETED_STATUS and target_status != ARTIFACT_DELETED_STATUS and not allow_restore_deleted:
-        record_derived_dataset_action_audit(
+        record_study_output_action_audit(
             db,
             study=study,
             dataset=dataset,
@@ -661,13 +661,13 @@ def apply_derived_dataset_retention_action(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=derived_dataset_hidden_conflict_detail(dataset, operation=operation),
+            detail=study_output_hidden_conflict_detail(dataset, operation=operation),
         )
     if target_status == ARTIFACT_DELETED_STATUS:
         try:
             assert_artifact_can_be_deleted(db, artifact=dataset)
         except ArtifactDependencyError as exc:
-            record_derived_dataset_action_audit(
+            record_study_output_action_audit(
                 db,
                 study=study,
                 dataset=dataset,
@@ -692,7 +692,7 @@ def apply_derived_dataset_retention_action(
         dataset.retention_expires_at = None
     dataset.updated_at = datetime.utcnow()
 
-    record_derived_dataset_action_audit(
+    record_study_output_action_audit(
         db,
         study=study,
         dataset=dataset,
@@ -2154,10 +2154,10 @@ def build_pipeline_execution_lineage_response(
         .order_by(PipelineExecutionInput.node_id.asc(), PipelineExecutionInput.input_index.asc(), PipelineExecutionInput.created_at.asc())
         .all()
     )
-    derived_datasets = (
-        db.query(DerivedDataset)
-        .filter(DerivedDataset.study_id == study.id, DerivedDataset.produced_by_execution_id == execution.id)
-        .order_by(DerivedDataset.created_at.asc(), DerivedDataset.id.asc())
+    study_outputs = (
+        db.query(StudyOutput)
+        .filter(StudyOutput.study_id == study.id, StudyOutput.produced_by_execution_id == execution.id)
+        .order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc())
         .all()
     )
     upstream_dependencies = (
@@ -2167,12 +2167,12 @@ def build_pipeline_execution_lineage_response(
         .all()
     )
 
-    derived_dataset_ids = [dataset.id for dataset in derived_datasets]
+    study_output_ids = [dataset.id for dataset in study_outputs]
     downstream_dependency_query = db.query(PipelineExecutionDependency).filter(PipelineExecutionDependency.study_id == study.id)
-    if derived_dataset_ids:
+    if study_output_ids:
         downstream_dependency_query = downstream_dependency_query.filter(
             (PipelineExecutionDependency.depends_on_execution_id == execution.id)
-            | (PipelineExecutionDependency.upstream_dataset_id.in_(derived_dataset_ids))
+            | (PipelineExecutionDependency.upstream_dataset_id.in_(study_output_ids))
         )
     else:
         downstream_dependency_query = downstream_dependency_query.filter(PipelineExecutionDependency.depends_on_execution_id == execution.id)
@@ -2268,29 +2268,29 @@ def build_pipeline_execution_lineage_response(
         if execution_input.upstream_dataset_id is not None:
             add_lineage_graph_node(
                 graph_nodes,
-                node_id=lineage_derived_dataset_node_id(execution_input.upstream_dataset_id),
-                node_type="derived_dataset",
-                label=f"DerivedDataset {execution_input.upstream_dataset_id}",
-                resource_kind="derived_dataset",
+                node_id=lineage_study_output_node_id(execution_input.upstream_dataset_id),
+                node_type="study_output",
+                label=f"StudyOutput {execution_input.upstream_dataset_id}",
+                resource_kind="study_output",
                 resource_id=execution_input.upstream_dataset_id,
                 metadata={"role": "upstream_input"},
             )
             add_lineage_graph_edge(
                 graph_edges,
                 edge_id=f"input:{execution_input.id}:upstream_dataset",
-                source=lineage_derived_dataset_node_id(execution_input.upstream_dataset_id),
+                source=lineage_study_output_node_id(execution_input.upstream_dataset_id),
                 target=input_node_id,
                 edge_type="upstream_dataset_input",
             )
 
-    for dataset in derived_datasets:
-        dataset_node_id = lineage_derived_dataset_node_id(dataset.id)
+    for dataset in study_outputs:
+        dataset_node_id = lineage_study_output_node_id(dataset.id)
         add_lineage_graph_node(
             graph_nodes,
             node_id=dataset_node_id,
-            node_type="derived_dataset",
+            node_type="study_output",
             label=dataset.display_name or f"{dataset.data_type} {dataset.bids_subject_id or ''}".strip(),
-            resource_kind="derived_dataset",
+            resource_kind="study_output",
             resource_id=dataset.id,
             status=dataset.retention_status,
             metadata={
@@ -2322,13 +2322,13 @@ def build_pipeline_execution_lineage_response(
             metadata={"dependency_id": str(dependency.id), **(dependency.metadata_json or {})},
         )
         if dependency.upstream_dataset_id is not None:
-            dataset_node_id = lineage_derived_dataset_node_id(dependency.upstream_dataset_id)
+            dataset_node_id = lineage_study_output_node_id(dependency.upstream_dataset_id)
             add_lineage_graph_node(
                 graph_nodes,
                 node_id=dataset_node_id,
-                node_type="derived_dataset",
-                label=f"DerivedDataset {dependency.upstream_dataset_id}",
-                resource_kind="derived_dataset",
+                node_type="study_output",
+                label=f"StudyOutput {dependency.upstream_dataset_id}",
+                resource_kind="study_output",
                 resource_id=dependency.upstream_dataset_id,
                 metadata={"role": "upstream_dependency"},
             )
@@ -2337,15 +2337,15 @@ def build_pipeline_execution_lineage_response(
                 edge_id=f"dependency:{dependency.id}:upstream_dataset",
                 source=dataset_node_id,
                 target=lineage_execution_node_id(execution.id),
-                edge_type="uses_derived_dataset",
+                edge_type="uses_study_output",
                 metadata={"dependency_id": str(dependency.id), **(dependency.metadata_json or {})},
             )
 
     for dependency in downstream_dependencies:
         target = lineage_execution_node_id(dependency.execution_id)
         if dependency.upstream_dataset_id is not None:
-            source = lineage_derived_dataset_node_id(dependency.upstream_dataset_id)
-            edge_type = "derived_dataset_used_by"
+            source = lineage_study_output_node_id(dependency.upstream_dataset_id)
+            edge_type = "study_output_used_by"
         else:
             source = lineage_execution_node_id(execution.id)
             edge_type = dependency.dependency_kind
@@ -2361,7 +2361,7 @@ def build_pipeline_execution_lineage_response(
     return PipelineExecutionLineageResponse(
         execution=pipeline_execution_to_response(execution),
         inputs=[pipeline_execution_input_to_response(item) for item in inputs],
-        derived_datasets=[derived_dataset_to_response(item) for item in derived_datasets],
+        study_outputs=[study_output_to_response(item) for item in study_outputs],
         upstream_executions=[pipeline_execution_to_response(item) for item in upstream_executions],
         downstream_executions=[pipeline_execution_to_response(item) for item in downstream_executions],
         upstream_dependencies=[pipeline_execution_dependency_to_response(item) for item in upstream_dependencies],
@@ -2386,14 +2386,14 @@ def get_pipeline_execution(
         .order_by(PipelineJob.topo_index.asc(), PipelineJob.node_id.asc())
         .all()
     )
-    derived_datasets = (
-        db.query(DerivedDataset)
+    study_outputs = (
+        db.query(StudyOutput)
         .filter(
-            DerivedDataset.study_id == study.id,
-            DerivedDataset.produced_by_execution_id == execution.id,
-            DerivedDataset.retention_status != "deleted",
+            StudyOutput.study_id == study.id,
+            StudyOutput.produced_by_execution_id == execution.id,
+            StudyOutput.retention_status != "deleted",
         )
-        .order_by(DerivedDataset.created_at.asc(), DerivedDataset.id.asc())
+        .order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc())
         .all()
     )
     dependencies = (
@@ -2435,7 +2435,7 @@ def get_pipeline_execution(
         dependencies=[pipeline_execution_dependency_to_response(item) for item in dependencies],
         tasks=[async_task_to_response(task, task_events_by_task_id.get(task.id, [])) for task in tasks],
         jobs=[pipeline_job_to_response(item) for item in jobs],
-        derived_datasets=[derived_dataset_to_response(item) for item in derived_datasets],
+        study_outputs=[study_output_to_response(item) for item in study_outputs],
     )
 
 
@@ -2837,37 +2837,37 @@ def list_pipeline_execution_jobs(
 # ===========================================================================
 
 @router.get(
-    "/studies/{study_id}/pipeline-executions/{execution_id}/derived-datasets",
-    response_model=DerivedDatasetListResponse,
+    "/studies/{study_id}/pipeline-executions/{execution_id}/outputs",
+    response_model=StudyOutputListResponse,
 )
-def list_pipeline_execution_derived_datasets(
+def list_pipeline_execution_study_outputs(
     study_id: str,
     execution_id: UUID,
     include_deleted: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """列出某次执行（Execution）产出的所有 derived_datasets。"""
+    """列出某次执行（Execution）产出的所有 study_outputs。"""
     study = get_study_for_read(study_id, db, current_user)
     execution = get_pipeline_execution_or_404(db, study.id, execution_id)
-    query = db.query(DerivedDataset).filter(
-        DerivedDataset.study_id == study.id,
-        DerivedDataset.produced_by_execution_id == execution.id,
+    query = db.query(StudyOutput).filter(
+        StudyOutput.study_id == study.id,
+        StudyOutput.produced_by_execution_id == execution.id,
     )
     if not include_deleted:
-        query = query.filter(DerivedDataset.retention_status != "deleted")
-    datasets = query.order_by(DerivedDataset.created_at.asc(), DerivedDataset.id.asc()).all()
-    return DerivedDatasetListResponse(
-        derived_datasets=[derived_dataset_to_response(item) for item in datasets],
+        query = query.filter(StudyOutput.retention_status != "deleted")
+    datasets = query.order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc()).all()
+    return StudyOutputListResponse(
+        study_outputs=[study_output_to_response(item) for item in datasets],
         total=len(datasets),
     )
 
 
 @router.get(
-    "/studies/{study_id}/derived-datasets",
-    response_model=DerivedDatasetListResponse,
+    "/studies/{study_id}/outputs",
+    response_model=StudyOutputListResponse,
 )
-def list_derived_datasets(
+def list_study_outputs(
     study_id: str,
     execution_ids: list[str] | None = Query(default=None),
     node_types: list[str] | None = Query(default=None),
@@ -2900,82 +2900,82 @@ def list_derived_datasets(
     study = get_study_for_read(study_id, db, current_user)
     if include_cross_study:
         scope_filter = _or(
-            DerivedDataset.study_id == study.id,
+            StudyOutput.study_id == study.id,
             _and(
-                DerivedDataset.study_id != study.id,
-                DerivedDataset.lifecycle_state == "published",
-                DerivedDataset.visibility == "shared",
+                StudyOutput.study_id != study.id,
+                StudyOutput.lifecycle_state == "published",
+                StudyOutput.visibility == "shared",
             ),
         )
-        query = db.query(DerivedDataset).filter(scope_filter)
+        query = db.query(StudyOutput).filter(scope_filter)
     else:
-        query = db.query(DerivedDataset).filter(DerivedDataset.study_id == study.id)
+        query = db.query(StudyOutput).filter(StudyOutput.study_id == study.id)
     if not include_deleted:
-        query = query.filter(DerivedDataset.retention_status != "deleted")
+        query = query.filter(StudyOutput.retention_status != "deleted")
     if execution_ids:
-        query = query.filter(DerivedDataset.produced_by_execution_id.in_(execution_ids))
+        query = query.filter(StudyOutput.produced_by_execution_id.in_(execution_ids))
     if node_types:
-        query = query.filter(DerivedDataset.produced_by_node_type.in_(node_types))
+        query = query.filter(StudyOutput.produced_by_node_type.in_(node_types))
     if data_types:
-        query = query.filter(DerivedDataset.data_type.in_(data_types))
+        query = query.filter(StudyOutput.data_type.in_(data_types))
     if bids_subject_ids:
-        query = query.filter(DerivedDataset.bids_subject_id.in_(bids_subject_ids))
+        query = query.filter(StudyOutput.bids_subject_id.in_(bids_subject_ids))
     if sessions:
-        query = query.filter(DerivedDataset.session.in_(sessions))
+        query = query.filter(StudyOutput.session.in_(sessions))
     if tasks:
-        query = query.filter(DerivedDataset.task.in_(tasks))
+        query = query.filter(StudyOutput.task.in_(tasks))
     if conditions:
-        query = query.filter(DerivedDataset.condition.in_(conditions))
+        query = query.filter(StudyOutput.condition.in_(conditions))
     if retention_statuses:
-        query = query.filter(DerivedDataset.retention_status.in_(retention_statuses))
+        query = query.filter(StudyOutput.retention_status.in_(retention_statuses))
     if tags:
         # JSONB contains: 任一 tag 匹配即可
         from sqlalchemy import or_ as _or
-        tag_filters = [DerivedDataset.tags.contains([tag]) for tag in tags]
+        tag_filters = [StudyOutput.tags.contains([tag]) for tag in tags]
         query = query.filter(_or(*tag_filters))
 
     total = query.count()
     datasets = (
-        query.order_by(DerivedDataset.created_at.desc(), DerivedDataset.id.desc())
+        query.order_by(StudyOutput.created_at.desc(), StudyOutput.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
     )
-    return DerivedDatasetListResponse(
-        derived_datasets=[derived_dataset_to_response(item) for item in datasets],
+    return StudyOutputListResponse(
+        study_outputs=[study_output_to_response(item) for item in datasets],
         total=total,
     )
 
 
 @router.get(
-    "/studies/{study_id}/derived-datasets/{dataset_id}",
-    response_model=DerivedDatasetResponse,
+    "/studies/{study_id}/outputs/{dataset_id}",
+    response_model=StudyOutputResponse,
 )
-def get_derived_dataset(
+def get_study_output(
     study_id: str,
     dataset_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     study = get_study_for_read(study_id, db, current_user)
-    dataset = get_derived_dataset_or_404(db, study.id, dataset_id)
-    return derived_dataset_to_response(dataset)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    return study_output_to_response(dataset)
 
 
 @router.patch(
-    "/studies/{study_id}/derived-datasets/{dataset_id}",
-    response_model=DerivedDatasetResponse,
+    "/studies/{study_id}/outputs/{dataset_id}",
+    response_model=StudyOutputResponse,
 )
-def update_derived_dataset(
+def update_study_output(
     study_id: str,
     dataset_id: UUID,
-    payload: DerivedDatasetUpdate,
+    payload: StudyOutputUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """统一的 PATCH 入口：可改 display_name / description / tags / retention_status。"""
     study = get_study_for_write(study_id, db, current_user)
-    dataset = get_derived_dataset_or_404(db, study.id, dataset_id)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
 
     if payload.display_name is not None:
         dataset.display_name = payload.display_name.strip() or None
@@ -2991,13 +2991,13 @@ def update_derived_dataset(
                 cleaned.append(text)
         dataset.tags = cleaned
     if payload.retention_status is not None:
-        apply_derived_dataset_retention_action(
+        apply_study_output_retention_action(
             db,
             study=study,
             dataset=dataset,
             current_user=current_user,
             target_status=payload.retention_status,
-            action=f"derived_dataset.retention.{payload.retention_status}",
+            action=f"study_output.retention.{payload.retention_status}",
             reason=payload.reason,
         )
     if payload.retention_expires_at is not None:
@@ -3005,24 +3005,24 @@ def update_derived_dataset(
     dataset.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(dataset)
-    return derived_dataset_to_response(dataset)
+    return study_output_to_response(dataset)
 
 
 @router.post(
-    "/studies/{study_id}/derived-datasets/batch-update",
-    response_model=DerivedDatasetListResponse,
+    "/studies/{study_id}/outputs/batch-update",
+    response_model=StudyOutputListResponse,
 )
-def batch_update_derived_datasets(
+def batch_update_study_outputs(
     study_id: str,
-    payload: DerivedDatasetBatchUpdate,
+    payload: StudyOutputBatchUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """对多个 derived_datasets 应用同一组改动。用于 /results 页批量打标签 / 改保留策略。"""
+    """对多个 study_outputs 应用同一组改动。用于 /results 页批量打标签 / 改保留策略。"""
     study = get_study_for_write(study_id, db, current_user)
     datasets = (
-        db.query(DerivedDataset)
-        .filter(DerivedDataset.study_id == study.id, DerivedDataset.id.in_(payload.ids))
+        db.query(StudyOutput)
+        .filter(StudyOutput.study_id == study.id, StudyOutput.id.in_(payload.ids))
         .all()
     )
     found_ids = {str(d.id) for d in datasets}
@@ -3037,7 +3037,7 @@ def batch_update_derived_datasets(
             },
         )
     upd = payload.update
-    # 事务原子性：apply_derived_dataset_retention_action 命中依赖 blocker 时会先 db.commit()
+    # 事务原子性：apply_study_output_retention_action 命中依赖 blocker 时会先 db.commit()
     # 再抛 409。批量循环里若第 N 条撞 blocker，会把前 N-1 条的改动一并提交后抛错，造成
     # "部分成功 + 无回滚"。因此当目标是 deleted 时，先全量预检所有 blocker，任一被挡就
     # 在改动任何数据之前一次性 409，循环内便不会再触发 commit-then-raise。
@@ -3048,7 +3048,7 @@ def batch_update_derived_datasets(
                 assert_artifact_can_be_deleted(db, artifact=ds)
             except ArtifactDependencyError as exc:
                 blocked.append(
-                    {"derived_dataset_id": str(ds.id), "dependencies": exc.blockers}
+                    {"study_output_id": str(ds.id), "dependencies": exc.blockers}
                 )
         if blocked:
             raise HTTPException(
@@ -3074,13 +3074,13 @@ def batch_update_derived_datasets(
                     cleaned.append(text)
             ds.tags = cleaned
         if upd.retention_status is not None:
-            apply_derived_dataset_retention_action(
+            apply_study_output_retention_action(
                 db,
                 study=study,
                 dataset=ds,
                 current_user=current_user,
                 target_status=upd.retention_status,
-                action=f"derived_dataset.batch.retention.{upd.retention_status}",
+                action=f"study_output.batch.retention.{upd.retention_status}",
                 reason=upd.reason,
             )
         if upd.retention_expires_at is not None:
@@ -3089,26 +3089,26 @@ def batch_update_derived_datasets(
     db.commit()
     for ds in datasets:
         db.refresh(ds)
-    return DerivedDatasetListResponse(
-        derived_datasets=[derived_dataset_to_response(ds) for ds in datasets],
+    return StudyOutputListResponse(
+        study_outputs=[study_output_to_response(ds) for ds in datasets],
         total=len(datasets),
     )
 
 
 @router.post(
-    "/studies/{study_id}/derived-datasets/cleanup",
+    "/studies/{study_id}/outputs/cleanup",
     response_model=AsyncTaskResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_derived_dataset_cleanup_task(
+def create_study_output_cleanup_task(
     study_id: str,
-    payload: DerivedDatasetCleanupRequest | None = None,
+    payload: StudyOutputCleanupRequest | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """派生数据集清理任务：按 retention_status + retention_expires_at 决定回收。"""
     study = get_study_for_write(study_id, db, current_user)
-    payload = payload or DerivedDatasetCleanupRequest()
+    payload = payload or StudyOutputCleanupRequest()
     payload_json = {
         "study_id": study.id,
         "retention_statuses": payload.retention_statuses,
@@ -3118,9 +3118,9 @@ def create_derived_dataset_cleanup_task(
     }
     return create_and_dispatch_file_task(
         db,
-        task_type="derived_dataset_cleanup",
+        task_type="study_output_cleanup",
         study_id=study.id,
-        resource_kind="study_derived_datasets",
+        resource_kind="study_study_outputs",
         resource_id=None,
         payload_json=payload_json,
         current_user=current_user,
@@ -3128,10 +3128,10 @@ def create_derived_dataset_cleanup_task(
 
 
 @router.get(
-    "/studies/{study_id}/derived-datasets/{dataset_id}/preview",
-    response_model=DerivedDatasetPreviewResponse,
+    "/studies/{study_id}/outputs/{dataset_id}/preview",
+    response_model=StudyOutputPreviewResponse,
 )
-def get_derived_dataset_preview(
+def get_study_output_preview(
     study_id: str,
     dataset_id: UUID,
     max_channels: int = Query(default=MAX_EVOKED_CHANNELS, ge=1, le=256),
@@ -3139,18 +3139,18 @@ def get_derived_dataset_preview(
     current_user: User = Depends(get_current_user),
 ):
     study = get_study_for_read(study_id, db, current_user)
-    dataset = get_derived_dataset_or_404(db, study.id, dataset_id)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
     if dataset.retention_status == "deleted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DERIVED_DATASET_DELETED", "message": "派生数据集已被隐藏，预览不可用。"},
         )
     try:
-        preview = build_derived_dataset_preview(study, dataset, sample_channels=max_channels)
-    except DerivedDatasetPreviewError as exc:
+        preview = build_study_output_preview(study, dataset, sample_channels=max_channels)
+    except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message, "derived_dataset_id": str(dataset_id)},
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(
@@ -3161,9 +3161,9 @@ def get_derived_dataset_preview(
     dataset.preview_json = preview["preview_json"]
     dataset.updated_at = datetime.utcnow()
     db.commit()
-    # build_derived_dataset_preview 仍以 artifact_id 为字段名输出；映射到 derived_dataset_id
-    return DerivedDatasetPreviewResponse(
-        derived_dataset_id=preview.get("artifact_id") or str(dataset.id),
+    # build_study_output_preview 仍以 artifact_id 为字段名输出；映射到 study_output_id
+    return StudyOutputPreviewResponse(
+        study_output_id=preview.get("artifact_id") or str(dataset.id),
         study_id=preview.get("study_id") or study.id,
         produced_by_execution_id=preview.get("execution_id"),
         produced_by_job_id=preview.get("job_id"),
@@ -3178,8 +3178,8 @@ def get_derived_dataset_preview(
     )
 
 
-@router.get("/studies/{study_id}/derived-datasets/{dataset_id}/timeseries")
-def get_derived_dataset_timeseries(
+@router.get("/studies/{study_id}/outputs/{dataset_id}/timeseries")
+def get_study_output_timeseries(
     study_id: str,
     dataset_id: UUID,
     tmin: float | None = Query(default=None),
@@ -3191,7 +3191,7 @@ def get_derived_dataset_timeseries(
     current_user: User = Depends(get_current_user),
 ):
     study = get_study_for_read(study_id, db, current_user)
-    dataset = get_derived_dataset_or_404(db, study.id, dataset_id)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
     if dataset.retention_status == "deleted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -3207,10 +3207,10 @@ def get_derived_dataset_timeseries(
             max_points=max_points,
             max_channels=max_channels,
         )
-    except DerivedDatasetPreviewError as exc:
+    except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message, "derived_dataset_id": str(dataset_id)},
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(
@@ -3219,27 +3219,27 @@ def get_derived_dataset_timeseries(
         ) from exc
 
 
-@router.get("/studies/{study_id}/derived-datasets/{dataset_id}/download")
-def download_derived_dataset(
+@router.get("/studies/{study_id}/outputs/{dataset_id}/download")
+def download_study_output(
     study_id: str,
     dataset_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     study = get_study_for_read(study_id, db, current_user)
-    dataset = get_derived_dataset_or_404(db, study.id, dataset_id)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
     if dataset.retention_status == "deleted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DERIVED_DATASET_DELETED", "message": "派生数据集已被隐藏，下载不可用。"},
         )
     try:
-        path = resolve_derived_dataset_path(study, dataset)
-        validate_derived_dataset_file(path, dataset)
-    except DerivedDatasetPreviewError as exc:
+        path = resolve_study_output_path(study, dataset)
+        validate_study_output_file(path, dataset)
+    except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message, "derived_dataset_id": str(dataset_id)},
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
         ) from exc
     if not path.is_file():
         raise HTTPException(

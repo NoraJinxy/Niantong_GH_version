@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define SQLAlchemy ORM models entry point.
 Related: database/init.sql, app/schemas/*, app/routers/*, docs_v2/3-00.
 """
@@ -30,7 +30,7 @@ from .study import (
     Subject,
     TaskEvent,
 )
-from .derived_dataset import DerivedDataset
+from .study_output import StudyOutput
 
 __all__ = [
     "User",
@@ -61,5 +61,5 @@ __all__ = [
     "PipelineExecutionInput",
     "Recording",
     "RecordingVersion",
-    "DerivedDataset",
+    "StudyOutput",
 ]

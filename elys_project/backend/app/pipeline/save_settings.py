@@ -3,7 +3,7 @@ Purpose: 节点保存设置统一计算 —— 把 NodeSpec 的 save 子对象�
          auto_tags / name_template / dynamic_tags）与拓扑角色 (leaf /
          intermediate) + BIDS 实体 + 用户参数合成最终
          {display_name, tags, retention_status, retention_expires_at}，
-         注入到 DerivedDataset metadata。
+         注入到 StudyOutput metadata。
 
 设计目标:
 - 取消 Save 节点：每个处理节点的产物在 dispatcher 阶段就决定好名字 / 标签 / 保留期；
@@ -17,7 +17,7 @@ Related:
 - app/pipeline/nodes/*.json (save 子对象)
 - app/pipeline/topology.py (拓扑角色)
 - app/pipeline/dispatcher.py (调用入口)
-- app/pipeline/artifacts.py (写 derived_datasets 行)
+- app/pipeline/artifacts.py (写 study_outputs 行)
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def resolve_display_name_conflict(
     study_id: Any,
     base_name: str,
 ) -> str:
-    """查同 study_id 下是否已有同名活跃 derived_dataset，若有则自动加 (2) (3) 后缀。
+    """查同 study_id 下是否已有同名活跃 study_output，若有则自动加 (2) (3) 后缀。
 
     匹配规则:
       - 排除 deleted_at IS NOT NULL 的行
@@ -119,7 +119,7 @@ def resolve_display_name_conflict(
         return base_name
 
     # 延迟导入避免循环：本模块被 dispatcher 加载时 app.models 链已就绪
-    from app.models import DerivedDataset
+    from app.models import StudyOutput
     from sqlalchemy import or_
 
     base = base_name.strip()
@@ -131,14 +131,14 @@ def resolve_display_name_conflict(
     like_pattern = f"{escaped} (%)"
 
     rows = (
-        db.query(DerivedDataset.display_name)
+        db.query(StudyOutput.display_name)
         .filter(
-            DerivedDataset.study_id == study_id,
-            DerivedDataset.deleted_at.is_(None),
-            DerivedDataset.retention_status != "none",
+            StudyOutput.study_id == study_id,
+            StudyOutput.deleted_at.is_(None),
+            StudyOutput.retention_status != "none",
             or_(
-                DerivedDataset.display_name == base,
-                DerivedDataset.display_name.like(like_pattern, escape="\\"),
+                StudyOutput.display_name == base,
+                StudyOutput.display_name.like(like_pattern, escape="\\"),
             ),
         )
         .all()
@@ -283,7 +283,7 @@ def apply_save_settings(
         retention_status, retention_expires_at = "pinned", None
     elif retention_override == "none":
         # "不保留"映射到合法的 'temporary'（expires 为空 → 下次 cleanup 立即可回收）。
-        # 不能写 'none'：derived_datasets.retention_status 的 CHECK 只允许
+        # 不能写 'none'：study_outputs.retention_status 的 CHECK 只允许
         # current/pinned/cached/temporary/deleted/quarantined，写 'none' 会撞约束、
         # 整个节点产物登记失败。
         retention_status, retention_expires_at = "temporary", None

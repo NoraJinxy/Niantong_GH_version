@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Implement workflow/Pipeline runtime support for dispatcher, including validation, execution, artifacts, cache, or data resolution.
 Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nodes/*.json, docs_v2/5-00 and docs_v2/7-40.
 """
@@ -29,7 +29,7 @@ from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
 from app.engine.preprocess.resample import run_resample
 from app.models import PipelineExecutionInput
-from app.pipeline.derived_dataset_store import DerivedDatasetStore
+from app.pipeline.study_output_store import StudyOutputStore
 from app.pipeline.contracts import NodeExecutionContext, NodeOutput
 from app.pipeline.load_data import resolve_load_data_selection
 from app.pipeline.save_settings import apply_save_settings
@@ -228,7 +228,7 @@ class NodeDispatcher:
             output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": [], "ica_matrix": []}, data_infos=[])
             return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output", "ica_matrix"])
 
-        derived_dataset_store = context.derived_dataset_store or DerivedDatasetStore(context.db, context.study, context.execution, context.job)
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
         ica_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -241,7 +241,7 @@ class NodeDispatcher:
                 filename = self._derived_fif_filename(data_info, "ica", index, kind="ica")
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
-                artifact = derived_dataset_store.save_file_from_writer(
+                artifact = study_output_store.save_file_from_writer(
                     filename,
                     lambda path, ica=ica: save_ica_fif(ica, path),
                     kind="ica_matrix",
@@ -335,7 +335,7 @@ class NodeDispatcher:
                 output_ports=["output"],
             )
 
-        derived_dataset_store = context.derived_dataset_store or DerivedDatasetStore(context.db, context.study, context.execution, context.job)
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
         params = {
             **context.params,
             "excluded_components": decision.get("excluded_components", []),
@@ -356,7 +356,7 @@ class NodeDispatcher:
                 # ICA Apply 的上游是 EEG input + ICA matrix 两条派生数据
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info, ica_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
-                artifact = derived_dataset_store.save_file_from_writer(
+                artifact = study_output_store.save_file_from_writer(
                     filename,
                     lambda path, cleaned=cleaned: save_raw_fif(cleaned, path),
                     kind="derivative",
@@ -445,7 +445,7 @@ class NodeDispatcher:
             output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
             return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
 
-        derived_dataset_store = context.derived_dataset_store or DerivedDatasetStore(context.db, context.study, context.execution, context.job)
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -462,7 +462,7 @@ class NodeDispatcher:
                 filename = self._derived_raw_filename(data_info, save_descriptor, index)
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
-                artifact = derived_dataset_store.save_file_from_writer(
+                artifact = study_output_store.save_file_from_writer(
                     filename,
                     lambda path, processed=processed: save_raw_fif(processed, path),
                     kind="derivative",
@@ -562,7 +562,7 @@ class NodeDispatcher:
             output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
             return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
 
-        derived_dataset_store = context.derived_dataset_store or DerivedDatasetStore(context.db, context.study, context.execution, context.job)
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -586,7 +586,7 @@ class NodeDispatcher:
                             context=context,
                             data_info=data_info,
                             epochs=sub_epochs,
-                            derived_dataset_store=derived_dataset_store,
+                            study_output_store=study_output_store,
                             artifacts=artifacts,
                             save_descriptor=save_descriptor,
                             index=index,
@@ -600,7 +600,7 @@ class NodeDispatcher:
                         context=context,
                         data_info=data_info,
                         epochs=epochs,
-                        derived_dataset_store=derived_dataset_store,
+                        study_output_store=study_output_store,
                         artifacts=artifacts,
                         save_descriptor=save_descriptor,
                         index=index,
@@ -648,7 +648,7 @@ class NodeDispatcher:
         context: NodeExecutionContext,
         data_info: dict[str, Any],
         epochs: Any,
-        derived_dataset_store: DerivedDatasetStore,
+        study_output_store: StudyOutputStore,
         artifacts: list[dict[str, Any]],
         save_descriptor: str,
         index: int,
@@ -656,7 +656,7 @@ class NodeDispatcher:
         node_id: str,
         node_type: str,
     ) -> dict[str, Any]:
-        """把一份 (子)epochs 写入磁盘 + 登记 derived_dataset，返回 data_info。
+        """把一份 (子)epochs 写入磁盘 + 登记 study_output，返回 data_info。
 
         condition 非空时：文件名加 condition 后缀；apply_save_settings 用 split_value
         触发 dynamic_tags_when_split + name_template_default_split；输出 data_info 带 condition 字段。
@@ -669,7 +669,7 @@ class NodeDispatcher:
         save_meta = self._save_settings_metadata(
             context, data_info=data_info, index=index, split_value=condition
         )
-        artifact = derived_dataset_store.save_file_from_writer(
+        artifact = study_output_store.save_file_from_writer(
             filename,
             lambda path, epochs=epochs: save_epochs_fif(epochs, path),
             kind="derivative",
@@ -731,7 +731,7 @@ class NodeDispatcher:
             output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
             return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
 
-        derived_dataset_store = context.derived_dataset_store or DerivedDatasetStore(context.db, context.study, context.execution, context.job)
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -800,7 +800,7 @@ class NodeDispatcher:
                         index=index,
                         split_value=cond,
                     )
-                    artifact = derived_dataset_store.save_file_from_writer(
+                    artifact = study_output_store.save_file_from_writer(
                         filename,
                         lambda path, ev=evoked: save_evoked_fif(ev, path),
                         kind="analysis_result",
@@ -881,8 +881,8 @@ class NodeDispatcher:
     def _lineage_for_input(*data_infos: dict[str, Any]) -> tuple[list[str], list[str]]:
         """从一个或多个上游 data_info 推导 (upstream_dataset_ids, upstream_recording_ids).
 
-        - upstream_dataset_ids: 直接上游的 derived_dataset id（来自上游 data_info["artifact_id"]）。
-          LoadData 不写 derived_dataset，所以 LoadData 输出的 data_info 没有 artifact_id，对应空列表。
+        - upstream_dataset_ids: 直接上游的 study_output id（来自上游 data_info["artifact_id"]）。
+          LoadData 不写 study_output，所以 LoadData 输出的 data_info 没有 artifact_id，对应空列表。
         - upstream_recording_ids: 最终回溯到的原始 recording id（来自 source_dataset_id / dataset_id）。
         """
         dataset_ids: list[str] = []
@@ -892,7 +892,7 @@ class NodeDispatcher:
         for data_info in data_infos:
             if not isinstance(data_info, dict):
                 continue
-            upstream = data_info.get("artifact_id") or data_info.get("derived_dataset_id")
+            upstream = data_info.get("artifact_id") or data_info.get("study_output_id")
             if upstream:
                 key = str(upstream)
                 if key not in dataset_seen:
@@ -920,8 +920,8 @@ class NodeDispatcher:
           display_name / tags / retention_status / retention_expires_at /
           step_label / data_type
 
-        dispatcher 把它 update 到传给 derived_dataset_store.save_file_from_writer 的
-        metadata，让 _register_derived_dataset 接管写入 derived_datasets。
+        dispatcher 把它 update 到传给 study_output_store.save_file_from_writer 的
+        metadata，让 _register_study_output 接管写入 study_outputs。
         """
         return apply_save_settings(
             db=context.db,

@@ -277,7 +277,7 @@ def test_async_task_retry_creates_file_task_and_dispatches_pipeline_execution_re
     segment = router_function_source("retry_async_task")
 
     assert 'TASK_RETRYABLE_STATUSES = {"failed", "canceled"}' in source
-    assert 'FILE_TASK_TYPES = {"derived_dataset_cleanup", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}' in source
+    assert 'FILE_TASK_TYPES = {"study_output_cleanup", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}' in source
     # pipeline_execution 类的 retry 内部转发到 retry_pipeline_execution，不再向前端抛 409 redirect。
     assert "is_pipeline_execution_task(task)" in segment
     assert "retry_pipeline_execution(" in segment
@@ -365,10 +365,10 @@ def test_pipeline_execution_lineage_aggregates_inputs_artifacts_dependencies_and
     segment = router_function_source("build_pipeline_execution_lineage_response")
 
     assert "db.query(PipelineExecutionInput)" in segment
-    assert "db.query(DerivedDataset)" in segment
+    assert "db.query(StudyOutput)" in segment
     assert "db.query(PipelineExecutionDependency)" in segment
     assert "PipelineExecutionDependency.depends_on_execution_id == execution.id" in segment
-    assert "PipelineExecutionDependency.upstream_dataset_id.in_(derived_dataset_ids)" in segment
+    assert "PipelineExecutionDependency.upstream_dataset_id.in_(study_output_ids)" in segment
     assert "upstream_execution_ids = unique_pipeline_execution_ids" in segment
     assert "downstream_execution_ids = unique_pipeline_execution_ids" in segment
     assert "upstream_executions = load_pipeline_executions_by_ids" in segment
@@ -379,8 +379,8 @@ def test_pipeline_execution_lineage_aggregates_inputs_artifacts_dependencies_and
     assert "graph_edges=list(graph_edges.values())" in segment
 
 
-def test_derived_dataset_retention_patch_shares_delete_blocker() -> None:
-    helper_segment = router_function_source("apply_derived_dataset_retention_action")
+def test_study_output_retention_patch_shares_delete_blocker() -> None:
+    helper_segment = router_function_source("apply_study_output_retention_action")
 
     assert "if target_status == ARTIFACT_DELETED_STATUS" in helper_segment
     assert "assert_artifact_can_be_deleted(db, artifact=dataset)" in helper_segment

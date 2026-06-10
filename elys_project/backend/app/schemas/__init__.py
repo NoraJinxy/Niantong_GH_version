@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: Define Pydantic request/response schemas for the __init__ API area.
 Related: app/routers/*, frontend API clients, docs_v2/2-50.
 """
@@ -60,14 +60,14 @@ from .dataset import (
     StudyDatasetMountResponse,
     StudyDatasetMountUpdate,
 )
-from .derived_dataset import (
-    DerivedDatasetBatchUpdate,
-    DerivedDatasetCleanupRequest,
-    DerivedDatasetListQuery,
-    DerivedDatasetListResponse,
-    DerivedDatasetPreviewResponse,
-    DerivedDatasetResponse,
-    DerivedDatasetUpdate,
+from .study_output import (
+    StudyOutputBatchUpdate,
+    StudyOutputCleanupRequest,
+    StudyOutputListQuery,
+    StudyOutputListResponse,
+    StudyOutputPreviewResponse,
+    StudyOutputResponse,
+    StudyOutputUpdate,
 )
 from .pipeline import (
     AsyncTaskListResponse,
@@ -162,13 +162,13 @@ __all__ = [
     "LoginResponse",
     "AsyncTaskListResponse",
     "AsyncTaskResponse",
-    "DerivedDatasetBatchUpdate",
-    "DerivedDatasetCleanupRequest",
-    "DerivedDatasetListQuery",
-    "DerivedDatasetListResponse",
-    "DerivedDatasetPreviewResponse",
-    "DerivedDatasetResponse",
-    "DerivedDatasetUpdate",
+    "StudyOutputBatchUpdate",
+    "StudyOutputCleanupRequest",
+    "StudyOutputListQuery",
+    "StudyOutputListResponse",
+    "StudyOutputPreviewResponse",
+    "StudyOutputResponse",
+    "StudyOutputUpdate",
     "NodeSpecListResponse",
     "NodeSpecResponse",
     "PipelineCreate",
