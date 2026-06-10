@@ -32,6 +32,7 @@
     "always_per_condition": true,
     "data_type": "evoked"
   },
-  "cache": {"enabled": true, "strategy": "content_hash"},
+  "compute_cost": "cheap",
+  "output_footprint": "small",
   "ui": {"color": "#059669", "default_size": [190, 90], "preview_type": "erp"}
 }

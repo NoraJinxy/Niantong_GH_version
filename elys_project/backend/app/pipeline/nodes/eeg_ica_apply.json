@@ -32,6 +32,7 @@
     "split_supported": false,
     "data_type": "raw"
   },
-  "cache": {"enabled": true, "strategy": "content_hash"},
+  "compute_cost": "moderate",
+  "output_footprint": "large",
   "ui": {"color": "#8B5CF6", "default_size": [190, 100], "preview_type": "ica"}
 }

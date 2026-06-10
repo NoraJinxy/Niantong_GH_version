@@ -66,6 +66,7 @@
     "split_supported": false,
     "data_type": "filtered_raw"
   },
-  "cache": {"enabled": true, "strategy": "content_hash"},
+  "compute_cost": "moderate",
+  "output_footprint": "large",
   "ui": {"color": "#00A5A8", "default_size": [200, 110], "preview_type": "time_series"}
 }

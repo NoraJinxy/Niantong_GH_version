@@ -669,8 +669,9 @@ class PipelineExecutor:
         node_spec: dict[str, Any],
         node_digest: str,
     ):
-        cache_config = node_spec.get("cache") if isinstance(node_spec, dict) else {}
-        if isinstance(cache_config, dict) and cache_config.get("enabled") is False:
+        from app.pipeline.cache_policy import is_cache_eligible
+
+        if not is_cache_eligible(node_spec):
             return None
         return PipelineCache(
             self.db, study, execution, job, topology=dict(self._topology)

@@ -37,6 +37,7 @@
     "split_supported": true,
     "data_type": "epochs"
   },
-  "cache": {"enabled": true, "strategy": "content_hash"},
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
   "ui": {"color": "#059669", "default_size": [190, 110], "preview_type": "epochs"}
 }

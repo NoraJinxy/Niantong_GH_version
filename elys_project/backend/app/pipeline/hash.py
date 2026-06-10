@@ -82,24 +82,22 @@ def node_hash(
     参与 hash 的字段:
       - node_type: 节点类型标识
       - backend.module + backend.function: 实际调用的 Python 函数（算法版本）
-      - cache: cache 配置（如 enabled / strategy）
       - params_digest: 用户参数（过滤了 hash=false 的 cosmetic 字段）
       - input_digest: 上游 data_info 的内容签名
 
     显式排除:
       - schema_version: spec 元数据版本，不影响算法行为
       - backend.save_descriptor / output_kind / supports_batch / interactive: 装饰字段
+      - cache / compute_cost / output_footprint: 缓存策略字段，不影响算法字节
       - save / ui: P0+ 的 metadata 渲染配置，不影响算法
     """
     node_spec = node_spec or {}
     backend = node_spec.get("backend") if isinstance(node_spec.get("backend"), dict) else {}
-    cache_cfg = node_spec.get("cache") if isinstance(node_spec.get("cache"), dict) else {}
     payload = {
         "version": HASH_VERSION,
         "node_type": node_type,
         "backend_module": (backend or {}).get("module"),
         "backend_function": (backend or {}).get("function"),
-        "cache": cache_cfg,
         "params_hash": params_digest,
         "input_hash": input_digest,
     }

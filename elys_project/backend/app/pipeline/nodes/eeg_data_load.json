@@ -56,6 +56,5 @@
     "supports_batch": true,
     "interactive": false
   },
-  "cache": {"enabled": true, "strategy": "content_hash"},
   "ui": {"color": "#2E6BFF", "default_size": [180, 90], "preview_type": "table"}
 }
