@@ -3,7 +3,7 @@
       <!-- ❶ Header -->
       <header class="page__header results-header">
         <div class="results-header__title">
-          <h1 class="page__title">派生数据</h1>
+          <h1 class="page__title">结果</h1>
           <p class="page__subtitle">
             这里列出本研究项里所有由工作流产出的数据。可以搜索、筛选、改名、加标签、改保存策略。
           </p>
@@ -49,7 +49,7 @@
       <section v-if="!selectedStudyId" class="empty results-empty-stage">
         <div class="empty__icon"><AppIcon name="figure" :size="26" /></div>
         <strong>先选择一个研究项</strong>
-        <p>派生数据按研究项组织。选择右上角的研究项就能浏览它产出的所有结果。</p>
+        <p>结果按研究项组织。选择右上角的研究项就能浏览它产出的所有结果。</p>
       </section>
 
       <template v-else>
@@ -243,7 +243,7 @@
             <!-- Empty: no data at all -->
             <div v-else-if="!datasets.length" class="results-empty-inline">
               <div class="results-empty-inline__icon"><AppIcon name="figure" :size="28" /></div>
-              <strong>这个研究项还没有派生数据</strong>
+              <strong>这个研究项还没有结果</strong>
               <p>执行一个工作流试试，输出结果会在这里汇总。</p>
               <RouterLink class="btn btn--primary btn--sm" :to="`/studies/${selectedStudyId}/workflow`">
                 <AppIcon name="pipeline" :size="14" />
@@ -254,7 +254,7 @@
             <!-- Empty: no match -->
             <div v-else-if="!filtered.length" class="results-empty-inline">
               <div class="results-empty-inline__icon"><AppIcon name="search" :size="28" /></div>
-              <strong>没有符合条件的派生数据</strong>
+              <strong>没有符合条件的结果</strong>
               <p>试着调整筛选条件，或清空当前筛选。</p>
               <button class="btn btn--sm" type="button" @click="resetFilters">重置筛选</button>
             </div>
@@ -451,7 +451,7 @@
             <!-- UI Phase (docs_v2/6-05) L3: 技术信息折叠 -->
             <TechnicalFold title="技术信息" hint="ID / 内部状态 / 存储路径">
               <dl>
-                <div><dt>派生数据 ID</dt><dd>{{ activeRow.id }}</dd></div>
+                <div><dt>结果 ID</dt><dd>{{ activeRow.id }}</dd></div>
                 <div v-if="activeRow.produced_by_execution_id"><dt>来源运行 ID</dt><dd>{{ activeRow.produced_by_execution_id }}</dd></div>
                 <div v-if="activeRow.produced_by_job_id"><dt>节点任务 ID</dt><dd>{{ activeRow.produced_by_job_id }}</dd></div>
                 <div v-if="activeRow.data_type"><dt>数据类型枚举</dt><dd>{{ activeRow.data_type }}</dd></div>
@@ -471,7 +471,7 @@
     <div v-if="bulkTagOpen" class="modal-overlay" @click.self="bulkTagOpen = false">
       <section class="bulk-tag-dialog" role="dialog">
         <header class="bulk-tag-dialog__head">
-          <strong>给 {{ selectedIds.size }} 条派生数据加标签</strong>
+          <strong>给 {{ selectedIds.size }} 条结果加标签</strong>
           <button class="btn btn--icon btn--ghost" type="button" @click="bulkTagOpen = false">×</button>
         </header>
         <p class="bulk-tag-dialog__hint">用逗号分隔多个标签，例如 <code>for-paper-1, 控制组</code></p>
@@ -708,7 +708,7 @@ async function reload() {
     datasets.value = res.data.study_outputs
   } catch (err) {
     datasets.value = []
-    error.value = describeError(err, '派生数据读取失败')
+    error.value = describeError(err, '结果读取失败')
   } finally {
     loading.value = false
   }

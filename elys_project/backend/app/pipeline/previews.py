@@ -107,7 +107,7 @@ def resolve_study_output_path(study: Any, derived: Any) -> Path:
     if not storage_path:
         raise StudyOutputPreviewError(
             "DERIVED_DATASET_STORAGE_PATH_EMPTY",
-            "派生数据集没有可解析的 storage_uri 或 logical_path。",
+            "结果没有可解析的 storage_uri 或 logical_path。",
             status_code=422,
         )
     path = Path(storage_path).expanduser()
@@ -122,7 +122,7 @@ def validate_study_output_file(path: Path, derived: Any) -> None:
     if not path.exists():
         raise StudyOutputPreviewError(
             "DERIVED_DATASET_FILE_MISSING",
-            f"派生数据集文件不存在: {path}",
+            f"结果文件不存在: {path}",
             status_code=404,
         )
 

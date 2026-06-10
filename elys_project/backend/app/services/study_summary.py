@@ -235,7 +235,7 @@ def serialize_mounts(db: Session, active_mounts: list[StudyDatasetMount]) -> lis
 
 
 def recent_study_outputs(db: Session, *, study: Study) -> list:
-    """最近 12 条非 deleted 派生数据集，复用 pipelines 路由的 study_output_to_response。"""
+    """最近 12 条非 deleted 结果，复用 pipelines 路由的 study_output_to_response。"""
     from app.routers.pipelines import study_output_to_response
 
     rows = (

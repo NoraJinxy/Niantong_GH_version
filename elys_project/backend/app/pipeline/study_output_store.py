@@ -1,5 +1,5 @@
 """
-Purpose: StudyOutputStore — Pipeline 节点产出的派生数据集统一登记与物理存储。
+Purpose: StudyOutputStore — Pipeline 节点产出的结果统一登记与物理存储。
 负责把节点写出的文件 / 目录 / JSON content-addressed 落到 `outputs/{sha256[0:2]}/{sha256}/`，
 同时在 `study_outputs` 表登记一行（产出来源、上游、BIDS 维度、retention 等）。
 

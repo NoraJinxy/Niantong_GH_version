@@ -62,7 +62,7 @@ class StudyOutput(Base):
             "retention_expires_at",
             postgresql_where=text("retention_expires_at IS NOT NULL"),
         ),
-        # Phase 1 (docs_v2/3-25): 生命周期索引（支持跨 Study 列出可引用的 published 派生数据）
+        # Phase 1 (docs_v2/3-25): 生命周期索引（支持跨 Study 列出可引用的 published 结果）
         Index("idx_study_output_lifecycle", "lifecycle_state"),
         Index(
             "idx_study_output_shared_published",
@@ -143,7 +143,7 @@ class StudyOutput(Base):
     cache_eligible = Column(Boolean, nullable=False, default=False)
     retention_expires_at = Column(DateTime)
 
-    # 派生数据生命周期, 继承自 upstream（与 DatasetVersion.state 同口径，2026-06-09 v2）
+    # 结果生命周期, 继承自 upstream（与 DatasetVersion.state 同口径，2026-06-09 v2）
     # unpublished = upstream 未发布 / 主研究项调试用, 跨研究项不可见
     # published   = upstream published 且 owner 升级后, 跨研究项可见
     # withdrawn   = upstream withdrawn 联动, 新引用禁止

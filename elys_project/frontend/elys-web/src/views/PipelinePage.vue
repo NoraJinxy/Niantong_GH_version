@@ -440,9 +440,9 @@
               <button class="button button--subtle" type="button" :disabled="artifactCleanupLoading" @click="cleanupCachedArtifacts">
                 清理缓存数据
               </button>
-              <small>当前运行产出的派生数据；可编辑名称、加标签、改保留方式。</small>
+              <small>当前运行产出的结果；可编辑名称、加标签、改保留方式。</small>
             </div>
-            <div v-if="!runArtifacts.length" class="state-text">本次运行还没有派生数据。</div>
+            <div v-if="!runArtifacts.length" class="state-text">本次运行还没有结果。</div>
             <article
               v-for="artifact in runArtifacts"
               :key="artifact.id"
@@ -2201,7 +2201,7 @@ const artifactPreviewMetrics = computed(() => buildArtifactPreviewMetrics(select
 const artifactPreviewEvents = computed(() => buildArtifactPreviewEvents(artifactPreviewSummary.value))
 const artifactPreviewCurves = computed(() => buildArtifactPreviewCurves(artifactPreviewSummary.value))
 const artifactPreviewTitle = computed(() => {
-  if (!selectedArtifactPreview.value) return '派生数据预览'
+  if (!selectedArtifactPreview.value) return '结果预览'
   return `${selectedArtifactPreview.value.data_type || 'derived'} · ${shortId(selectedArtifactPreview.value.study_output_id)}`
 })
 const artifactPreviewObserveTarget = computed(() => {
@@ -2220,7 +2220,7 @@ const runDialogSummary = computed(
   () => `${formatExecutionMode(executionMode.value)} · ${definition.value.graph.nodes.length} 节点`,
 )
 const executionDetailTabs: Array<{ key: ExecutionDetailTab; label: string }> = [
-  { key: 'artifacts', label: '派生数据' },
+  { key: 'artifacts', label: '结果' },
   { key: 'jobs', label: '节点任务' },
   { key: 'tasks', label: '任务' },
   { key: 'inputs', label: '输入' },
@@ -2774,7 +2774,7 @@ function resetArtifactPreview() {
   artifactPreviewError.value = ''
 }
 
-// 双击画布节点：若该节点本次运行产出了已保存的派生数据，则在弹出窗口查看其时域图
+// 双击画布节点：若该节点本次运行产出了已保存的结果，则在弹出窗口查看其时域图
 function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const studyId = selectedStudyId.value
   if (!studyId) return
@@ -2796,7 +2796,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const params = new URLSearchParams({
     study: studyId,
     dd: target.id,
-    name: target.display_name || target.data_type || '派生数据',
+    name: target.display_name || target.data_type || '结果',
     type: target.data_type || '',
   })
   // 用 <a target="_blank"> 模拟点链接 → 浏览器按"在新标签页打开"处理（可拖进标签栏并排），
@@ -4833,7 +4833,7 @@ async function commitDisplayName(artifact: StudyOutput) {
     runArtifacts.value = runArtifacts.value.map((item) =>
       item.id === artifact.id ? { ...item, display_name: res.data.display_name } : item,
     )
-    statusMessage.value = '派生数据名称已更新'
+    statusMessage.value = '结果名称已更新'
   } catch (error) {
     statusMessage.value = describeError(error, '改名失败')
   }
@@ -4902,7 +4902,7 @@ async function setArtifactRetentionAction(artifact: StudyOutput, action: Artifac
       statusMessage.value = artifactActionStatusText(action, updated)
     }
   } catch (error) {
-    statusMessage.value = describeError(error, '派生数据集操作失败')
+    statusMessage.value = describeError(error, '结果操作失败')
   } finally {
     delete artifactActionLoading[artifact.id]
   }
@@ -4945,9 +4945,9 @@ async function downloadArtifact(artifact: StudyOutput) {
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    statusMessage.value = `已下载派生数据：${shortId(artifact.id)}`
+    statusMessage.value = `已下载结果：${shortId(artifact.id)}`
   } catch (error) {
-    statusMessage.value = describeError(error, '派生数据下载失败')
+    statusMessage.value = describeError(error, '结果下载失败')
   } finally {
     delete artifactActionLoading[artifact.id]
   }
@@ -6387,7 +6387,7 @@ function describeError(error: unknown, fallback: string) {
   color: #6b5f95;
 }
 
-/* 派生数据行（Run 抽屉 派生数据 tab） */
+/* 结果行（Run 抽屉 结果 tab） */
 .derived-row {
   display: flex;
   flex-direction: column;

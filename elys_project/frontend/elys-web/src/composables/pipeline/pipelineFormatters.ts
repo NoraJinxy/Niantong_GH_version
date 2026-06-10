@@ -2,7 +2,7 @@
 //
 // 从 PipelinePage.vue 抽出的「纯函数」集合：只依赖入参与模块常量，
 // 不引用任何组件作用域状态（ref / reactive / computed）。供画布、执行详情、
-// 派生数据等多处复用，方便单测与后续拆分。
+// 结果等多处复用，方便单测与后续拆分。
 //
 // 颜色 / 阈值等模块常量统一来自 ./pipelineConstants（与原 PipelinePage 内的同名常量一致）。
 

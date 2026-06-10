@@ -35,7 +35,7 @@ class StudySummaryCounts(BaseModel):
     executions: int          # 全部运行数（含已结束）
     members: int             # study_members 行数（不含 owner）
     mounts: int              # active study_dataset_mounts 数
-    study_outputs: int    # 非 deleted 的派生数据集数
+    study_outputs: int    # 非 deleted 的结果数
 
 
 class StudySummaryPipeline(BaseModel):
@@ -74,4 +74,4 @@ class StudySummaryResponse(BaseModel):
     pipelines: list[StudySummaryPipeline]      # 最近 5 条，时间倒序
     executions: list[StudySummaryExecution]    # 最近 5 条，时间倒序
     mounts: list[StudyDatasetMountResponse]    # 现有 mount 序列化（含 dataset_asset / dataset_version）
-    study_outputs: list[StudyOutputResponse]  # 现有派生数据集序列化，最近 12 条
+    study_outputs: list[StudyOutputResponse]  # 现有结果序列化，最近 12 条

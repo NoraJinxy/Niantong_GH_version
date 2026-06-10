@@ -255,7 +255,7 @@ const xFactor = computed(() => (isContinuous.value ? 1 : 1000)) // 后端秒 →
 const xStep = computed(() => (isContinuous.value ? 0.5 : 50))
 const xPrec = computed(() => (isContinuous.value ? 3 : 0))
 
-const dataTypeLabel = computed(() => DATA_TYPE_LABELS[dataType.value] ?? (dataType.value || '派生数据'))
+const dataTypeLabel = computed(() => DATA_TYPE_LABELS[dataType.value] ?? (dataType.value || '结果'))
 const typeShort = computed(() => (dataType.value === 'evoked' ? 'ERP' : dataType.value.slice(0, 3).toUpperCase() || 'DD'))
 const typeColor = computed(() => (dataType.value === 'evoked' ? '#2E6BFF' : isContinuous.value ? '#0891B2' : '#8B5CF6'))
 const displayName = computed(() => nameHint || dataTypeLabel.value)
@@ -284,7 +284,7 @@ function toNum(v: number | string): number | null {
 // ---------- 拉取时域数据 ----------
 async function load() {
   if (!studyId || !datasetId) {
-    error.value = '缺少参数：需要 study 和 dd（派生数据 ID）。'
+    error.value = '缺少参数：需要 study 和 dd（结果 ID）。'
     loading.value = false
     return
   }
@@ -316,10 +316,10 @@ function describeError(err: unknown): string {
   const status = e?.response?.status
   const detail = e?.response?.data?.detail
   const serverMsg = typeof detail === 'string' ? detail : detail?.message
-  if (status === 404) return '该派生数据的文件不存在或已被清理（可能是未保留的中间结果）。'
+  if (status === 404) return '该结果的文件不存在或已被清理（可能是未保留的中间结果）。'
   if (status === 409) return '文件校验和与记录不一致，数据可能已损坏。'
   if (status === 400) return serverMsg || '该数据类型不支持时域曲线。'
-  if (status === 422) return serverMsg || '该派生数据缺少可解析的存储路径或为空。'
+  if (status === 422) return serverMsg || '该结果缺少可解析的存储路径或为空。'
   return serverMsg || '读取时域数据失败，请稍后重试。'
 }
 

@@ -1,5 +1,5 @@
 """
-Purpose: 从派生数据 FIF 读取时域信号供"时域查看器"按需拉取，覆盖
+Purpose: 从结果 FIF 读取时域信号供"时域查看器"按需拉取，覆盖
          raw / filtered_raw / ica_cleaned / epochs / evoked 五种类型。
          支持：时间窗 (tmin/tmax 秒)、段选择 (epochs 选 epoch / evoked 选 condition)、
          通道与采样点下采样。返回统一结构，前端按 data_type 渲染同一套时域图。

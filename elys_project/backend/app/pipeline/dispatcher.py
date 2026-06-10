@@ -353,7 +353,7 @@ class NodeDispatcher:
                 cleaned = run_apply_ica(raw, ica, params)
                 summary = summarize_raw(cleaned)
                 filename = self._derived_raw_filename(data_info, "clean", index)
-                # ICA Apply 的上游是 EEG input + ICA matrix 两条派生数据
+                # ICA Apply 的上游是 EEG input + ICA matrix 两条结果
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info, ica_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
                 artifact = study_output_store.save_file_from_writer(

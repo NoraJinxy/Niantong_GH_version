@@ -106,7 +106,7 @@ export const LAYOUT_LS_PREFIX = 'elys-pipeline-layout-'
 // LiteGraph 连线高亮 patch 标记（防止 HMR 重载时重复包装 prototype）。
 export const LINK_HIGHLIGHT_PATCH_MARK = '__elysLinkHighlightPatched__'
 
-/** 节点类型是否需要在画布上显示 save 图标 —— LoadData 是 source 节点没有派生数据。
+/** 节点类型是否需要在画布上显示 save 图标 —— LoadData 是 source 节点没有结果。
  *  Save 节点（eeg/output/save_result）在 P6 阶段已彻底删除，无需再排除。
  */
 export const NO_SAVE_ICON_NODE_TYPES = new Set<string>([

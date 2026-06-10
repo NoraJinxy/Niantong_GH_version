@@ -2898,19 +2898,19 @@ def list_study_outputs(
     include_deleted: bool = Query(default=False),
     include_cross_study: bool = Query(
         default=False,
-        description="Phase 3 (docs_v2/3-25): 列出其他 Study 已发布且共享的派生数据 (lifecycle_state='published' AND visibility='shared')",
+        description="Phase 3 (docs_v2/3-25): 列出其他 Study 已发布且共享的结果 (lifecycle_state='published' AND visibility='shared')",
     ),
     limit: int = Query(default=200, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """跨执行（Execution）列出研究项的派生数据集，支持多维筛选。用于 /results 页面。
+    """跨执行（Execution）列出研究项的结果，支持多维筛选。用于 /results 页面。
 
     Phase 3 (docs_v2/3-25):
-        include_cross_study=True 时,在本 Study 的派生数据之外,附加列出其他 Study
-        中 lifecycle_state='published' AND visibility='shared' 的派生数据,用于
-        新建 Pipeline 时选择跨 Study 的上游派生数据。
+        include_cross_study=True 时,在本 Study 的结果之外,附加列出其他 Study
+        中 lifecycle_state='published' AND visibility='shared' 的结果,用于
+        新建 Pipeline 时选择跨 Study 的上游结果。
     """
     from sqlalchemy import and_ as _and, or_ as _or
 
@@ -3048,7 +3048,7 @@ def batch_update_study_outputs(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "code": "DERIVED_DATASET_BATCH_NOT_FOUND",
-                "message": "部分派生数据集不存在",
+                "message": "部分结果不存在",
                 "missing_ids": missing,
             },
         )

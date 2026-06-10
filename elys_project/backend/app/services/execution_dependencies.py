@@ -24,7 +24,7 @@ class ArtifactDependencyError(Exception):
     def to_detail(self) -> dict[str, Any]:
         return {
             "code": "DERIVED_DATASET_HAS_DOWNSTREAM_DEPENDENCIES",
-            "message": "派生数据集已被下游 Execution 或节点输入引用，不能删除或清理。",
+            "message": "结果已被下游 Execution 或节点输入引用，不能删除或清理。",
             "study_output_id": self.artifact_id,
             "dependencies": self.blockers,
         }

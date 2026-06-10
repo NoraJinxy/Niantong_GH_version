@@ -77,13 +77,13 @@ export const pipelineApi = {
     api.get<PipelineJobListResponse>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs`),
 
   // === Derived Dataset 接口（替代旧 artifact 系列） ===
-  /** 某次运行的派生数据列表（替代旧 listRunArtifacts） */
+  /** 某次运行的结果列表（替代旧 listRunArtifacts） */
   listExecutionStudyOutputs: (studyId: string, executionId: string, includeDeleted = false) =>
     api.get<StudyOutputListResponse>(
       `/studies/${studyId}/pipeline-executions/${executionId}/outputs`,
       { params: { include_deleted: includeDeleted } },
     ),
-  /** 跨运行列出研究项的派生数据（/results 页面用） */
+  /** 跨运行列出研究项的结果（/results 页面用） */
   listStudyOutputs: (studyId: string, query: StudyOutputListQuery = {}) => {
     const params = new URLSearchParams()
     appendListParam(params, 'execution_ids', query.execution_ids)

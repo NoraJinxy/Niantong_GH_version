@@ -1,4 +1,4 @@
--- Purpose: 派生数据集与 Pipeline I/O — 由 Pipeline 节点产出的数据、文件派生关系、Run 输入快照与依赖。
+-- Purpose: 结果与 Pipeline I/O — 由 Pipeline 节点产出的数据、文件派生关系、Run 输入快照与依赖。
 -- Related: backend/app/models/study_output.py, backend/app/models/study.py 中的
 --          DatasetFileDerivation / PipelineExecutionInput / PipelineExecutionDependency。
 -- Notes: 依赖 03_datasets.sql (recordings/recording_versions/dataset_files) 和 04_pipelines.sql (pipeline_executions/jobs)。
@@ -6,7 +6,7 @@
 --        pipeline_execution_dependencies 等引用 study_outputs 的表。
 
 -- ============================================
--- 派生数据集（取代旧的 pipeline_artifacts + analysis_results）
+-- 结果（取代旧的 pipeline_artifacts + analysis_results）
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS study_outputs (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS study_outputs (
     cache_eligible           BOOLEAN NOT NULL DEFAULT false,
     retention_expires_at     TIMESTAMP,   -- 仅缓存行(keep=false)的 TTL；keep=true 恒为 NULL(永久保留)
 
-    -- 派生数据集生命周期（与 DatasetVersion.state 同口径，2026-06-09 v2）。继承 upstream 状态：
+    -- 结果生命周期（与 DatasetVersion.state 同口径，2026-06-09 v2）。继承 upstream 状态：
     --   upstream unpublished  → lifecycle_state=unpublished，跨研究项不可见
     --   upstream published    → 主研究项 owner 可手动升级到 published，跨研究项可见
     --   upstream withdrawn    → 联动 withdrawn，新引用禁止但旧引用保留
@@ -165,7 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_study_output_deleted ON study_outputs (study_id, 
 -- GC 清盘候选：已删除且未清盘的行，按 deleted_at 找超期项
 CREATE INDEX IF NOT EXISTS idx_study_output_purge_candidate ON study_outputs (deleted_at) WHERE deleted_at IS NOT NULL AND purged_at IS NULL;
 
--- Phase 1 (3-25): 派生数据生命周期索引（支持跨 Study 列出可引用的 published 派生数据）
+-- Phase 1 (3-25): 结果生命周期索引（支持跨 Study 列出可引用的 published 结果）
 CREATE INDEX IF NOT EXISTS idx_study_output_lifecycle ON study_outputs (lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_study_output_shared_published ON study_outputs (lifecycle_state, visibility) WHERE lifecycle_state = 'published' AND visibility = 'shared';
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_source ON dataset_file_derivations(source_file_id);

@@ -67,7 +67,7 @@
         </div>
       </section>
 
-      <!-- 工作流 / 运行 / 派生数据 -->
+      <!-- 工作流 / 运行 / 结果 -->
       <section class="study-card">
         <header class="study-card__head"><h3>工作流与运行</h3></header>
         <div class="study-workspace-lists">
@@ -108,9 +108,9 @@
         </div>
 
         <div class="study-mounted-list">
-          <span class="study-mounted-list__label">派生数据</span>
+          <span class="study-mounted-list__label">结果</span>
           <div v-if="!summary.study_outputs.length" class="study-inline-empty">
-            暂无派生数据，运行完成后在「结果」tab 汇总可预览或可固定的输出。
+            暂无结果，运行完成后在「结果」tab 汇总可预览或可固定的输出。
           </div>
           <div v-else class="study-compact-list">
             <article v-for="artifact in summary.study_outputs" :key="artifact.id" class="study-compact-item">
