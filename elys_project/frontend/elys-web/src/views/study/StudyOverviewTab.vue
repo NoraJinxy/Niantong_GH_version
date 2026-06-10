@@ -264,7 +264,7 @@ function executionModeLabel(mode: string) {
 }
 function retentionStatusLabel(artifact: { keep?: boolean; cache_eligible?: boolean; deleted_at?: string | null }) {
   if (artifact.deleted_at) return '已删除'
-  if (artifact.keep) return '保留'
+  if (artifact.keep) return '保存'
   if (artifact.cache_eligible) return '缓存'
   return '临时'
 }

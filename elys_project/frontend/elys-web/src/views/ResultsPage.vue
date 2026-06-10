@@ -5,7 +5,7 @@
         <div class="results-header__title">
           <h1 class="page__title">派生数据</h1>
           <p class="page__subtitle">
-            这里列出本研究项里所有由工作流产出的数据。可以搜索、筛选、改名、加标签、改保留策略。
+            这里列出本研究项里所有由工作流产出的数据。可以搜索、筛选、改名、加标签、改保存策略。
           </p>
         </div>
         <div class="results-header__actions">
@@ -54,7 +54,7 @@
 
       <template v-else>
         <!-- ❷ Summary Strip - 可点击筛选 -->
-        <section class="results-summary" aria-label="保留状态概览">
+        <section class="results-summary" aria-label="保存状态概览">
           <button
             v-for="card in summaryCards"
             :key="card.key"
@@ -210,9 +210,9 @@
               <div v-if="selectedIds.size" class="results-toolbar__bulk">
                 <span class="results-toolbar__selection">已选 {{ selectedIds.size }} 项</span>
                 <button class="btn btn--sm" type="button" @click="bulkSetKeep(true)">
-                  <AppIcon name="check" :size="12" />保留
+                  <AppIcon name="check" :size="12" />保存
                 </button>
-                <button class="btn btn--sm" type="button" @click="bulkSetKeep(false)">设为不保留</button>
+                <button class="btn btn--sm" type="button" @click="bulkSetKeep(false)">设为不保存</button>
                 <button class="btn btn--sm" type="button" @click="openBulkTagDialog">
                   <AppIcon name="plus" :size="12" />加标签
                 </button>
@@ -354,7 +354,7 @@
                 </template>
               </div>
               <div class="result-detail__retention">
-                <span class="result-detail__retention-label">保留</span>
+                <span class="result-detail__retention-label">保存</span>
                 <select
                   class="input input--sm"
                   :value="activeRow.keep ? 'keep' : 'discard'"
@@ -455,7 +455,7 @@
                 <div v-if="activeRow.produced_by_execution_id"><dt>来源运行 ID</dt><dd>{{ activeRow.produced_by_execution_id }}</dd></div>
                 <div v-if="activeRow.produced_by_job_id"><dt>节点任务 ID</dt><dd>{{ activeRow.produced_by_job_id }}</dd></div>
                 <div v-if="activeRow.data_type"><dt>数据类型枚举</dt><dd>{{ activeRow.data_type }}</dd></div>
-                <div><dt>保留</dt><dd>{{ activeRow.keep ? '是' : '否' }}</dd></div>
+                <div><dt>保存</dt><dd>{{ activeRow.keep ? '是' : '否' }}</dd></div>
                 <div><dt>系统缓存</dt><dd>{{ activeRow.cache_eligible ? '是' : '否' }}</dd></div>
                 <div v-if="activeRow.storage_uri"><dt>存储 URI</dt><dd>{{ activeRow.storage_uri }}</dd></div>
                 <div v-if="activeRow.sha256"><dt>SHA-256</dt><dd>{{ activeRow.sha256 }}</dd></div>
@@ -504,13 +504,17 @@ import type {
 type StatusFilter = 'all' | 'kept' | 'transient' | 'deleted'
 
 const keepOptions: Array<{ value: 'keep' | 'discard'; label: string }> = [
-  { value: 'keep', label: '保留' },
-  { value: 'discard', label: '不保留' },
+  { value: 'keep', label: '保存' },
+  { value: 'discard', label: '不保存' },
 ]
 
 const route = useRoute()
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
 const datasets = ref<StudyOutput[]>([])
+// 结果页只展示有意义的输出：保存 / 缓存 / 回收站；滤掉「纯临时」（不保存、系统也不缓存的跑完即清中间废料）
+const visibleDatasets = computed(() =>
+  datasets.value.filter((d) => d.keep || d.cache_eligible || Boolean(d.deleted_at)),
+)
 const loading = ref(false)
 const error = ref('')
 
@@ -520,7 +524,7 @@ type ResultsViewMode = 'list' | 'grid'
 const viewMode = ref<ResultsViewMode>('list')
 
 function countByType(typeName: string): number {
-  return datasets.value.filter((d) => d.data_type === typeName).length
+  return visibleDatasets.value.filter((d) => d.data_type === typeName).length
 }
 
 // 从 preview_json 里抽几个关键数字作占位预览描述
@@ -562,18 +566,18 @@ const copyHint = ref('')
 // === computed ===
 const activeRow = computed(() => datasets.value.find((d) => d.id === activeId.value) || null)
 
-const dataTypeOptions = computed(() => uniqueSorted(datasets.value.map((d) => d.data_type)))
-const subjectOptions = computed(() => uniqueSorted(datasets.value.map((d) => d.bids_subject_id || '').filter(Boolean)))
-const taskOptions = computed(() => uniqueSorted(datasets.value.map((d) => d.task || '').filter(Boolean)))
+const dataTypeOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.data_type)))
+const subjectOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.bids_subject_id || '').filter(Boolean)))
+const taskOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.task || '').filter(Boolean)))
 const tagOptions = computed(() => {
   const set = new Set<string>()
-  for (const d of datasets.value) for (const t of d.tags || []) set.add(t)
+  for (const d of visibleDatasets.value) for (const t of d.tags || []) set.add(t)
   return Array.from(set).sort()
 })
 
 const filtered = computed(() => {
   const q = searchText.value.trim().toLowerCase()
-  return datasets.value.filter((d) => {
+  return visibleDatasets.value.filter((d) => {
     if (filters.data_types.length && !filters.data_types.includes(d.data_type)) return false
     if (filters.bids_subject_ids.length && !filters.bids_subject_ids.includes(d.bids_subject_id || '')) return false
     if (filters.tasks.length && !filters.tasks.includes(d.task || '')) return false
@@ -610,7 +614,7 @@ const filtered = computed(() => {
 
 const summaryCards = computed(() => {
   let all = 0, kept = 0, transient = 0, deleted = 0
-  for (const d of datasets.value) {
+  for (const d of visibleDatasets.value) {
     all++
     if (d.deleted_at) deleted++
     else if (d.keep) kept++
@@ -618,8 +622,8 @@ const summaryCards = computed(() => {
   }
   return [
     { key: 'all', label: '总数', value: all, tone: 'neutral' },
-    { key: 'kept', label: '保留', value: kept, tone: 'success' },
-    { key: 'transient', label: '不保留', value: transient, tone: 'muted' },
+    { key: 'kept', label: '保存', value: kept, tone: 'success' },
+    { key: 'transient', label: '不保存', value: transient, tone: 'muted' },
     { key: 'deleted', label: '已删除', value: deleted, tone: 'danger' },
   ]
 })
@@ -826,7 +830,7 @@ async function setRowKeep(row: StudyOutput, keep: boolean) {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { keep })
     datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
   } catch (err) {
-    error.value = describeError(err, '保留设置修改失败')
+    error.value = describeError(err, '保存设置修改失败')
   }
 }
 
@@ -932,7 +936,7 @@ async function onCleanupAndClose() {
 
 async function onCleanup() {
   if (!selectedStudyId.value || cleanupLoading.value) return
-  if (!confirm('确认清理本研究项里所有不保留且已过期的输出吗？')) return
+  if (!confirm('确认清理本研究项里所有不保存且已过期的输出吗？')) return
   cleanupLoading.value = true
   try {
     await pipelineApi.cleanupStudyOutputs(selectedStudyId.value, {
@@ -992,7 +996,7 @@ function formatSize(value?: number | null): string {
 function retentionLabel(row: StudyOutput): string {
   if (row.purged_at) return '已清盘'
   if (row.deleted_at) return '已删除'
-  if (row.keep) return '保留'
+  if (row.keep) return '保存'
   if (row.cache_eligible) return '缓存'
   return '临时'
 }

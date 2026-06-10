@@ -55,7 +55,7 @@ const router = createRouter({
       path: '/studies/:studyId',
       component: () => import('@/views/study/StudyLayout.vue'),
       meta: { requiresAuth: true },
-      redirect: (to) => ({ name: 'StudyWorkflow', params: to.params }),
+      redirect: (to) => ({ name: 'StudyPipeline', params: to.params }),
       children: [
         {
           path: 'data',
@@ -64,10 +64,10 @@ const router = createRouter({
           meta: { requiresAuth: true, studyTab: 'data' },
         },
         {
-          path: 'workflow',
-          name: 'StudyWorkflow',
+          path: 'pipeline',
+          name: 'StudyPipeline',
           component: () => import('@/views/PipelinePage.vue'),
-          meta: { requiresAuth: true, studyTab: 'workflow' },
+          meta: { requiresAuth: true, studyTab: 'pipeline' },
         },
         {
           path: 'results',
@@ -86,7 +86,7 @@ const router = createRouter({
     },
     {
       path: '/pipeline',
-      redirect: (to) => redirectToStudyTab(to, 'StudyWorkflow'),
+      redirect: (to) => redirectToStudyTab(to, 'StudyPipeline'),
     },
     {
       path: '/results',

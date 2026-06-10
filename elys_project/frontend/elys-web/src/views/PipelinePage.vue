@@ -943,13 +943,16 @@
             <summary class="save-settings__head">
               <IconLine class="save-settings__icon" name="save" :size="14" />
               <span class="save-settings__title">保存设置</span>
-              <span
-                class="save-settings__role"
-                :class="retentionBadgeClass"
-                :title="retentionBadgeTitle"
-              >
-                {{ retentionBadgeText }}
-              </span>
+              <label class="save-settings__keep" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="selectedNodeKeep"
+                  :disabled="keepCheckboxDisabled"
+                  @change="onToggleKeep"
+                />
+                <span>保存</span>
+              </label>
+              <span v-if="isLeafNode" class="save-settings__hint" :title="keepLeafHint">· 必存</span>
             </summary>
 
             <div class="save-settings__body">
@@ -969,22 +972,6 @@
                 <small class="help-text">
                   预览：<code class="save-settings__preview">{{ previewDisplayName }}</code>
                 </small>
-              </label>
-
-              <!-- 保留策略 -->
-              <label class="field">
-                <span>保留策略</span>
-                <select
-                  class="control"
-                  :value="String(getSaveSetting('retention') ?? '')"
-                  @change="onSaveSettingInput('retention', $event)"
-                >
-                  <option value="">自动（按拓扑：{{ isLeafNode ? 'current' : 'cached' }}）</option>
-                  <option value="current">current — 永久保留</option>
-                  <option value="pinned">pinned — 钉住（不被清理任务删除）</option>
-                  <option value="cached">cached — 缓存 7 天</option>
-                  <option value="none">none — 不保留</option>
-                </select>
               </label>
 
               <!-- 标签 -->
@@ -1029,7 +1016,8 @@
                 />
               </div>
 
-              <!-- spec 元信息（只读，给用户参考） -->
+              <!-- 调试信息（只读元信息） -->
+              <div class="save-settings__meta-title">调试信息</div>
               <div class="save-settings__meta">
                 <div><span>step_label</span><code>{{ saveSpec.step_label || '—' }}</code></div>
                 <div><span>data_type</span><code>{{ saveSpec.data_type || '—' }}</code></div>
@@ -1560,27 +1548,18 @@ const reachableNodeIds = computed<Set<string>>(() => {
   return reachable
 })
 
-/**
- * 计算节点的"有效保留状态" —— 综合用户 override + 拓扑默认 + 可达性。
- * 返回 null = 不画保留胶囊；'current'/'pinned' = 画；'cached'/'none' = 不画。
- */
-function effectiveRetentionForNode(nodeId: string, nodeParams: Record<string, unknown> | undefined): string | null {
-  if (!reachableNodeIds.value.has(nodeId)) return null
-  const override = String((nodeParams?.retention as string | undefined) || '').trim().toLowerCase()
-  if (override === 'current' || override === 'pinned' || override === 'cached' || override === 'none') {
-    return override
-  }
-  // 留空：按拓扑默认 —— leaf=current, intermediate=cached
-  const links = definition.value.graph.links || []
-  const isLeaf = !links.some((link) => link.from?.node === nodeId)
-  return isLeaf ? 'current' : 'cached'
-}
+/** 叶子节点（最终输出）强制保留的提示文案。 */
+const keepLeafHint = '最终结果默认保存；不需要请直接删除该节点'
 
-/** 当前选中节点的有效保留状态（同 effectiveRetentionForNode，包装一层方便 template 引用）。 */
-const effectiveRetentionForSelected = computed<string | null>(() => {
-  const node = selectedNode.value
-  if (!node) return null
-  return effectiveRetentionForNode(node.id, node.params as Record<string, unknown> | undefined)
+/** 当前选中节点是否保留输出。
+ *  叶子节点（最终产出）强制保留；中间节点取 params.keep override，默认不保留。 */
+const selectedNodeKeep = computed<boolean>(() => {
+  if (isLeafNode.value) return true
+  const override = selectedNode.value?.params?.keep
+  if (typeof override === 'boolean') return override
+  if (override === 'true') return true
+  if (override === 'false') return false
+  return false
 })
 
 /** 节点拓扑前缀（leaf / intermediate / detached）。 */
@@ -1591,36 +1570,17 @@ const topologyLabel = computed<string>(() => {
   return isLeafNode.value ? 'leaf' : 'intermediate'
 })
 
-/** 保存设置折叠区右上角 badge 显示文本（综合拓扑 + 有效保留状态）。 */
-const retentionBadgeText = computed<string>(() => {
-  const topo = topologyLabel.value
-  if (topo === 'detached') return '未连数据源'
-  const retention = effectiveRetentionForSelected.value
-  if (retention === 'current') return `${topo} · 永久保留`
-  if (retention === 'pinned') return `${topo} · 钉住保留`
-  if (retention === 'cached') return `${topo} · 临时缓存`
-  if (retention === 'none') return `${topo} · 不保留`
-  return topo
-})
+/** keep checkbox 是否禁用：叶子节点强制保留、或未连数据源不产出。 */
+const keepCheckboxDisabled = computed<boolean>(() => isLeafNode.value || topologyLabel.value === 'detached')
 
-/** 保存设置折叠区右上角 badge 颜色样式。 */
-const retentionBadgeClass = computed<string>(() => {
-  const retention = effectiveRetentionForSelected.value
-  if (retention === 'current' || retention === 'pinned') return 'save-settings__role--leaf'
-  if (retention === 'none') return 'save-settings__role--none'
-  // cached / detached / 未知 → 中性灰
-  return 'save-settings__role--intermediate'
-})
-
-/** badge hover 提示。 */
-const retentionBadgeTitle = computed<string>(() => {
-  const retention = effectiveRetentionForSelected.value
-  if (retention === 'current') return '产物永久保留'
-  if (retention === 'pinned') return '产物钉住保留（不会被清理任务删除）'
-  if (retention === 'cached') return '产物短期缓存（默认 7 天后清理）'
-  if (retention === 'none') return '产物不保留（写入后立即可清理）'
-  return '节点未连接数据源，不会产出可保留的产物'
-})
+function onToggleKeep(event: Event) {
+  const node = selectedNode.value
+  if (!node || keepCheckboxDisabled.value) return
+  const checked = (event.target as HTMLInputElement).checked
+  node.params = { ...node.params, keep: checked }
+  updateLiteGraphNode(node)
+  markDirty()
+}
 // [Dead code 已清理] 旧 LoadData chip UI 相关 computed (loadDataSelectionMode/eligibleLoadDataDatasets/matchedLoadDataDatasets/loadData*Options 等) 已全部删除，
 // 筛选逻辑迁移到 LoadDataPanel.vue 组件内部。
 
@@ -5858,32 +5818,34 @@ function describeError(error: unknown, fallback: string) {
   flex: 1;
 }
 
-.save-settings__role {
-  font-size: 10px;
+.save-settings__keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  color: var(--c-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.save-settings__keep input {
+  cursor: pointer;
+}
+.save-settings__keep input:disabled {
+  cursor: not-allowed;
+}
+
+.save-settings__hint {
+  font-size: 10px;
+  color: var(--c-text-3);
   white-space: nowrap;
 }
 
-.save-settings__role--leaf {
-  color: #047857;
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.save-settings__role--intermediate {
-  color: #7c2d12;
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-/* retention=none / 节点未连数据源 — 中性灰 + 删除线状文字暗示"不保存" */
-.save-settings__role--none {
-  color: #64748b;
-  background: rgba(100, 116, 139, 0.08);
-  border-color: rgba(100, 116, 139, 0.3);
+.save-settings__meta-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-3);
+  margin-top: 2px;
 }
 
 .save-settings__body {

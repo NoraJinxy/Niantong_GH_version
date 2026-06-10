@@ -553,7 +553,7 @@ const primaryAction = computed<DashboardAction>(() => {
   if (activeExecutions.value.length) {
     return { label: '查看运行记录', to: '/studies', icon: 'clock' }
   }
-  return { label: '进入工作流', to: '/studies', icon: 'pipeline' }
+  return { label: '进入研究项', to: '/studies', icon: 'pipeline' }
 })
 
 // UI Phase (docs_v2/6-05) P1-1: 需要处理 警示横幅 — 仅在有阻塞事项时显示

@@ -1,19 +1,11 @@
 <template>
-  <!-- 版心对齐主页 .hero__inner(1200)：限宽 tab(数据/结果) 走 .page--narrow=1200；工作流 tab(isNarrow=false) 不限宽、仍是宽画布。--page-pad-x=0 与其余 live 页齐边。 -->
-  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="isNarrow" :style="{ '--content-w': '1200px', '--page-pad-x': '0px', '--page-pad-y': '8px' }">
-    <div class="study-layout" :class="{ 'study-layout--full': activeTab === 'workflow' }">
+  <!-- 三个 tab 一律全屏撑满（不限版心）；pipeline tab 画布额外吃满剩余高度。--page-pad-x=0 与其余 live 页齐边。 -->
+  <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="false" :style="{ '--page-pad-x': '0px', '--page-pad-y': '8px' }">
+    <div class="study-layout" :class="{ 'study-layout--full': activeTab === 'pipeline' }">
       <header class="study-layout__bar">
         <div class="study-layout__id">
           <RouterLink class="study-layout__crumb" :to="{ path: '/studies', query: { study: studyId } }">← 研究项列表</RouterLink>
           <h1>{{ study.currentStudy?.name || (study.loading ? '加载中…' : '研究项') }}</h1>
-          <span
-            v-if="study.currentStudy"
-            class="status-pill"
-            :class="statusPillClass(study.currentStudy.status)"
-          >
-            {{ statusLabel(study.currentStudy.status) }}
-          </span>
-          <code v-if="study.currentStudy">{{ study.currentStudy.code }}</code>
         </div>
 
         <nav class="study-tabs" role="tablist" aria-label="研究项视图">
@@ -52,7 +44,7 @@ import { useStudyStore } from '@/stores/study'
 // 3 个工作区 tab（概览已移到 /studies 列表页右栏）。默认落工作流。
 const STUDY_TABS = [
   { key: 'data', label: '数据', name: 'StudyData' },
-  { key: 'workflow', label: '工作流·运行', name: 'StudyWorkflow' },
+  { key: 'pipeline', label: '工作流', name: 'StudyPipeline' },
   { key: 'results', label: '结果', name: 'StudyResults' },
 ] as const
 
@@ -60,9 +52,7 @@ const route = useRoute()
 const study = useStudyStore()
 
 const studyId = computed(() => String(route.params.studyId || ''))
-const activeTab = computed(() => (route.meta.studyTab as string) || 'workflow')
-// 工作流是宽画布、不限版心；其余 tab 限宽（交给 WorkbenchShell 的 .page--narrow）
-const isNarrow = computed(() => activeTab.value !== 'workflow')
+const activeTab = computed(() => (route.meta.studyTab as string) || 'pipeline')
 
 // studyId 事实源 = URL 路径参数。容器负责把它写进 store 并拉详情，子页面只读 route.params。
 watch(
@@ -74,21 +64,6 @@ watch(
   },
   { immediate: true },
 )
-
-function statusLabel(status: string | null | undefined) {
-  const labels: Record<string, string> = {
-    active: '活跃',
-    archived: '已归档',
-    trashed: '回收站',
-    deleted: '已删除',
-  }
-  return status ? labels[status] || status : '未知'
-}
-function statusPillClass(status: string | null | undefined) {
-  if (status === 'active') return 'status-pill--success'
-  if (status === 'deleted' || status === 'trashed') return 'status-pill--danger'
-  return 'status-pill--muted'
-}
 </script>
 
 <style scoped>
@@ -96,6 +71,7 @@ function statusPillClass(status: string | null | undefined) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-left: 14px;
   color: var(--c-text);
 }
 /* 工作流 tab：容器吃满视口剩余高度、画布按 flex 填充，
@@ -176,28 +152,6 @@ function statusPillClass(status: string | null | undefined) {
 .study-tab.is-active {
   color: var(--c-primary);
   border-bottom-color: var(--c-primary);
-}
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--c-bg-tint);
-  color: var(--c-text-3);
-  font-size: 12px;
-  font-weight: 700;
-}
-.status-pill--success {
-  background: var(--c-success-soft);
-  color: var(--c-success);
-}
-.status-pill--muted {
-  background: var(--c-bg-tint);
-  color: var(--c-text-3);
-}
-.status-pill--danger {
-  background: var(--c-danger-soft);
-  color: var(--c-danger);
 }
 .alert {
   border-radius: 8px;
