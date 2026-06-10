@@ -58,10 +58,10 @@ Execution 运行时先写临时目录，成功后再原子发布为 Artifact。
 ```mermaid
 flowchart LR
   Temp[temp/] --> Hash[计算 sha256/content_hash]
-  Hash --> Publish[移动到 derived/{sha256[:2]}/{sha256}]
+  Hash --> Publish[移动到 outputs/{sha256[:2]}/{sha256}]
   Publish --> Derived[(study_outputs)]
   Derived --> Manifest[更新 execution_manifest.json]
-  Derived --> Status[current/pinned/cached]
+  Derived --> Status[keep / cache_eligible / TTL]
 ```
 
 规则：
@@ -70,33 +70,26 @@ flowchart LR
 - 正式输出必须有 `study_outputs` 记录。
 - 输出必须记录 `produced_by_execution_id`、`produced_by_job_id`、`file_role`、`data_type`、`storage_uri`、`sha256`。
 - 如果内容哈希已存在，可以复用已有文件，只新增新的引用记录。
-- 如果用户把某次结果设为当前结果，更新对应 current 标记。
+- 用户要长期保留某条输出，置 `keep=true`（永不自动清理）。
 
 ## 3. 输出保留状态
 
-输出（`study_outputs`，详见 [3-45](3-45-StudyOutput.md)）的 `retention_status` 六档：
+输出（`study_outputs`，详见 [3-45](3-45-StudyOutput.md)）的保留模型是三个正交维度（P3 三层解耦，替代旧 `retention_status` 五值状态机）：
 
-| 状态 | 含义 | 是否可物理清理 | 默认在哪里产生 |
-|---|---|---|---|
-| `temporary` | 临时预览 / 试跑输出 | 可以 | Execution 模式 = trial 时 |
-| `cached` | 可重算缓存 | 可以，但要保留重建信息 | 中间节点（Filter / ICA / Epoch / ERP）默认 + 7 天过期 |
-| `current` | 当前认可的工作流结果 | 不可以 | 被 Save 节点引用 / NodeSpec `save_output=true` |
-| `pinned` | 用户固定、报告引用、下游依赖 | 不可以 | 用户在 `/results` 页或 Execution 抽屉手动固定 |
-| `deleted` | 已隐藏，记录保留 | 已清理 | 用户隐藏或定时清理触发 |
-| `quarantined` | 伦理、合规或安全问题隔离 | 不提供普通访问 | 管理员标记 |
+| 维度 | 字段 | 含义 |
+|---|---|---|
+| 用户保留 | `keep` | true＝正式结果、永不自动清理；false＝交回系统按 TTL 管理 |
+| 系统缓存 | `cache_eligible` | P4 评分快照（计算贵、产物小才值得缓存），决定 keep=false 行的 TTL 档位 |
+| 回收站 | `deleted_at` / `purged_at` | 软删可恢复；GC 物理删盘后置 `purged_at`（终态，DB 行保留可追溯） |
 
-用户界面上不暴露"删除服务器文件"这种操作。应提供：
+TTL（`retention_expires_at`，仅 keep=false 行有值）口径：
 
-- 设为正式结果（current）
-- 固定结果（pinned）
-- 取消固定 → current
-- 清理可重算缓存
-- 隐藏结果（deleted，软删）
-- 管理员隔离
+- 产出时：缓存档 `now+7d`；临时档 `now`（登记即过期）。
+- 用户动作后（取消保留 / 回收站恢复）：缓存档 `now+7d`；非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保留 / 恢复」不会被下一轮每日 cleanup 立即软删。
 
-当前后端已提供统一 PATCH 入口 `PATCH /outputs/{id}` 改 `retention_status`；批量改走 `POST /outputs/batch-update`；hide 映射到 `deleted` 状态并写 `deleted_at`，但不物理删除文件；如果该 StudyOutput 已被下游 Execution 使用，会返回 409 和依赖详情。
+统一 PATCH 入口 `PATCH /outputs/{id}` 改 `keep` / `deleted`；批量改走 `POST /outputs/batch-update`。删除（deleted=true）先做下游依赖检查，被下游 Execution 引用则 409 并附依赖详情；恢复（deleted=false）对 GC 已清盘（`purged_at` 非空）的行 409 `OUTPUT_PURGED`（磁盘文件已删、恢复只会得到无文件的幽灵行）。
 
-清理任务 `study_output_cleanup` 跳过未到期 + 被下游依赖的项；只把命中条改 `retention_status='deleted'`，物理文件保留以便恢复。
+清理任务 `study_output_cleanup` 跳过未到期 + 被下游依赖的项；命中只置 `deleted_at`（软删进回收站），物理清盘由 GC（`study_output_gc`）在删除满 30 天后执行。
 
 ## 4. Execution Manifest 文件
 
@@ -152,7 +145,7 @@ Execution 创建时仍以 `pipeline_executions.definition_snapshot` 为事实源
 
 | 当前实现 | 标准设计中的位置 | 调整建议 |
 |---|---|---|
-| 旧 `pipeline_runs/{execution_id}/nodes/{node_id}` | `studies/{study_id}/executions` + `derived/{sha256[:2]}/{sha256}` | 旧输出兼容读取；新派生数据写入 Study content-addressed `derived/` 目录 |
+| 旧 `pipeline_runs/{execution_id}/nodes/{node_id}` | `studies/{study_id}/executions` + `derived/{sha256[:2]}/{sha256}` | 旧输出兼容读取；新结果写入 Study content-addressed `derived/` 目录 |
 | 旧 `storage_path` 字段 | `study_outputs.storage_uri` | 统一为 `storage_uri`，使用 `elys://studies/...` |
 | `checksum` | `sha256` | 新写入双写；旧字段继续兼容 |
 | `retention_status` | 输出保留状态 | 新 Artifact 默认 `current`，缓存复用可写 `cached`，清理任务处理 `temporary/cached` |

@@ -106,7 +106,7 @@ CREATE TABLE study_outputs (
 | `upstream_dataset_ids` | 直接上游派生 dataset id 列表（多个用于 ICA Apply 这种多输入节点） |
 | `upstream_recording_ids` | 最终回溯到的原始 recording id 列表 |
 
-**LoadData 不写 study_outputs 行**。所以一条派生数据的 `upstream_dataset_ids` 在"第一个处理节点"时是空数组，`upstream_recording_ids` 直接指向 `recordings.id`。详见 [4-40 §3](4-40-数据选择器与文件索引.md)。
+**LoadData 不写 study_outputs 行**。所以一条结果的 `upstream_dataset_ids` 在"第一个处理节点"时是空数组，`upstream_recording_ids` 直接指向 `recordings.id`。详见 [4-40 §3](4-40-数据选择器与文件索引.md)。
 
 ### 3.2 数据语义
 
@@ -147,28 +147,28 @@ CREATE TABLE study_outputs (
 | **系统缓存** | `cache_eligible` (bool) | 系统按 P4 存储优先评分（算力 vs 产物大小）自动判定是否值得缓存，与 `keep` 独立 |
 | **回收站** | `deleted_at` / `purged_at` | `deleted_at`＝软删（文件还在、可恢复）；`purged_at`＝GC 物理清盘磁盘文件后置位（DB 行保留可追溯） |
 
-`retention_expires_at`：仅 `keep=false` 的行有 TTL——值得缓存→7 天、不值得→立即过期。
+`retention_expires_at`：仅 `keep=false` 的行有 TTL。产出时：值得缓存→7 天、不值得→立即过期。用户动作后（取消保留 / 回收站恢复）重算：缓存档 7 天、非缓存行给 7 天宽限（`USER_ACTION_GRACE_DAYS`）——保证用户刚点的「不保留 / 恢复」不会被下一轮每日 cleanup 立即软删（口径函数 `save_settings.retention_expiry_after_user_action`）。
 
 **清理（软删，`study_output_cleanup`）**：回收 `keep=false AND retention_expires_at<now AND deleted_at IS NULL` 的项，跳过被下游 Execution 依赖的项（`execution_dependencies`，源码 `elys_project/backend/app/services/execution_dependencies.py`），命中项置 `deleted_at`（软删到回收站、文件保留）。
 
-**GC（物理清盘，`study_output_gc`）**：删 `deleted_at` 超 30 天的磁盘文件、置 `purged_at`；content-addressed 去重——同 `sha256` 仍有活跃（未删）行引用时保留物理文件、只标本行 purged。清理 + GC 由 celery beat 每天全局跑（`run_storage_maintenance`），也可手动触发。
+**GC（物理清盘，`study_output_gc`）**：删 `deleted_at` 超 30 天的磁盘文件、置 `purged_at`；content-addressed 去重——同 `sha256` 仍有活跃（未删）行引用时保留物理文件、只标本行 purged。清理 + GC 由 celery beat 每天全局跑（`run_storage_maintenance`），也可手动触发。已清盘的行**不可恢复**：PATCH 恢复（deleted=false）返回 409 `OUTPUT_PURGED`（磁盘文件已没了，恢复只会得到无文件的幽灵行），batch-update 同口径全量预检。
 
 ### 3.6 发布生命周期（`lifecycle_state` / `visibility`）
 
-除了上面管「留不留 / 缓存 / 回收」的保留三层，输出还有一根**自己的发布轴**，用来回答「这份产出能不能被本研究项之外的人看到 / 引用」。它和数据集本体（`DatasetAsset` / `DatasetVersion`）那套发布机制是**两码事、各管各的表**：本表这两列只描述派生数据自己的对外可见性。
+除了上面管「留不留 / 缓存 / 回收」的保留三层，输出还有一根**自己的发布轴**，用来回答「这份产出能不能被本研究项之外的人看到 / 引用」。它和数据集本体（`DatasetAsset` / `DatasetVersion`）那套发布机制是**两码事、各管各的表**：本表这两列只描述结果自己的对外可见性。
 
 | 字段 | 取值（CHECK） | 默认 | 含义 |
 |---|---|---|---|
 | `lifecycle_state` | `unpublished` / `published` / `withdrawn` | `unpublished` | 输出的发布状态。`unpublished`＝仅本研究项可见；`published`＝可跨研究项被看到 / 引用；`withdrawn`＝已下架，旧引用保留、禁新引用 |
 | `visibility` | `private` / `shared` | `private` | 可见范围。`private`＝仅本研究项；`shared`＝被授权的其他研究项可见。仅两档（无 `public`） |
 
-**继承上游状态**（产出时按其直接上游派生数据决定初值，对应 DDL 注释）：
+**继承上游状态**（产出时按其直接上游结果决定初值，对应 DDL 注释）：
 
 - 上游 `unpublished` → 本行 `lifecycle_state=unpublished`，跨研究项不可见。
 - 上游 `published` → 主研究项负责人可手动把本行升到 `published`，此后跨研究项可见。
 - 上游 `withdrawn` → 联动 `withdrawn`，禁止新引用、旧引用保留。
 
-> 说明：这两列是 §5 两个索引（`idx_study_output_lifecycle`、`idx_study_output_shared_published`）的依赖列，用于快速筛「已发布且共享」的派生数据。输出是否要跟随数据集本体 v2 的「发布≠分享、可见范围只升不降」一并调整（如取消「已发布＋共享」自动模型、补齐公开档），属**待确认项**，本页先如实记录代码现状（详见《数据集生命周期重构_综合报告》§3 P2）。
+> 说明：这两列是 §5 两个索引（`idx_study_output_lifecycle`、`idx_study_output_shared_published`）的依赖列，用于快速筛「已发布且共享」的结果。输出是否要跟随数据集本体 v2 的「发布≠分享、可见范围只升不降」一并调整（如取消「已发布＋共享」自动模型、补齐公开档），属**待确认项**，本页先如实记录代码现状（详见《数据集生命周期重构_综合报告》§3 P2）。
 
 ## 4. 关联表
 
@@ -200,23 +200,21 @@ CREATE INDEX idx_study_output_shared_published ON study_outputs (lifecycle_state
 
 跨 Execution 浏览的核心查询走 `idx_study_output_study` + 后端按 chip 过滤其它字段。
 
-## 6. Save 节点的角色
+## 6. 保存设置在派发阶段决定（Save 节点已取消）
 
-Save 节点不再写新文件，改为 **promote 上游 study_output**：
+没有独立的 Save 节点：每个处理节点的产物在派发（dispatch）阶段由 `apply_save_settings`（`backend/app/pipeline/save_settings.py`）一次性合成保存设置，随登记写入 `study_outputs` 行：
 
-1. 读取上游 study_output
-2. UPDATE：
-   - `keep` → `true`（清掉 `retention_expires_at`，永久保留）
-   - `display_name` 按用户模板渲染（支持 `{subject} {task} {condition} {data_type} {index}` 占位符）
-   - `tags` 默认合并模式（保留原标签 + 加新）
+1. **名字**：用户模板 > spec 默认模板 > 兜底 `{subject}_{task}_{node_title}`，渲染 BIDS 占位符（`{subject} {task} {session} {run} {condition}` 等），同名自动加 `(2)(3)` 后缀。
+2. **标签**：spec 的 `auto_tags` / `dynamic_tags` 与用户标签三路合并、保序去重。
+3. **保留**：`keep` 默认按拓扑角色（leaf=true / intermediate=false），节点参数 `keep` 可覆盖；`cache_eligible` 由 P4 评分自动判定；TTL 按 keep / cache_eligible 计算（口径见 §3.5）。
 
-详见 [5-20 §6](5-20-Pipeline工作流管理.md) Save NodeSpec 段、`backend/app/pipeline/save_settings.py`（`apply_save_settings`）和 `StudyOutputStore.save_promotion()`。
+产物落盘与登记走 `StudyOutputStore.save_file_from_writer` + `register`（content-addressed，同 `(study_id, sha256)` 活跃行复用不重插）。
 
 ## 7. API 总览
 
 | 端点 | 用途 |
 |---|---|
-| `GET /studies/{id}/pipeline-executions/{execution_id}/outputs` | 某次 Execution 的派生数据列表 |
+| `GET /studies/{id}/pipeline-executions/{execution_id}/outputs` | 某次 Execution 的结果列表 |
 | `GET /studies/{id}/outputs` | 跨 Execution 列出（`/results` 页面用）；支持 `run_ids / node_types / data_types / bids_subject_ids / sessions / tasks / conditions / tags / keep / include_deleted / limit / offset` 过滤 |
 | `GET /studies/{id}/outputs/{id}` | 单条详情 |
 | `PATCH /studies/{id}/outputs/{id}` | 统一修改 display_name / description / tags / `keep`（保留）/ `deleted`（软删 / 恢复）|
@@ -228,8 +226,8 @@ Save 节点不再写新文件，改为 **promote 上游 study_output**：
 
 ## 8. 前端入口
 
-- `/pipeline` 页 Execution 抽屉的"派生数据"tab —— 见当次 Execution 产出的数据
-- `/results` 页面 —— 跨 Execution 浏览整个研究项的派生数据，含 chip 多维筛选 + 批量动作 + 详情抽屉（来源链可视化）。详见 [6-00 §2](6-00-前端页面总览.md)
+- `/pipeline` 页 Execution 抽屉的"结果"tab —— 见当次 Execution 产出的数据
+- `/results` 页面 —— 跨 Execution 浏览整个研究项的结果，含 chip 多维筛选 + 批量动作 + 详情抽屉（来源链可视化）。详见 [6-00 §2](6-00-前端页面总览.md)
 
 ## 9. 相关页面
 

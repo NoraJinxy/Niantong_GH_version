@@ -37,7 +37,7 @@ Execution 不保存：
 - 可被后续编辑改变的 Pipeline 定义。
 - 必须永久保留的所有中间大文件。
 
-Execution 的 MVP 后端能力已经覆盖：`trial/analysis` 创建、输入快照、Job 记录、StudyOutput、Manifest、上下游依赖、cancel/retry、Task events/SSE 和派生数据语义操作。当前“部分接入”的主要原因是仍缺真实部署端到端验收、前端 SSE 客户端和 lineage 图形化体验。
+Execution 的 MVP 后端能力已经覆盖：`trial/analysis` 创建、输入快照、Job 记录、StudyOutput、Manifest、上下游依赖、cancel/retry、Task events/SSE 和结果语义操作。当前“部分接入”的主要原因是仍缺真实部署端到端验收、前端 SSE 客户端和 lineage 图形化体验。
 
 ## 2. 生命周期
 
@@ -226,7 +226,7 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 |---|---|
 | `execution` | 当前 Execution 摘要 |
 | `inputs` | 当前 Execution 的 `pipeline_execution_inputs` |
-| `study_outputs` | 当前 Execution 产生的全部派生数据，包括 `deleted` 状态 |
+| `study_outputs` | 当前 Execution 产生的全部结果，包括 `deleted` 状态 |
 | `upstream_executions` | 当前 Execution 显式依赖或输入快照引用的上游 Execution |
 | `downstream_executions` | 通过 `depends_on_execution_id` 或当前 StudyOutput 反向查到的下游 Execution |
 | `upstream_dependencies` | `pipeline_execution_dependencies.execution_id = 当前 Execution` |
@@ -254,22 +254,23 @@ Execution 输出进入 `study_outputs`（详见 [3-45](3-45-StudyOutput.md)）�
 | 语义 | `data_type` 枚举 + `subject_id` / `bids_subject_id` / `session` / `task` / `condition` |
 | 用户层 | `display_name` / `description` / `tags[]` |
 | 物理 | `storage_uri` / `logical_path` / `sha256` / `file_size` / `file_role` / `mime_type` |
-| 生命周期 | `retention_status` / `retention_expires_at` |
+| 保留 / 回收 | `keep` / `cache_eligible` / `retention_expires_at` / `deleted_at` / `purged_at` |
 | 预览 | `preview_json` |
 
-当前列表默认排除 `deleted`；预览和下载 deleted 派生数据返回 409。
+当前列表默认排除已删除行（`include_deleted` 可带出）；预览和下载已删除输出返回 409。
 
-派生数据语义操作合并为统一 PATCH：
+输出语义操作合并为统一 PATCH（keep 与 deleted 正交双轨）：
 
 | 操作 | API | 内部映射 | 规则 |
 |---|---|---|---|
-| 固定结果 | `PATCH /studies/{id}/outputs/{ds_id}` body `{retention_status: 'pinned'}` | `retention_status='pinned'` + 清 expires | 防止被清理任务处理 |
-| 设为正式 | `PATCH ... body {retention_status: 'current'}` | `retention_status='current'` | 不恢复已隐藏项 |
-| 隐藏 | `PATCH ... body {retention_status: 'deleted'}` | 写 `deleted_at` | 不物理删除；被下游依赖时 409 |
-| 改名/打标签 | `PATCH ... body {display_name, tags, description}` | UPDATE 对应字段 | 不影响 retention |
-| 批量同上 | `POST /studies/{id}/outputs/batch-update` | 多 ids + 同一组改动 | `/results` 页主要用 |
+| 保留 | `PATCH /studies/{id}/outputs/{ds_id}` body `{keep: true}` | `keep=true` + 清 `retention_expires_at` | 永不自动清理 |
+| 取消保留 | `PATCH ... body {keep: false}` | `keep=false` + 重算 TTL（缓存档 7 天 / 非缓存宽限 7 天） | 到期由每日 cleanup 软删进回收站 |
+| 删除（回收站） | `PATCH ... body {deleted: true}` | 写 `deleted_at` | 不物理删除；被下游依赖时 409 |
+| 恢复 | `PATCH ... body {deleted: false}` | 清 `deleted_at`，keep=false 行重算 TTL | GC 已清盘（`purged_at` 非空）的行 409 `OUTPUT_PURGED` |
+| 改名/打标签 | `PATCH ... body {display_name, tags, description}` | UPDATE 对应字段 | 不影响保留状态 |
+| 批量同上 | `POST /studies/{id}/outputs/batch-update` | 多 ids + 同一组改动 | 删除 / 恢复先全量预检（依赖 / purged），任一被挡整体 409 |
 
-所有操作都会写入 `audit_events`。`hide` 是产品语义上的"隐藏 / 逻辑删除"，不物理移除文件。
+所有操作都会写入 `audit_events`。删除是回收站语义的软删、不物理移除文件；物理清盘由 GC 在删除满 30 天后执行（置 `purged_at`、DB 行保留）。
 
 ## 7. 依赖管理
 
@@ -291,7 +292,7 @@ pipeline_execution_dependencies
 
 规则：
 
-- 被下游 Execution 使用的派生数据不能直接 hide / 物理清理
+- 被下游 Execution 使用的结果不能直接 hide / 物理清理
 - 如果输出可重算，可以标记 `deleted`，但必须保留 `produced_by_params + upstream_*` 重建信息
 - Execution detail 返回 dependencies；运行时由 `execution_dependencies.record_execution_artifact_dependencies()`（源码 `elys_project/backend/app/services/execution_dependencies.py`）自动写入
 
@@ -304,10 +305,10 @@ pipeline_execution_dependencies
 | Execution 记录 | 永久保留 |
 | 输入快照 | 永久保留 |
 | 参数和错误 | 永久保留 |
-| current / pinned 派生数据 | 保留 |
-| 被下游依赖的派生数据 | 保留 |
-| cached 中间派生数据 | 可清理（默认 7 天后过期）|
-| temporary 派生数据 | 可清理 |
+| current / pinned 结果 | 保留 |
+| 被下游依赖的结果 | 保留 |
+| cached 中间结果 | 可清理（默认 7 天后过期）|
+| temporary 结果 | 可清理 |
 | 失败 Execution 临时目录 | 可清理，但保留日志和错误 |
 
 用户操作不叫"删除文件"，而叫：
@@ -319,7 +320,7 @@ pipeline_execution_dependencies
 - 隐藏输出
 - 管理员隔离
 
-当前前端 Execution 抽屉的"派生数据"分栏支持：inline 改名 / 行内 tag 编辑 / 状态切换 / 下载；底部"清理 cached"按钮调 `/outputs/cleanup` 创建异步任务。**`/results` 跨 Execution 浏览页**提供更完整的批量动作 + lineage 视图（详见 [6-00](6-00-前端页面总览.md)）。
+当前前端 Execution 抽屉的"结果"分栏支持：inline 改名 / 行内 tag 编辑 / 状态切换 / 下载；底部"清理 cached"按钮调 `/outputs/cleanup` 创建异步任务。**`/results` 跨 Execution 浏览页**提供更完整的批量动作 + lineage 视图（详见 [6-00](6-00-前端页面总览.md)）。
 
 ## 9. API 和数据库实现
 
@@ -331,13 +332,13 @@ pipeline_execution_dependencies
 | Execution lineage | `GET /studies/{id}/pipeline-executions/{rid}/lineage`，graph node_type ∈ `execution / input / study_output` |
 | Execution cancel | `POST /studies/{id}/pipeline-executions/{rid}/cancel` |
 | Execution retry | `POST /studies/{id}/pipeline-executions/{rid}/retry` |
-| 单 Execution 派生数据列表 | `GET /studies/{id}/pipeline-executions/{rid}/outputs`（支持 `include_deleted`）|
-| 跨 Execution 派生数据列表 | `GET /studies/{id}/outputs`（含多维过滤 + limit/offset，详见 [3-45 §7](3-45-StudyOutput.md)）|
-| 派生数据详情 | `GET /studies/{id}/outputs/{ds_id}` |
-| 派生数据 PATCH | `PATCH /studies/{id}/outputs/{ds_id}` 统一改 display_name / tags / retention_status |
-| 派生数据批量改 | `POST /studies/{id}/outputs/batch-update` |
-| 派生数据预览 | `GET .../{ds_id}/preview`，deleted 返回 409 |
-| 派生数据下载 | `GET .../{ds_id}/download`，display_name 作为文件名 |
+| 单 Execution 结果列表 | `GET /studies/{id}/pipeline-executions/{rid}/outputs`（支持 `include_deleted`）|
+| 跨 Execution 结果列表 | `GET /studies/{id}/outputs`（含多维过滤 + limit/offset，详见 [3-45 §7](3-45-StudyOutput.md)）|
+| 结果详情 | `GET /studies/{id}/outputs/{ds_id}` |
+| 结果 PATCH | `PATCH /studies/{id}/outputs/{ds_id}` 统一改 display_name / tags / retention_status |
+| 结果批量改 | `POST /studies/{id}/outputs/batch-update` |
+| 结果预览 | `GET .../{ds_id}/preview`，deleted 返回 409 |
+| 结果下载 | `GET .../{ds_id}/download`，display_name 作为文件名 |
 | 清理任务 | `POST .../cleanup` 创建 `study_output_cleanup` 异步任务 |
 | Execution manifest | `GET /pipeline-executions/{rid}/manifest` |
 | Task 列表 | 支持状态枚举 |
@@ -346,7 +347,7 @@ pipeline_execution_dependencies
 | Task cancel | `POST /studies/{id}/tasks/{tid}/cancel` |
 | Task retry | `POST /studies/{id}/tasks/{tid}/retry` |
 
-前端 `PipelinePage.vue` 把 Execution 抽屉拆成 7 个 tab，**默认进派生数据**：派生数据 / 节点 / 任务 / 输入 / 摘要 / Manifest / Lineage。Manifest 和 Lineage 懒加载。
+前端 `PipelinePage.vue` 把 Execution 抽屉拆成 7 个 tab，**默认进结果**：结果 / 节点 / 任务 / 输入 / 摘要 / Manifest / Lineage。Manifest 和 Lineage 懒加载。
 
 ## 10. 后续实现任务
 
