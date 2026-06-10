@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS study_outputs (
     created_at               TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by               UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_at               TIMESTAMP NOT NULL DEFAULT NOW(),
-    deleted_at               TIMESTAMP
+    deleted_at               TIMESTAMP,
+    purged_at                TIMESTAMP   -- GC 物理清盘磁盘文件后置位；DB 行保留可追溯（仅文件没了）
 );
 
 COMMENT ON TABLE study_outputs IS
@@ -161,6 +162,8 @@ CREATE INDEX IF NOT EXISTS idx_study_output_tags ON study_outputs USING GIN (tag
 CREATE UNIQUE INDEX IF NOT EXISTS idx_study_output_sha256 ON study_outputs (study_id, sha256) WHERE sha256 IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_study_output_retention_expires ON study_outputs (retention_expires_at) WHERE retention_expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_study_output_deleted ON study_outputs (study_id, deleted_at) WHERE deleted_at IS NOT NULL;
+-- GC 清盘候选：已删除且未清盘的行，按 deleted_at 找超期项
+CREATE INDEX IF NOT EXISTS idx_study_output_purge_candidate ON study_outputs (deleted_at) WHERE deleted_at IS NOT NULL AND purged_at IS NULL;
 
 -- Phase 1 (3-25): 派生数据生命周期索引（支持跨 Study 列出可引用的 published 派生数据）
 CREATE INDEX IF NOT EXISTS idx_study_output_lifecycle ON study_outputs (lifecycle_state);

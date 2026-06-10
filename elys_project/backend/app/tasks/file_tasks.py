@@ -6,13 +6,15 @@ Related: app/routers/datasets.py, app/routers/pipelines.py, app/services/executi
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from celery.utils.log import get_task_logger
 
+from app.config import get_settings
 from app.database import SessionLocal
 from app.models import AsyncTask, DatasetAsset, DatasetFile, StudyOutput, Recording
 from app.services.execution_dependencies import artifact_dependency_blockers
@@ -48,6 +50,8 @@ def run_file_task(self, task_id: str) -> dict[str, Any]:
 
         if task.task_type == "study_output_cleanup":
             result = run_study_output_cleanup(db, task)
+        elif task.task_type == "study_output_gc":
+            result = run_study_output_gc(db, task)
         elif task.task_type == "raw_bids_build":
             result = run_raw_bids_build(db, task)
         elif task.task_type == "canonical_fif_rebuild":
@@ -110,15 +114,14 @@ def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
     dry_run = bool(payload.get("dry_run", False))
     limit = int(payload.get("limit") or 500)
     study_id = task.study_id
-    if not study_id:
-        raise ValueError("study_output_cleanup requires study_id")
 
     now = datetime.utcnow()
     query = db.query(StudyOutput).filter(
-        StudyOutput.study_id == study_id,
         StudyOutput.keep.is_(False),
         StudyOutput.deleted_at.is_(None),
     )
+    if study_id:
+        query = query.filter(StudyOutput.study_id == study_id)
     # 优先回收最早过期的；retention_expires_at 为空（理论上不该出现在 keep=false 行）排后
     query = query.order_by(
         StudyOutput.retention_expires_at.asc().nullslast(),
@@ -171,6 +174,135 @@ def run_study_output_cleanup(db, task: AsyncTask) -> dict[str, Any]:
         "cleaned": cleaned,
         "skipped": skipped,
     }
+
+
+GC_RETENTION_DAYS = 30
+
+
+def _delete_output_storage(output: Any) -> bool:
+    """物理删除一条 study_output 的磁盘文件 / 目录，返回是否真的删了。
+
+    content-addressed 路径 outputs/{sha[:2]}/{sha}/{name}；解析失败 / 文件不存在都安全返回 False。
+    """
+    storage_uri = getattr(output, "storage_uri", None)
+    if not storage_uri:
+        return False
+    try:
+        from app.services.storage import StorageService
+
+        study_id = str(getattr(output, "study_id", "") or "")
+        study_root = Path(get_settings().STUDIES_STORAGE_ROOT) / study_id
+        path = StorageService().resolve_path(str(storage_uri), study_id=study_id, study_root=study_root)
+    except Exception:
+        return False
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+            return True
+        if path.exists():
+            path.unlink()
+            return True
+    except OSError:
+        return False
+    return False
+
+
+def run_study_output_gc(db, task: AsyncTask) -> dict[str, Any]:
+    """GC 物理清盘：删除回收站里 deleted_at 超过保留期的输出磁盘文件，置 purged_at（DB 行保留可追溯）。
+
+    清盘条件：deleted_at IS NOT NULL AND deleted_at < now − retention_days AND purged_at IS NULL。
+    content-addressed 去重：同 sha256 仍有活跃（未删）行引用时，保留物理文件、只置本行 purged_at。
+    study_id 为空 → 全局清盘（celery beat 定时维护用）。
+    """
+    payload = task.payload_json or {}
+    dry_run = bool(payload.get("dry_run", False))
+    limit = int(payload.get("limit") or 500)
+    retention_days = int(payload.get("retention_days") or GC_RETENTION_DAYS)
+    study_id = task.study_id
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=retention_days)
+
+    query = db.query(StudyOutput).filter(
+        StudyOutput.deleted_at.isnot(None),
+        StudyOutput.deleted_at < cutoff,
+        StudyOutput.purged_at.is_(None),
+    )
+    if study_id:
+        query = query.filter(StudyOutput.study_id == study_id)
+    candidates = query.order_by(StudyOutput.deleted_at.asc()).limit(limit).all()
+
+    purged = []
+    file_deleted = 0
+    for output in candidates:
+        sha = getattr(output, "sha256", None)
+        file_kept_shared = False
+        if sha:
+            active = (
+                db.query(StudyOutput.id)
+                .filter(
+                    StudyOutput.study_id == output.study_id,
+                    StudyOutput.sha256 == sha,
+                    StudyOutput.deleted_at.is_(None),
+                )
+                .first()
+            )
+            file_kept_shared = active is not None
+        if not dry_run:
+            if not file_kept_shared and _delete_output_storage(output):
+                file_deleted += 1
+            output.purged_at = now
+            output.updated_at = now
+        purged.append(
+            {
+                "study_output_id": str(output.id),
+                "sha256": sha,
+                "file_kept_shared": file_kept_shared,
+            }
+        )
+
+    return {
+        "dry_run": dry_run,
+        "retention_days": retention_days,
+        "candidate_count": len(candidates),
+        "purged_count": len(purged),
+        "file_deleted_count": file_deleted,
+        "purged": purged,
+    }
+
+
+class _MaintenanceTask:
+    """run_storage_maintenance 用的轻量 task：直接喂给 run_study_output_cleanup / gc，
+    不经 AsyncTask DB 行（beat 全局维护无 study 上下文，study_id=None 表示全局）。"""
+
+    def __init__(self, study_id: str | None = None, payload_json: dict[str, Any] | None = None):
+        self.study_id = study_id
+        self.payload_json = payload_json or {}
+
+
+@celery_app.task(name="app.tasks.file_tasks.run_storage_maintenance")
+def run_storage_maintenance() -> dict[str, Any]:
+    """celery beat 定时维护入口：全局软删过期缓存(cleanup) + 物理清盘超期回收站(GC)。
+
+    study_id=None 表示全局；不经 AsyncTask 中转、直接跑并提交。
+    """
+    db = SessionLocal()
+    try:
+        cleanup_result = run_study_output_cleanup(db, _MaintenanceTask(payload_json={"limit": 2000}))
+        gc_result = run_study_output_gc(db, _MaintenanceTask(payload_json={"limit": 2000}))
+        db.commit()
+        logger.info(
+            "storage_maintenance done: cleaned=%s purged=%s file_deleted=%s",
+            cleanup_result["cleaned_count"],
+            gc_result["purged_count"],
+            gc_result["file_deleted_count"],
+        )
+        return {"cleanup": cleanup_result, "gc": gc_result}
+    except Exception:
+        db.rollback()
+        logger.exception("storage_maintenance failed")
+        raise
+    finally:
+        db.close()
 
 
 def run_raw_bids_build(db, task: AsyncTask) -> dict[str, Any]:

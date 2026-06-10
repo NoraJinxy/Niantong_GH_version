@@ -801,7 +801,7 @@ EOF
 
     cat > /etc/systemd/system/elys-worker.service << EOF
 [Unit]
-Description=Elys Celery Workflow Worker
+Description=Elys Celery Workflow Worker (内嵌 beat 定时调度器)
 After=network.target postgresql.service redis-server.service
 Requires=redis-server.service postgresql.service
 
@@ -811,7 +811,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${BACKEND_DIR}/.env
-ExecStart=${BACKEND_DIR}/venv/bin/celery -A app.tasks.celery_app:celery_app worker -Q ${CELERY_WORKFLOW_QUEUE} --loglevel=INFO
+ExecStart=${BACKEND_DIR}/venv/bin/celery -A app.tasks.celery_app:celery_app worker -B -s ${BACKEND_DIR}/celerybeat-schedule -Q ${CELERY_WORKFLOW_QUEUE} --loglevel=INFO
 Restart=always
 RestartSec=10
 StandardOutput=journal

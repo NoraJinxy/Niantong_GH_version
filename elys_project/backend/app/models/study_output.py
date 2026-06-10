@@ -76,6 +76,11 @@ class StudyOutput(Base):
             "deleted_at",
             postgresql_where=text("deleted_at IS NOT NULL"),
         ),
+        Index(
+            "idx_study_output_purge_candidate",
+            "deleted_at",
+            postgresql_where=text("deleted_at IS NOT NULL AND purged_at IS NULL"),
+        ),
     )
 
     # ---- Identity ----------------------------------------------------------
@@ -161,6 +166,8 @@ class StudyOutput(Base):
         onupdate=datetime.utcnow,
     )
     deleted_at = Column(DateTime)
+    # GC 物理清盘磁盘文件后置位；DB 行保留可追溯（仅文件没了、预览/下载不可用）
+    purged_at = Column(DateTime)
 
     # ---- Relationships -----------------------------------------------------
     study = relationship("Study", foreign_keys=[study_id])

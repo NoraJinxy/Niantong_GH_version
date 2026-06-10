@@ -43,4 +43,12 @@ celery_app.conf.update(
     timezone="UTC",
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        # 每天一次：全局软删过期缓存(cleanup) + 物理清盘超期回收站(GC)
+        # 需部署侧起 celery beat 进程（celery -A app.tasks.celery_app beat）才会触发
+        "storage-maintenance-daily": {
+            "task": "app.tasks.file_tasks.run_storage_maintenance",
+            "schedule": 24 * 60 * 60,
+        },
+    },
 )

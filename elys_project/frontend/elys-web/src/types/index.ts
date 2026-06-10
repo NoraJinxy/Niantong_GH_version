@@ -925,6 +925,8 @@ export interface StudyOutput {
   created_by?: string | null
   updated_at?: string | null
   deleted_at?: string | null
+  /** GC 物理清盘磁盘文件后置位；非空 = 文件已删、不可恢复/预览（DB 行仍留作追溯） */
+  purged_at?: string | null
 }
 
 export interface StudyOutputListResponse {

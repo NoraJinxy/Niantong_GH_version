@@ -128,7 +128,7 @@ RUN_CANCELLED_STATUS = "canceled"
 RUN_RETRYABLE_STATUSES = {"failed", "canceled"}
 TASK_CANCELABLE_STATUSES = {"queued", "running", "retrying"}
 TASK_RETRYABLE_STATUSES = {"failed", "canceled"}
-FILE_TASK_TYPES = {"study_output_cleanup", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}
+FILE_TASK_TYPES = {"study_output_cleanup", "study_output_gc", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}
 TASK_EVENT_STREAM_BATCH_LIMIT = 100
 TASK_EVENT_STREAM_POLL_INTERVAL_SECONDS = 1.0
 TASK_EVENT_STREAM_HEARTBEAT_SECONDS = 15.0
@@ -3097,6 +3097,37 @@ def create_study_output_cleanup_task(
     return create_and_dispatch_file_task(
         db,
         task_type="study_output_cleanup",
+        study_id=study.id,
+        resource_kind="study_study_outputs",
+        resource_id=None,
+        payload_json=payload_json,
+        current_user=current_user,
+    )
+
+
+@router.post(
+    "/studies/{study_id}/outputs/gc",
+    response_model=AsyncTaskResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_study_output_gc_task(
+    study_id: str,
+    payload: StudyOutputCleanupRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """输出 GC 物理清盘任务：删除回收站里 deleted_at 超期的磁盘文件、置 purged_at（DB 行保留）。"""
+    study = get_study_for_write(study_id, db, current_user)
+    payload = payload or StudyOutputCleanupRequest()
+    payload_json = {
+        "study_id": study.id,
+        "dry_run": payload.dry_run,
+        "limit": payload.limit,
+        "reason": payload.reason,
+    }
+    return create_and_dispatch_file_task(
+        db,
+        task_type="study_output_gc",
         study_id=study.id,
         resource_kind="study_study_outputs",
         resource_id=None,

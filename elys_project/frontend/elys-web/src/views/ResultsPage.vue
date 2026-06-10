@@ -372,8 +372,10 @@
                   v-else
                   class="btn btn--sm btn--ghost"
                   type="button"
+                  :disabled="!!activeRow.purged_at"
+                  :title="activeRow.purged_at ? '已物理清盘、文件不可恢复' : ''"
                   @click="setRowDeleted(activeRow, false)"
-                >恢复</button>
+                >{{ activeRow.purged_at ? '已清盘' : '恢复' }}</button>
               </div>
             </header>
 
@@ -988,6 +990,7 @@ function formatSize(value?: number | null): string {
 }
 
 function retentionLabel(row: StudyOutput): string {
+  if (row.purged_at) return '已清盘'
   if (row.deleted_at) return '已删除'
   if (row.keep) return '保留'
   if (row.cache_eligible) return '缓存'
@@ -995,6 +998,7 @@ function retentionLabel(row: StudyOutput): string {
 }
 
 function retentionBadgeClass(row: StudyOutput): string {
+  if (row.purged_at) return 'badge--muted'
   if (row.deleted_at) return 'badge--danger'
   if (row.keep) return 'badge--success'
   if (row.cache_eligible) return 'badge--outline'
