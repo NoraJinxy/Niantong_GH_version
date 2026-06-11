@@ -28,8 +28,9 @@ from app.services.storage import StorageService, StorageUriError
 
 BLOCKED_QA_STATUS = {"failed", "deleted", "rejected"}
 DEFAULT_QA_STATUS = "all"
-CANONICAL_LOAD_FILE_ROLE = "canonical_fif"
-SOURCE_LOAD_FILE_ROLES = ("raw_bids_data", "raw_source", "original_upload")
+CANONICAL_LOAD_FILE_ROLE = "fif"
+# 两层重构：raw_bids_data / raw_source 不再登记（raw_bids 降纯逻辑），源文件兜底只剩 original_upload（首选 fif）。
+SOURCE_LOAD_FILE_ROLES = ("original_upload",)
 EVENT_LABEL_COLUMNS = ("trial_type", "value", "type", "marker", "label")
 EVENT_LABEL_MAX_PER_DATASET = 64
 EVENT_LABEL_MAX_LENGTH = 80
@@ -330,14 +331,14 @@ def dataset_to_data_info(
         errors.append(
             PipelineValidationIssue(
                 code="LOAD_DATA_FIF_MISSING",
-                message=f"Recording {dataset.id} has no canonical_fif dataset_file or legacy fif_path. Import/convert it before using LoadData.",
+                message=f"Recording {dataset.id} has no fif dataset_file or legacy fif_path. Import/convert it before using LoadData.",
             )
         )
     elif require_fif and dataset_file is None and dataset.fif_path:
         warnings.append(
             PipelineValidationIssue(
                 code="LOAD_DATA_DATASET_FILE_INDEX_MISSING",
-                message=f"Recording {dataset.id} falls back to legacy fif_path because canonical_fif dataset_file is missing.",
+                message=f"Recording {dataset.id} falls back to legacy fif_path because fif dataset_file is missing.",
                 severity="warning",
             )
         )

@@ -182,10 +182,10 @@ def make_dataset_context(tmp_path: Path):
         recording_id=dataset_id,
         recording_version_id=upload_id,
         dataset_version_id=version_id,
-        file_role="canonical_fif",
+        file_role="fif",
         storage_uri=f"study://{study.id}/fifdata/sub-001_raw.fif",
         relative_path="fifdata/sub-001_raw.fif",
-        logical_path="derivatives/elys-canonical-fif/sub-001/sub-001_raw.fif",
+        logical_path="BIDSdata/sub-001/eeg/sub-001_eeg.fif",
         sha256="canonical-sha256",
         file_size=3,
         created_at=datetime.utcnow(),
@@ -229,7 +229,7 @@ def test_load_data_resolves_canonical_dataset_file_snapshot(tmp_path) -> None:
     assert resolved.dataset_count == 1
     data_info = resolved.data_infos[0]
     assert data_info.dataset_file_id == str(dataset_file.id)
-    assert data_info.file_role == "canonical_fif"
+    assert data_info.file_role == "fif"
     assert data_info.storage_uri == dataset_file.storage_uri
     assert data_info.logical_path == dataset_file.logical_path
     assert data_info.sha256 == "canonical-sha256"
@@ -317,7 +317,7 @@ def test_latest_dataset_file_uses_dataset_identity_not_current_study_study(monke
         db,
         study=study,
         dataset=dataset,
-        file_role="canonical_fif",
+        file_role="fif",
         current_upload_only=True,
     )
 
@@ -398,7 +398,7 @@ def test_prepare_execution_writes_dataset_file_snapshot_columns(tmp_path) -> Non
     input_rows = [record for record in db.added if isinstance(record, PipelineExecutionInput)]
     dataset_input = next(record for record in input_rows if record.input_kind == "dataset_file")
     assert dataset_input.dataset_file_id == dataset_file.id
-    assert dataset_input.file_role == "canonical_fif"
+    assert dataset_input.file_role == "fif"
     assert dataset_input.storage_uri == dataset_file.storage_uri
     assert dataset_input.logical_path == dataset_file.logical_path
     assert dataset_input.sha256 == "canonical-sha256"

@@ -432,7 +432,7 @@ class PipelineExecutor:
         dataset_id = self._uuid_or_none(data_info.get("dataset_id"))
         dataset_upload_id = self._uuid_or_none(data_info.get("current_upload_id"))
         storage_uri = data_info.get("storage_uri")
-        file_role = data_info.get("file_role") or "canonical_fif"
+        file_role = data_info.get("file_role") or "fif"
         if storage_uri:
             query = self.db.query(DatasetFile).filter(
                 DatasetFile.file_role == file_role,
@@ -461,8 +461,8 @@ class PipelineExecutor:
                 return found
 
         candidates = [
-            ("canonical_fif", data_info.get("fif_path")),
-            ("raw_source", data_info.get("source_path")),
+            ("fif", data_info.get("fif_path")),
+            ("original_upload", data_info.get("source_path")),
         ]
         for file_role, relative_path in candidates:
             if not relative_path:

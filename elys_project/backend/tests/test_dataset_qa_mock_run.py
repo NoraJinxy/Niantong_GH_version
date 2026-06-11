@@ -252,9 +252,9 @@ def install_dependency_stubs() -> None:
             self.status_code = status_code
 
     file_browser.FileAccessError = FileAccessError
-    file_browser.build_dataset_file_tree = lambda files, prefix="raw_bids": {
-        "name": prefix,
-        "path": prefix,
+    file_browser.build_dataset_file_tree = lambda files, prefix=None: {
+        "name": prefix or "",
+        "path": prefix or "",
         "kind": "directory",
         "children": [],
     }

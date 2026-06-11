@@ -458,7 +458,6 @@ interface ImportOutcome {
   recordingId: string
   datasetAssetId: string | null
   originalFileCount: number
-  rawBidsFileCount: number
   datasetFileCount: number
   canonicalFifGenerated: boolean
   responseMessage: string
@@ -1207,7 +1206,6 @@ function buildImportOutcome(response: RecordingUploadResponse, group: UploadGrou
     recordingId: recording?.id || '兼容记录',
     datasetAssetId: recording?.dataset_asset_id || null,
     originalFileCount: group.files.length,
-    rawBidsFileCount: 0,
     datasetFileCount: 0,
     canonicalFifGenerated: Boolean(recording?.fif_path),
     responseMessage: response.message || '已导入数据集工作版本',
@@ -1223,12 +1221,6 @@ function getOutcomeItems(outcome: ImportOutcome) {
     {
       label: 'original upload',
       value: `已登记 ${outcome.originalFileCount} 个原始文件`,
-    },
-    {
-      label: 'Raw BIDS',
-      value: outcome.rawBidsFileCount
-        ? `已登记 ${outcome.rawBidsFileCount} 个 raw_bids 文件`
-        : '当前上传响应未返回文件树，待 Dataset File API 查询',
     },
     {
       label: 'canonical FIF',

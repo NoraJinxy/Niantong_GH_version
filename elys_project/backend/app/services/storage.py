@@ -102,13 +102,11 @@ class StorageService:
                 return Path(resolved).expanduser().resolve(strict=False)
         return _safe_join(Path(self.settings.STUDIES_DIR), [identifier])
 
-    def dataset_version_root(self, dataset_asset_id: str, version: str) -> Path:
+    def dataset_asset_root(self, dataset_asset_id: str) -> Path:
+        # 2026-06-10 两层目录重构：URI 不再含 versions/{label} 段。
+        # asset 根下直接是 sourcedata/（asset 级共享）、BIDSdata/（working FIF）、ver{label}/（发布快照）。
         dataset_id = _safe_identifier(dataset_asset_id, "dataset_asset_id")
-        dataset_version = _safe_identifier(version, "dataset_version")
-        return _safe_join(
-            Path(self.settings.DATASETS_STORAGE_ROOT),
-            [dataset_id, "versions", dataset_version],
-        )
+        return _safe_join(Path(self.settings.DATASETS_STORAGE_ROOT), [dataset_id])
 
     def study_root(self, study_id: str) -> Path:
         identifier = _safe_identifier(study_id, "study_id")
@@ -138,14 +136,15 @@ class StorageService:
         )
 
     def _resolve_dataset_uri(self, uri: str, parsed) -> StorageReference:
+        # 新方案：elys://datasets/{dataset_asset_id}/{logical_path}
+        # logical_path 形如 sourcedata/original_uploads/... 或 BIDSdata/sub-/ses-/eeg/... 或 ver{label}/...
         parts = _safe_logical_parts(_uri_path_to_relative(parsed.path))
-        if len(parts) < 3 or parts[1] != "versions":
-            raise StorageUriError("Dataset URI must be elys://datasets/{dataset_asset_id}/versions/{version}/{path}.")
+        if len(parts) < 1:
+            raise StorageUriError("Dataset URI must be elys://datasets/{dataset_asset_id}/{path}.")
 
         dataset_asset_id = _safe_identifier(parts[0], "dataset_asset_id")
-        dataset_version = _safe_identifier(parts[2], "dataset_version")
-        logical_parts = parts[3:]
-        root = self.dataset_version_root(dataset_asset_id, dataset_version)
+        logical_parts = parts[1:]
+        root = self.dataset_asset_root(dataset_asset_id)
         path = _safe_join(root, logical_parts)
         return StorageReference(
             uri=uri,
@@ -155,7 +154,7 @@ class StorageService:
             path=path,
             relative_path="/".join(logical_parts),
             dataset_asset_id=dataset_asset_id,
-            dataset_version=dataset_version,
+            dataset_version=None,
         )
 
     def _resolve_study_uri(self, uri: str, parsed) -> StorageReference:

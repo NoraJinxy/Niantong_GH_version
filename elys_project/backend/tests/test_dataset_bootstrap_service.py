@@ -175,7 +175,7 @@ def test_bootstrap_dataset_create_mode_creates_asset_version_study_mount_and_nex
 
     assert result.dataset_asset.code == "demo-dataset"
     assert result.dataset_version.version_label == "working"
-    assert result.dataset_version.storage_uri == f"elys://datasets/{result.dataset_asset.id}/versions/working"
+    assert result.dataset_version.storage_uri == f"elys://datasets/{result.dataset_asset.id}/BIDSdata"
     assert result.study.code == "demo-study"
     assert result.mount.study_id == result.study.id
     assert result.mount.dataset_asset_id == result.dataset_asset.id

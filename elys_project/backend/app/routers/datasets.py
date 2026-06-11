@@ -164,13 +164,10 @@ ADVANCED_EXTENSIONS = {
 }
 WORKING_DATASET_VERSION_LABEL = "working"
 DATASET_ORIGINAL_UPLOADS_PREFIX = "sourcedata/original_uploads"
-DATASET_RAW_BIDS_PREFIX = "raw_bids"
-DATASET_CANONICAL_FIF_PREFIX = "derivatives/elys-canonical-fif"
-RAW_BIDS_SIDECAR_ROLES = {
-    "eeg": "raw_bids_eeg_json",
-    "channels": "raw_bids_channels",
-    "events": "raw_bids_events",
-}
+# 2026-06-10 两层目录重构：canonical FIF 物理落 BIDSdata/sub-/ses-/eeg/（working）或 ver{label}/...（发布），
+# 取代旧 derivatives/elys-canonical-fif/sub/ses/task/run/upload-NNN/。URI/目录不再含 versions/{label} 段。
+# raw_bids 不再是目录概念，降为纯逻辑索引（BIDS 实体映射查 recordings 表，原始文件位置查 original_upload 行）。
+DATASET_CANONICAL_FIF_PREFIX = "BIDSdata"
 
 
 class UploadItem(NamedTuple):
@@ -1030,15 +1027,26 @@ def build_fif_stem(
 def canonical_fif_logical_dir(
     bids_subject_id: str,
     session: str | None,
-    task: str | None,
-    run: str | None,
-    upload_seq: int,
 ) -> str:
+    # 两层重构：canonical FIF 物理目录 = BIDSdata/sub-/[ses-/]eeg（去掉旧 derivatives + task/run/upload 嵌套）。
+    # 同被试多 task 共享 eeg 目录，靠文件名 stem（含 task/run）区分；同 sub/ses/task/run 重传则覆盖。
     parts = [DATASET_CANONICAL_FIF_PREFIX, bids_subject_id]
     if session:
         parts.append(session)
-    parts.extend([task or "task-none", run or "run-none", f"upload-{upload_seq:03d}"])
+    parts.append("eeg")
     return normalize_storage_logical_path("/".join(parts))
+
+
+def build_canonical_fif_base_path_for_asset(
+    dataset_asset_id: uuid.UUID | str,
+    bids_subject_id: str,
+    session: str | None,
+    task: str | None,
+    run: str | None,
+) -> Path:
+    root = dataset_asset_root(dataset_asset_id)
+    logical_dir = canonical_fif_logical_dir(bids_subject_id, session)
+    return root / logical_dir / build_fif_stem(bids_subject_id, session, task, run)
 
 
 def build_canonical_fif_base_path(
@@ -1047,68 +1055,34 @@ def build_canonical_fif_base_path(
     session: str | None,
     task: str | None,
     run: str | None,
-    upload_seq: int,
 ) -> Path:
-    root = dataset_version_root(dataset_version.dataset_asset_id, dataset_version.version_label)
-    logical_dir = canonical_fif_logical_dir(bids_subject_id, session, task, run, upload_seq)
-    return root / logical_dir / build_fif_stem(bids_subject_id, session, task, run)
-
-
-def build_canonical_fif_base_path_for_asset(
-    dataset_asset: DatasetAsset,
-    bids_subject_id: str,
-    session: str | None,
-    task: str | None,
-    run: str | None,
-    upload_seq: int,
-    version_label: str = WORKING_DATASET_VERSION_LABEL,
-) -> Path:
-    root = dataset_version_root(dataset_asset.id, version_label)
-    logical_dir = canonical_fif_logical_dir(bids_subject_id, session, task, run, upload_seq)
-    return root / logical_dir / build_fif_stem(bids_subject_id, session, task, run)
-
-
-def make_canonical_fif_version_dir(
-    dataset_version: DatasetVersion,
-    bids_subject_id: str,
-    session: str | None,
-    task: str,
-    run: str | None,
-    upload_seq: int,
-) -> Path:
-    return build_canonical_fif_base_path(dataset_version, bids_subject_id, session, task, run, upload_seq).parent
-
-
-def make_canonical_fif_version_dir_for_asset(
-    dataset_asset: DatasetAsset,
-    bids_subject_id: str,
-    session: str | None,
-    task: str,
-    run: str | None,
-    upload_seq: int,
-) -> Path:
-    return build_canonical_fif_base_path_for_asset(dataset_asset, bids_subject_id, session, task, run, upload_seq).parent
+    return build_canonical_fif_base_path_for_asset(
+        dataset_version.dataset_asset_id, bids_subject_id, session, task, run
+    )
 
 
 def make_import_job_id() -> str:
     return f"import-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
 
 
-def dataset_version_storage_uri(dataset_asset_id: uuid.UUID | str, version_label: str = WORKING_DATASET_VERSION_LABEL) -> str:
-    return f"elys://datasets/{dataset_asset_id}/versions/{version_label}"
+def dataset_asset_root(dataset_asset_id: uuid.UUID | str) -> Path:
+    # 两层重构：asset 根，下含 sourcedata/（asset 级共享）、BIDSdata/（working FIF）、ver{label}/（发布快照）。
+    return Path(settings.DATASETS_STORAGE_ROOT) / str(dataset_asset_id)
 
 
-def dataset_version_root(dataset_asset_id: uuid.UUID | str, version_label: str = WORKING_DATASET_VERSION_LABEL) -> Path:
-    return Path(settings.DATASETS_STORAGE_ROOT) / str(dataset_asset_id) / "versions" / version_label
+def dataset_fif_root_uri(dataset_asset_id: uuid.UUID | str, version_label: str = WORKING_DATASET_VERSION_LABEL) -> str:
+    # 版本 FIF 根 URI（存 dataset_versions.storage_uri）。working→BIDSdata，发布→ver{label}。
+    prefix = DATASET_CANONICAL_FIF_PREFIX if version_label == WORKING_DATASET_VERSION_LABEL else f"ver{version_label}"
+    return f"elys://datasets/{dataset_asset_id}/{prefix}"
 
 
 def dataset_upload_logical_dir(upload_seq: int) -> str:
     return normalize_storage_logical_path(f"{DATASET_ORIGINAL_UPLOADS_PREFIX}/upload-{upload_seq:03d}")
 
 
-def dataset_storage_uri(dataset_asset_id: uuid.UUID | str, logical_path: str, version_label: str = WORKING_DATASET_VERSION_LABEL) -> str:
+def dataset_storage_uri(dataset_asset_id: uuid.UUID | str, logical_path: str) -> str:
     normalized = normalize_storage_logical_path(logical_path)
-    base = dataset_version_storage_uri(dataset_asset_id, version_label)
+    base = f"elys://datasets/{dataset_asset_id}"
     return f"{base}/{normalized}" if normalized else base
 
 
@@ -1128,108 +1102,20 @@ def get_or_create_working_dataset_version(
     )
     if version is not None:
         if not version.storage_uri:
-            version.storage_uri = dataset_version_storage_uri(dataset_asset.id)
+            version.storage_uri = dataset_fif_root_uri(dataset_asset.id)
             db.flush()
         return version
 
     version = DatasetVersion(
         dataset_asset_id=dataset_asset.id,
         version_label=WORKING_DATASET_VERSION_LABEL,
-        storage_uri=dataset_version_storage_uri(dataset_asset.id),
+        storage_uri=dataset_fif_root_uri(dataset_asset.id),
         metadata_json={"auto_created": True, "source": "upload"},
         created_by=current_user.id,
     )
     db.add(version)
     db.flush()
     return version
-
-
-def raw_bids_eeg_dir(bids_subject_id: str, session: str | None) -> str:
-    parts = [DATASET_RAW_BIDS_PREFIX, bids_subject_id]
-    if session:
-        parts.append(session)
-    parts.append("eeg")
-    return normalize_storage_logical_path("/".join(parts))
-
-
-def raw_bids_file_stem(
-    bids_subject_id: str,
-    session: str | None,
-    task: str | None,
-    run: str | None,
-) -> str:
-    return build_fif_stem(bids_subject_id, session, task, run)
-
-
-def raw_bids_data_logical_path(
-    source_path: Path,
-    *,
-    source_format: str,
-    bids_subject_id: str,
-    session: str | None,
-    task: str,
-    run: str | None,
-) -> str:
-    suffix = source_path.suffix.lower()
-    if source_format in {"EDF", "BDF"}:
-        suffix = ".edf" if source_format == "EDF" else ".bdf"
-    directory = raw_bids_eeg_dir(bids_subject_id, session)
-    stem = raw_bids_file_stem(bids_subject_id, session, task, run)
-    return normalize_storage_logical_path(f"{directory}/{stem}_eeg{suffix}")
-
-
-def raw_bids_sidecar_logical_path(
-    sidecar_key: str,
-    *,
-    bids_subject_id: str,
-    session: str | None,
-    task: str,
-    run: str | None,
-) -> str | None:
-    suffix_by_key = {
-        "eeg": "_eeg.json",
-        "channels": "_channels.tsv",
-        "events": "_events.tsv",
-    }
-    suffix = suffix_by_key.get(sidecar_key)
-    if suffix is None:
-        return None
-    directory = raw_bids_eeg_dir(bids_subject_id, session)
-    stem = raw_bids_file_stem(bids_subject_id, session, task, run)
-    return normalize_storage_logical_path(f"{directory}/{stem}{suffix}")
-
-
-def brainvision_component(path: Path) -> str | None:
-    suffix = path.suffix.lower()
-    return {
-        ".vhdr": "header",
-        ".eeg": "data",
-        ".vmrk": "marker",
-    }.get(suffix)
-
-
-def raw_bids_data_metadata(
-    *,
-    source_format: str,
-    source_path: Path,
-    storage_uri: str,
-    upload_seq: int,
-    is_primary: bool,
-) -> dict[str, Any]:
-    metadata = {
-        "view_kind": "raw_bids_logical",
-        "physical_storage_uri": storage_uri,
-        "source_format": source_format,
-        "is_primary": is_primary,
-        "extension": source_path.suffix.lower(),
-        "upload_seq": upload_seq,
-    }
-    if source_format == "BRAINVISION":
-        component = brainvision_component(source_path)
-        metadata["brainvision_component"] = component
-        metadata["requires_reference_rewrite"] = component in {"header", "marker"}
-        metadata["rewrite_status"] = "not_rewritten_logical_view"
-    return metadata
 
 
 def make_import_job_dir(
@@ -1242,7 +1128,7 @@ def make_import_job_dir(
     dataset_asset: DatasetAsset | None = None,
 ) -> Path:
     if dataset_asset is not None:
-        return dataset_version_root(dataset_asset.id) / dataset_upload_logical_dir(upload_seq)
+        return dataset_asset_root(dataset_asset.id) / dataset_upload_logical_dir(upload_seq)
 
     root = Path(study.data_root) / "source_uploads" / bids_subject_id
     if session:
@@ -1272,20 +1158,9 @@ def get_next_upload_seq(
     else:
         seq = 1
 
-    while (
-        make_import_job_dir(study, bids_subject_id, session, task, run, seq, dataset_asset=dataset_asset).exists()
-        or (
-            dataset_asset is not None
-            and make_canonical_fif_version_dir_for_asset(
-                dataset_asset,
-                bids_subject_id,
-                session,
-                task,
-                run,
-                seq,
-            ).exists()
-        )
-    ):
+    # 两层重构：canonical FIF 不再按 upload_seq 隔离（同 recording 重传覆盖 BIDSdata 内同名），
+    # upload_seq 只决定 sourcedata 批次目录，故只需看 sourcedata upload dir 是否已占用。
+    while make_import_job_dir(study, bids_subject_id, session, task, run, seq, dataset_asset=dataset_asset).exists():
         seq += 1
     return seq
 
@@ -1308,13 +1183,12 @@ def dataset_storage_reference_for_path(path: Path) -> tuple[str, str] | None:
         return None
 
     parts = PurePosixPath(relative_to_datasets_root).parts
-    if len(parts) < 3 or parts[1] != "versions":
+    if len(parts) < 2:
         return None
 
     dataset_asset_id = parts[0]
-    version_label = parts[2]
-    logical_path = normalize_storage_logical_path("/".join(parts[3:]))
-    return dataset_storage_uri(dataset_asset_id, logical_path, version_label), logical_path
+    logical_path = normalize_storage_logical_path("/".join(parts[1:]))
+    return dataset_storage_uri(dataset_asset_id, logical_path), logical_path
 
 
 def dataset_logical_path_from_storage_uri(storage_uri: str | None) -> str | None:
@@ -1323,15 +1197,15 @@ def dataset_logical_path_from_storage_uri(storage_uri: str | None) -> str | None
         return None
     without_scheme = text.removeprefix("elys://datasets/")
     parts = PurePosixPath(without_scheme).parts
-    if len(parts) < 3 or parts[1] != "versions":
+    if len(parts) < 2:
         return None
-    return normalize_storage_logical_path("/".join(parts[3:]))
+    return normalize_storage_logical_path("/".join(parts[1:]))
 
 
 def dataset_logical_path_for_version(dataset_version: DatasetVersion | None, path: Path) -> str | None:
     if dataset_version is None:
         return None
-    root = dataset_version_root(dataset_version.dataset_asset_id, dataset_version.version_label)
+    root = dataset_asset_root(dataset_version.dataset_asset_id)
     try:
         return normalize_storage_logical_path(path.resolve().relative_to(root.resolve()).as_posix())
     except ValueError:
@@ -1429,8 +1303,8 @@ def resolve_study_relative_path(study: Study, relative_path: str) -> Path:
     if normalized_text.startswith("elys://datasets/"):
         without_scheme = normalized_text.removeprefix("elys://datasets/")
         parts = PurePosixPath(without_scheme).parts
-        if len(parts) >= 3 and parts[1] == "versions":
-            return dataset_version_root(parts[0], parts[2]).joinpath(*parts[3:])
+        if len(parts) >= 1:
+            return dataset_asset_root(parts[0]).joinpath(*parts[1:])
     if normalized_text.startswith("study://"):
         without_scheme = normalized_text.removeprefix("study://")
         parts = PurePosixPath(without_scheme).parts
@@ -1542,8 +1416,7 @@ def create_dataset_file_records(
     run: str | None,
 ) -> list[DatasetFile]:
     records: list[DatasetFile] = []
-    primary_raw_bids_record: DatasetFile | None = None
-    raw_bids_sidecar_records: dict[str, DatasetFile] = {}
+    primary_original_record: DatasetFile | None = None
     canonical_fif_record: DatasetFile | None = None
     canonical_provenance_record: DatasetFile | None = None
     primary_resolved = primary_source.resolve()
@@ -1563,69 +1436,25 @@ def create_dataset_file_records(
             "extension": path.suffix.lower(),
             "upload_seq": upload_record.version_seq,
         }
-        records.append(
-            add_dataset_file_record(
-                db,
-                study=study,
-                dataset=dataset,
-                upload_record=upload_record,
-                dataset_version=dataset_version,
-                file_role="raw_source",
-                relative_path=relative_path,
-                storage_uri=storage_uri,
-                logical_path=logical_path,
-                absolute_path=path,
-                current_user=current_user,
-                metadata={**original_metadata, "compat_role": True, "standard_role": "original_upload"},
-            )
-        )
-        records.append(
-            add_dataset_file_record(
-                db,
-                study=study,
-                dataset=dataset,
-                upload_record=upload_record,
-                dataset_version=dataset_version,
-                file_role="original_upload",
-                relative_path=relative_path,
-                storage_uri=storage_uri,
-                logical_path=logical_path,
-                absolute_path=path,
-                current_user=current_user,
-                metadata=original_metadata,
-            )
-        )
-        raw_bids_logical_path = raw_bids_data_logical_path(
-            path,
-            source_format=source_format,
-            bids_subject_id=bids_subject_id,
-            session=session,
-            task=task,
-            run=run,
-        )
-        raw_bids_record = add_dataset_file_record(
+        # 两层重构：raw_bids 降为纯逻辑索引——不再登记 raw_source / raw_bids_data 冗余行。
+        # 原始文件只留 original_upload；BIDS 实体映射（sub/ses/task/run）查 recordings 表。
+        original_record = add_dataset_file_record(
             db,
             study=study,
             dataset=dataset,
             upload_record=upload_record,
             dataset_version=dataset_version,
-            file_role="raw_bids_data",
+            file_role="original_upload",
             relative_path=relative_path,
             storage_uri=storage_uri,
-            logical_path=raw_bids_logical_path,
+            logical_path=logical_path,
             absolute_path=path,
             current_user=current_user,
-            metadata=raw_bids_data_metadata(
-                source_format=source_format,
-                source_path=path,
-                storage_uri=storage_uri,
-                upload_seq=upload_record.version_seq,
-                is_primary=is_primary,
-            ),
+            metadata=original_metadata,
         )
-        records.append(raw_bids_record)
+        records.append(original_record)
         if is_primary:
-            primary_raw_bids_record = raw_bids_record
+            primary_original_record = original_record
 
     provenance = conversion.get("provenance") if isinstance(conversion.get("provenance"), dict) else {}
     conversion_params = provenance.get("ConversionParams") if isinstance(provenance.get("ConversionParams"), dict) else {}
@@ -1639,7 +1468,7 @@ def create_dataset_file_records(
             dataset=dataset,
             upload_record=upload_record,
             dataset_version=dataset_version,
-            file_role="canonical_fif",
+            file_role="fif",
             relative_path=canonical_fif_text,
             storage_uri=canonical_fif_storage_uri,
             logical_path=(
@@ -1668,7 +1497,7 @@ def create_dataset_file_records(
             dataset=dataset,
             upload_record=upload_record,
             dataset_version=dataset_version,
-            file_role="canonical_fif_provenance",
+            file_role="fif_provenance",
             relative_path=canonical_provenance_text,
             storage_uri=canonical_provenance_storage_uri,
             logical_path=(
@@ -1684,10 +1513,16 @@ def create_dataset_file_records(
         )
         records.append(canonical_provenance_record)
 
+    # 两层重构（§2.3）：BIDSdata FIF 同目录 sidecar 按类型登记独立 file_role（fif_eeg_json/fif_channels/fif_events），
+    # 取代旧泛化 "sidecar"。provenance 已单独登记为 fif_provenance，故在此跳过，避免重复行。
     canonical_sidecar_paths = (
         conversion.get("canonical_sidecar_paths") if isinstance(conversion.get("canonical_sidecar_paths"), dict) else {}
     )
+    FIF_SIDECAR_ROLES = {"eeg": "fif_eeg_json", "channels": "fif_channels", "events": "fif_events"}
     for sidecar_key, sidecar_path in sorted(canonical_sidecar_paths.items()):
+        sidecar_role = FIF_SIDECAR_ROLES.get(sidecar_key)
+        if sidecar_role is None:
+            continue
         records.append(
             add_dataset_file_record(
                 db,
@@ -1695,7 +1530,7 @@ def create_dataset_file_records(
                 dataset=dataset,
                 upload_record=upload_record,
                 dataset_version=dataset_version,
-                file_role="sidecar",
+                file_role=sidecar_role,
                 relative_path=str(sidecar_path),
                 logical_path=normalize_study_relative_path(str(sidecar_path)),
                 current_user=current_user,
@@ -1706,103 +1541,37 @@ def create_dataset_file_records(
                 },
             )
         )
-        raw_bids_role = RAW_BIDS_SIDECAR_ROLES.get(sidecar_key)
-        raw_bids_logical_path = raw_bids_sidecar_logical_path(
-            sidecar_key,
-            bids_subject_id=bids_subject_id,
-            session=session,
-            task=task,
-            run=run,
-        )
-        if raw_bids_role and raw_bids_logical_path:
-            raw_bids_physical_path = str(canonical_sidecar_paths.get(sidecar_key) or sidecar_path)
-            raw_bids_physical_storage_uri = (
-                raw_bids_physical_path
-                if is_storage_uri(raw_bids_physical_path)
-                else study_storage_uri(study, raw_bids_physical_path)
-            )
-            raw_bids_sidecar_record = add_dataset_file_record(
-                db,
-                study=study,
-                dataset=dataset,
-                upload_record=upload_record,
-                dataset_version=dataset_version,
-                file_role=raw_bids_role,
-                relative_path=raw_bids_physical_path,
-                storage_uri=raw_bids_physical_storage_uri,
-                logical_path=raw_bids_logical_path,
-                current_user=current_user,
-                metadata={
-                    "sidecar_key": sidecar_key,
-                    "view_kind": "raw_bids_logical",
-                    "physical_storage_uri": raw_bids_physical_storage_uri,
-                    "generated_by": "import.generate_canonical_fif",
-                    "source_role": "sidecar",
-                    "upload_seq": upload_record.version_seq,
-                },
-            )
-            records.append(raw_bids_sidecar_record)
-            raw_bids_sidecar_records[sidecar_key] = raw_bids_sidecar_record
 
     derivation_metadata = {
-        "SourceRawBIDS": provenance.get("SourceRawBIDS"),
-        "SourceEvents": provenance.get("SourceEvents"),
-        "SourceChannels": provenance.get("SourceChannels"),
+        # 两层重构：原 SourceRawBIDS（合成 raw_bids 路径）退役，溯源改记真实 BIDS 实体 + 原始上传位置。
+        "SourceBIDSEntities": provenance.get("SourceBIDSEntities"),
+        "SourceOriginalUpload": provenance.get("SourceOriginalUpload"),
         "SourceSHA256": provenance.get("SourceSHA256"),
         "GeneratedBy": provenance.get("GeneratedBy"),
         "canonical_fif_path": conversion.get("canonical_fif_path"),
         "canonical_provenance_path": conversion.get("canonical_provenance_path"),
         "upload_seq": upload_record.version_seq,
     }
-    if canonical_fif_record is not None and primary_raw_bids_record is not None:
+    if canonical_fif_record is not None and primary_original_record is not None:
         add_dataset_file_derivation_record(
             db,
             study=study,
-            source_file=primary_raw_bids_record,
+            source_file=primary_original_record,
             derived_file=canonical_fif_record,
             derivation_kind="canonical_fif",
             metadata=derivation_metadata,
             parameters=conversion_params,
         )
-    if canonical_provenance_record is not None and primary_raw_bids_record is not None:
+    if canonical_provenance_record is not None and primary_original_record is not None:
         add_dataset_file_derivation_record(
             db,
             study=study,
-            source_file=primary_raw_bids_record,
+            source_file=primary_original_record,
             derived_file=canonical_provenance_record,
             derivation_kind="canonical_fif_provenance",
             metadata=derivation_metadata,
             parameters=conversion_params,
         )
-    for sidecar_key, sidecar_record in raw_bids_sidecar_records.items():
-        if canonical_fif_record is not None:
-            add_dataset_file_derivation_record(
-                db,
-                study=study,
-                source_file=sidecar_record,
-                derived_file=canonical_fif_record,
-                derivation_kind=f"canonical_fif_{sidecar_key}",
-                metadata={
-                    **derivation_metadata,
-                    "sidecar_key": sidecar_key,
-                    "source_logical_path": sidecar_record.logical_path,
-                },
-                parameters=conversion_params,
-            )
-        if canonical_provenance_record is not None:
-            add_dataset_file_derivation_record(
-                db,
-                study=study,
-                source_file=sidecar_record,
-                derived_file=canonical_provenance_record,
-                derivation_kind=f"canonical_fif_provenance_{sidecar_key}",
-                metadata={
-                    **derivation_metadata,
-                    "sidecar_key": sidecar_key,
-                    "source_logical_path": sidecar_record.logical_path,
-                },
-                parameters=conversion_params,
-            )
 
     return records
 
@@ -1874,7 +1643,7 @@ def create_dataset_upload_record(
 
 def ensure_canonical_fif_targets_are_free(canonical_fif_base: Path) -> None:
     targets = [
-        canonical_fif_base.with_name(f"{canonical_fif_base.name}_raw.fif"),
+        canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.fif"),
         canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.json"),
         canonical_fif_base.with_name(f"{canonical_fif_base.name}_channels.tsv"),
         canonical_fif_base.with_name(f"{canonical_fif_base.name}_events.tsv"),
@@ -2020,7 +1789,8 @@ def generate_canonical_fif(
     # P2 (2026-06-10 Q3): 强制 PII 脱敏，必须在 raw.save() 之前 —— canonical FIF 出生即干净。
     anonymize_raw_for_import(raw)
     temp_dir = Path(tempfile.mkdtemp(prefix="fif-", dir=temp_root))
-    canonical_fif_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_raw.fif")
+    # Q6 (2026-06-10): canonical FIF 后缀统一 _eeg.fif（BIDS EEG modality 命名）。
+    canonical_fif_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.fif")
     canonical_eeg_json_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.json")
     canonical_channels_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_channels.tsv")
     canonical_events_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_events.tsv")
@@ -2037,12 +1807,8 @@ def generate_canonical_fif(
     committed = False
 
     try:
-        if canonical_version_dir.exists():
-            raise HTTPException(
-                status_code=409,
-                detail=f"canonical FIF 版本目录已存在: {relative_to_study(study, canonical_version_dir)}",
-            )
-
+        # 两层重构：BIDSdata/sub-/ses-/eeg 为同被试多 task 共享目录，存在是常态，不再 409；
+        # 同名文件（同 sub/ses/task/run 重传）在 commit 阶段逐个覆盖。
         sfreq = float(raw.info["sfreq"]) if raw.info.get("sfreq") else None
         n_times = int(raw.n_times) if getattr(raw, "n_times", None) is not None else None
         duration = float(n_times / sfreq) if sfreq and n_times is not None else None
@@ -2068,42 +1834,22 @@ def generate_canonical_fif(
         source_storage_uri = source_reference[0] if source_reference else study_storage_uri(study, relative_to_study(study, source_path))
         source_original_logical_path = source_reference[1] if source_reference else None
         source_sha256, source_size = compute_file_sha256(source_path)
-        source_raw_bids_logical_path = raw_bids_data_logical_path(
-            source_path,
-            source_format=source_format,
-            bids_subject_id=bids_subject_id,
-            session=session,
-            task=task_label,
-            run=run,
-        )
-        source_channels_logical_path = raw_bids_sidecar_logical_path(
-            "channels",
-            bids_subject_id=bids_subject_id,
-            session=session,
-            task=task_label,
-            run=run,
-        )
-        source_events_logical_path = raw_bids_sidecar_logical_path(
-            "events",
-            bids_subject_id=bids_subject_id,
-            session=session,
-            task=task_label,
-            run=run,
-        )
+        # 两层重构（§2.2）：raw_bids 降为纯逻辑索引，溯源不再合成 raw_bids/ 路径——
+        # BIDS 身份直接记四元组实体，原始文件位置记 original_upload（sourcedata）。
         provenance = {
             "importJobId": import_job_id,
             "sourceFormat": source_format,
-            "SourceRawBIDS": {
-                "logical_path": source_raw_bids_logical_path,
-                "storage_uri": source_storage_uri,
+            "SourceBIDSEntities": {
+                "subject": bids_subject_id,
+                "session": session,
+                "task": task_label,
+                "run": run,
             },
             "SourceOriginalUpload": {
                 "logical_path": source_original_logical_path,
                 "storage_uri": source_storage_uri,
                 "file_size": source_size,
             },
-            "SourceEvents": {"logical_path": source_events_logical_path},
-            "SourceChannels": {"logical_path": source_channels_logical_path},
             "SourceSHA256": source_sha256,
             "checksum": checksum,
             "sourceFiles": [relative_to_study(study, path) for path in archived_files],
@@ -2137,8 +1883,13 @@ def generate_canonical_fif(
         }
         temp_provenance_json.write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        canonical_version_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(temp_dir), str(canonical_version_dir))
+        # 逐文件落入共享 eeg 目录（不整目录 move，避免撞同被试其他 task 的文件）；同名则覆盖（重传）。
+        canonical_version_dir.mkdir(parents=True, exist_ok=True)
+        for _tmp in temp_targets:
+            _dest = canonical_version_dir / _tmp.name
+            if _dest.exists():
+                _dest.unlink()
+            shutil.move(str(_tmp), str(_dest))
         committed = True
 
         return {
@@ -2156,8 +1907,6 @@ def generate_canonical_fif(
             "duration_seconds": duration,
             "n_events": n_events,
             "provenance": provenance,
-            "source_raw_bids_logical_path": source_raw_bids_logical_path,
-            "source_raw_bids_storage_uri": source_storage_uri,
             "source_sha256": source_sha256,
             "qa_report": {
                 "import": provenance,
@@ -2177,8 +1926,8 @@ def generate_canonical_fif(
         close = getattr(raw, "close", None)
         if callable(close):
             close()
-        if not committed:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        # 文件已逐个 move 出 temp_dir（committed 时 temp_dir 已空；未 committed 时清半成品）——总是清理。
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @recording_router.get("", response_model=RecordingListResponse)
@@ -2435,11 +2184,12 @@ def list_dataset_asset_files(
 def get_dataset_asset_bids_tree(
     asset_id: uuid.UUID,
     version_label: str | None = None,
-    prefix: str = DATASET_RAW_BIDS_PREFIX,
+    prefix: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_system_permission(current_user, "data:read", "当前用户没有查看 Raw BIDS 文件树权限")
+    # 两层重构：raw_bids 视图下线，prefix 缺省 None = 展示全部逻辑路径（BIDSdata/ + sourcedata/）。
+    require_system_permission(current_user, "data:read", "当前用户没有查看数据集文件树权限")
     asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
@@ -2496,36 +2246,6 @@ def create_recording_import_task(
         resource_kind="dataset_asset" if asset else "study",
         resource_id=asset.id if asset else None,
         payload_json=payload_json,
-        current_user=current_user,
-    )
-
-
-@asset_router.post("/{asset_id}/raw-bids-build", response_model=AsyncTaskResponse, status_code=status.HTTP_201_CREATED)
-def create_raw_bids_build_task(
-    asset_id: uuid.UUID,
-    payload: DatasetAssetTaskRequest | None = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    require_system_permission(current_user, "data:write", "当前用户没有创建 Raw BIDS 构建任务权限")
-    asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
-    if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-    if not can_write_dataset_asset(asset, current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权写入该 Dataset 资产")
-    payload = payload or DatasetAssetTaskRequest()
-    return create_and_dispatch_file_task(
-        db,
-        task_type="raw_bids_build",
-        study_id=None,
-        resource_kind="dataset_asset",
-        resource_id=asset.id,
-        payload_json={
-            "dataset_asset_id": str(asset.id),
-            "version_label": payload.version_label,
-            "dry_run": payload.dry_run,
-            "parameters_json": payload.parameters_json,
-        },
         current_user=current_user,
     )
 
@@ -2864,7 +2584,7 @@ def delete_dataset_asset(
     db.commit()
 
     # 6) best-effort 清物理存储：资产存储根 = DATASETS_STORAGE_ROOT / {asset_id}
-    #    （dataset_bootstrap.dataset_version_root 的 .../versions/{label} 之父级）。
+    #    两层重构后该根下直接是 sourcedata/、BIDSdata/、ver{label}/，整根删即清掉全部版本物理文件。
     #    清理失败不回滚已提交的删除。
     try:
         storage_root = Path(settings.DATASETS_STORAGE_ROOT) / str(asset_id)
@@ -3291,7 +3011,6 @@ def materialize_recording_import(
         session_label,
         task_label,
         run_label,
-        upload_seq,
     )
     ensure_canonical_fif_targets_are_free(canonical_fif_base)
 

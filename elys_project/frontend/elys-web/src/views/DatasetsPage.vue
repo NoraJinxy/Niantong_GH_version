@@ -620,10 +620,6 @@
                   <dd>{{ selectedAssetFileStats.original }}</dd>
                 </div>
                 <div>
-                  <dt>BIDS 逻辑视图</dt>
-                  <dd>{{ selectedAssetFileStats.rawBids }}</dd>
-                </div>
-                <div>
                   <dt>标准 FIF 文件</dt>
                   <dd>{{ selectedAssetFileStats.canonicalFif }}</dd>
                 </div>
@@ -888,10 +884,6 @@
                 <div>
                   <span>原始上传</span>
                   <strong>{{ selectedAssetFileStats.original }}</strong>
-                </div>
-                <div>
-                  <span>BIDS 逻辑视图</span>
-                  <strong>{{ selectedAssetFileStats.rawBids }}</strong>
                 </div>
                 <div>
                   <span>标准 FIF</span>
@@ -1772,7 +1764,7 @@ const selectedAssetFileStats = computed(() => {
   return {
     total: files.length,
     original: countFilesByRole(files, ['original', 'upload', 'source']),
-    rawBids: countFilesByRole(files, ['raw', 'bids']),
+    // 两层重构：raw_bids 角色已下线（降纯逻辑），原「BIDS 逻辑视图」统计退役。canonicalFif 仍按 'fif' 子串匹配新角色。
     canonicalFif: countFilesByRole(files, ['canonical', 'fif']),
     totalSize: files.reduce((sum, file) => sum + (file.file_size || 0), 0),
   }

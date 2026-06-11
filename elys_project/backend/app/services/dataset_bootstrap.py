@@ -55,11 +55,15 @@ def _settings(settings_obj=None):
 
 
 def dataset_version_storage_uri(dataset_asset_id, version_label: str = WORKING_DATASET_VERSION_LABEL) -> str:
-    return f"elys://datasets/{dataset_asset_id}/versions/{version_label}"
+    # 2026-06-10 两层重构：working 版 FIF 根 = BIDSdata，发布版 = ver{label}（不再含 versions/ 段）。
+    prefix = "BIDSdata" if version_label == WORKING_DATASET_VERSION_LABEL else f"ver{version_label}"
+    return f"elys://datasets/{dataset_asset_id}/{prefix}"
 
 
 def dataset_version_root(dataset_asset_id, version_label: str = WORKING_DATASET_VERSION_LABEL, settings_obj=None) -> Path:
-    return Path(_settings(settings_obj).DATASETS_STORAGE_ROOT) / str(dataset_asset_id) / "versions" / version_label
+    # working FIF 区 = asset_root/BIDSdata；发布版 = asset_root/ver{label}。sourcedata 为 asset 级、另算。
+    prefix = "BIDSdata" if version_label == WORKING_DATASET_VERSION_LABEL else f"ver{version_label}"
+    return Path(_settings(settings_obj).DATASETS_STORAGE_ROOT) / str(dataset_asset_id) / prefix
 
 
 def ensure_dataset_version_storage(version: DatasetVersion, settings_obj=None) -> None:

@@ -47,7 +47,7 @@ from app.services.file_browser import (  # noqa: E402
 )
 
 
-def make_file_record(study_id: str, *, logical_path: str, relative_path: str, file_role: str = "raw_bids_eeg_json"):
+def make_file_record(study_id: str, *, logical_path: str, relative_path: str, file_role: str = "fif_eeg_json"):
     return SimpleNamespace(
         id=uuid.uuid4(),
         study_id=study_id,
@@ -71,7 +71,7 @@ def test_dataset_file_metadata_preview_and_download_name_hide_absolute_paths(tmp
     clear_lightweight_app_stubs()
     study_id = "202605000001"
     study_root = tmp_path / "study" / study_id
-    relative_path = "raw_bids/sub-001/eeg/sub-001_task-rest_eeg.json"
+    relative_path = "BIDSdata/sub-001/eeg/sub-001_task-rest_eeg.json"
     file_path = study_root / relative_path
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text('{"TaskName": "rest", "SamplingFrequency": 100}', encoding="utf-8")
@@ -92,20 +92,21 @@ def test_dataset_file_metadata_preview_and_download_name_hide_absolute_paths(tmp
     assert download_filename(file_record) == "sub-001_task-rest_eeg.json"
 
 
-def test_raw_bids_tree_uses_logical_paths_and_file_ids() -> None:
+def test_bidsdata_tree_uses_logical_paths_and_file_ids() -> None:
     clear_lightweight_app_stubs()
     study_id = "202605000001"
+    # 两层重构：BIDSdata/ 取代 raw_bids/ 作为 BIDS 风格逻辑树；sidecar 角色精简为 fif_*。
     eeg_json = make_file_record(
         study_id,
-        logical_path="raw_bids/sub-001/eeg/sub-001_task-rest_eeg.json",
+        logical_path="BIDSdata/sub-001/eeg/sub-001_task-rest_eeg.json",
         relative_path="uploads/sub-001_task-rest_eeg.json",
-        file_role="raw_bids_eeg_json",
+        file_role="fif_eeg_json",
     )
     channels = make_file_record(
         study_id,
-        logical_path="raw_bids/sub-001/eeg/sub-001_task-rest_channels.tsv",
+        logical_path="BIDSdata/sub-001/eeg/sub-001_task-rest_channels.tsv",
         relative_path="uploads/sub-001_task-rest_channels.tsv",
-        file_role="raw_bids_channels",
+        file_role="fif_channels",
     )
     original = make_file_record(
         study_id,
@@ -114,9 +115,9 @@ def test_raw_bids_tree_uses_logical_paths_and_file_ids() -> None:
         file_role="original_upload",
     )
 
-    tree = build_dataset_file_tree([original, channels, eeg_json], prefix="raw_bids")
+    tree = build_dataset_file_tree([original, channels, eeg_json], prefix="BIDSdata")
 
-    assert tree["path"] == "raw_bids"
+    assert tree["path"] == "BIDSdata"
     assert tree["children"][0]["name"] == "sub-001"
     eeg_dir = tree["children"][0]["children"][0]
     leaf_names = [item["name"] for item in eeg_dir["children"]]

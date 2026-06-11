@@ -101,12 +101,12 @@
 | `study_id` | 记录 origin/paired Study，不代表 Dataset File 的所有权 |
 | `recording_id` | 所属采集记录，非空 |
 | `recording_version_id` | 所属采集记录版本，非空 |
-| `dataset_version_id` | 关联发布版本（3-25），可空 |
-| `file_role` | 标准角色 `original_upload` · `raw_bids_data` · `raw_bids_eeg_json` · `raw_bids_channels` · `raw_bids_events` · `canonical_fif`；兼容角色 `raw_source` · `sidecar`（见 DDL `COMMENT ON COLUMN dataset_files.file_role`） |
-| `storage_uri` | 存储地址，如 `elys://datasets/...`，未来可映射 MinIO/S3 |
+| `dataset_version_id` | 关联发布版本（3-25），可空。2026-06-11 两层重构后语义＝「该物理文件诞生于哪个版本目录」（物理归属）；版本成员关系由清单表 `dataset_version_files` 承担（P3 实施） |
+| `file_role` | 标准角色（2026-06-11 精简）`original_upload` · `fif` · `fif_eeg_json` · `fif_channels` · `fif_events` · `fif_provenance`；raw_bids 降逻辑后不再登记 `raw_bids_*` / `raw_source`，`canonical_fif`→`fif`、`sidecar`→`fif_*`（见 DDL `COMMENT ON COLUMN dataset_files.file_role`） |
+| `storage_uri` | 存储地址 `elys://datasets/{asset_id}/{logical_path}`（去 `versions/` 段），未来可映射 MinIO/S3 |
 | `relative_path` | Dataset 内相对路径，非空 |
-| `logical_path` | Dataset 内部逻辑路径，如 `raw_bids/...` 或 `derivatives/elys-canonical-fif/...` |
-| `source_file_id` | 派生关系的源文件（如 canonical FIF 指向其 raw_source），自引用，可空 |
+| `logical_path` | Dataset 内部逻辑路径，如 `sourcedata/original_uploads/...` 或 `BIDSdata/sub-/ses-/eeg/...` |
+| `source_file_id` | 派生关系的源文件（如 canonical FIF 指向其 `original_upload`），自引用，可空 |
 | `file_size` / `sha256` / `mime_type` | 文件大小、校验值、文件类型 |
 | `metadata`（ORM 属性 `metadata_json`）| 文件角色细节、sidecar key、上传序号等 |
 | `created_by` / `created_at` | 创建信息 |

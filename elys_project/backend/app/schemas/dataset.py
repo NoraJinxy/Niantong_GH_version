@@ -493,5 +493,6 @@ class DatasetFileTreeNode(BaseModel):
 class DatasetFileTreeResponse(BaseModel):
     dataset_asset_id: str
     version_label: Optional[str] = None
-    prefix: str = "raw_bids"
+    # 两层重构：raw_bids 视图下线，prefix 缺省 None = 全部逻辑路径（BIDSdata/ + sourcedata/）。
+    prefix: Optional[str] = None
     tree: DatasetFileTreeNode

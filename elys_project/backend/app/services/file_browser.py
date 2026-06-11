@@ -98,7 +98,7 @@ def dataset_file_preview(file_record: Any, *, study: Any | None = None, max_byte
         preview_json = _preview_table(path, max_bytes=max_bytes, delimiter="\t" if extension == ".tsv" else ",")
     elif extension in {".txt", ".md", ".log"}:
         preview_json = _preview_text(path, max_bytes=max_bytes)
-    elif extension in FIF_EXTENSIONS or str(getattr(file_record, "file_role", "") or "") == "canonical_fif":
+    elif extension in FIF_EXTENSIONS or str(getattr(file_record, "file_role", "") or "") == "fif":
         preview_json = _preview_fif(path)
     elif isinstance(getattr(file_record, "metadata_json", None), dict) and getattr(file_record, "metadata_json"):
         preview_json = {
@@ -121,7 +121,8 @@ def dataset_file_preview(file_record: Any, *, study: Any | None = None, max_byte
     }
 
 
-def build_dataset_file_tree(files: list[Any], *, prefix: str | None = "raw_bids") -> dict[str, Any]:
+def build_dataset_file_tree(files: list[Any], *, prefix: str | None = None) -> dict[str, Any]:
+    # 两层重构：raw_bids 视图下线，默认不按前缀过滤、展示全部逻辑路径（BIDSdata / sourcedata）。
     root = {"name": prefix or "", "path": prefix or "", "kind": "directory", "children": []}
     prefix_text = _normalize_logical_path(prefix or "")
     for file_record in files:
@@ -239,7 +240,7 @@ def _preview_supported(file_record: Any, extension: str) -> bool:
     return (
         extension in TEXT_PREVIEW_EXTENSIONS
         or extension in FIF_EXTENSIONS
-        or str(getattr(file_record, "file_role", "") or "") == "canonical_fif"
+        or str(getattr(file_record, "file_role", "") or "") == "fif"
         or bool(getattr(file_record, "metadata_json", None))
     )
 

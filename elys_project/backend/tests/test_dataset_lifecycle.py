@@ -139,7 +139,7 @@ def make_draft_asset_and_version(*, owner: FakeUser, primary_study_id="study-001
         version_label="working",
         state="unpublished",
         qa_status="not_run",
-        storage_uri=f"elys://datasets/{asset.id}/versions/working",
+        storage_uri=f"elys://datasets/{asset.id}/BIDSdata",
         metadata_json={},
         created_by=owner.id,
     )

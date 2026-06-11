@@ -65,18 +65,19 @@ def test_study_uri_can_use_database_study_root_resolver(tmp_path: Path) -> None:
     assert ref.path == (legacy_root / "study-a" / "fifdata" / "sub-001" / "run-01_raw.fif").resolve()
 
 
-def test_dataset_uri_resolves_to_dataset_version_root(tmp_path: Path) -> None:
+def test_dataset_uri_resolves_to_dataset_asset_root(tmp_path: Path) -> None:
     service = StorageService(settings=make_settings(tmp_path))
 
+    # 两层重构：dataset URI = elys://datasets/{asset_id}/{logical_path}（无 versions/{label} 段）。
     ref = service.resolve_uri(
-        "elys://datasets/ds-000001/versions/working/raw_bids/sub-001/eeg/sub-001_task-rest_eeg.fif"
+        "elys://datasets/ds-000001/BIDSdata/sub-001/eeg/sub-001_task-rest_eeg.fif"
     )
 
     assert ref.namespace == "datasets"
     assert ref.dataset_asset_id == "ds-000001"
-    assert ref.dataset_version == "working"
-    assert ref.root == (tmp_path / "storage" / "datasets" / "ds-000001" / "versions" / "working").resolve()
-    assert ref.relative_path == "raw_bids/sub-001/eeg/sub-001_task-rest_eeg.fif"
+    assert ref.dataset_version is None
+    assert ref.root == (tmp_path / "storage" / "datasets" / "ds-000001").resolve()
+    assert ref.relative_path == "BIDSdata/sub-001/eeg/sub-001_task-rest_eeg.fif"
 
 
 def test_study_uri_resolves_to_study_root(tmp_path: Path) -> None:
@@ -103,7 +104,7 @@ def test_resolve_path_supports_legacy_study_relative_paths(tmp_path: Path) -> No
     [
         "study://202605000001/../outside.txt",
         "study://202605000001/%2e%2e/outside.txt",
-        "elys://datasets/ds-000001/versions/working/../../outside.txt",
+        "elys://datasets/ds-000001/BIDSdata/../../outside.txt",
         "elys://studies/st-202605000001/%2e%2e/outside.txt",
         "file:///tmp/outside.txt",
     ],

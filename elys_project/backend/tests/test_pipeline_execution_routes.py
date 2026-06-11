@@ -277,7 +277,7 @@ def test_async_task_retry_creates_file_task_and_dispatches_pipeline_execution_re
     segment = router_function_source("retry_async_task")
 
     assert 'TASK_RETRYABLE_STATUSES = {"failed", "canceled"}' in source
-    assert 'FILE_TASK_TYPES = {"study_output_cleanup", "study_output_gc", "dataset_import", "raw_bids_build", "canonical_fif_rebuild"}' in source
+    assert 'FILE_TASK_TYPES = {"study_output_cleanup", "study_output_gc", "dataset_import", "canonical_fif_rebuild"}' in source
     # pipeline_execution 类的 retry 内部转发到 retry_pipeline_execution，不再向前端抛 409 redirect。
     assert "is_pipeline_execution_task(task)" in segment
     assert "retry_pipeline_execution(" in segment

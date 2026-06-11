@@ -52,8 +52,6 @@ def run_file_task(self, task_id: str) -> dict[str, Any]:
             result = run_study_output_cleanup(db, task)
         elif task.task_type == "study_output_gc":
             result = run_study_output_gc(db, task)
-        elif task.task_type == "raw_bids_build":
-            result = run_raw_bids_build(db, task)
         elif task.task_type == "canonical_fif_rebuild":
             result = run_canonical_fif_rebuild(db, task)
         elif task.task_type == "dataset_import":
@@ -305,27 +303,6 @@ def run_storage_maintenance() -> dict[str, Any]:
         db.close()
 
 
-def run_raw_bids_build(db, task: AsyncTask) -> dict[str, Any]:
-    asset_id = _uuid_or_none((task.payload_json or {}).get("dataset_asset_id") or task.resource_id)
-    if asset_id is None:
-        raise ValueError("raw_bids_build requires dataset_asset_id")
-    asset = db.query(DatasetAsset).filter(DatasetAsset.id == asset_id).first()
-    if asset is None:
-        raise ValueError(f"Dataset asset not found: {asset_id}")
-    files = (
-        db.query(DatasetFile)
-        .join(Recording, DatasetFile.recording_id == Recording.id)
-        .filter(Recording.dataset_asset_id == asset.id, DatasetFile.logical_path.like("raw_bids/%"))
-        .all()
-    )
-    return {
-        "dataset_asset_id": str(asset.id),
-        "task_scope": "raw_bids_logical_view",
-        "raw_bids_file_count": len(files),
-        "message": "Raw BIDS logical view is already materialized in dataset_files; no file copy was needed.",
-    }
-
-
 def run_canonical_fif_rebuild(db, task: AsyncTask) -> dict[str, Any]:
     asset_id = _uuid_or_none((task.payload_json or {}).get("dataset_asset_id") or task.resource_id)
     if asset_id is None:
@@ -336,7 +313,7 @@ def run_canonical_fif_rebuild(db, task: AsyncTask) -> dict[str, Any]:
     canonical_files = (
         db.query(DatasetFile)
         .join(Recording, DatasetFile.recording_id == Recording.id)
-        .filter(Recording.dataset_asset_id == asset.id, DatasetFile.file_role == "canonical_fif")
+        .filter(Recording.dataset_asset_id == asset.id, DatasetFile.file_role == "fif")
         .all()
     )
     return {
