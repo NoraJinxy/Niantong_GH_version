@@ -1184,6 +1184,7 @@ import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
 import { usePipelineEditor } from '@/composables/pipeline/usePipelineEditor'
 import { useDraftPersistence } from '@/composables/pipeline/useDraftPersistence'
 import { useExecutionTasks } from '@/composables/pipeline/useExecutionTasks'
+import { usePipelineEditLock } from '@/composables/pipeline/usePipelineEditLock'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1338,9 +1339,22 @@ const displayNameDraft = ref('')
 const tagDrafts = reactive<Record<string, string>>({})
 const executionActionLoading = ref<'cancel' | 'retry' | ''>('')
 // 异步任务事件流（取消 / 重试 / 拉取事件）见 composables/pipeline/useExecutionTasks（解构见下方装配区）
-const pipelineEditLock = ref<PipelineEditLock | null>(null)
-const pipelineEditLockLoading = ref(false)
-const pipelineEditLockError = ref('')
+// 编辑锁（获取 / 续期 / 释放）见 composables/pipeline/usePipelineEditLock
+const {
+  pipelineEditLock,
+  pipelineEditLockLoading,
+  pipelineEditLockError,
+  pipelineEditLockSummary,
+  canUsePipelineEditLockActions,
+  acquirePipelineEditLock,
+  refreshPipelineEditLock,
+  releasePipelineEditLock,
+} = usePipelineEditLock({
+  selectedStudyId,
+  currentPipeline,
+  statusMessage,
+  describeError,
+})
 const executionDetailTab = ref<ExecutionDetailTab>('artifacts')
 const executionManifestLoading = ref(false)
 const executionManifestError = ref('')
@@ -1469,15 +1483,6 @@ const runLockSummary = computed(() => {
   if (!lockId) return '当前没有可显示的运行锁。'
   return `运行锁 ${shortId(String(lockId))}${expiresAt ? ` · 过期 ${formatDateTime(String(expiresAt))}` : ''}`
 })
-const pipelineEditLockSummary = computed(() => {
-  if (pipelineEditLockError.value) return pipelineEditLockError.value
-  if (!currentPipeline.value) return '保存工作流后可获取编辑锁。'
-  if (!pipelineEditLock.value) return '尚未获取编辑锁；保存时后端仍会检查他人锁。'
-  return `编辑锁由 ${pipelineEditLock.value.locked_by || '未知用户'} 持有，过期 ${formatDateTime(pipelineEditLock.value.expires_at)}`
-})
-const canUsePipelineEditLockActions = computed(() =>
-  Boolean(selectedStudyId.value && currentPipeline.value && !pipelineEditLockLoading.value),
-)
 // —— 节点参数的条件显示 (visible_when) 与高级折叠 (advanced) ——
 // effectiveNodeParams：属性默认值 + 用户实参合并，给 visible_when 判定用（控制字段未显式给时回退默认）
 const effectiveNodeParams = computed<Record<string, unknown>>(() => {
@@ -4119,54 +4124,6 @@ function handlePipelineChange(event: Event) {
   const pipeline = pipelines.value.find((item) => String(item.id) === pipelineId)
   if (pipeline) loadPipelineIntoEditor(pipeline)
   else startNewPipeline()
-}
-
-async function acquirePipelineEditLock() {
-  if (!selectedStudyId.value || !currentPipeline.value || pipelineEditLockLoading.value) return
-  pipelineEditLockLoading.value = true
-  pipelineEditLockError.value = ''
-  try {
-    const res = await pipelineApi.acquireEditLock(selectedStudyId.value, currentPipeline.value.id)
-    pipelineEditLock.value = res.data
-    statusMessage.value = `已获取编辑锁，过期 ${formatDateTime(res.data.expires_at)}`
-  } catch (error) {
-    pipelineEditLockError.value = describeError(error, '编辑锁获取失败')
-    statusMessage.value = pipelineEditLockError.value
-  } finally {
-    pipelineEditLockLoading.value = false
-  }
-}
-
-async function refreshPipelineEditLock() {
-  if (!selectedStudyId.value || !currentPipeline.value || pipelineEditLockLoading.value) return
-  pipelineEditLockLoading.value = true
-  pipelineEditLockError.value = ''
-  try {
-    const res = await pipelineApi.refreshEditLock(selectedStudyId.value, currentPipeline.value.id)
-    pipelineEditLock.value = res.data
-    statusMessage.value = `编辑锁已续期，过期 ${formatDateTime(res.data.expires_at)}`
-  } catch (error) {
-    pipelineEditLockError.value = describeError(error, '编辑锁续期失败')
-    statusMessage.value = pipelineEditLockError.value
-  } finally {
-    pipelineEditLockLoading.value = false
-  }
-}
-
-async function releasePipelineEditLock() {
-  if (!selectedStudyId.value || !currentPipeline.value || pipelineEditLockLoading.value) return
-  pipelineEditLockLoading.value = true
-  pipelineEditLockError.value = ''
-  try {
-    await pipelineApi.releaseEditLock(selectedStudyId.value, currentPipeline.value.id)
-    pipelineEditLock.value = null
-    statusMessage.value = '编辑锁已释放'
-  } catch (error) {
-    pipelineEditLockError.value = describeError(error, '编辑锁释放失败')
-    statusMessage.value = pipelineEditLockError.value
-  } finally {
-    pipelineEditLockLoading.value = false
-  }
 }
 
 function addNode(spec: NodeSpec) {
