@@ -1189,6 +1189,7 @@ import { useExecutionDetail, type ExecutionDetailTab } from '@/composables/pipel
 import { useRunExecution } from '@/composables/pipeline/useRunExecution'
 import { useRunControl } from '@/composables/pipeline/useRunControl'
 import { useIcaInteraction } from '@/composables/pipeline/useIcaInteraction'
+import { useArtifactPreview } from '@/composables/pipeline/useArtifactPreview'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1413,10 +1414,26 @@ const {
 })
 const artifactActionLoading = reactive<Record<string, ArtifactAction | 'cleanup'>>({})
 const artifactCleanupLoading = ref(false)
-const selectedArtifactPreview = ref<StudyOutputPreview | null>(null)
-const artifactPreviewOpen = ref(false)
-const artifactPreviewLoading = ref(false)
-const artifactPreviewError = ref('')
+// 产物预览（结果弹窗：指标 / 事件 / 曲线）见 composables/pipeline/useArtifactPreview
+const {
+  selectedArtifactPreview,
+  artifactPreviewOpen,
+  artifactPreviewLoading,
+  artifactPreviewError,
+  artifactPreviewSummary,
+  artifactPreviewMetrics,
+  artifactPreviewEvents,
+  artifactPreviewCurves,
+  artifactPreviewTitle,
+  artifactPreviewObserveTarget,
+  openArtifactPreview,
+  resetArtifactPreview,
+  artifactLabel,
+} = useArtifactPreview({
+  selectedStudyId,
+  runArtifacts,
+  describeError,
+})
 // ICA 成分人工剔除交互见 composables/pipeline/useIcaInteraction
 const {
   icaInteraction,
@@ -1493,7 +1510,6 @@ const registeredLiteGraphTypes = new Set<string>()
 let draggedNodeType = ''
 let liteGraphPixelRatio = 1
 let loadDataResolveSeq = 0
-let artifactPreviewSeq = 0
 const pipelineContextMenu = reactive<{
   open: boolean
   x: number
@@ -2242,21 +2258,7 @@ const runSelectionOverrideSummaryText = computed(() => {
   return `${runSelectionOverrideItems.value.length} 个 LoadData 节点携带输入覆盖，合计 ${totalDatasets} 个数据集。`
 })
 // 运行态派生 computed（executionJobByNodeId / selectedJob / 产物映射等）见 composables/pipeline/useRunExecution（解构见上方装配区）
-const artifactPreviewSummary = computed(() => getPreviewSummary(selectedArtifactPreview.value?.preview_json))
-const artifactPreviewMetrics = computed(() => buildArtifactPreviewMetrics(selectedArtifactPreview.value, artifactPreviewSummary.value))
-const artifactPreviewEvents = computed(() => buildArtifactPreviewEvents(artifactPreviewSummary.value))
-const artifactPreviewCurves = computed(() => buildArtifactPreviewCurves(artifactPreviewSummary.value))
-const artifactPreviewTitle = computed(() => {
-  if (!selectedArtifactPreview.value) return '结果预览'
-  return `${selectedArtifactPreview.value.data_type || 'derived'} · ${shortId(selectedArtifactPreview.value.study_output_id)}`
-})
-const artifactPreviewObserveTarget = computed(() => {
-  if (!selectedArtifactPreview.value) return { path: '/observe', query: {} }
-  return {
-    path: selectedArtifactPreview.value.observe_route || '/observe',
-    query: selectedArtifactPreview.value.observe_query || {},
-  }
-})
+// 产物预览 computed（指标 / 事件 / 曲线 / 标题 / 观察目标）见 composables/pipeline/useArtifactPreview（解构见上方装配区）
 // ICA 面板显隐 / 成分列表 computed 见 composables/pipeline/useIcaInteraction（解构见上方装配区）
 const executionModeDescription = computed(() => EXECUTION_MODE_OPTIONS.find((option) => option.value === executionMode.value)?.description || '')
 const runDialogSummary = computed(
@@ -2787,35 +2789,7 @@ function artifactCountForJob(jobId: string) {
   return runArtifactsByJobId.value.get(jobId)?.length || 0
 }
 
-async function openArtifactPreview(artifact: StudyOutput) {
-  if (!selectedStudyId.value) return
-  const requestSeq = ++artifactPreviewSeq
-  artifactPreviewOpen.value = true
-  artifactPreviewLoading.value = true
-  artifactPreviewError.value = ''
-  selectedArtifactPreview.value = null
-  try {
-    const res = await pipelineApi.previewStudyOutput(selectedStudyId.value, artifact.id)
-    if (requestSeq !== artifactPreviewSeq) return
-    selectedArtifactPreview.value = res.data
-    runArtifacts.value = runArtifacts.value.map((item) =>
-      item.id === artifact.id ? { ...item, preview_json: res.data.preview_json } : item,
-    )
-  } catch (error) {
-    if (requestSeq !== artifactPreviewSeq) return
-    artifactPreviewError.value = describeError(error, 'Artifact preview 读取失败')
-  } finally {
-    if (requestSeq === artifactPreviewSeq) artifactPreviewLoading.value = false
-  }
-}
-
-function resetArtifactPreview() {
-  artifactPreviewSeq += 1
-  selectedArtifactPreview.value = null
-  artifactPreviewOpen.value = false
-  artifactPreviewLoading.value = false
-  artifactPreviewError.value = ''
-}
+// 产物预览函数（open / reset）见 composables/pipeline/useArtifactPreview
 
 // 双击画布节点：若该节点本次运行产出了已保存的结果，则在弹出窗口查看其时域图
 function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
@@ -2853,80 +2827,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   link.remove()
 }
 
-function artifactLabel(artifact: StudyOutput) {
-  const type = artifact.data_type || 'derived'
-  const subject = artifact.bids_subject_id || (artifact.upstream_recording_ids?.[0] ? shortId(artifact.upstream_recording_ids[0]) : '')
-  const name = artifact.display_name ? ` · ${artifact.display_name}` : (subject ? ` · ${subject}` : '')
-  return `${type}${name}`
-}
-
-function getPreviewSummary(previewJson?: Record<string, unknown>): Record<string, unknown> {
-  const summary = previewJson?.summary
-  return isRecord(summary) ? summary : {}
-}
-
-function buildArtifactPreviewMetrics(
-  preview: StudyOutputPreview | null,
-  summary: Record<string, unknown>,
-) {
-  if (!preview) return []
-  const rows: Array<{ label: string; value: string }> = []
-  const channelSummary = isRecord(summary.channel_summary) ? summary.channel_summary : {}
-  const timeRange = isRecord(summary.time_range) ? summary.time_range : {}
-  const eventSummary = isRecord(summary.event_summary) ? summary.event_summary : {}
-  const nChannels = numericMetric(summary.n_channels) ?? numericMetric(channelSummary.n_channels)
-
-  if (preview.data_type === 'raw') {
-    rows.push({ label: 'sfreq', value: formatMetricNumber(summary.sfreq, 'Hz') })
-    if (nChannels !== null) rows.push({ label: 'channels', value: String(nChannels) })
-    rows.push({ label: 'duration', value: formatSecondsMetric(summary.duration_seconds) })
-    rows.push({ label: 'events', value: String(numericMetric(eventSummary.annotation_count) ?? 0) })
-  } else if (preview.data_type === 'epochs') {
-    rows.push({ label: 'epochs', value: String(numericMetric(summary.n_epochs) ?? 0) })
-    if (nChannels !== null) rows.push({ label: 'channels', value: String(nChannels) })
-    rows.push({ label: 'tmin', value: formatMetricNumber(summary.tmin, 's') })
-    rows.push({ label: 'tmax', value: formatMetricNumber(summary.tmax, 's') })
-  } else if (preview.data_type === 'evoked') {
-    const eventNames = Array.isArray(summary.event_names) ? summary.event_names.length : 0
-    rows.push({ label: 'events', value: String(eventNames) })
-    if (nChannels !== null) rows.push({ label: 'channels', value: String(nChannels) })
-    rows.push({ label: 'tmin', value: formatMetricNumber(timeRange.tmin, 's') })
-    rows.push({ label: 'tmax', value: formatMetricNumber(timeRange.tmax, 's') })
-  } else {
-    rows.push({ label: 'type', value: preview.data_type || 'artifact' })
-  }
-
-  return rows.filter((row) => row.value !== '-')
-}
-
-function buildArtifactPreviewEvents(summary: Record<string, unknown>) {
-  const eventSummary = isRecord(summary.event_summary) ? summary.event_summary : {}
-  const source = Array.isArray(summary.event_counts)
-    ? summary.event_counts
-    : Array.isArray(eventSummary.annotation_counts)
-      ? eventSummary.annotation_counts
-      : []
-  return source
-    .map((item) => {
-      if (!isRecord(item)) return null
-      return { name: String(item.name || ''), count: Number(item.count || 0) }
-    })
-    .filter((item): item is { name: string; count: number } => Boolean(item?.name))
-    .slice(0, 8)
-}
-
-function buildArtifactPreviewCurves(summary: Record<string, unknown>) {
-  const sampledCurves = isRecord(summary.sampled_curves) ? summary.sampled_curves : {}
-  const channels = Array.isArray(sampledCurves.channels) ? sampledCurves.channels : []
-  return channels
-    .map((item) => {
-      if (!isRecord(item)) return ''
-      const values = Array.isArray(item.values) ? item.values.length : 0
-      return `${String(item.name || 'channel')} · ${values} 点`
-    })
-    .filter(Boolean)
-    .slice(0, 6)
-}
+// 产物预览构建函数（label / summary / metrics / events / curves）见 composables/pipeline/useArtifactPreview
 
 function jobErrorMessage(job: PipelineJob) {
   const errors = job.error_json?.errors
