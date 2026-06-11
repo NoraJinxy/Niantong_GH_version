@@ -1195,6 +1195,7 @@ import { useLoadData } from '@/composables/pipeline/useLoadData'
 import { useChannelListEditor } from '@/composables/pipeline/useChannelListEditor'
 import { useSaveSettingsPanel } from '@/composables/pipeline/useSaveSettingsPanel'
 import { useEventSelectEditor } from '@/composables/pipeline/useEventSelectEditor'
+import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
 
 type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -1763,61 +1764,18 @@ const isLeafNode = computed<boolean>(() => {
 
 // 保存设置的 splitMode / 模板渲染 / display_name 预览 / auto_tags / 自定义标签编辑 → composables/pipeline/useSaveSettingsPanel
 
-// === tags_input 通用属性渲染（Save 节点等使用）===
-const paramTagDrafts = reactive<Record<string, string>>({})
-
-function paramTagKey(prop: NodeProperty): string {
-  const node = selectedNode.value
-  return `${node?.id || ''}::${prop.name}`
-}
-
-function getTagsArray(prop: NodeProperty): string[] {
-  const node = selectedNode.value
-  if (!node) return []
-  const raw = node.params[prop.name]
-  if (Array.isArray(raw)) return raw.map((item) => String(item)).filter(Boolean)
-  if (typeof raw === 'string' && raw.trim()) {
-    return raw.split(',').map((item) => item.trim()).filter(Boolean)
-  }
-  return []
-}
-
-function paramTagDraftFor(prop: NodeProperty): string {
-  return paramTagDrafts[paramTagKey(prop)] || ''
-}
-
-function setParamTagDraft(prop: NodeProperty, value: string) {
-  paramTagDrafts[paramTagKey(prop)] = value
-}
-
-function commitParamTagDraft(prop: NodeProperty) {
-  const node = selectedNode.value
-  if (!node) return
-  const draft = (paramTagDrafts[paramTagKey(prop)] || '').trim()
-  if (!draft) return
-  const existing = getTagsArray(prop)
-  const next: string[] = [...existing]
-  const seen = new Set(existing)
-  for (const piece of draft.split(',')) {
-    const text = piece.trim()
-    if (!text || seen.has(text)) continue
-    seen.add(text)
-    next.push(text)
-  }
-  node.params = { ...node.params, [prop.name]: next }
-  paramTagDrafts[paramTagKey(prop)] = ''
-  updateLiteGraphNode(node)
-  markDirty()
-}
-
-function toggleParamTag(prop: NodeProperty, tag: string) {
-  const node = selectedNode.value
-  if (!node) return
-  const tags = getTagsArray(prop).filter((item) => item !== tag)
-  node.params = { ...node.params, [prop.name]: tags }
-  updateLiteGraphNode(node)
-  markDirty()
-}
+// tags_input 通用属性渲染（用户自由打标签 chip 输入）见 composables/pipeline/useTagsInputEditor
+const {
+  getTagsArray,
+  paramTagDraftFor,
+  setParamTagDraft,
+  commitParamTagDraft,
+  toggleParamTag,
+} = useTagsInputEditor({
+  selectedNode,
+  updateLiteGraphNode,
+  markDirty,
+})
 
 // === channel_list 类型：从上游 LoadData 通道做 listbox 多选 ===
 // 设计语义（与节点 spec.help 一致）：
