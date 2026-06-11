@@ -1263,6 +1263,9 @@ const {
   selectedNodeSpec,
   createEmptyDefinition,
   specForNode,
+  dirty,
+  statusMessage,
+  hydrating,
 } = usePipelineEditor()
 const pipelines = ref<Pipeline[]>([])
 const studyDatasets = ref<Recording[]>([])
@@ -1309,7 +1312,6 @@ const loadingPipelines = ref(false)
 const loadingDatasets = ref(false)
 const saving = ref(false)
 const runningPipeline = ref(false)
-const dirty = ref(false)
 const nodeLoadError = ref('')
 const datasetLoadError = ref('')
 const loadDataResolveError = ref('')
@@ -1356,11 +1358,9 @@ const icaInteractionLoading = ref(false)
 const icaDecisionSubmitting = ref(false)
 const icaResuming = ref(false)
 const icaInteractionError = ref('')
-const statusMessage = ref('')
 const liteGraphShell = ref<HTMLElement | null>(null)
 const liteGraphCanvasEl = ref<HTMLCanvasElement | null>(null)
 const liteGraphReady = ref(false)
-const hydrating = ref(false)
 const {
   draftJustRestored,
   scheduleDraftSave,
