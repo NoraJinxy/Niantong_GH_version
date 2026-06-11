@@ -1186,6 +1186,7 @@ import { useDraftPersistence } from '@/composables/pipeline/useDraftPersistence'
 import { useExecutionTasks } from '@/composables/pipeline/useExecutionTasks'
 import { usePipelineEditLock } from '@/composables/pipeline/usePipelineEditLock'
 import { useExecutionDetail, type ExecutionDetailTab } from '@/composables/pipeline/useExecutionDetail'
+import { useRunExecution } from '@/composables/pipeline/useRunExecution'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1321,13 +1322,55 @@ const resolvedLoadDataInfos = ref<LoadDataDataInfo[]>([])
 const loadDataResolveIssues = ref<string[]>([])
 const loadDataInfosByNodeId = reactive<Record<string, LoadDataDataInfo[]>>({})
 const eventLabelsLoading = ref(false)
-const latestPipelineExecution = ref<PipelineExecution | null>(null)
-const activeExecutionId = ref('')
-const activeExecutionDetail = ref<PipelineExecutionDetail | null>(null)
-const executionJobs = ref<PipelineJob[]>([])
-const runArtifacts = ref<StudyOutput[]>([])
-const runPolling = ref(false)
-const runPollingError = ref('')
+// 运行态核心（执行加载 / 轮询 / 刷新 / 重置 + 派生 computed）见 composables/pipeline/useRunExecution
+// 注：onResetTracking / onRunStateRefreshed 闭包引用下方执行详情 / 任务解构，仅在运行时（非 setup 同步）触发，故无 TDZ。
+const {
+  latestPipelineExecution,
+  activeExecutionId,
+  activeExecutionDetail,
+  executionJobs,
+  runArtifacts,
+  runPolling,
+  runPollingError,
+  latestPipelineExecutionIssues,
+  executionJobByNodeId,
+  runArtifactsByJobId,
+  executionPanelJobRows,
+  selectedJob,
+  selectedNodeArtifacts,
+  selectedNodeArtifactCount,
+  selectedJobError,
+  loadPipelineExecutions,
+  loadPipelineExecutionById,
+  refreshRunState,
+  startRunPolling,
+  stopRunPolling,
+  resetRunTracking,
+  isTerminalRunStatus,
+} = useRunExecution({
+  selectedStudyId,
+  currentPipeline,
+  selectedNode,
+  statusMessage,
+  describeError,
+  applyRunStateToCanvas: applyLiteGraphRunState,
+  artifactCountForJob,
+  jobErrorMessage,
+  onResetTracking: () => {
+    activeExecutionManifest.value = null
+    activeExecutionLineage.value = null
+    executionManifestError.value = ''
+    executionLineageError.value = ''
+    executionDetailTab.value = 'summary'
+    Object.keys(taskEventsByTaskId).forEach((taskId) => delete taskEventsByTaskId[taskId])
+    resetArtifactPreview()
+    resetIcaInteractionState()
+  },
+  onRunStateRefreshed: (executionId: string) => {
+    if (executionDetailTab.value === 'manifest') void loadExecutionManifest(executionId)
+    if (executionDetailTab.value === 'lineage') void loadExecutionLineage(executionId)
+  },
+})
 const runDialogOpen = ref(false)
 const executionMode = ref<PipelineExecutionMode>('analysis')
 const loadDataExecutionOverrides = reactive<Record<string, LoadDataExecutionOverride>>({})
@@ -1430,8 +1473,6 @@ const registeredLiteGraphTypes = new Set<string>()
 let draggedNodeType = ''
 let liteGraphPixelRatio = 1
 let loadDataResolveSeq = 0
-let executionPollTimer: number | null = null
-let executionPollSeq = 0
 let artifactPreviewSeq = 0
 let icaInteractionSeq = 0
 const pipelineContextMenu = reactive<{
@@ -2180,37 +2221,7 @@ const runSelectionOverrideSummaryText = computed(() => {
   const totalDatasets = runSelectionOverrideItems.value.reduce((sum, item) => sum + item.datasetCount, 0)
   return `${runSelectionOverrideItems.value.length} 个 LoadData 节点携带输入覆盖，合计 ${totalDatasets} 个数据集。`
 })
-const latestPipelineExecutionIssues = computed(() => {
-  const errors = latestPipelineExecution.value?.error_json?.errors
-  if (!Array.isArray(errors)) return []
-  return errors
-    .map((item) => (isRecord(item) ? String(item.message || item.code || '') : String(item)))
-    .filter(Boolean)
-    .slice(0, 3)
-})
-const executionJobByNodeId = computed(() => {
-  const map = new Map<string, PipelineJob>()
-  for (const job of executionJobs.value) map.set(job.node_id, job)
-  return map
-})
-const runArtifactsByJobId = computed(() => {
-  const map = new Map<string, StudyOutput[]>()
-  for (const artifact of runArtifacts.value) {
-    const jobId = artifact.produced_by_job_id
-    if (!jobId) continue
-    const items = map.get(jobId) || []
-    items.push(artifact)
-    map.set(jobId, items)
-  }
-  return map
-})
-const executionPanelJobRows = computed(() =>
-  [...executionJobs.value].sort((left, right) => left.topo_index - right.topo_index || left.node_id.localeCompare(right.node_id)),
-)
-const selectedJob = computed(() => (selectedNode.value ? executionJobByNodeId.value.get(selectedNode.value.id) || null : null))
-const selectedNodeArtifacts = computed(() => (selectedJob.value ? runArtifactsByJobId.value.get(selectedJob.value.id) || [] : []))
-const selectedNodeArtifactCount = computed(() => (selectedJob.value ? artifactCountForJob(selectedJob.value.id) : 0))
-const selectedJobError = computed(() => (selectedJob.value ? jobErrorMessage(selectedJob.value) : ''))
+// 运行态派生 computed（executionJobByNodeId / selectedJob / 产物映射等）见 composables/pipeline/useRunExecution（解构见上方装配区）
 const artifactPreviewSummary = computed(() => getPreviewSummary(selectedArtifactPreview.value?.preview_json))
 const artifactPreviewMetrics = computed(() => buildArtifactPreviewMetrics(selectedArtifactPreview.value, artifactPreviewSummary.value))
 const artifactPreviewEvents = computed(() => buildArtifactPreviewEvents(artifactPreviewSummary.value))
@@ -3941,131 +3952,7 @@ async function loadPipelines(target: PipelineRouteTarget = {}) {
   }
 }
 
-async function loadPipelineExecutions(pipeline = currentPipeline.value, targetExecutionId = '') {
-  resetRunTracking()
-  if (!selectedStudyId.value || !pipeline) return
-  if (targetExecutionId) {
-    const found = await loadPipelineExecutionById(targetExecutionId, pipeline)
-    if (found) return
-    statusMessage.value = '未找到指定运行，已显示当前工作流最新运行'
-  }
-  try {
-    const res = await pipelineApi.listExecutions(selectedStudyId.value, pipeline.id, 1)
-    latestPipelineExecution.value = res.data.executions[0] || null
-    if (latestPipelineExecution.value) {
-      activeExecutionId.value = latestPipelineExecution.value.id
-      await refreshRunState(latestPipelineExecution.value.id)
-      if (!isTerminalRunStatus(latestPipelineExecution.value.status)) startRunPolling(latestPipelineExecution.value.id)
-    }
-  } catch {
-    resetRunTracking()
-  }
-}
-
-async function loadPipelineExecutionById(executionId: string, pipeline: Pipeline) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !executionId) return false
-  const requestSeq = ++executionPollSeq
-  activeExecutionId.value = executionId
-  try {
-    const [executionRes, jobsRes, artifactsRes] = await Promise.all([
-      pipelineApi.getExecution(studyId, executionId),
-      pipelineApi.listExecutionJobs(studyId, executionId),
-      pipelineApi.listExecutionStudyOutputs(studyId, executionId),
-    ])
-    if (requestSeq !== executionPollSeq || activeExecutionId.value !== executionId) return true
-    if (String(executionRes.data.pipeline_id) !== String(pipeline.id)) {
-      resetRunTracking()
-      return false
-    }
-    activeExecutionDetail.value = executionRes.data
-    latestPipelineExecution.value = executionRes.data
-    executionJobs.value = jobsRes.data.jobs
-    runArtifacts.value = artifactsRes.data.study_outputs
-    runPollingError.value = ''
-    statusMessage.value = `已定位运行 #${executionRes.data.execution_seq}`
-    applyLiteGraphRunState()
-    if (!isTerminalRunStatus(executionRes.data.status)) startRunPolling(executionId)
-    return true
-  } catch {
-    resetRunTracking()
-    return false
-  }
-}
-
-function resetRunTracking() {
-  stopRunPolling()
-  activeExecutionId.value = ''
-  activeExecutionDetail.value = null
-  activeExecutionManifest.value = null
-  activeExecutionLineage.value = null
-  latestPipelineExecution.value = null
-  executionJobs.value = []
-  runArtifacts.value = []
-  runPollingError.value = ''
-  executionManifestError.value = ''
-  executionLineageError.value = ''
-  Object.keys(taskEventsByTaskId).forEach((taskId) => delete taskEventsByTaskId[taskId])
-  executionDetailTab.value = 'summary'
-  resetArtifactPreview()
-  resetIcaInteractionState()
-  applyLiteGraphRunState()
-}
-
-function startRunPolling(executionId = activeExecutionId.value) {
-  if (!executionId) return
-  stopRunPolling(false)
-  runPolling.value = true
-  const tick = async () => {
-    await refreshRunState(executionId)
-    if (activeExecutionId.value !== executionId || !runPolling.value) return
-    if (isTerminalRunStatus(latestPipelineExecution.value?.status || '')) {
-      stopRunPolling(false)
-      return
-    }
-    executionPollTimer = window.setTimeout(tick, EXECUTION_POLL_INTERVAL_MS)
-  }
-  executionPollTimer = window.setTimeout(tick, EXECUTION_POLL_INTERVAL_MS)
-}
-
-function stopRunPolling(invalidate = true) {
-  if (executionPollTimer !== null) {
-    window.clearTimeout(executionPollTimer)
-    executionPollTimer = null
-  }
-  runPolling.value = false
-  if (invalidate) executionPollSeq += 1
-}
-
-async function refreshRunState(executionId = activeExecutionId.value) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !executionId) return
-  const requestSeq = ++executionPollSeq
-  try {
-    const [executionRes, jobsRes, artifactsRes] = await Promise.all([
-      pipelineApi.getExecution(studyId, executionId),
-      pipelineApi.listExecutionJobs(studyId, executionId),
-      pipelineApi.listExecutionStudyOutputs(studyId, executionId),
-    ])
-    if (requestSeq !== executionPollSeq || activeExecutionId.value !== executionId) return
-    activeExecutionDetail.value = executionRes.data
-    latestPipelineExecution.value = executionRes.data
-    executionJobs.value = jobsRes.data.jobs
-    runArtifacts.value = artifactsRes.data.study_outputs
-    runPollingError.value = ''
-    applyLiteGraphRunState()
-    if (executionDetailTab.value === 'manifest') void loadExecutionManifest(executionId)
-    if (executionDetailTab.value === 'lineage') void loadExecutionLineage(executionId)
-    if (isTerminalRunStatus(executionRes.data.status)) stopRunPolling(false)
-  } catch (error) {
-    if (requestSeq !== executionPollSeq || activeExecutionId.value !== executionId) return
-    runPollingError.value = describeError(error, '运行状态刷新失败')
-  }
-}
-
-function isTerminalRunStatus(status: string) {
-  return ['completed', 'failed', 'waiting_user_input', 'canceled'].includes(status)
-}
+// 运行态核心函数（加载 / 轮询 / 刷新 / 重置）见 composables/pipeline/useRunExecution
 
 function loadPipelineIntoEditor(pipeline: Pipeline, targetExecutionId = '') {
   currentPipeline.value = pipeline
