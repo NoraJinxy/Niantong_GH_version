@@ -3716,14 +3716,12 @@ async function resolveLoadDataPreview() {
   loadDataResolveError.value = ''
   loadDataResolveIssues.value = []
 
-  // explicit 模式：dataset_ids 为空 → 没"真正钉选"的输入，cache 清空、不调后端，
-  //   下游 Epoch / ERP 的 availableEventLabels 不会因残留 cache 误显示事件。
-  // filter 模式（P4）：filter 本身就是选择，恒不带 dataset_ids，须照常调后端按规则实时展开。
-  const selectionMode = String(node.params?.selection_mode || 'filter')
+  // dataset_ids 为空 → 不调后端：LoadData 没有"真正选中"的输入，cache 直接清成空。
+  // 这样下游 Epoch / ERP 的 availableEventLabels 不会因为残留 cache 误显示事件。
   const datasetIds = Array.isArray(node.params?.dataset_ids)
     ? (node.params!.dataset_ids as unknown[]).filter(Boolean)
     : []
-  if (selectionMode === 'explicit' && datasetIds.length === 0) {
+  if (datasetIds.length === 0) {
     resolvedLoadDataInfos.value = []
     loadDataInfosByNodeId[node.id] = []
     loadDataResolveIssues.value = []
@@ -3757,22 +3755,19 @@ async function fetchEventLabelsForAllLoadData() {
   const loadDataNodes = definition.value.graph.nodes.filter((node) => node.type === LOAD_DATA_NODE_TYPE)
   if (!loadDataNodes.length) return
 
-  // explicit 模式且 dataset_ids 为空 → 没钉选输入，cache=[] 不调后端。
-  // filter 模式（P4）→ filter 即选择，照常解析（即便恒不带 dataset_ids）。
+  // dataset_ids 为空的 LoadData 节点 → 直接 set cache=[]，不调后端
+  // （否则 selection_mode 残留 filter 时，后端会返回 study 全集，污染下游事件下拉）
   for (const node of loadDataNodes) {
-    const selectionMode = String(node.params?.selection_mode || 'filter')
     const ids = Array.isArray(node.params?.dataset_ids)
       ? (node.params!.dataset_ids as unknown[]).filter(Boolean)
       : []
-    if (selectionMode === 'explicit' && ids.length === 0 && !loadDataInfosByNodeId[node.id]) {
+    if (ids.length === 0 && !loadDataInfosByNodeId[node.id]) {
       loadDataInfosByNodeId[node.id] = []
     }
   }
 
   const missingNodes = loadDataNodes.filter((node) => {
     if (loadDataInfosByNodeId[node.id]) return false
-    const selectionMode = String(node.params?.selection_mode || 'filter')
-    if (selectionMode === 'filter') return true
     const ids = Array.isArray(node.params?.dataset_ids)
       ? (node.params!.dataset_ids as unknown[]).filter(Boolean)
       : []
@@ -4113,9 +4108,9 @@ function cloneDefaultValue(value: unknown) {
 function ensureLoadDataParams(node: PipelineGraphNode): LoadDataParams {
   const rawParams = isRecord(node.params) ? node.params : {}
   const datasetIds = normalizeDatasetIds(rawParams.dataset_ids)
-  // P4：LoadData 支持 filter（默认，跟随数据集实时展开）/ explicit（钉死 recording 列表复现）双模式。
-  // 尊重节点已存的 selection_mode，未指定时默认 filter —— filter 本身即选择，由 LoadDataPanel 持久化、
-  // 后端执行时按 dataset_filter 展开（数据集后续加被试自动纳入），不再前端塌缩成固定 ID。
+  // LoadData 永远走 explicit 模式（task #61）：上面板的 Include/Exclude 只是"帮助选择"，
+  // 真正决定输入数据的是 Selected File 列表 → dataset_ids。
+  // 不再回退到 'filter' —— 否则未勾文件时后端会返回所有匹配数据集，导致 Epoch 误显示事件。
   const legacyFilter = {
     subjects: rawParams.subjects,
     sessions: rawParams.sessions,
@@ -4123,7 +4118,7 @@ function ensureLoadDataParams(node: PipelineGraphNode): LoadDataParams {
     runs: rawParams.runs,
   }
   const params: LoadDataParams = {
-    selection_mode: rawParams.selection_mode === 'explicit' ? 'explicit' : 'filter',
+    selection_mode: 'explicit',
     dataset_filter: normalizeLoadDataFilter(isRecord(rawParams.dataset_filter) ? rawParams.dataset_filter : legacyFilter),
     dataset_ids: datasetIds,
   }
