@@ -19,6 +19,15 @@
           <AppIcon name="alert" :size="15" />
           撤回审核
         </RouterLink>
+        <RouterLink
+          v-if="isAdmin"
+          class="btn btn--ghost admin-link"
+          to="/admin/publicizations"
+          title="审核数据集负责人提交的转公开申请（shared → public）"
+        >
+          <AppIcon name="observe" :size="15" />
+          转公开审核
+        </RouterLink>
         <button class="btn btn--primary" type="button" @click="openCreatePanel">
           <AppIcon name="plus" :size="15" />
           新建数据集
@@ -265,11 +274,11 @@
                   v-if="canOpenVisibility('public')"
                   class="btn btn--sm btn--ghost"
                   type="button"
-                  title="把可见范围开放为「公开」（全平台注册用户可用）。开放不可逆。"
+                  title="申请把可见范围开放为「公开」（全平台注册用户可用）。先审后开、不可逆。"
                   @click="openVisibilityModalFor('public')"
                 >
                   <AppIcon name="observe" :size="14" />
-                  开放为公开
+                  申请公开
                 </button>
               </div>
             </div>
@@ -1354,6 +1363,7 @@
           </template>
           <template v-else>
             公开后<strong>全平台所有注册用户</strong>都可读取并关联此数据集。
+            转公开<strong>先审后开</strong>：提交后由平台管理员审核，通过才真正公开（调试期自动通过）。
           </template>
           <br />
           <strong>开放不可逆、无降级入口</strong>：开放即等于把数据交出去（对方可能已复制，无法真正收回）。
@@ -1363,7 +1373,13 @@
         <footer>
           <button class="btn btn--ghost" type="button" @click="closeVisibilityModal">取消</button>
           <button class="btn btn--danger" type="submit" :disabled="visibilityModal.submitting">
-            {{ visibilityModal.submitting ? '开放中...' : `确认开放为${getVisibilityLabel(visibilityModal.target)}` }}
+            {{
+              visibilityModal.submitting
+                ? '提交中...'
+                : visibilityModal.target === 'public'
+                  ? '提交公开申请'
+                  : `确认开放为${getVisibilityLabel(visibilityModal.target)}`
+            }}
           </button>
         </footer>
       </form>
@@ -2344,14 +2360,23 @@ async function submitOpenVisibility() {
   visibilityModal.value.submitting = true
   visibilityModal.value.error = ''
   try {
-    await datasetAssetApi.openVisibility(asset.id, { target })
-    lifecycleMessage.value = `可见范围已开放为「${getVisibilityLabel(target)}」`
+    if (target === 'public') {
+      // 转公开「先审后开」：走申请端点。调试期 auto-approve → 即时升 public、decision='auto'。
+      const res = await datasetAssetApi.requestPublicization(asset.id)
+      lifecycleMessage.value =
+        res.data.decision === 'auto'
+          ? '转公开申请已自动通过（调试期），可见范围已开放为「公开」'
+          : '转公开申请已提交，待管理员审核通过后才会公开'
+    } else {
+      await datasetAssetApi.openVisibility(asset.id, { target })
+      lifecycleMessage.value = `可见范围已开放为「${getVisibilityLabel(target)}」`
+    }
     visibilityModal.value.open = false
     await loadDatasetAssets()
     // 开放为共享后立即拉取授权用户列表（面板随之出现）
     if (target === 'shared') await loadSelectedAssetMembers()
   } catch (err) {
-    visibilityModal.value.error = lifecycleErrorMessage(err, '开放失败')
+    visibilityModal.value.error = lifecycleErrorMessage(err, target === 'public' ? '申请公开失败' : '开放失败')
   } finally {
     visibilityModal.value.submitting = false
   }

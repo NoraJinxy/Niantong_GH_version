@@ -1,10 +1,12 @@
 import type {
+  DatasetPublicizationRequestRecord,
   DatasetVersion,
   DatasetVersionPublishRequest,
   DatasetVersionPublishResponse,
   DatasetVersionWithdrawRequest,
   DatasetWithdrawalRequestRecord,
   EmergencyTakedownRequest,
+  PublicizationReviewRequest,
   WithdrawalReviewRequest,
 } from '@/types'
 import { api } from './client'
@@ -37,6 +39,15 @@ export const datasetWithdrawalApi = {
 
   review: (requestId: string, payload: WithdrawalReviewRequest) =>
     api.post<DatasetWithdrawalRequestRecord>(`/dataset-withdrawals/${requestId}/review`, payload),
+}
+
+// 转公开审核（3-25 §4.2，shared → public）：admin 端点。owner 申请走 datasetAssetApi.requestPublicization。
+export const datasetPublicizationApi = {
+  listPending: () =>
+    api.get<DatasetPublicizationRequestRecord[]>(`/dataset-publicizations/pending`),
+
+  review: (requestId: string, payload: PublicizationReviewRequest) =>
+    api.post<DatasetPublicizationRequestRecord>(`/dataset-publicizations/${requestId}/review`, payload),
 }
 
 // 工具：把后端 DatasetVersion 的状态翻成中文显示标签

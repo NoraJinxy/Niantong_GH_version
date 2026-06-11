@@ -13,6 +13,8 @@ import type {
   DatasetMember,
   DatasetMemberAddRequest,
   DatasetMemberListResponse,
+  DatasetPublicizationRequestRecord,
+  PublicizationRequestBody,
   RecordingListResponse,
   RecordingVersionListResponse,
   StudyDatasetMount,
@@ -54,9 +56,13 @@ export const datasetAssetApi = {
     api.post<DatasetBootstrapResponse>('/dataset-assets/bootstrap', data),
   update: (assetId: string, data: DatasetAssetUpdateRequest) =>
     api.patch<DatasetAsset>(`/dataset-assets/${assetId}`, data),
-  // 可见范围「开放」：只升不降（private<shared<public），要求资产≥1 已发布版本，仅负责人
+  // 可见范围「开放」：只升不降（private<shared<public），要求资产≥1 已发布版本，仅负责人。
+  // 注意：升到 public 不走此端点（后端拦截），改走 requestPublicization「先审后开」。
   openVisibility: (assetId: string, data: DatasetAssetOpenVisibilityRequest) =>
     api.post<DatasetAsset>(`/dataset-assets/${assetId}/open-visibility`, data),
+  // 转公开申请（shared → public，先审后开；调试期 auto-approve 即时升 public、decision='auto'）
+  requestPublicization: (assetId: string, data: PublicizationRequestBody = {}) =>
+    api.post<DatasetPublicizationRequestRecord>(`/dataset-assets/${assetId}/publicize-request`, data),
   // 整体删除资产：仅纯未发布资产可删（无任何已发布/已撤回版本），仅负责人，否则后端 409
   remove: (assetId: string) =>
     api.delete<void>(`/dataset-assets/${assetId}`),
@@ -70,8 +76,6 @@ export const datasetAssetApi = {
     api.post<import('@/types').DatasetVersion>(`/dataset-assets/${assetId}/versions`),
   getRawBidsTree: (assetId: string, params: Pick<DatasetFileListParams, 'version_label'> = {}) =>
     dataApi.get<DatasetFileTreeResponse>(`/dataset-assets/${assetId}/bids-tree`, { params }),
-  buildRawBids: (assetId: string, data: DatasetAssetTaskRequest = {}) =>
-    api.post<AsyncTask>(`/dataset-assets/${assetId}/raw-bids-build`, data),
   rebuildCanonicalFif: (assetId: string, data: DatasetAssetTaskRequest = {}) =>
     api.post<AsyncTask>(`/dataset-assets/${assetId}/canonical-fif-rebuild`, data),
 }

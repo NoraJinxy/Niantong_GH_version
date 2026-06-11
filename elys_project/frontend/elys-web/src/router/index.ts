@@ -133,6 +133,12 @@ const router = createRouter({
       meta: { requiresAuth: true, pageKey: 'admin' },
     },
     {
+      path: '/admin/publicizations',
+      name: 'AdminPublicizations',
+      component: () => import('@/views/AdminPublicizationsPage.vue'),
+      meta: { requiresAuth: true, pageKey: 'admin' },
+    },
+    {
       path: '/observe',
       name: 'Observe',
       component: () => import('@/views/StaticWorkbenchPage.vue'),

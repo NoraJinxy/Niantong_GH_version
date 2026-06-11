@@ -459,6 +459,31 @@ export interface EmergencyTakedownRequest {
   reason: string
 }
 
+// 转公开审核（3-25 §4.2，shared → public 先审后开）。decision='auto' = 调试期自动通过。
+export type PublicizationDecision = 'approved' | 'rejected' | 'auto'
+
+export interface DatasetPublicizationRequestRecord {
+  id: string
+  asset_id: string
+  requested_by: string
+  requested_at: string
+  reason?: string | null
+  reviewed_by?: string | null
+  reviewed_at?: string | null
+  decision?: PublicizationDecision | null
+  admin_notes?: string | null
+  notified_at?: string | null
+}
+
+export interface PublicizationRequestBody {
+  reason?: string | null
+}
+
+export interface PublicizationReviewRequest {
+  decision: 'approved' | 'rejected'
+  admin_notes?: string | null
+}
+
 export interface DatasetAssetTaskRequest {
   version_label?: string | null
   dry_run?: boolean
