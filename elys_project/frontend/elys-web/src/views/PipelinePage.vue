@@ -1198,6 +1198,7 @@ import { useEventSelectEditor } from '@/composables/pipeline/useEventSelectEdito
 import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
 import { useNodeTopology } from '@/composables/pipeline/useNodeTopology'
 import { useNodeParamEditor } from '@/composables/pipeline/useNodeParamEditor'
+import { useGraphConnections } from '@/composables/pipeline/useGraphConnections'
 
 type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -1259,7 +1260,6 @@ const selectedPipelineId = ref('')
 const currentPipeline = ref<Pipeline | null>(null)
 const pipelineName = ref('未命名工作流')
 const pipelineDescription = ref('')
-const upstreamNodeId = ref('')
 // 节点库（搜索 / 分组 / 折叠）状态与逻辑见 composables/pipeline/useNodeLibrary
 const {
   nodeSearch,
@@ -1784,40 +1784,25 @@ const selectedNodeLinks = computed(() => {
   )
 })
 
-const selectedNodeInputLinks = computed(() => {
-  if (!selectedNode.value) return []
-  return definition.value.graph.links.filter((link) => link.to.node === selectedNode.value?.id)
-})
-
-const connectableUpstreamCandidates = computed(() => {
-  if (!selectedNode.value || !selectedNodeSpec.value) return []
-  const targetInput = selectedNodeSpec.value.inputs?.[0]
-  if (!targetInput) return []
-  const alreadyConnected = new Set(
-    selectedNodeInputLinks.value.map((link) => link.from.node),
-  )
-  const candidates: Array<{
-    node: PipelineGraphNode
-    label: string
-    outputType: string
-    tooltip: string
-  }> = []
-  for (const node of definition.value.graph.nodes) {
-    if (node.id === selectedNode.value.id) continue
-    if (alreadyConnected.has(node.id)) continue
-    const spec = specForNode(node)
-    if (!spec || !spec.outputs?.length) continue
-    const output = spec.outputs.find((port) => portTypesCompatible(port.type, targetInput.type))
-    if (!output) continue
-    const label = node.title || spec.title || node.id
-    candidates.push({
-      node,
-      label,
-      outputType: output.label || output.type || output.name,
-      tooltip: `${spec.title || node.id} 的 ${output.label || output.type} → 当前节点的 ${targetInput.label || targetInput.type}`,
-    })
-  }
-  return candidates
+// 节点连接管理（入链列表/上游候选/快连/断连）见 composables/pipeline/useGraphConnections
+// findLiteGraphNode/syncDefinitionFrom/ToLiteGraph 为下方 hoisted 画布函数，注入。
+const {
+  upstreamNodeId,
+  selectedNodeInputLinks,
+  connectableUpstreamCandidates,
+  quickConnectUpstream,
+  upstreamNodeLabel,
+  removeLink,
+} = useGraphConnections({
+  selectedNode,
+  selectedNodeSpec,
+  definition,
+  statusMessage,
+  specForNode,
+  markDirty,
+  findLiteGraphNode,
+  syncDefinitionFromLiteGraph,
+  syncDefinitionToLiteGraph,
 })
 
 watch(selectedStudyId, async (studyId) => {
@@ -3302,65 +3287,7 @@ function selectNode(nodeId: string) {
 
 // 节点参数通用读写 formatParamValue/updateSelectedParam/coerceParamValue + 标题 handleNodeTitleInput → composables/pipeline/useNodeParamEditor
 
-function quickConnectUpstream(upstreamId: string) {
-  if (!upstreamId) return
-  upstreamNodeId.value = upstreamId
-  connectUpstreamToSelected()
-}
-
-function upstreamNodeLabel(nodeId: string): string {
-  const node = definition.value.graph.nodes.find((item) => item.id === nodeId)
-  if (!node) return nodeId
-  return node.title || specForNode(node)?.title || node.id
-}
-
-function connectUpstreamToSelected() {
-  if (!selectedNode.value || !upstreamNodeId.value || !selectedNodeSpec.value) return
-  const upstream = definition.value.graph.nodes.find((node) => node.id === upstreamNodeId.value)
-  const upstreamSpec = specForNode(upstream)
-  if (!upstream || !upstreamSpec) return
-
-  const input = selectedNodeSpec.value.inputs[0]
-  const output = upstreamSpec.outputs.find((port) => !input || portTypesCompatible(port.type, input.type)) || upstreamSpec.outputs[0]
-  if (!input || !output) {
-    statusMessage.value = '该节点缺少可连接端口'
-    return
-  }
-
-  const exists = definition.value.graph.links.some(
-    (link) => link.from.node === upstream.id && link.to.node === selectedNode.value?.id && link.to.port === input.name,
-  )
-  if (exists) {
-    statusMessage.value = '该连接已存在'
-    return
-  }
-
-  const upstreamGraphNode = findLiteGraphNode(upstream.id)
-  const selectedGraphNode = findLiteGraphNode(selectedNode.value.id)
-  if (upstreamGraphNode && selectedGraphNode) {
-    const outputSlot = Math.max(0, upstreamGraphNode.findOutputSlot(output.name))
-    const inputSlot = Math.max(0, selectedGraphNode.findInputSlot(input.name))
-    upstreamGraphNode.connect(outputSlot, selectedGraphNode, inputSlot)
-    upstreamNodeId.value = ''
-    syncDefinitionFromLiteGraph(true)
-    return
-  }
-
-  definition.value.graph.links.push({
-    id: `l_${Date.now().toString(36)}_${definition.value.graph.links.length + 1}`,
-    from: { node: upstream.id, port: output.name },
-    to: { node: selectedNode.value.id, port: input.name },
-  })
-  upstreamNodeId.value = ''
-  syncDefinitionToLiteGraph()
-  markDirty()
-}
-
-function removeLink(linkId: string) {
-  definition.value.graph.links = definition.value.graph.links.filter((link) => link.id !== linkId)
-  syncDefinitionToLiteGraph()
-  markDirty()
-}
+// 连接管理 selectedNodeInputLinks/connectableUpstreamCandidates/quickConnectUpstream/connectUpstreamToSelected/removeLink → composables/pipeline/useGraphConnections
 
 function deleteSelectedNode() {
   if (!selectedNode.value) return
