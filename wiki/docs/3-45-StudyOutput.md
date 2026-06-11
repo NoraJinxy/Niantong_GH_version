@@ -208,7 +208,7 @@ CREATE INDEX idx_study_output_shared_published ON study_outputs (lifecycle_state
 2. **标签**：spec 的 `auto_tags` / `dynamic_tags` 与用户标签三路合并、保序去重。
 3. **保存**：`keep` 默认按拓扑角色（leaf=true / intermediate=false），节点参数 `keep` 可覆盖；`cache_eligible` 由 P4 评分自动判定；TTL 按 keep / cache_eligible 计算（口径见 §3.5）。
 
-产物落盘与登记走 `StudyOutputStore.save_file_from_writer` + `register`（content-addressed，同 `(study_id, sha256)` 活跃行复用不重插）。
+产物落盘与登记走 `StudyOutputStore.save_file_from_writer` + `register`（content-addressed）。同 `(study_id, sha256)` 查重不分死活——活跃行直接复用不重插；回收站 / 已清盘行就地**复活**（清 `deleted_at`/`purged_at`，`keep`/`cache_eligible`/TTL 重置为本次 save 设置，血缘 `produced_by_*` 与用户改过的名字 / 标签保留）。复活的物理前提：`register` 之前同 sha 文件刚被重新写回同一 content-addressed 路径，已清盘行的磁盘文件也已经回来了——这与用户手动恢复已清盘行（文件没回来，PATCH 返回 409 `OUTPUT_PURGED`）是两回事。
 
 ## 7. API 总览
 

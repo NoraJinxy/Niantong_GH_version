@@ -104,7 +104,10 @@ class StudyOutputSummary:
             },
             # 兼容旧 dispatcher：artifact_type / storage_path / source_dataset_id
             "artifact_type": "derivative",
-            "storage_path": (self.storage_uri or "").split("/", 3)[-1] if self.storage_uri else None,
+            # storage_path 语义 = 相对 study_root 的路径（dispatcher/cache 用 study_root/storage_path
+            # 解析），即 register 登记的 logical_path；旧的 storage_uri.split("/", 3) 截法会把
+            # study_id 段留在头上，拼出双 study_id 的死路径。
+            "storage_path": self.logical_path,
             "source_dataset_id": (self.upstream_recording_ids[0] if self.upstream_recording_ids else None),
         }
 

@@ -1971,6 +1971,31 @@ def load_raw_for_conversion(upload_kind: str, source_path: Path):
         raise HTTPException(status_code=422, detail=f"FIF 转换失败: {exc}") from exc
 
 
+def anonymize_raw_for_import(raw) -> None:
+    """导入转 FIF 时强制 PII 脱敏（2026-06-10 Q3）。
+
+    canonical FIF 是整个工作期分析都在读的工作副本，必须「出生即干净」：擦文件头 subject_info
+    （设备塞进去的真名/生日）+ 采集日期归零（MNE 默认保留相对时序）。sourcedata 原件不动
+    （事实源，限 owner）；sub-001 假名 + owner 侧登记表负责身份映射，不在 FIF 里。
+    """
+    try:
+        # MNE 默认：清 subject_info、把 meas_date 归到固定基准日（保留 date 间相对时序）。
+        raw.anonymize()
+    except Exception:
+        # 个别格式 / 老版本 anonymize 可能抛错；不阻断，下面兜底强制清空。
+        pass
+    # 兜底 + 校验：无论 anonymize 是否完全生效，强制清空 subject_info，确保 FIF 头无残留 PII。
+    info = raw.info
+    try:
+        with info._unlock():
+            info["subject_info"] = None
+    except Exception:
+        try:
+            info["subject_info"] = None
+        except Exception:
+            pass
+
+
 def generate_canonical_fif(
     *,
     study: Study,
@@ -1992,6 +2017,8 @@ def generate_canonical_fif(
     mne = get_mne_module()
 
     raw = load_raw_for_conversion(upload_kind, source_path)
+    # P2 (2026-06-10 Q3): 强制 PII 脱敏，必须在 raw.save() 之前 —— canonical FIF 出生即干净。
+    anonymize_raw_for_import(raw)
     temp_dir = Path(tempfile.mkdtemp(prefix="fif-", dir=temp_root))
     canonical_fif_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_raw.fif")
     canonical_eeg_json_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.json")
@@ -2609,6 +2636,14 @@ def open_dataset_asset_visibility(
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
     ensure_dataset_asset_owner(asset, current_user)
+
+    # 转公开（public）= 全网曝光，需先审后开（2026-06-10 Q1）：不在本端点直接升，引导走申请端点。
+    # 本端点只处理自助的 private → shared（邀请制协作，不算全网曝光）。
+    if payload.target == "public":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="转公开（public）需经审核：请改用 POST /dataset-assets/{asset_id}/publicize-request 申请（调试期自动通过）",
+        )
 
     current_rank = VISIBILITY_RANK.get(asset.visibility, 0)
     target_rank = VISIBILITY_RANK[payload.target]

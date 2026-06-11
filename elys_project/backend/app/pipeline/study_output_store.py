@@ -300,27 +300,49 @@ class StudyOutputStore:
         """Write a study_outputs row, or return existing row if same sha256 already exists.
 
         content-addressed dedup：物理文件已经按 sha256 去重，DB 也保持每个 sha256 一行。
-        - 已存在 (study_id, sha256) 行 → 直接返回它的 summary，不 INSERT
+        唯一索引 idx_study_output_sha256 (study_id, sha256) 不区分死活——回收站
+        (deleted_at) / 已清盘 (purged_at) 行同样占位，因此查重必须连死行一起查：
+        - 已存在活跃行 → 直接返回它的 summary，不 INSERT
           兜底场景：cache miss 导致重跑了节点，但产物字节相同；避免撞 idx_study_output_sha256 unique。
+        - 已存在死行 → 就地复活：本次调用前同 sha 文件刚被重新写回同一 content-addressed
+          路径（purged 行的磁盘文件也已经回来了），清 deleted_at/purged_at，
+          keep/cache_eligible/TTL 重置为本次 save_settings 决策；血缘 produced_by_*
+          与用户层 display_name/tags 保留原值（与活跃行复用同口径）。
         - 不存在 → 正常 INSERT 新行。
         """
         derived_model = self._get_study_output_model()
         storage_uri = self._storage_uri(storage_path)
 
+        keep = bool(metadata.get("keep")) if isinstance(metadata, dict) else False
+        cache_eligible = bool(metadata.get("cache_eligible")) if isinstance(metadata, dict) else False
+        retention_expires_at = (
+            metadata.get("retention_expires_at") if isinstance(metadata, dict) else None
+        )
+        if keep:
+            retention_expires_at = None
+
         # === content-addressed dedup ===
-        # 写文件已经完成，sha256 已知；查 DB 是否已有同 (study, sha256) 的行
+        # 写文件已经完成，sha256 已知；查 DB 是否已有同 (study, sha256) 的行（不分死活）
         if checksum:
             existing = (
                 self.db.query(derived_model)
                 .filter(
                     derived_model.study_id == self.study_id,
                     derived_model.sha256 == checksum,
-                    derived_model.deleted_at.is_(None),
                 )
                 .order_by(derived_model.created_at.asc())
                 .first()
             )
             if existing is not None:
+                if getattr(existing, "deleted_at", None) is not None:
+                    # 复活回收站 / 已清盘行（磁盘文件已就位，见 docstring）
+                    existing.deleted_at = None
+                    existing.purged_at = None
+                    existing.keep = keep
+                    existing.cache_eligible = cache_eligible
+                    existing.retention_expires_at = retention_expires_at
+                    existing.updated_at = datetime.utcnow()
+                    self.db.flush()
                 # 复用旧行（produced_by_* 保留旧 execution；新 execution 的消费记录走 job.output_json）
                 return self._derived_summary_from_row(existing)
 
@@ -336,13 +358,6 @@ class StudyOutputStore:
         bids_entities = self._safe_dict(
             metadata.get("input_data_info") if isinstance(metadata, dict) else None
         )
-        keep = bool(metadata.get("keep")) if isinstance(metadata, dict) else False
-        cache_eligible = bool(metadata.get("cache_eligible")) if isinstance(metadata, dict) else False
-        retention_expires_at = (
-            metadata.get("retention_expires_at") if isinstance(metadata, dict) else None
-        )
-        if keep:
-            retention_expires_at = None
 
         derived = derived_model(
             study_id=self.study_id,

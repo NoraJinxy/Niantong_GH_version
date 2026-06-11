@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import (
     DatasetAsset,
+    DatasetPublicizationRequest,
     DatasetVersion,
     DatasetVersionReference,
     DatasetWithdrawalRequest,
@@ -22,12 +23,15 @@ from app.models import (
 )
 from app.routers.auth import get_current_user
 from app.schemas.dataset_lifecycle import (
+    DatasetPublicizationRequestResponse,
     DatasetVersionPublishRequest,
     DatasetVersionPublishResponse,
     DatasetVersionResponse,
     DatasetVersionWithdrawRequest,
     DatasetWithdrawalRequestResponse,
     EmergencyTakedownRequest,
+    PublicizationRequestBody,
+    PublicizationReviewRequest,
     WithdrawalReviewRequest,
 )
 from app.services.audit_events import record_audit_event
@@ -37,7 +41,9 @@ from app.services.dataset_lifecycle import (
     DatasetLifecycleValidationError,
     emergency_takedown_version,
     publish_dataset_version,
+    request_publicization,
     request_version_withdrawal,
+    review_publicization_request,
     review_withdrawal_request,
 )
 
@@ -418,3 +424,115 @@ def review_withdrawal(
     ) as exc:
         raise _translate_lifecycle_error(exc) from exc
     return _to_withdrawal_response(updated)
+
+
+# ============================================
+# Publicization (转公开审核 · shared → public，2026-06-10 Q1)
+# ============================================
+# owner 申请端点（asset 维度）+ admin 审核端点（镜像撤回审核）。调试期 owner 申请会 auto-approve
+# 即时升 public，故 admin /pending 调试期通常为空——它是上线（PUBLICIZATION_AUTO_APPROVE=False）后的人工审核入口。
+
+asset_publicize_router = APIRouter(prefix="/api/v1/dataset-assets", tags=["dataset-publicizations"])
+publicization_admin_router = APIRouter(prefix="/api/v1/dataset-publicizations", tags=["dataset-publicizations"])
+
+
+def _to_publicization_response(req: DatasetPublicizationRequest) -> DatasetPublicizationRequestResponse:
+    return DatasetPublicizationRequestResponse(
+        id=str(req.id),
+        asset_id=str(req.asset_id),
+        requested_by=str(req.requested_by),
+        requested_at=req.requested_at,
+        reason=req.reason,
+        reviewed_by=str(req.reviewed_by) if req.reviewed_by else None,
+        reviewed_at=req.reviewed_at,
+        decision=req.decision,
+        admin_notes=req.admin_notes,
+        notified_at=req.notified_at,
+    )
+
+
+def _get_publicization_or_404(db: Session, request_id: UUID) -> DatasetPublicizationRequest:
+    req = (
+        db.query(DatasetPublicizationRequest)
+        .filter(DatasetPublicizationRequest.id == request_id)
+        .first()
+    )
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="转公开申请不存在")
+    return req
+
+
+@asset_publicize_router.post(
+    "/{asset_id}/publicize-request",
+    response_model=DatasetPublicizationRequestResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def request_dataset_publicization(
+    asset_id: UUID,
+    payload: PublicizationRequestBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """负责人申请把数据集可见范围升到 public（shared → public，先审后开）。
+
+    调试期默认 auto-approve：即时升 public、decision='auto'。owner 校验在 service 层完成。
+    """
+    asset = db.query(DatasetAsset).filter(DatasetAsset.id == asset_id).first()
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在")
+    try:
+        req = request_publicization(
+            db, asset=asset, actor=current_user, reason=payload.reason, commit=True
+        )
+    except (
+        DatasetLifecyclePermissionError,
+        DatasetLifecycleStateError,
+        DatasetLifecycleValidationError,
+    ) as exc:
+        raise _translate_lifecycle_error(exc) from exc
+    return _to_publicization_response(req)
+
+
+@publicization_admin_router.get("/pending", response_model=list[DatasetPublicizationRequestResponse])
+def list_pending_publicizations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user.has_role("admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅平台管理员可查看待审核转公开申请")
+    pending = (
+        db.query(DatasetPublicizationRequest)
+        .filter(DatasetPublicizationRequest.decision.is_(None))
+        .order_by(DatasetPublicizationRequest.requested_at.desc())
+        .all()
+    )
+    return [_to_publicization_response(item) for item in pending]
+
+
+@publicization_admin_router.post(
+    "/{request_id}/review",
+    response_model=DatasetPublicizationRequestResponse,
+)
+def review_publicization(
+    request_id: UUID,
+    payload: PublicizationReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    req = _get_publicization_or_404(db, request_id)
+    try:
+        updated = review_publicization_request(
+            db,
+            request=req,
+            decision=payload.decision,
+            admin_notes=payload.admin_notes,
+            actor=current_user,
+            commit=True,
+        )
+    except (
+        DatasetLifecyclePermissionError,
+        DatasetLifecycleStateError,
+        DatasetLifecycleValidationError,
+    ) as exc:
+        raise _translate_lifecycle_error(exc) from exc
+    return _to_publicization_response(updated)

@@ -195,3 +195,37 @@ class EmergencyTakedownRequest(BaseModel):
         if not normalized:
             raise ValueError("紧急下架必须填写原因（事后审计需要）")
         return normalized
+
+
+# ============================================
+# Publicization（转公开审核 · shared → public，2026-06-10 Q1 定稿）
+# ============================================
+
+
+PublicizationDecision = Literal["approved", "rejected", "auto"]
+
+
+class PublicizationRequestBody(BaseModel):
+    """owner 申请把数据集可见范围升到 public（shared → public）。reason 可选。"""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class DatasetPublicizationRequestResponse(BaseModel):
+    id: str
+    asset_id: str
+    requested_by: str
+    requested_at: datetime
+    reason: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    decision: Optional[PublicizationDecision] = None  # auto = 调试期自动通过
+    admin_notes: Optional[str] = None
+    notified_at: Optional[datetime] = None
+
+
+class PublicizationReviewRequest(BaseModel):
+    """admin 审核转公开申请。"""
+
+    decision: Literal["approved", "rejected"]
+    admin_notes: Optional[str] = Field(default=None, max_length=2000)

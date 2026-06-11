@@ -320,6 +320,32 @@ class DatasetMember(Base):
     granted_by_user = relationship("User", foreign_keys=[granted_by])
 
 
+class DatasetVersionFile(Base):
+    """版本文件清单（version ↔ file 多对多，支持「逻辑链接」复用旧版本物理文件）。
+
+    物理文件只存一份（DatasetFile 一行，storage_uri 指向真实所在目录 BIDSdata/ 或 ver{label}/）；
+    某版本包含哪些文件由本清单表表达。发布 v+1 时：改动文件落新物理行 + 清单条目；未改动文件
+    直接复用旧版本 dataset_file_id 的清单条目（逻辑链接，无需文件系统 symlink）。
+    """
+
+    __tablename__ = "dataset_version_files"
+    __table_args__ = (
+        Index("idx_dataset_version_files_version", "dataset_version_id"),
+        Index("idx_dataset_version_files_file", "dataset_file_id"),
+    )
+
+    dataset_version_id = Column(
+        UUID(as_uuid=True), ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    dataset_file_id = Column(
+        UUID(as_uuid=True), ForeignKey("dataset_files.id", ondelete="RESTRICT"), primary_key=True
+    )
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    dataset_version = relationship("DatasetVersion", foreign_keys=[dataset_version_id])
+    dataset_file = relationship("DatasetFile", foreign_keys=[dataset_file_id])
+
+
 class Subject(Base):
     __tablename__ = "subjects"
 
@@ -832,5 +858,39 @@ class DatasetWithdrawalRequest(Base):
     notification_sent_at = Column(DateTime)
 
     dataset_version = relationship("DatasetVersion", foreign_keys=[dataset_version_id])
+    requested_by_user = relationship("User", foreign_keys=[requested_by])
+    reviewed_by_user = relationship("User", foreign_keys=[reviewed_by])
+
+
+class DatasetPublicizationRequest(Base):
+    """转公开审核申请（shared → public 先审后开，2026-06-10 Q1 定稿）。
+
+    发布 = 自助（即时冻结 + DOI，可见范围 private/shared，无审核）；转公开 = 先审后开：
+    shared → public 需管理员批准。asset 级（可见范围在 asset 上）。
+    decision: approved/rejected = 管理员审核；auto = 调试期无策略时自动通过留痕；NULL = 待审。
+    """
+
+    __tablename__ = "dataset_publicization_requests"
+    __table_args__ = (
+        Index("idx_dataset_publicization_requests_asset", "asset_id"),
+        Index(
+            "idx_dataset_publicization_requests_pending",
+            "asset_id",
+            postgresql_where=text("decision IS NULL"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("dataset_assets.id", ondelete="CASCADE"), nullable=False)
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reason = Column(Text)
+    reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_at = Column(DateTime)
+    decision = Column(String(16))  # approved / rejected / auto
+    admin_notes = Column(Text)
+    notified_at = Column(DateTime)
+
+    dataset_asset = relationship("DatasetAsset", foreign_keys=[asset_id])
     requested_by_user = relationship("User", foreign_keys=[requested_by])
     reviewed_by_user = relationship("User", foreign_keys=[reviewed_by])

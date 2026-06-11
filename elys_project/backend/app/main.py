@@ -18,6 +18,8 @@ from app.routers import (
     dataset_files_router,
     dataset_versions_router,
     dataset_withdrawals_router,
+    dataset_publicize_router,
+    dataset_publicizations_router,
     datasets_router,
     pipelines_router,
     studies_router,
@@ -65,6 +67,8 @@ app.include_router(recording_router)
 app.include_router(datasets_router)
 app.include_router(dataset_versions_router)
 app.include_router(dataset_withdrawals_router)
+app.include_router(dataset_publicize_router)
+app.include_router(dataset_publicizations_router)
 app.include_router(pipelines_router)
 
 

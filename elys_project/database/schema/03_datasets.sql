@@ -72,7 +72,7 @@ COMMENT ON COLUMN dataset_versions.version_doi IS '该版本独有的 DOI（Data
 COMMENT ON COLUMN dataset_versions.qa_status IS '展示用，不阻塞发布（DEC-2026-0531-C）。';
 COMMENT ON COLUMN dataset_versions.withdraw_reason IS '撤回理由，owner 申请时填写。';
 COMMENT ON COLUMN dataset_versions.withdrawal_admin_notes IS '审核管理员备注 / 紧急下架原因。紧急下架由管理员触发（2026-06-09 v2：归管理员，superadmin 另作平台治理）。';
-COMMENT ON COLUMN dataset_versions.storage_uri IS '版本根 URI，例如 elys://datasets/{dataset_asset_id}/versions/working。';
+COMMENT ON COLUMN dataset_versions.storage_uri IS '版本 FIF 根 URI（2026-06-10 新方案，不再含 versions/ 段）。working 版指向 elys://datasets/{id}/BIDSdata；发布后指向 elys://datasets/{id}/ver{label}。sourcedata 为 asset 级共享、不随版本。';
 
 -- ============================================
 -- 研究项对数据集资产的挂载
@@ -212,11 +212,30 @@ CREATE TABLE IF NOT EXISTS dataset_files (
 );
 
 COMMENT ON TABLE dataset_files IS '数据文件统一索引表。登记 Dataset Version 下的 original upload、Raw BIDS 逻辑视图、canonical FIF、sidecar 等。';
-COMMENT ON COLUMN dataset_files.file_role IS '文件角色。标准角色包括 original_upload、raw_bids_data、raw_bids_eeg_json、raw_bids_channels、raw_bids_events、canonical_fif；兼容角色包括 raw_source、sidecar。';
-COMMENT ON COLUMN dataset_files.storage_uri IS '存储抽象 URI。当前数据集导入写 legacy 形式 study://{study_id}/{relative_path}（解析到研究项 data_root）；新 Study 存储用 elys://studies/{study_id}/{relative_path}（解析到 STUDIES_STORAGE_ROOT）。两者由 StorageService.resolve_uri 分别解析。';
+COMMENT ON COLUMN dataset_files.file_role IS '文件角色（2026-06-10 精简）。original_upload = sourcedata 原始上传；canonical FIF 及其 BIDS sidecar = fif / fif_eeg_json / fif_channels / fif_events / fif_provenance。raw_bids 视图降为纯逻辑（不落物理、不单独登记 file_role），BIDS 实体映射查 recordings 表 + original_upload 行。';
+COMMENT ON COLUMN dataset_files.storage_uri IS '存储抽象 URI。数据集文件统一用 elys://datasets/{dataset_asset_id}/{logical_path}（asset 级根；logical_path 形如 sourcedata/original_uploads/... 或 BIDSdata/sub-/ses-/eeg/... 或 ver{label}/sub-/...）。由 StorageService.resolve_uri 解析。';
 COMMENT ON COLUMN dataset_files.relative_path IS '相对于研究项 data_root 的 POSIX 路径。';
 COMMENT ON COLUMN dataset_files.logical_path IS '相对于 Dataset Version 根或 Study 根的稳定逻辑路径。';
 COMMENT ON COLUMN dataset_files.source_file_id IS '可选的直接来源文件。复杂多源关系使用 dataset_file_derivations 表表达。';
+
+-- ============================================
+-- 版本文件清单（version ↔ file 多对多，支持「逻辑链接」复用旧版本物理文件）
+-- ============================================
+-- 物理文件只存一份（dataset_files 一行，storage_uri 指向其真实所在目录：BIDSdata/ 或 ver{label}/）；
+-- 「某版本包含哪些文件」由本清单表表达。发布 v+1 时：改动文件落新物理行 + 清单条目；未改动文件
+-- 直接复用旧版本 dataset_file_id 的清单条目（即「逻辑链接」，无需文件系统 symlink）。
+-- GC 物理清盘判定：某 dataset_file 无任何清单行引用 AND 无 pipeline_execution_inputs 冻结引用 → 可删盘。
+
+CREATE TABLE IF NOT EXISTS dataset_version_files (
+    dataset_version_id  UUID NOT NULL REFERENCES dataset_versions(id) ON DELETE CASCADE,
+    dataset_file_id     UUID NOT NULL REFERENCES dataset_files(id)    ON DELETE RESTRICT,
+    added_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (dataset_version_id, dataset_file_id)
+);
+
+COMMENT ON TABLE dataset_version_files IS
+    '版本文件清单。version↔file 多对多：一个物理文件可被多个版本引用（未改动文件跨版本复用 = 逻辑链接）。'
+    'dataset_files.dataset_version_id 表示「物理诞生于哪个版本目录」，本表表示「成员关系」。';
 
 -- ============================================
 -- 延后添加外键（避免循环依赖）
@@ -293,6 +312,31 @@ COMMENT ON TABLE dataset_withdrawal_requests IS '撤回申请审计表（DEC-202
 COMMENT ON COLUMN dataset_withdrawal_requests.decision IS 'approved / rejected = 管理员正常审核结果；emergency = 紧急下架补审计。';
 
 -- ============================================
+-- 转公开审核申请（shared → public 先审后开，2026-06-10 Q1 定稿）
+-- ============================================
+-- 发布 = 自助（即时冻结 + DOI，可见范围 private/shared，无审核）；转公开 = 先审后开：
+-- shared → public 需管理员批准。批准前数据集「已发布 + 可邀请」，能私下传 DOI 链接但不进搜索/不对全网开放。
+-- 调试期默认 auto-approve（无管理员策略时自动通过，decision='auto' 留痕）。镜像 dataset_withdrawal_requests。
+
+CREATE TABLE IF NOT EXISTS dataset_publicization_requests (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id                UUID NOT NULL REFERENCES dataset_assets(id) ON DELETE CASCADE,
+    requested_by            UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    requested_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+    reason                  TEXT,
+    reviewed_by             UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at             TIMESTAMP,
+    decision                VARCHAR(16)
+                                CHECK (decision IN ('approved', 'rejected', 'auto')),
+    admin_notes             TEXT,
+    notified_at             TIMESTAMP
+);
+
+COMMENT ON TABLE dataset_publicization_requests IS
+    '转公开审核申请表（Q1 定稿）。asset 级（可见范围在 asset 上）。decision: approved/rejected=管理员审核；auto=调试期自动通过留痕。';
+COMMENT ON COLUMN dataset_publicization_requests.decision IS 'approved / rejected = 管理员审核结果；auto = 调试期无策略时自动通过。NULL = 待审。';
+
+-- ============================================
 -- 索引
 -- ============================================
 
@@ -334,3 +378,7 @@ CREATE INDEX IF NOT EXISTS idx_dataset_version_references_version ON dataset_ver
 CREATE INDEX IF NOT EXISTS idx_dataset_version_references_referencing_study ON dataset_version_references(referencing_study_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_version_references_kind_id ON dataset_version_references(reference_kind, reference_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_withdrawal_requests_version ON dataset_withdrawal_requests(dataset_version_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_version_files_version ON dataset_version_files(dataset_version_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_version_files_file ON dataset_version_files(dataset_file_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_publicization_requests_asset ON dataset_publicization_requests(asset_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_publicization_requests_pending ON dataset_publicization_requests(asset_id) WHERE decision IS NULL;

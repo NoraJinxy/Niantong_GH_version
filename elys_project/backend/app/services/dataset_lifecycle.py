@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     DatasetAsset,
+    DatasetPublicizationRequest,
     DatasetVersion,
     DatasetVersionReference,
     DatasetWithdrawalRequest,
@@ -668,6 +669,173 @@ def emergency_takedown_version(
     if commit:
         db.commit()
         db.refresh(version)
+        db.refresh(request)
+
+    return request
+
+
+# ============================================
+# Publicization request (shared → public 转公开审核，2026-06-10 Q1 定稿)
+# ============================================
+# 发布 = 自助（即时冻结 + DOI，可见范围 private/shared，无审核）；转公开 = 先审后开：
+# shared → public 是唯一真实曝光（全网可搜），需管理员批准。private 是邀请制基础，shared 是
+# 邀请制协作（都不算全网曝光），经 open-visibility 自助升级；只有升到 public 走本审核。
+# 调试期默认 auto-approve（无人工审核策略时自动通过、decision='auto'、即时生效）。
+
+# 调试期默认自动通过；上线改 False（或接入 settings 开关）后转公开走管理员人工审核队列。
+PUBLICIZATION_AUTO_APPROVE = True
+
+
+def request_publicization(
+    db: Session,
+    *,
+    asset: DatasetAsset,
+    actor: User,
+    reason: str | None = None,
+    commit: bool = True,
+) -> DatasetPublicizationRequest:
+    """负责人申请把数据集可见范围升到 public（shared → public）。
+
+    调试期（PUBLICIZATION_AUTO_APPROVE=True）：直接升 public、decision='auto'、即时生效。
+    生产（False）：留 pending，等管理员 review_publicization_request 审核。
+    private 请先经 open-visibility 升到 shared（邀请制协作，不算全网曝光，自助）。
+    """
+    _ensure_asset_owner(asset, actor)
+
+    if asset.visibility == "public":
+        raise DatasetLifecycleStateError("该数据集已是 public")
+    if asset.visibility != "shared":
+        raise DatasetLifecycleStateError(
+            "仅 shared 可见范围可申请转公开；private 请先开放为 shared（邀请制协作）"
+        )
+    if _latest_published_version_label(db, asset=asset) is None:
+        raise DatasetLifecycleStateError(
+            "资产尚无已发布版本，无可公开内容；请先发布至少一个版本"
+        )
+
+    # 同一资产同时只允许一个待审转公开申请。
+    existing_pending = (
+        db.query(DatasetPublicizationRequest)
+        .filter(
+            DatasetPublicizationRequest.asset_id == asset.id,
+            DatasetPublicizationRequest.decision.is_(None),
+        )
+        .first()
+    )
+    if existing_pending is not None:
+        raise DatasetLifecycleStateError("该数据集已有一个待审核的转公开申请")
+
+    now = datetime.utcnow()
+    normalized_reason = (reason or "").strip() or None
+    request = DatasetPublicizationRequest(
+        asset_id=asset.id,
+        requested_by=actor.id,
+        requested_at=now,
+        reason=normalized_reason,
+    )
+    db.add(request)
+
+    record_audit_event(
+        db,
+        action="dataset_asset.publicize_requested",
+        actor_id=actor.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset.id,
+        resource_label=asset.name,
+        metadata={"dataset_asset_code": asset.code, "reason": normalized_reason},
+        occurred_at=now,
+    )
+
+    if PUBLICIZATION_AUTO_APPROVE:
+        # 调试期：无人工审核策略，自动通过并即时升 public，decision='auto' 留痕。
+        request.decision = "auto"
+        request.reviewed_at = now
+        request.admin_notes = "调试期自动通过（无人工审核策略）"
+        old_visibility = asset.visibility
+        asset.visibility = "public"
+        asset.updated_at = now
+        record_audit_event(
+            db,
+            action="dataset_asset.publicized",
+            actor_id=actor.id,
+            event_scope="dataset_asset",
+            resource_kind="dataset_asset",
+            resource_id=asset.id,
+            resource_label=asset.name,
+            metadata={
+                "old_visibility": old_visibility,
+                "new_visibility": "public",
+                "decision": "auto",
+                "publicization_request_id": str(request.id),
+            },
+            occurred_at=now,
+        )
+
+    if commit:
+        db.commit()
+        db.refresh(asset)
+        db.refresh(request)
+
+    return request
+
+
+def review_publicization_request(
+    db: Session,
+    *,
+    request: DatasetPublicizationRequest,
+    decision: str,
+    admin_notes: str | None,
+    actor: User,
+    commit: bool = True,
+) -> DatasetPublicizationRequest:
+    """管理员审核转公开申请。approved → asset.visibility=public；rejected → 保持 shared。"""
+    _ensure_admin(actor)
+
+    if decision not in {"approved", "rejected"}:
+        raise DatasetLifecycleValidationError("审核结果必须是 approved 或 rejected")
+    if request.decision is not None:
+        raise DatasetLifecycleStateError(f"该转公开申请已审核，结果: {request.decision}")
+
+    asset = db.query(DatasetAsset).filter(DatasetAsset.id == request.asset_id).first()
+    if asset is None:
+        raise DatasetLifecycleStateError("转公开申请对应的资产不存在")
+
+    now = datetime.utcnow()
+    request.decision = decision
+    request.reviewed_by = actor.id
+    request.reviewed_at = now
+    request.admin_notes = (admin_notes or "").strip() or None
+
+    old_visibility = asset.visibility
+    if decision == "approved":
+        asset.visibility = "public"
+        asset.updated_at = now
+        action = "dataset_asset.publicized"
+    else:
+        action = "dataset_asset.publicize_rejected"
+
+    record_audit_event(
+        db,
+        action=action,
+        actor_id=actor.id,
+        event_scope="dataset_asset",
+        resource_kind="dataset_asset",
+        resource_id=asset.id,
+        resource_label=asset.name,
+        metadata={
+            "old_visibility": old_visibility,
+            "new_visibility": asset.visibility,
+            "decision": decision,
+            "admin_notes": request.admin_notes,
+            "publicization_request_id": str(request.id),
+        },
+        occurred_at=now,
+    )
+
+    if commit:
+        db.commit()
+        db.refresh(asset)
         db.refresh(request)
 
     return request
