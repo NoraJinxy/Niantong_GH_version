@@ -1196,6 +1196,7 @@ import { useChannelListEditor } from '@/composables/pipeline/useChannelListEdito
 import { useSaveSettingsPanel } from '@/composables/pipeline/useSaveSettingsPanel'
 import { useEventSelectEditor } from '@/composables/pipeline/useEventSelectEditor'
 import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
+import { useNodeTopology } from '@/composables/pipeline/useNodeTopology'
 
 type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -1623,77 +1624,21 @@ const visibleBasicProperties = computed(() =>
 const visibleAdvancedProperties = computed(() =>
   (selectedNodeSpec.value?.properties ?? []).filter((prop) => prop.advanced && isPropVisible(prop)),
 )
-/**
- * 从所有 LoadData 节点出发 BFS，标记所有"上游可达 LoadData"的节点 id。
- * 用于画布保留指示：只有可达节点才谈得上"保留产物"，孤立节点（拖出但没连数据源）不画。
- */
-const reachableNodeIds = computed<Set<string>>(() => {
-  const reachable = new Set<string>()
-  const nodes = definition.value.graph.nodes
-  const links = definition.value.graph.links || []
-  const queue: string[] = []
-  for (const n of nodes) {
-    if (n.type === LOAD_DATA_NODE_TYPE) {
-      reachable.add(n.id)
-      queue.push(n.id)
-    }
-  }
-  if (queue.length === 0) return reachable
-  const downstreamByFrom: Record<string, string[]> = {}
-  for (const link of links) {
-    const from = link.from?.node
-    const to = link.to?.node
-    if (typeof from === 'string' && typeof to === 'string') {
-      if (!downstreamByFrom[from]) downstreamByFrom[from] = []
-      downstreamByFrom[from].push(to)
-    }
-  }
-  while (queue.length) {
-    const cur = queue.shift() as string
-    const next = downstreamByFrom[cur] || []
-    for (const id of next) {
-      if (!reachable.has(id)) {
-        reachable.add(id)
-        queue.push(id)
-      }
-    }
-  }
-  return reachable
+// 节点拓扑与保留（reachableNodeIds / isLeafNode / topologyLabel / keep checkbox）见 composables/pipeline/useNodeTopology
+const {
+  reachableNodeIds,
+  isLeafNode,
+  keepLeafHint,
+  selectedNodeKeep,
+  topologyLabel,
+  keepCheckboxDisabled,
+  onToggleKeep,
+} = useNodeTopology({
+  selectedNode,
+  definition,
+  updateLiteGraphNode,
+  markDirty,
 })
-
-/** 叶子节点（最终输出）强制保留的提示文案。 */
-const keepLeafHint = '最终结果默认保存；不需要请直接删除该节点'
-
-/** 当前选中节点是否保留输出。
- *  叶子节点（最终产出）强制保留；中间节点取 params.keep override，默认不保留。 */
-const selectedNodeKeep = computed<boolean>(() => {
-  if (isLeafNode.value) return true
-  const override = selectedNode.value?.params?.keep
-  if (typeof override === 'boolean') return override
-  if (override === 'true') return true
-  if (override === 'false') return false
-  return false
-})
-
-/** 节点拓扑前缀（leaf / intermediate / detached）。 */
-const topologyLabel = computed<string>(() => {
-  const node = selectedNode.value
-  if (!node) return ''
-  if (!reachableNodeIds.value.has(node.id)) return 'detached'
-  return isLeafNode.value ? 'leaf' : 'intermediate'
-})
-
-/** keep checkbox 是否禁用：叶子节点强制保留、或未连数据源不产出。 */
-const keepCheckboxDisabled = computed<boolean>(() => isLeafNode.value || topologyLabel.value === 'detached')
-
-function onToggleKeep(event: Event) {
-  const node = selectedNode.value
-  if (!node || keepCheckboxDisabled.value) return
-  const checked = (event.target as HTMLInputElement).checked
-  node.params = { ...node.params, keep: checked }
-  updateLiteGraphNode(node)
-  markDirty()
-}
 // [Dead code 已清理] 旧 LoadData chip UI 相关 computed (loadDataSelectionMode/eligibleLoadDataDatasets/matchedLoadDataDatasets/loadData*Options 等) 已全部删除，
 // 筛选逻辑迁移到 LoadDataPanel.vue 组件内部。
 
@@ -1752,15 +1697,7 @@ const {
   markDirty,
 })
 
-/** 拓扑角色：节点的输出端口在 graph.links 中出现 → intermediate，否则 leaf。
- *  source 节点（LoadData）在这套 UI 中无 save 子对象不会渲染折叠区，不需要单独处理。
- */
-const isLeafNode = computed<boolean>(() => {
-  const node = selectedNode.value
-  if (!node) return true
-  const links = definition.value.graph.links || []
-  return !links.some((link) => link.from?.node === node.id)
-})
+// isLeafNode（拓扑角色判定）→ composables/pipeline/useNodeTopology（上方解构）
 
 // 保存设置的 splitMode / 模板渲染 / display_name 预览 / auto_tags / 自定义标签编辑 → composables/pipeline/useSaveSettingsPanel
 
