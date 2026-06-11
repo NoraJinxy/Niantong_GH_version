@@ -41,7 +41,7 @@ param(
 
     # ① 启动模板（自己在控制台「实例启动模板」里制定的那个）
     [string]$LaunchTemplateName = "",
-    [string]$LaunchTemplateId = "",
+    [string]$LaunchTemplateId = "lt-wz9agq2ncd0z03h1x46h",
     [string]$LaunchTemplateVersion = "",  # 留空=模板默认版本
 
     # ② 抢占式 Spot
@@ -102,14 +102,25 @@ function Invoke-Aliyun {
     param([string[]]$CallArgs)
     $full = New-Object System.Collections.Generic.List[string]
     $full.AddRange($CallArgs)
-    $full.AddRange(@("--RegionId", $RegionId))
-    if ($AccessKeyId) { $full.AddRange(@("--access-key-id", $AccessKeyId)) }
-    if ($AccessKeySecret) { $full.AddRange(@("--access-key-secret", $AccessKeySecret)) }
-    $raw = & aliyun @($full.ToArray()) 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "aliyun 调用失败 (exit $LASTEXITCODE)：`n$($raw | Out-String)"
+    $full.AddRange([string[]]@("--RegionId", $RegionId))
+    if ($AccessKeyId) { $full.AddRange([string[]]@("--access-key-id", $AccessKeyId)) }
+    if ($AccessKeySecret) { $full.AddRange([string[]]@("--access-key-secret", $AccessKeySecret)) }
+    $oldEnc = [Console]::OutputEncoding
+    $oldEap = $ErrorActionPreference
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $ErrorActionPreference = "Continue"
+    try { $raw = & aliyun @($full.ToArray()) 2>&1 }
+    finally {
+        [Console]::OutputEncoding = $oldEnc
+        $ErrorActionPreference = $oldEap
     }
-    return ($raw | Out-String | ConvertFrom-Json)
+    $text = $raw | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ } }
+    $joined = $text -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        if ($joined -match 'DryRunOperation') { return $null }  # DryRun 校验通过，阿里云用非零码表示"验证成功但未下单"
+        throw "aliyun 调用失败 (exit $LASTEXITCODE)：`n$joined"
+    }
+    return ($joined | ConvertFrom-Json)
 }
 
 # ── -List：列出填参要用的资源 ──────────────────────────────────────────────
@@ -144,43 +155,43 @@ function Resolve-LatestImage {
 
 # ── 组装 RunInstances 参数 ─────────────────────────────────────────────────
 $a = New-Object System.Collections.Generic.List[string]
-$a.AddRange(@("ecs", "RunInstances"))
-$a.AddRange(@("--Amount", "$Amount"))
-$a.AddRange(@("--MinAmount", "$Amount"))
-$a.AddRange(@("--ClientToken", ([guid]::NewGuid().ToString("N"))))  # 幂等：网络重试不会重复下单
-if ($Amount -gt 1) { $a.AddRange(@("--UniqueSuffix", "true")) }
+$a.AddRange([string[]]@("ecs", "RunInstances"))
+$a.AddRange([string[]]@("--Amount", "$Amount"))
+$a.AddRange([string[]]@("--MinAmount", "$Amount"))
+$a.AddRange([string[]]@("--ClientToken", ([guid]::NewGuid().ToString("N"))))  # 幂等：网络重试不会重复下单
+if ($Amount -gt 1) { $a.AddRange([string[]]@("--UniqueSuffix", "true")) }
 
 # 抢占式
-$a.AddRange(@("--SpotStrategy", $SpotStrategy))
+$a.AddRange([string[]]@("--SpotStrategy", $SpotStrategy))
 if ($SpotStrategy -eq "SpotWithPriceLimit") {
     if ($SpotPriceLimit -le 0) { throw "-SpotStrategy SpotWithPriceLimit 需要 -SpotPriceLimit（每小时上限价，如 0.5）。" }
-    $a.AddRange(@("--SpotPriceLimit", "$SpotPriceLimit"))
+    $a.AddRange([string[]]@("--SpotPriceLimit", "$SpotPriceLimit"))
 }
-if ($SpotDuration -ge 0) { $a.AddRange(@("--SpotDuration", "$SpotDuration")) }
-if ($SpotInterruptionBehavior) { $a.AddRange(@("--SpotInterruptionBehavior", $SpotInterruptionBehavior)) }
+if ($SpotDuration -ge 0) { $a.AddRange([string[]]@("--SpotDuration", "$SpotDuration")) }
+if ($SpotInterruptionBehavior) { $a.AddRange([string[]]@("--SpotInterruptionBehavior", $SpotInterruptionBehavior)) }
 
 # DryRun：默认 true(演练)，-Yes 才 false(真买)
-if ($Yes) { $a.AddRange(@("--DryRun", "false")) } else { $a.AddRange(@("--DryRun", "true")) }
+if ($Yes) { $a.AddRange([string[]]@("--DryRun", "false")) } else { $a.AddRange([string[]]@("--DryRun", "true")) }
 
 $useTemplate = ($LaunchTemplateName -ne "") -or ($LaunchTemplateId -ne "")
 
 if ($useTemplate) {
-    if ($LaunchTemplateId) { $a.AddRange(@("--LaunchTemplateId", $LaunchTemplateId)) }
-    if ($LaunchTemplateName) { $a.AddRange(@("--LaunchTemplateName", $LaunchTemplateName)) }
-    if ($LaunchTemplateVersion) { $a.AddRange(@("--LaunchTemplateVersion", $LaunchTemplateVersion)) }
+    if ($LaunchTemplateId) { $a.AddRange([string[]]@("--LaunchTemplateId", $LaunchTemplateId)) }
+    if ($LaunchTemplateName) { $a.AddRange([string[]]@("--LaunchTemplateName", $LaunchTemplateName)) }
+    if ($LaunchTemplateVersion) { $a.AddRange([string[]]@("--LaunchTemplateVersion", $LaunchTemplateVersion)) }
     # 覆盖项：只下发显式设置的，避免清空模板里的值
-    if ($InstanceType) { $a.AddRange(@("--InstanceType", $InstanceType)) }
-    if ($ImageId) { $a.AddRange(@("--ImageId", $ImageId)) }
-    if ($ZoneId) { $a.AddRange(@("--ZoneId", $ZoneId)) }
-    if ($SecurityGroupId) { $a.AddRange(@("--SecurityGroupId", $SecurityGroupId)) }
-    if ($VSwitchId) { $a.AddRange(@("--VSwitchId", $VSwitchId)) }
-    if ($SystemDiskCategory) { $a.AddRange(@("--SystemDisk.Category", $SystemDiskCategory)) }
-    if ($SystemDiskSize -gt 0) { $a.AddRange(@("--SystemDisk.Size", "$SystemDiskSize")) }
-    if ($InternetChargeType) { $a.AddRange(@("--InternetChargeType", $InternetChargeType)) }
-    if ($InternetMaxBandwidthOut -ge 0) { $a.AddRange(@("--InternetMaxBandwidthOut", "$InternetMaxBandwidthOut")) }
-    if ($Password) { $a.AddRange(@("--Password", $Password)) }
-    if ($KeyPairName) { $a.AddRange(@("--KeyPairName", $KeyPairName)) }
-    if ($InstanceName) { $a.AddRange(@("--InstanceName", $InstanceName)) }
+    if ($InstanceType) { $a.AddRange([string[]]@("--InstanceType", $InstanceType)) }
+    if ($ImageId) { $a.AddRange([string[]]@("--ImageId", $ImageId)) }
+    if ($ZoneId) { $a.AddRange([string[]]@("--ZoneId", $ZoneId)) }
+    if ($SecurityGroupId) { $a.AddRange([string[]]@("--SecurityGroupId", $SecurityGroupId)) }
+    if ($VSwitchId) { $a.AddRange([string[]]@("--VSwitchId", $VSwitchId)) }
+    if ($SystemDiskCategory) { $a.AddRange([string[]]@("--SystemDisk.Category", $SystemDiskCategory)) }
+    if ($SystemDiskSize -gt 0) { $a.AddRange([string[]]@("--SystemDisk.Size", "$SystemDiskSize")) }
+    if ($InternetChargeType) { $a.AddRange([string[]]@("--InternetChargeType", $InternetChargeType)) }
+    if ($InternetMaxBandwidthOut -ge 0) { $a.AddRange([string[]]@("--InternetMaxBandwidthOut", "$InternetMaxBandwidthOut")) }
+    if ($Password) { $a.AddRange([string[]]@("--Password", $Password)) }
+    if ($KeyPairName) { $a.AddRange([string[]]@("--KeyPairName", $KeyPairName)) }
+    if ($InstanceName) { $a.AddRange([string[]]@("--InstanceName", $InstanceName)) }
 }
 else {
     if (-not $SecurityGroupId -or -not $VSwitchId) {
@@ -188,25 +199,25 @@ else {
     }
     $it = if ($InstanceType) { $InstanceType } else { "ecs.e-c1m2.large" }
     $img = if ($ImageId) { $ImageId } else { Resolve-LatestImage }
-    $a.AddRange(@("--InstanceType", $it))
-    $a.AddRange(@("--ImageId", $img))
-    $a.AddRange(@("--SecurityGroupId", $SecurityGroupId))
-    $a.AddRange(@("--VSwitchId", $VSwitchId))
-    if ($ZoneId) { $a.AddRange(@("--ZoneId", $ZoneId)) }
+    $a.AddRange([string[]]@("--InstanceType", $it))
+    $a.AddRange([string[]]@("--ImageId", $img))
+    $a.AddRange([string[]]@("--SecurityGroupId", $SecurityGroupId))
+    $a.AddRange([string[]]@("--VSwitchId", $VSwitchId))
+    if ($ZoneId) { $a.AddRange([string[]]@("--ZoneId", $ZoneId)) }
     $cat = if ($SystemDiskCategory) { $SystemDiskCategory } else { "cloud_essd" }
     $sz = if ($SystemDiskSize -gt 0) { $SystemDiskSize } else { 40 }
-    $a.AddRange(@("--SystemDisk.Category", $cat))
-    $a.AddRange(@("--SystemDisk.Size", "$sz"))
+    $a.AddRange([string[]]@("--SystemDisk.Category", $cat))
+    $a.AddRange([string[]]@("--SystemDisk.Size", "$sz"))
     $ict = if ($InternetChargeType) { $InternetChargeType } else { "PayByTraffic" }
     $bw = if ($InternetMaxBandwidthOut -ge 0) { $InternetMaxBandwidthOut } else { 5 }
-    $a.AddRange(@("--InternetChargeType", $ict))
-    $a.AddRange(@("--InternetMaxBandwidthOut", "$bw"))
+    $a.AddRange([string[]]@("--InternetChargeType", $ict))
+    $a.AddRange([string[]]@("--InternetMaxBandwidthOut", "$bw"))
     $nm = if ($InstanceName) { $InstanceName } else { "elys-compute" }
-    $a.AddRange(@("--InstanceName", $nm))
-    $a.AddRange(@("--HostName", $nm))
-    if ($Password) { $a.AddRange(@("--Password", $Password)) }
-    if ($KeyPairName) { $a.AddRange(@("--KeyPairName", $KeyPairName)) }
-    $a.AddRange(@("--Tag.1.Key", "project", "--Tag.1.Value", "elys"))
+    $a.AddRange([string[]]@("--InstanceName", $nm))
+    $a.AddRange([string[]]@("--HostName", $nm))
+    if ($Password) { $a.AddRange([string[]]@("--Password", $Password)) }
+    if ($KeyPairName) { $a.AddRange([string[]]@("--KeyPairName", $KeyPairName)) }
+    $a.AddRange([string[]]@("--Tag.1.Key", "project", "--Tag.1.Value", "elys"))
 }
 
 # ── 概要 ───────────────────────────────────────────────────────────────────
@@ -242,8 +253,8 @@ $ip = ""
 $priv = ""
 $deadline = (Get-Date).AddSeconds(300)
 while ((Get-Date) -lt $deadline) {
-    $d = Invoke-Aliyun @("ecs", "DescribeInstances", "--InstanceIds", ('["' + $instanceId + '"]'))
-    $inst = $d.Instances.Instance[0]
+    $all  = (Invoke-Aliyun @("ecs", "DescribeInstances", "--PageSize", "50")).Instances.Instance
+    $inst = $all | Where-Object { $_.InstanceId -eq $instanceId } | Select-Object -First 1
     if ($inst -and $inst.Status -eq "Running") {
         if ($inst.PublicIpAddress.IpAddress.Count -gt 0) { $ip = $inst.PublicIpAddress.IpAddress[0] }
         elseif ($inst.EipAddress.IpAddress) { $ip = $inst.EipAddress.IpAddress }

@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: elys-postgres-local
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: elys
+    ports:
+      - "5432:5432"
+    volumes:
+      - elys_pg_data:/var/lib/postgresql/data
+      - ./elys_project/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./elys_project/database/schema:/docker-entrypoint-initdb.d/schema:ro
+      - ./elys_project/database/seeds:/docker-entrypoint-initdb.d/seeds:ro
+
+  redis:
+    image: redis:7-alpine
+    container_name: elys-redis-local
+    ports:
+      - "6379:6379"
+
+volumes:
+  elys_pg_data:
+    name: elys_pg_data_local
