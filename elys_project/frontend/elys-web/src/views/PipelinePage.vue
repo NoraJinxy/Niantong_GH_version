@@ -1185,6 +1185,7 @@ import { usePipelineEditor } from '@/composables/pipeline/usePipelineEditor'
 import { useDraftPersistence } from '@/composables/pipeline/useDraftPersistence'
 import { useExecutionTasks } from '@/composables/pipeline/useExecutionTasks'
 import { usePipelineEditLock } from '@/composables/pipeline/usePipelineEditLock'
+import { useExecutionDetail, type ExecutionDetailTab } from '@/composables/pipeline/useExecutionDetail'
 type DatasetFilterValue = string | null
 
 interface LoadDataFilter {
@@ -1248,7 +1249,6 @@ type PipelineContextMenuItem = {
   disabled?: boolean
 }
 
-type ExecutionDetailTab = 'summary' | 'inputs' | 'jobs' | 'tasks' | 'artifacts' | 'manifest' | 'lineage'
 type ArtifactAction = 'pin' | 'unpin' | 'hide' | 'download'
 
 defineOptions({ name: 'PipelinePage' })
@@ -1324,8 +1324,6 @@ const eventLabelsLoading = ref(false)
 const latestPipelineExecution = ref<PipelineExecution | null>(null)
 const activeExecutionId = ref('')
 const activeExecutionDetail = ref<PipelineExecutionDetail | null>(null)
-const activeExecutionManifest = ref<Record<string, unknown> | null>(null)
-const activeExecutionLineage = ref<PipelineExecutionLineage | null>(null)
 const executionJobs = ref<PipelineJob[]>([])
 const runArtifacts = ref<StudyOutput[]>([])
 const runPolling = ref(false)
@@ -1355,11 +1353,23 @@ const {
   statusMessage,
   describeError,
 })
-const executionDetailTab = ref<ExecutionDetailTab>('artifacts')
-const executionManifestLoading = ref(false)
-const executionManifestError = ref('')
-const executionLineageLoading = ref(false)
-const executionLineageError = ref('')
+// 执行详情（Manifest / Lineage / tab 懒加载）见 composables/pipeline/useExecutionDetail
+const {
+  activeExecutionManifest,
+  activeExecutionLineage,
+  executionDetailTab,
+  executionManifestLoading,
+  executionManifestError,
+  executionLineageLoading,
+  executionLineageError,
+  selectExecutionDetailTab,
+  loadExecutionManifest,
+  loadExecutionLineage,
+} = useExecutionDetail({
+  activeExecutionId,
+  selectedStudyId,
+  describeError,
+})
 const artifactActionLoading = reactive<Record<string, ArtifactAction | 'cleanup'>>({})
 const artifactCleanupLoading = ref(false)
 const selectedArtifactPreview = ref<StudyOutputPreview | null>(null)
@@ -4719,45 +4729,6 @@ async function retryLatestExecution() {
   }
 }
 
-function selectExecutionDetailTab(tab: ExecutionDetailTab) {
-  executionDetailTab.value = tab
-  if (tab === 'manifest') void loadExecutionManifest()
-  if (tab === 'lineage') void loadExecutionLineage()
-}
-
-async function loadExecutionManifest(executionId = activeExecutionId.value) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !executionId) return
-  executionManifestLoading.value = true
-  executionManifestError.value = ''
-  try {
-    const res = await pipelineApi.getExecutionManifest(studyId, executionId)
-    if (activeExecutionId.value !== executionId) return
-    activeExecutionManifest.value = res.data
-  } catch (error) {
-    if (activeExecutionId.value !== executionId) return
-    executionManifestError.value = describeError(error, '运行 Manifest 读取失败')
-  } finally {
-    if (activeExecutionId.value === executionId) executionManifestLoading.value = false
-  }
-}
-
-async function loadExecutionLineage(executionId = activeExecutionId.value) {
-  const studyId = selectedStudyId.value
-  if (!studyId || !executionId) return
-  executionLineageLoading.value = true
-  executionLineageError.value = ''
-  try {
-    const res = await pipelineApi.getExecutionLineage(studyId, executionId)
-    if (activeExecutionId.value !== executionId) return
-    activeExecutionLineage.value = res.data
-  } catch (error) {
-    if (activeExecutionId.value !== executionId) return
-    executionLineageError.value = describeError(error, '运行 lineage 读取失败')
-  } finally {
-    if (activeExecutionId.value === executionId) executionLineageLoading.value = false
-  }
-}
 
 function derivedRetentionPillClass(artifact: StudyOutput): string {
   if (artifact.deleted_at) return 'status-pill--deleted'
