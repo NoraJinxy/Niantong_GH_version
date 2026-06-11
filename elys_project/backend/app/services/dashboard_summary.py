@@ -608,8 +608,9 @@ def audit_action_label(action: str) -> str | None:
 
 
 def activity_target_url(event: AuditEvent, object_kind: str) -> str | None:
-    # 容器化后顶层 /pipeline 路由已删，工作流统一进 study 容器:
-    # /studies/{study_id}/workflow?pipeline_id=..&execution_id=..（studyId 进路径，其余进 query）。
+    # 容器化 + 术语统一（workflow→pipeline）后，工作流统一进 study 容器子路由:
+    # /studies/{study_id}/pipeline?pipeline_id=..&execution_id=..（studyId 进路径，其余进 query）。
+    # 旧 /workflow 段已改名 /pipeline 且不留重定向，此处必须用 /pipeline。
     if object_kind == "dataset":
         return "/datasets"
     if object_kind == "study" and event.study_id:
@@ -617,13 +618,13 @@ def activity_target_url(event: AuditEvent, object_kind: str) -> str | None:
     if object_kind == "pipeline" and event.study_id:
         pipeline_id = event.resource_id
         if pipeline_id:
-            return f"/studies/{event.study_id}/workflow?pipeline_id={pipeline_id}"
-        return f"/studies/{event.study_id}/workflow"
+            return f"/studies/{event.study_id}/pipeline?pipeline_id={pipeline_id}"
+        return f"/studies/{event.study_id}/pipeline"
     if object_kind == "execution" and event.study_id:
         pipeline_id = (event.metadata_json or {}).get("pipeline_id")
         if pipeline_id and event.resource_id:
-            return f"/studies/{event.study_id}/workflow?pipeline_id={pipeline_id}&execution_id={event.resource_id}"
-        return f"/studies/{event.study_id}/workflow"
+            return f"/studies/{event.study_id}/pipeline?pipeline_id={pipeline_id}&execution_id={event.resource_id}"
+        return f"/studies/{event.study_id}/pipeline"
     return None
 
 
