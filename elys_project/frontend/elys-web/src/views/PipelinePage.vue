@@ -1197,6 +1197,7 @@ import { useSaveSettingsPanel } from '@/composables/pipeline/useSaveSettingsPane
 import { useEventSelectEditor } from '@/composables/pipeline/useEventSelectEditor'
 import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
 import { useNodeTopology } from '@/composables/pipeline/useNodeTopology'
+import { useNodeParamEditor } from '@/composables/pipeline/useNodeParamEditor'
 
 type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -1594,36 +1595,20 @@ const {
   savePipeline,
   buildRunSelectionOverridePayload,
 })
-// —— 节点参数的条件显示 (visible_when) 与高级折叠 (advanced) ——
-// effectiveNodeParams：属性默认值 + 用户实参合并，给 visible_when 判定用（控制字段未显式给时回退默认）
-const effectiveNodeParams = computed<Record<string, unknown>>(() => {
-  const eff: Record<string, unknown> = {}
-  const spec = selectedNodeSpec.value
-  if (spec) {
-    for (const prop of spec.properties) {
-      if (prop.default !== undefined) eff[prop.name] = prop.default
-    }
-  }
-  const params = (selectedNode.value?.params ?? {}) as Record<string, unknown>
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') eff[key] = value
-  }
-  return eff
+// —— 节点参数编辑（条件显示 visible_when / 高级折叠 / 通用读写 / 标题）见 composables/pipeline/useNodeParamEditor ——
+const {
+  visibleBasicProperties,
+  visibleAdvancedProperties,
+  formatParamValue,
+  handleParamInput,
+  handleParamCheckbox,
+  handleNodeTitleInput,
+} = useNodeParamEditor({
+  selectedNode,
+  selectedNodeSpec,
+  updateLiteGraphNode,
+  markDirty,
 })
-const isPropVisible = (prop: { visible_when?: Record<string, Array<string | number | boolean>> }): boolean => {
-  const rules = prop.visible_when
-  if (!rules) return true
-  const eff = effectiveNodeParams.value
-  return Object.entries(rules).every(([key, allowed]) =>
-    allowed.map((value) => String(value)).includes(String(eff[key])),
-  )
-}
-const visibleBasicProperties = computed(() =>
-  (selectedNodeSpec.value?.properties ?? []).filter((prop) => !prop.advanced && isPropVisible(prop)),
-)
-const visibleAdvancedProperties = computed(() =>
-  (selectedNodeSpec.value?.properties ?? []).filter((prop) => prop.advanced && isPropVisible(prop)),
-)
 // 节点拓扑与保留（reachableNodeIds / isLeafNode / topologyLabel / keep checkbox）见 composables/pipeline/useNodeTopology
 const {
   reachableNodeIds,
@@ -3315,60 +3300,7 @@ function selectNode(nodeId: string) {
   selectLiteGraphNode(nodeId)
 }
 
-function formatParamValue(prop: NodeProperty) {
-  const value = selectedNode.value?.params[prop.name]
-  if (prop.type === 'channel_list' && Array.isArray(value)) return value.join(', ')
-  return value ?? ''
-}
-
-function handleParamInput(prop: NodeProperty, event: Event) {
-  const value = (event.target as HTMLInputElement | HTMLSelectElement).value
-  updateSelectedParam(prop, value)
-}
-
-function handleParamCheckbox(prop: NodeProperty, event: Event) {
-  updateSelectedParam(prop, (event.target as HTMLInputElement).checked)
-}
-
-function updateSelectedParam(prop: NodeProperty, rawValue: unknown) {
-  if (!selectedNode.value) return
-  selectedNode.value.params = {
-    ...selectedNode.value.params,
-    [prop.name]: coerceParamValue(prop, rawValue),
-  }
-  updateLiteGraphNode(selectedNode.value)
-  markDirty()
-}
-
-function coerceParamValue(prop: NodeProperty, rawValue: unknown) {
-  if (prop.type === 'number') {
-    const value = Number(rawValue)
-    return Number.isFinite(value) ? value : null
-  }
-  if (prop.type === 'integer') {
-    const value = Number(rawValue)
-    return Number.isFinite(value) ? Math.trunc(value) : null
-  }
-  if (prop.type === 'boolean') return Boolean(rawValue)
-  if (prop.type === 'channel_list') {
-    return String(rawValue || '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-  if (prop.type === 'select') {
-    const option = prop.options?.find((item) => String(item.value) === String(rawValue))
-    return option ? option.value : rawValue
-  }
-  return rawValue
-}
-
-function handleNodeTitleInput(event: Event) {
-  if (!selectedNode.value) return
-  selectedNode.value.title = (event.target as HTMLInputElement).value
-  updateLiteGraphNode(selectedNode.value)
-  markDirty()
-}
+// 节点参数通用读写 formatParamValue/updateSelectedParam/coerceParamValue + 标题 handleNodeTitleInput → composables/pipeline/useNodeParamEditor
 
 function quickConnectUpstream(upstreamId: string) {
   if (!upstreamId) return
