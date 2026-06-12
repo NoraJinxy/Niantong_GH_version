@@ -7,35 +7,36 @@ from __future__ import annotations
 
 from typing import Any
 
-from .event_conditions import match_conditions, parse_condition_rules
+from .event_conditions import match_conditions, rules_for_selection
 
 
 def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
-    """按 condition 切分 Epochs。事件选择两种写法都收(向后兼容):
+    """按 condition 切分 Epochs(condition 统一模型)。
 
-    - params["event_groups"]: [{"name","pattern","mode"?}, ...] —— 按 condition 分组(含/正则),
-      把"原始注释里带序号的一堆唯一串"归并成少数干净 condition(econ 这类数据的正解)。
-    - params["event_id"]: ["S1", ...] / "S1,S2" —— 逐字符串精确匹配(旧行为)。
+    params["conditions"]: 用户在 Epoch 节点勾选的「事件分组名」列表(前端 chips 来自 LoadData
+    自动算出的分组);也接受 [{"name","pattern","mode"?}, ...] 规则列表。运行时按当前数据重算
+    分组、按所选名还原规则,与前端显示用同一套分组逻辑,保证一致。
     """
     mne = _mne()
     import numpy as np  # noqa: PLC0415
 
-    rules = parse_condition_rules(params.get("event_groups") or params.get("event_id"))
-    if not rules:
-        raise ValueError("Epoch.event_id is required.")
-
     annotations = getattr(raw, "annotations", None)
     if annotations is None or len(annotations) == 0:
         raise ValueError("No events found in Raw annotations.")
+    descriptions = list(annotations.description)
+
+    rules = rules_for_selection(params.get("conditions"), descriptions)
+    if not rules:
+        raise ValueError("Epoch.conditions is required.")
 
     sfreq = float(raw.info["sfreq"])
     events_list, event_id_map, _report = match_conditions(
-        annotations.onset, annotations.description, sfreq, rules
+        annotations.onset, descriptions, sfreq, rules
     )
     if not event_id_map:
         from .event_conditions import summarize_event_vocabulary  # noqa: PLC0415
 
-        summary = summarize_event_vocabulary(list(annotations.description))
+        summary = summarize_event_vocabulary(descriptions)
         raise ValueError(
             "No annotations matched the requested conditions "
             f"{[r.name for r in rules]}. {summary['hint']}"

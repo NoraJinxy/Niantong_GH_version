@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.models import DatasetFile, Recording, Study, StudyDatasetMount, StudySettings
 from app.schemas.pipeline import LoadDataDataInfo, LoadDataResolveResponse, PipelineValidationIssue
 from app.services.storage import StorageService, StorageUriError
+from app.engine.analysis.event_conditions import propose_condition_groups
 
 
 BLOCKED_QA_STATUS = {"failed", "deleted", "rejected"}
@@ -152,6 +153,42 @@ def _read_dataset_event_labels(
             break
     labels = sorted(counts.keys(), key=lambda item: (item.isdigit() is False, item))
     return labels, dict(counts)
+
+
+def _read_dataset_condition_groups(study: Study, dataset: Recording) -> list[dict[str, Any]]:
+    """读 events.tsv 全量事件(不截断),自动收成可勾选的 condition 分组,供前端 Epoch chips。
+    与运行时 epoching 调同一个 propose_condition_groups,显示与切分分组一致。"""
+    sidecar_paths: Any = None
+    current_version = getattr(dataset, "current_version", None)
+    if current_version is not None:
+        sidecar_paths = getattr(current_version, "sidecar_paths", None)
+    if not sidecar_paths:
+        sidecar_paths = getattr(dataset, "current_sidecar_paths", None)
+    if not isinstance(sidecar_paths, dict):
+        return []
+    events_path = sidecar_paths.get("events")
+    if not events_path:
+        return []
+    abs_path = _resolve_storage_path(study, events_path)
+    if abs_path is None or not abs_path.exists():
+        return []
+    try:
+        with abs_path.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(DictReader(handle, delimiter="\t"))
+    except OSError:
+        return []
+    labels: list[str] = []
+    for row in rows:
+        for column in EVENT_LABEL_COLUMNS:
+            raw = row.get(column)
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if not text or text in {"n/a", "N/A"}:
+                continue
+            labels.append(text)
+            break
+    return propose_condition_groups(labels)
 
 
 def resolve_load_data_selection(
@@ -375,6 +412,7 @@ def dataset_to_data_info(
 
     subject = dataset.subject.bids_subject_id if dataset.subject else ""
     event_labels, event_counts = _read_dataset_event_labels(study, dataset)
+    condition_groups = _read_dataset_condition_groups(study, dataset)
     ch_names = _read_dataset_ch_names(fif_abs_path) if fif_exists else []
     content_hash = _content_hash(
         {
@@ -438,6 +476,7 @@ def dataset_to_data_info(
         data_type="raw",
         event_labels=event_labels,
         event_counts=event_counts,
+        condition_groups=condition_groups,
         ch_names=ch_names,
     )
     return data_info, errors, warnings

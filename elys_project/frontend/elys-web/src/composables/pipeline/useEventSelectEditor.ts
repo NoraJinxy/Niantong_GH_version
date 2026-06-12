@@ -59,13 +59,14 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
       for (const node of definition.value.graph.nodes) {
         if (node.type !== LOAD_DATA_NODE_TYPE) continue
         for (const info of loadDataSelectedInfos(node)) {
-          const labels = info.event_labels || []
-          const counts = info.event_counts || {}
-          for (const label of labels) {
-            const existing = aggregate.get(label) || { count: 0, datasets: 0 }
-            existing.count += counts[label] || 0
+          const groups = info.condition_groups || []
+          for (const g of groups) {
+            const name = String(g?.name ?? '').trim()
+            if (!name) continue
+            const existing = aggregate.get(name) || { count: 0, datasets: 0 }
+            existing.count += Number(g?.count) || 0
             existing.datasets += 1
-            aggregate.set(label, existing)
+            aggregate.set(name, existing)
           }
         }
       }
@@ -82,36 +83,17 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
     // ERP 节点：候选 condition 只能是上游 Epoch 节点 event_id 里选过的
     // count / datasets 同样按 LoadData dataset_ids 过滤。
     if (isErpNode.value && selectedNode.value) {
+      // ERP 的候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数，无需回数据库）
       const upstreamEpoch = findUpstreamNodeByType(selectedNode.value.id, EPOCH_NODE_TYPE)
-      const raw = upstreamEpoch?.params?.event_id
-      let labels: string[] = []
-      if (Array.isArray(raw)) labels = raw.map((s) => String(s).trim()).filter(Boolean)
-      else if (typeof raw === 'string' && raw.trim()) {
-        labels = raw.split(',').map((s) => s.trim()).filter(Boolean)
+      const raw = upstreamEpoch?.params?.conditions
+      let names: string[] = []
+      if (Array.isArray(raw)) {
+        names = raw
+          .map((s) => (typeof s === 'string' ? s : String((s as { name?: unknown })?.name ?? '')))
+          .map((s) => s.trim())
+          .filter(Boolean)
       }
-
-      const allowed = new Set(labels)
-      const aggregate = new Map<string, { count: number; datasets: number }>()
-      for (const n of definition.value.graph.nodes) {
-        if (n.type !== LOAD_DATA_NODE_TYPE) continue
-        for (const info of loadDataSelectedInfos(n)) {
-          const ls = info.event_labels || []
-          const counts = info.event_counts || {}
-          for (const lab of ls) {
-            if (!allowed.has(lab)) continue
-            const existing = aggregate.get(lab) || { count: 0, datasets: 0 }
-            existing.count += counts[lab] || 0
-            existing.datasets += 1
-            aggregate.set(lab, existing)
-          }
-        }
-      }
-
-      // 保持上游 Epoch event_id 中的标签顺序；没真实 count 的填 0
-      return labels.map((label) => {
-        const info = aggregate.get(label)
-        return { label, count: info?.count ?? 0, datasets: info?.datasets ?? 0 }
-      })
+      return names.map((label) => ({ label, count: 0, datasets: 1 }))
     }
 
     return []

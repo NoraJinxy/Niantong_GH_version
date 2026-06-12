@@ -26,10 +26,6 @@
           <AppIcon v-else name="refresh" :size="16" />
           重新加载
         </button>
-        <RouterLink v-else class="btn btn--primary dashboard-primary-action" :to="primaryAction.to">
-          <AppIcon :name="primaryAction.icon" :size="16" />
-          {{ primaryAction.label }}
-        </RouterLink>
       </div>
     </div>
 
@@ -168,20 +164,11 @@
 
             <div
               v-else-if="!executionQueueItems.length"
-              class="run-empty dashboard-empty dashboard-empty--compact"
-              :class="{ 'dashboard-empty--quiet': !executionEmptyState.action }"
+              class="run-empty dashboard-empty dashboard-empty--compact dashboard-empty--quiet"
             >
               <div class="run-empty__icon"><AppIcon :name="executionEmptyState.icon" :size="22" /></div>
               <strong>{{ executionEmptyState.title }}</strong>
               <p>{{ executionEmptyState.description }}</p>
-              <RouterLink
-                v-if="executionEmptyState.action"
-                class="btn btn--primary btn--sm"
-                :to="executionEmptyState.action.to"
-              >
-                <AppIcon :name="executionEmptyState.action.icon" :size="14" />
-                {{ executionEmptyState.action.label }}
-              </RouterLink>
             </div>
 
             <RouterLink
@@ -502,7 +489,7 @@ const dashboardStatusText = computed(() => {
     return '还没有工作流，可先创建处理流程'
   }
   if (hasPipelinesWithoutExecutions.value) {
-    return '还没有运行记录，可先发起试跑'
+    return '还没有运行记录'
   }
   if (!datasetAssetsLoaded.value) {
     return '部分摘要暂不可用，核心入口仍可使用'
@@ -522,38 +509,6 @@ const dashboardStatusTone = computed(() => {
     return 'is-muted'
   }
   return 'is-ok'
-})
-const primaryAction = computed<DashboardAction>(() => {
-  if (waitingUserInputExecutions.value.length) {
-    return {
-      label: `处理确认 (${waitingUserInputExecutionCount.value})`,
-      to: pipelineExecutionRoute(waitingUserInputExecutions.value[0]),
-      icon: 'clock',
-    }
-  }
-  if (failedExecutions.value.length) {
-    return {
-      label: `查看失败 (${failedExecutionCount.value})`,
-      to: pipelineExecutionRoute(failedExecutions.value[0]),
-      icon: 'clock',
-    }
-  }
-  if (hasNoDatasetAssets.value) {
-    return { label: '导入数据集', to: '/datasets', icon: 'import' }
-  }
-  if (!studyTotal.value) {
-    return { label: '新建研究项', to: '/studies', icon: 'plus' }
-  }
-  if (hasNoPipelineSnapshot.value) {
-    return { label: '创建工作流', to: '/studies', icon: 'pipeline' }
-  }
-  if (hasPipelinesWithoutExecutions.value) {
-    return { label: '发起试跑', to: '/studies', icon: 'clock' }
-  }
-  if (activeExecutions.value.length) {
-    return { label: '查看运行记录', to: '/studies', icon: 'clock' }
-  }
-  return { label: '进入研究项', to: '/studies', icon: 'pipeline' }
 })
 
 // UI Phase (docs_v2/6-05) P1-1: 需要处理 警示横幅 — 仅在有阻塞事项时显示
@@ -632,15 +587,6 @@ const executionEmptyState = computed<DashboardEmptyState>(() => {
       title: '创建工作流',
       description: '为研究项配置处理流程。',
       icon: 'pipeline',
-      action: { label: '创建工作流', to: '/studies', icon: 'pipeline' },
-    }
-  }
-  if (hasPipelinesWithoutExecutions.value) {
-    return {
-      title: '发起试跑',
-      description: '先试跑一次，确认流程可用。',
-      icon: 'clock',
-      action: { label: '发起试跑', to: '/studies', icon: 'clock' },
     }
   }
   if (!studyTotal.value || hasNoDatasetAssets.value) {

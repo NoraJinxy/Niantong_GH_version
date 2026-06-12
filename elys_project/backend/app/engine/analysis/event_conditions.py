@@ -29,6 +29,8 @@ class ConditionRule:
     def matches(self, description: str) -> bool:
         if self.mode == "exact":
             return description == self.pattern
+        if self.mode == "template":
+            return _DIGITS.sub("#", description) == _DIGITS.sub("#", self.pattern)
         if self.mode == "regex":
             try:
                 return re.search(self.pattern, description) is not None
@@ -37,11 +39,12 @@ class ConditionRule:
         return self.pattern in description  # contains(默认)
 
 
-def parse_condition_rules(spec: Any) -> list[ConditionRule]:
-    """解析节点参数为规则列表,接受三种写法:
-    1) [{"name","pattern","mode"?}, ...]  —— 显式 condition 分组(新)
-    2) ["S1","S2"] 或 "S1,S2"             —— 退化为 exact 规则(兼容旧 event_id)
-    名称/模式为空者跳过;dict 缺 pattern 时用 name,缺 name 时用 pattern。
+def parse_condition_rules(spec: Any, default_mode: str = "exact") -> list[ConditionRule]:
+    """解析为规则列表。支持:
+    - 文本框字符串:一行一条(也容忍 `;` 分隔),每条 `名字=匹配串` 或裸串(name=pattern);
+    - [{"name","pattern","mode"?}, ...]:显式分组(API/程序化);
+    - ["S1","S2"]:裸串列表。
+    未显式给 mode 的,用 default_mode(节点级「匹配方式」,默认 exact)。
     """
     if spec is None:
         return []
@@ -49,24 +52,29 @@ def parse_condition_rules(spec: Any) -> list[ConditionRule]:
         text = spec.strip()
         if not text:
             return []
-        items: list[Any] = text.split(",") if "," in text else [text]
+        raw_items: list[Any] = [seg.strip() for seg in re.split(r"[\n;]+", text) if seg.strip()]
     elif isinstance(spec, (list, tuple)):
-        items = list(spec)
+        raw_items = list(spec)
     else:
-        items = [spec]
+        raw_items = [spec]
 
     rules: list[ConditionRule] = []
     seen: set[tuple[str, str, str]] = set()
-    for item in items:
+    for item in raw_items:
         if isinstance(item, dict):
             name = str(item.get("name") or item.get("pattern") or "").strip()
             pattern = str(item.get("pattern") or item.get("name") or "").strip()
-            mode = str(item.get("mode") or "contains").strip().lower()
-            if mode not in ("exact", "contains", "regex"):
-                mode = "contains"
+            mode = str(item.get("mode") or default_mode).strip().lower()
         else:
-            name = pattern = str(item).strip()
-            mode = "exact"  # 裸字符串 = 旧式精确匹配,保持向后兼容
+            text = str(item).strip()
+            if "=" in text:
+                left, right = text.split("=", 1)
+                name, pattern = left.strip(), right.strip()
+            else:
+                name = pattern = text
+            mode = default_mode
+        if mode not in ("exact", "contains", "regex", "template"):
+            mode = "contains"
         if not name or not pattern:
             continue
         key = (name, pattern, mode)
@@ -170,3 +178,105 @@ def summarize_event_vocabulary(
         "verdict": verdict,
         "hint": hint,
     }
+
+
+_KEYS = {"index", "idx", "trial", "run", "mode", "ses", "sub", "label", "epoch"}
+
+
+def _name_parts(template: str) -> list[str]:
+    """模板里"有信息量"的段(去掉数字占位 # 和纯键名),用于起名。"""
+    segs = [s for s in template.split("/") if s and s != "#"]
+    value_segs = [s for s in segs if s not in _KEYS]
+    return value_segs or segs or [template]
+
+
+def propose_condition_groups(
+    descriptions: Sequence[str],
+    *,
+    max_conditions: int = DEFAULT_MAX_CONDITIONS,
+) -> list[dict[str, Any]]:
+    """把原始事件自动收成「可勾选的分组」给前端展示。返回 [{name,pattern,mode,count,sample}]。
+
+    - 事件带序号/多到爆(instance_laden):按模板分组(忽略数字),mode="template";
+    - 事件本就干净:每个原值一组,mode="exact"。
+    起名:取末尾"有信息量"的段;若多个分组撞同名(如 mi/csp/rest 的 window_end),前缀其
+    领域段消歧(mi_window_end / csp_window_end…),不堆 `-2/-3`。
+    排序:结构性事件(含 window)沉底、任务/线索在前,让普通用户先看到要切的类。
+    前端展示与运行时(epoching)调同一函数,分组一致。
+    """
+    texts = [str(d) for d in descriptions]
+    use_template = summarize_event_vocabulary(texts, max_conditions=max_conditions)["looks_instance_laden"]
+
+    buckets: dict[str, dict[str, Any]] = {}
+    for t in texts:
+        key = _DIGITS.sub("#", t) if use_template else t
+        bucket = buckets.get(key)
+        if bucket is None:
+            buckets[key] = {
+                "pattern": key if use_template else t,
+                "mode": "template" if use_template else "exact",
+                "count": 1,
+                "sample": t,
+            }
+        else:
+            bucket["count"] += 1
+
+    # 末段重名统计(只 template 模式需要消歧;clean 模式名=原值,天然唯一)
+    base_counts: dict[str, int] = {}
+    if use_template:
+        for key in buckets:
+            base = _name_parts(key)[-1]
+            base_counts[base] = base_counts.get(base, 0) + 1
+
+    groups: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for key, bucket in buckets.items():
+        if use_template:
+            parts = _name_parts(key)
+            base = parts[-1]
+            name = f"{parts[0]}_{base}" if (base_counts.get(base, 0) > 1 and len(parts) >= 2) else base
+            name = name.replace("/", "_")
+        else:
+            name = key
+        final = name
+        i = 2
+        while final in used:
+            final = f"{name}-{i}"
+            i += 1
+        used.add(final)
+        groups.append({"name": final, **bucket})
+
+    groups.sort(key=lambda g: (1 if "window" in g["name"] else 0, g["name"]))
+    return groups
+
+
+def rules_for_selection(selected: Any, descriptions: Sequence[str]) -> list[ConditionRule]:
+    """把节点存的 conditions 还原成 ConditionRule。接受:
+    - 勾选的分组名列表(前端 chips,字符串)→ 按当前数据重算分组、按名取回 pattern/mode;
+    - [{"name","pattern","mode"?}, ...] 规则列表 → 直接用。
+    """
+    if not selected:
+        return []
+    items = list(selected) if isinstance(selected, (list, tuple)) else [selected]
+    rules: list[ConditionRule] = []
+    pending_names: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = str(item.get("name") or item.get("pattern") or "").strip()
+            pattern = str(item.get("pattern") or item.get("name") or "").strip()
+            mode = str(item.get("mode") or "exact").strip().lower()
+            if mode not in ("exact", "contains", "regex", "template"):
+                mode = "exact"
+            if name and pattern:
+                rules.append(ConditionRule(name=name, pattern=pattern, mode=mode))
+        else:
+            text = str(item).strip()
+            if text:
+                pending_names.append(text)
+    if pending_names:
+        groups = {g["name"]: g for g in propose_condition_groups(descriptions)}
+        for nm in pending_names:
+            g = groups.get(nm)
+            if g is not None:
+                rules.append(ConditionRule(name=g["name"], pattern=g["pattern"], mode=g["mode"]))
+    return rules

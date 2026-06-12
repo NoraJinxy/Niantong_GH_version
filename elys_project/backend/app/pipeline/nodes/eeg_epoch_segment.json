@@ -13,7 +13,7 @@
     {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "event_id", "label": "Event ID", "type": "event_select", "default": "", "required": true},
+    {"name": "conditions", "label": "Conditions（勾选要切分的事件分组）", "type": "event_select", "default": "", "required": true, "description": "从上游自动识别的事件分组里勾选；每个勾选项 = 一个 condition。"},
     {"name": "tmin", "label": "Tmin", "type": "number", "unit": "s", "default": -0.2},
     {"name": "tmax", "label": "Tmax", "type": "number", "unit": "s", "default": 1.0},
     {"name": "baseline_start", "label": "Baseline Start", "type": "number", "unit": "s", "default": -0.2},

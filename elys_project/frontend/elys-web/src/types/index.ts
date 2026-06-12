@@ -1288,6 +1288,8 @@ export interface LoadDataDataInfo {
   data_type: string
   event_labels?: string[]
   event_counts?: Record<string, number>
+  /** 自动收成的可勾选 condition 分组（Epoch chips 用）。 */
+  condition_groups?: Array<{ name: string; pattern?: string; mode?: string; count?: number; sample?: string }>
   /** 通道名列表（来自 FIF info），供下游节点（如 Re-reference）做通道选择候选。 */
   ch_names?: string[]
 }

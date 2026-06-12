@@ -439,6 +439,8 @@ class LoadDataDataInfo(BaseModel):
     data_type: str = "raw"
     event_labels: list[str] = Field(default_factory=list)
     event_counts: dict[str, int] = Field(default_factory=dict)
+    # 自动收成的可勾选 condition 分组（前端 Epoch chips 用）：[{name,pattern,mode,count,sample}]
+    condition_groups: list[dict[str, Any]] = Field(default_factory=list)
     # 通道名列表（从 FIF info 读出，供下游 Re-reference / pick_channels 等节点提供候选）
     ch_names: list[str] = Field(default_factory=list)
 
