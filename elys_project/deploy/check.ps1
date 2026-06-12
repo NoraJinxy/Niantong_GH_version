@@ -37,6 +37,17 @@ if(Test-Path (Join-Path $frontend 'node_modules')){
   $failures += 'frontend typecheck (node_modules missing)'; Write-Host '[FAIL] node_modules missing -> run: npm install' -ForegroundColor Red
 }
 
+Section 'Frontend: unit tests (vitest)'
+if(Test-Path (Join-Path $frontend 'node_modules')){
+  Push-Location $frontend
+  npx vitest run --passWithNoTests
+  if($LASTEXITCODE -ne 0){ $failures += 'frontend unit tests'; Write-Host '[FAIL] frontend unit tests' -ForegroundColor Red }
+  else { Write-Host '[OK] frontend unit tests' -ForegroundColor Green }
+  Pop-Location
+} else {
+  $failures += 'frontend unit tests (node_modules missing)'; Write-Host '[FAIL] node_modules missing -> run: npm install' -ForegroundColor Red
+}
+
 if($Docs){
   Section 'Docs: mkdocs build'
   if(Get-Command mkdocs -ErrorAction SilentlyContinue){

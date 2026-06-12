@@ -22,6 +22,10 @@ from app.routers import (
     dataset_publicizations_router,
     datasets_router,
     pipelines_router,
+    pipeline_node_specs_router,
+    pipeline_load_data_router,
+    pipeline_definitions_router,
+    study_outputs_router,
     studies_router,
     recording_router,
 )
@@ -70,6 +74,10 @@ app.include_router(dataset_withdrawals_router)
 app.include_router(dataset_publicize_router)
 app.include_router(dataset_publicizations_router)
 app.include_router(pipelines_router)
+app.include_router(pipeline_node_specs_router)
+app.include_router(pipeline_load_data_router)
+app.include_router(pipeline_definitions_router)
+app.include_router(study_outputs_router)
 
 
 # --- ELYS DEBUG: 临时全局 exception handler,专门捕获 RecursionError,打印未截断的栈 ---

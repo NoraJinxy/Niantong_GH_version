@@ -102,7 +102,9 @@ param(
 
     [switch]$SkipSshKeySetup,
 
-    [switch]$NoSshMultiplexing
+    [switch]$NoSshMultiplexing,
+
+    [switch]$SkipCheck
 )
 
 $ErrorActionPreference = "Stop"
@@ -793,6 +795,16 @@ function Prepare-RemoteAccess {
 Write-DeployHeader
 
 try {
+    if (-not $SkipCheck) {
+        $script:CurrentPhase = "LOCAL 0 - static check"
+        Write-DeploySection "部署前本地静态校验 (check.ps1)"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "check.ps1")
+        if ($LASTEXITCODE -ne 0) {
+            throw "本地静态校验未通过(后端编译/前端类型/单测)。修复后重试,或加 -SkipCheck 跳过。"
+        }
+        Write-LocalOk "本地静态校验通过"
+    }
+
     Write-LocalStep 1 6 "Prepare SSH access" "Create/reuse deploy key, install authorized_keys, and open reusable connections when possible."
     Ensure-DeployKey
     Prepare-RemoteAccess -ServerIP $ComputeServerIP -Label "compute server"

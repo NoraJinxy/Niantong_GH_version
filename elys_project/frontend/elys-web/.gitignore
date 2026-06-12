@@ -1,0 +1,3 @@
+# 从云端 OpenAPI 拉取的中间快照——可由 gen-api-types.ps1 随时重新生成，不入库。
+# （要 review 的是生成产物 src/types/api.ts，不是这份 155KB 的原始 spec。）
+openapi.json

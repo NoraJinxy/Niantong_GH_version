@@ -1,4 +1,4 @@
-﻿"""
+"""
 Purpose: FastAPI routers entry point.
 Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_v2/2-50.
 """
@@ -14,6 +14,10 @@ from .dataset_versions import asset_publicize_router as dataset_publicize_router
 from .dataset_versions import publicization_admin_router as dataset_publicizations_router
 from .dataset_versions import router as dataset_versions_router
 from .pipelines import router as pipelines_router
+from .pipeline_node_specs import router as pipeline_node_specs_router
+from .pipeline_load_data import router as pipeline_load_data_router
+from .pipeline_definitions import router as pipeline_definitions_router
+from .study_outputs import router as study_outputs_router
 from .studies import router as studies_router
 
 __all__ = [
@@ -27,6 +31,10 @@ __all__ = [
     "dataset_publicize_router",
     "dataset_publicizations_router",
     "pipelines_router",
+    "pipeline_node_specs_router",
+    "pipeline_load_data_router",
+    "pipeline_definitions_router",
+    "study_outputs_router",
     "studies_router",
     "recording_router",
 ]
