@@ -7,23 +7,41 @@ from __future__ import annotations
 
 from typing import Any
 
+from .event_conditions import match_conditions, parse_condition_rules
+
 
 def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
+    """按 condition 切分 Epochs。事件选择两种写法都收(向后兼容):
+
+    - params["event_groups"]: [{"name","pattern","mode"?}, ...] —— 按 condition 分组(含/正则),
+      把"原始注释里带序号的一堆唯一串"归并成少数干净 condition(econ 这类数据的正解)。
+    - params["event_id"]: ["S1", ...] / "S1,S2" —— 逐字符串精确匹配(旧行为)。
+    """
     mne = _mne()
-    labels = _normalize_event_labels(params.get("event_id"))
-    if not labels:
+    import numpy as np  # noqa: PLC0415
+
+    rules = parse_condition_rules(params.get("event_groups") or params.get("event_id"))
+    if not rules:
         raise ValueError("Epoch.event_id is required.")
 
-    events, event_id_map = mne.events_from_annotations(raw, verbose="ERROR")
-    if events.size == 0 or not event_id_map:
+    annotations = getattr(raw, "annotations", None)
+    if annotations is None or len(annotations) == 0:
         raise ValueError("No events found in Raw annotations.")
 
-    missing = [label for label in labels if label not in event_id_map]
-    if missing:
-        available = ", ".join(sorted(event_id_map)) or "none"
-        raise ValueError(f"Event not found: {missing}. Available events: {available}")
+    sfreq = float(raw.info["sfreq"])
+    events_list, event_id_map, _report = match_conditions(
+        annotations.onset, annotations.description, sfreq, rules
+    )
+    if not event_id_map:
+        from .event_conditions import summarize_event_vocabulary  # noqa: PLC0415
 
-    selected_event_id = {label: event_id_map[label] for label in labels}
+        summary = summarize_event_vocabulary(list(annotations.description))
+        raise ValueError(
+            "No annotations matched the requested conditions "
+            f"{[r.name for r in rules]}. {summary['hint']}"
+        )
+
+    events = np.array(sorted(events_list), dtype=int)
 
     tmin = float(params.get("tmin", -0.2))
     tmax = float(params.get("tmax", 1.0))
@@ -34,7 +52,7 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=selected_event_id,
+        event_id=event_id_map,
         tmin=tmin,
         tmax=tmax,
         baseline=baseline,
@@ -43,34 +61,8 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
         verbose="ERROR",
     )
     if len(epochs) == 0:
-        raise ValueError(f"No epochs were created for events: {labels}")
+        raise ValueError(f"No epochs were created for conditions: {list(event_id_map)}")
     return epochs
-
-
-def _normalize_event_labels(raw: Any) -> list[str]:
-    """Accept array / string / comma-separated string and return a clean list."""
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        items: list[Any] = raw
-    elif isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return []
-        # 兼容旧版本可能存的逗号分隔字符串
-        items = text.split(",") if "," in text else [text]
-    else:
-        items = [raw]
-
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        text = str(item).strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _baseline(params: dict[str, Any]) -> tuple[float | None, float | None] | None:

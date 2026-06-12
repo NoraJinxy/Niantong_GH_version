@@ -1,0 +1,2 @@
+# Large EEG binaries are not version-controlled (git is bad at big binaries; keep test data locally)
+*.bdf
