@@ -292,7 +292,7 @@ Write-Host $rule -ForegroundColor DarkCyan
 if ($UpdateProfile -and $ip) {
     $profilePath = Join-Path $PSScriptRoot "profiles\$Profile.env"
     if (Test-Path $profilePath) {
-        $lines = Get-Content -Path $profilePath
+        $lines = Get-Content -Path $profilePath -Encoding UTF8   # UTF-8 读，跟写回的 UTF8NoBom 一致，避免 mojibake
         $hit = $false
         $out = foreach ($line in $lines) {
             if ($line -match '^\s*COMPUTE_SERVER_IP=') { $hit = $true; "COMPUTE_SERVER_IP=$ip" }

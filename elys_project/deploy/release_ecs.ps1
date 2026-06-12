@@ -58,7 +58,7 @@ function Get-AllInstances {
 function Get-ProfileIp {
     $path = Join-Path $ScriptDir "profiles\$Profile.env"
     if (-not (Test-Path $path)) { return "" }
-    foreach ($line in Get-Content $path) {
+    foreach ($line in Get-Content $path -Encoding UTF8) {
         if ($line -match '^\s*COMPUTE_SERVER_IP=(.+)') { return $Matches[1].Trim() }
     }
     return ""
@@ -68,7 +68,7 @@ function Clear-ProfileIp {
     $path = Join-Path $ScriptDir "profiles\$Profile.env"
     if (-not (Test-Path $path)) { Write-Host "  ⚠ 没找到 $path，跳过清空。" -ForegroundColor Yellow; return }
     $enc = New-Object System.Text.UTF8Encoding($false)
-    $out = Get-Content $path | ForEach-Object { if ($_ -match '^\s*COMPUTE_SERVER_IP=') { "COMPUTE_SERVER_IP=" } else { $_ } }
+    $out = Get-Content $path -Encoding UTF8 | ForEach-Object { if ($_ -match '^\s*COMPUTE_SERVER_IP=') { "COMPUTE_SERVER_IP=" } else { $_ } }
     [System.IO.File]::WriteAllLines($path, [string[]]$out, $enc)
     Write-Host "[OK] 已清空 $Profile.env 的 COMPUTE_SERVER_IP" -ForegroundColor Green
 }
