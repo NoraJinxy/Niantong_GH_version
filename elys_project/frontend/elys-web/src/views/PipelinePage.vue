@@ -1199,30 +1199,22 @@ import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
 import { useNodeTopology } from '@/composables/pipeline/useNodeTopology'
 import { useNodeParamEditor } from '@/composables/pipeline/useNodeParamEditor'
 import { useGraphConnections } from '@/composables/pipeline/useGraphConnections'
-
-type LiteGraphNode = LGraphNode & {
-  elysNodeId?: string
-  constructor?: typeof LGraphNode & { title?: string; desc?: string }
-}
+import {
+  getLiteGraphNodeId,
+  setLiteGraphNodeId,
+  liteGraphNodes,
+  liteGraphReachableFromLoadData,
+  drawNodeAccentBar,
+  drawNodeStatusBadge,
+  drawNodeSaveIcon,
+  type LiteGraphNode,
+  type LooseLiteGraph,
+  type LiteGraphLink,
+} from '@/composables/pipeline/litegraphUtils'
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
-type LooseLiteGraph = Record<string, any> & {
-  _nodes?: LiteGraphNode[]
-  _version?: number
-  onAfterChange?: () => void
-  onConnectionChange?: () => void
-  onNodeRemoved?: () => void
-}
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
 type ElysPipelineNodeConstructor = typeof LGraphNode & { desc?: string }
-
-type LiteGraphLink = {
-  id?: number | string
-  origin_id: number
-  origin_slot: number
-  target_id: number
-  target_slot: number
-}
 
 type LiteGraphContextEvent = MouseEvent & {
   canvasX?: number
@@ -2195,65 +2187,7 @@ function renderPipelineCanvasInfo(ctx: CanvasRenderingContext2D) {
   ctx.restore()
 }
 
-function liteGraphNodes(graph: LGraph | null | undefined): LiteGraphNode[] {
-  return ((graph as unknown as LooseLiteGraph | null | undefined)?._nodes || []) as LiteGraphNode[]
-}
-
-/** 从 LiteGraph 自身 link 结构出发，BFS 找出"从某个 LoadData 节点可顺流到达"的所有节点 elysNodeId 集合。
- *  用于画布"保存指示胶囊"判定：节点必须通过 input 链路一路追溯到 LoadData，才认为可达。
- *
- *  关键：直接读 LiteGraph 的 outputs[].links + liteGraph.links（不依赖 Vue 响应式 definition.value.graph，
- *  避免新节点拖入后 graph 还没 sync 的时序问题——task #65 的修复留下的盲区是只看了"自己有 input link"）。
- */
-function liteGraphReachableFromLoadData(graph: LGraph | null | undefined): Set<string> {
-  const reachable = new Set<string>()
-  if (!graph) return reachable
-  const allNodes = liteGraphNodes(graph)
-  const links = ((graph as unknown as { links?: Record<string, LiteGraphLink> })?.links) || {}
-
-  // 用 LiteGraph 内部 numeric id 走 BFS（link.target_id 是 numeric）
-  const visitedInternal = new Set<number>()
-  const queue: number[] = []
-  for (const n of allNodes) {
-    const type = String((n as { type?: unknown }).type || '')
-    if (type !== LOAD_DATA_NODE_TYPE) continue
-    const internalId = (n as unknown as { id?: number }).id
-    const elysId = getLiteGraphNodeId(n)
-    if (typeof internalId !== 'number' || !elysId) continue
-    if (visitedInternal.has(internalId)) continue
-    visitedInternal.add(internalId)
-    reachable.add(elysId)
-    queue.push(internalId)
-  }
-
-  const getNodeById = (graph as unknown as { getNodeById?: (id: number) => LiteGraphNode | null }).getNodeById?.bind(graph)
-  if (!getNodeById) return reachable
-
-  while (queue.length) {
-    const curId = queue.shift() as number
-    const cur = getNodeById(curId)
-    if (!cur) continue
-    const outputs = (cur as unknown as { outputs?: Array<{ links?: unknown } | null> }).outputs || []
-    for (const out of outputs) {
-      const outLinks = out?.links
-      if (!Array.isArray(outLinks)) continue
-      for (const linkId of outLinks as unknown[]) {
-        if (typeof linkId !== 'number') continue
-        const link = links[String(linkId) as keyof typeof links] || (links as unknown as Record<number, LiteGraphLink>)[linkId]
-        if (!link || typeof link.target_id !== 'number') continue
-        if (visitedInternal.has(link.target_id)) continue
-        visitedInternal.add(link.target_id)
-        const targetNode = getNodeById(link.target_id)
-        if (targetNode) {
-          const targetElysId = getLiteGraphNodeId(targetNode)
-          if (targetElysId) reachable.add(targetElysId)
-        }
-        queue.push(link.target_id)
-      }
-    }
-  }
-  return reachable
-}
+// litegraph 图遍历 liteGraphNodes / liteGraphReachableFromLoadData → composables/pipeline/litegraphUtils
 
 function jobForNodeId(nodeId: string) {
   return executionJobByNodeId.value.get(nodeId) || null
@@ -2337,95 +2271,7 @@ function applyLiteGraphNodeRunState(graphNode: LiteGraphNode, nodeId: string, sp
   graphNode.bgcolor = nodeStatusSoftColor(job.status)
 }
 
-/**
- * 画节点左侧那根 category 主色竖条（accent bar）。
- *
- * 关键：用节点圆角矩形边框「同一条路径」做 clip，再填一个直角矩形，
- * 让竖条上/下两个圆角精确贴合边框圆角（半径 6）。
- *
- * 不能直接用 roundRect 画这根 4px 宽的窄条：canvas roundRect 规范在
- * 「同一条边上两圆角半径之和 > 边长」时会按比例收缩半径——4px 宽配半径 6
- * 会被压成约 4，竖条圆弧就和半径 6 的边框圆弧对不上（圆心、弧度都偏）。
- */
-function drawNodeAccentBar(
-  ctx: CanvasRenderingContext2D,
-  color: string,
-  width: number,
-  bodyHeight: number,
-  titleHeight: number,
-) {
-  const fullHeight = bodyHeight + titleHeight
-  ctx.save()
-  ctx.beginPath()
-  // 与 onDrawForeground 里节点边框完全一致的圆角路径（原点 0.5、半径 6）
-  ctx.roundRect(0.5, -titleHeight + 0.5, width, fullHeight, [6])
-  ctx.clip()
-  ctx.fillStyle = color
-  ctx.fillRect(0, -titleHeight, 4, fullHeight)
-  ctx.restore()
-}
-
-function drawNodeStatusBadge(ctx: CanvasRenderingContext2D, width: number, status: string) {
-  const label = formatJobStatus(status)
-  const titleHeight = LiteGraph.NODE_TITLE_HEIGHT
-  const badgeHeight = 18
-  ctx.save()
-  ctx.font = '600 10px "Segoe UI", Arial, sans-serif'
-  const textWidth = ctx.measureText(label).width
-  const badgeWidth = Math.max(40, textWidth + 14)
-  const x = Math.max(10, width - badgeWidth - 8)
-  // 标题栏内（y < 0），上下居中：badge 高 18，标题栏高 titleHeight，居中 -titleHeight + (titleHeight - 18)/2
-  const y = -titleHeight + (titleHeight - badgeHeight) / 2
-  ctx.fillStyle = nodeStatusSoftColor(status)
-  ctx.strokeStyle = withAlpha(nodeStatusColor(status), 0.42)
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.roundRect(x, y, badgeWidth, badgeHeight, [badgeHeight / 2])
-  ctx.fill()
-  ctx.stroke()
-  ctx.fillStyle = nodeStatusColor(status)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, x + badgeWidth / 2, y + badgeHeight / 2)
-  ctx.restore()
-}
-
-/**
- * 在节点底部画一个"保留"指示胶囊 —— 颜色取节点自己的 spec.ui.color。
- *
- * 设计参考: mockup_save_indicator.html 变体 6（圆角胶囊色块）。
- * 形状: 距左右各 14px、距底 3px、高 4px 的圆角矩形（圆角半径 = 高度的一半 → 完全胶囊形）。
- *
- * 概念：节点产物只有"保留"一种状态。color 传 null 表示不画
- * （不可达节点 / 用户选择 retention=cached/none / intermediate 默认）。
- */
-function drawNodeSaveIcon(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  color: string | null,
-) {
-  if (!color) return
-
-  const padX = 14
-  const barH = 4
-  const marginBottom = 3
-  const x = padX
-  const y = height - barH - marginBottom
-  const w = Math.max(0, width - padX * 2)
-  if (w <= 0) return
-
-  ctx.save()
-  ctx.fillStyle = color
-  ctx.beginPath()
-  if (typeof (ctx as unknown as { roundRect?: unknown }).roundRect === 'function') {
-    ctx.roundRect(x, y, w, barH, [barH / 2])
-  } else {
-    ctx.rect(x, y, w, barH)
-  }
-  ctx.fill()
-  ctx.restore()
-}
+// 节点自绘原语 drawNodeAccentBar / drawNodeStatusBadge / drawNodeSaveIcon → composables/pipeline/litegraphUtils
 
 function centerLiteGraphView() {
   if (!liteGraph || !liteGraphCanvas) return
@@ -2888,19 +2734,7 @@ function graphNodeSize(spec: NodeSpec): [number, number] {
   return [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, 78 + portRows * 26)]
 }
 
-function getLiteGraphNodeId(node: LiteGraphNode | LGraphNode | null | undefined) {
-  const liteNode = node as LiteGraphNode | null | undefined
-  const fromProperty = liteNode?.properties?.[LITEGRAPH_NODE_ID_PROP]
-  return String(liteNode?.elysNodeId || fromProperty || liteNode?.id || '')
-}
-
-function setLiteGraphNodeId(node: LiteGraphNode, id: string) {
-  node.elysNodeId = id
-  node.properties = {
-    ...(node.properties || {}),
-    [LITEGRAPH_NODE_ID_PROP]: id,
-  }
-}
+// 节点 id 读写 getLiteGraphNodeId / setLiteGraphNodeId → composables/pipeline/litegraphUtils
 
 function createLiteGraphNode(node: PipelineGraphNode) {
   registerLiteGraphNodeSpecs()
