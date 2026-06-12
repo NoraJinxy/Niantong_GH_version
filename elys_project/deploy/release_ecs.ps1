@@ -3,10 +3,10 @@
   Release (terminate) an Alibaba Cloud ECS compute instance.
 
 .EXAMPLE
-  .\release_ecs.cmd -List
-  .\release_ecs.cmd -InstanceId i-wz9xxxxxxxxx
-  .\release_ecs.cmd -InstanceId i-wz9xxxxxxxxx -Yes -UpdateProfile
-  .\release_ecs.cmd -Yes -UpdateProfile
+  .\step4_release_ecs.cmd -List
+  .\step4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx
+  .\step4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx -Yes -UpdateProfile
+  .\step4_release_ecs.cmd -Yes -UpdateProfile
 #>
 param(
     [string]$RegionId        = "cn-shenzhen",
@@ -85,7 +85,7 @@ if ($List) {
             Created      = $_.CreationTime
         }
     } | Format-Table -AutoSize
-    Write-Host "To release:  .\release_ecs.cmd -InstanceId <id> [-Yes] [-UpdateProfile]" -ForegroundColor Yellow
+    Write-Host "To release:  .\step4_release_ecs.cmd -InstanceId <id> [-Yes] [-UpdateProfile]" -ForegroundColor Yellow
     return
 }
 
@@ -98,7 +98,7 @@ if (-not $InstanceId) {
     $profileIp = Get-ProfileIp
     if (-not $profileIp) {
         Write-Host "[X] No -InstanceId and COMPUTE_SERVER_IP is empty in $Profile.env" -ForegroundColor Red
-        Write-Host "    Run:  .\release_ecs.cmd -List"
+        Write-Host "    Run:  .\step4_release_ecs.cmd -List"
         exit 1
     }
     Write-Host "  Looking up instance by IP $profileIp ..." -ForegroundColor Gray
@@ -145,7 +145,7 @@ if (-not $Yes) {
     Write-Host ""
     Write-Host "[DryRun] Add -Yes to actually release:" -ForegroundColor Yellow
     $extra = if ($UpdateProfile) { " -UpdateProfile" } else { "" }
-    Write-Host "  .\release_ecs.cmd -InstanceId $InstanceId -Yes$extra"
+    Write-Host "  .\step4_release_ecs.cmd -InstanceId $InstanceId -Yes$extra"
     return
 }
 
@@ -169,4 +169,4 @@ try {
 if ($UpdateProfile) { Clear-ProfileIp }
 
 Write-Host ""
-Write-Host "Next time: .\buy_ecs.cmd -Yes -UpdateProfile" -ForegroundColor Gray
+Write-Host "Next time: .\step1_buy_ecs.cmd -Yes -UpdateProfile" -ForegroundColor Gray
