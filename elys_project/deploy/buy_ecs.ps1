@@ -125,19 +125,19 @@ function Invoke-Aliyun {
 
 # ── -List：列出填参要用的资源 ──────────────────────────────────────────────
 if ($List) {
-    Write-Host "== 启动模板 (-LaunchTemplateName / -LaunchTemplateId) ==" -ForegroundColor Cyan
+    Write-Host "── 启动模板 (-LaunchTemplateName / -LaunchTemplateId) ──" -ForegroundColor DarkCyan
     (Invoke-Aliyun @("ecs", "DescribeLaunchTemplates")).LaunchTemplateSets.LaunchTemplateSet |
         Format-Table LaunchTemplateId, LaunchTemplateName, DefaultVersionNumber, LatestVersionNumber -AutoSize
 
-    Write-Host "== 安全组 (-SecurityGroupId) ==" -ForegroundColor Cyan
+    Write-Host "── 安全组 (-SecurityGroupId) ──" -ForegroundColor DarkCyan
     (Invoke-Aliyun @("ecs", "DescribeSecurityGroups", "--MaxResults", "50")).SecurityGroups.SecurityGroup |
         Format-Table SecurityGroupId, SecurityGroupName, VpcId -AutoSize
 
-    Write-Host "== 交换机 (-VSwitchId) ==" -ForegroundColor Cyan
+    Write-Host "── 交换机 (-VSwitchId) ──" -ForegroundColor DarkCyan
     (Invoke-Aliyun @("vpc", "DescribeVSwitches", "--PageSize", "50")).VSwitches.VSwitch |
         Format-Table VSwitchId, ZoneId, CidrBlock, VSwitchName -AutoSize
 
-    Write-Host "== 最新镜像 ($ImageFamily) (-ImageId，留空自动取最新) ==" -ForegroundColor Cyan
+    Write-Host "── 最新镜像 ($ImageFamily) (-ImageId，留空自动取最新) ──" -ForegroundColor DarkCyan
     (Invoke-Aliyun @("ecs", "DescribeImages", "--ImageOwnerAlias", "system", "--ImageFamily", $ImageFamily, "--Status", "Available", "--PageSize", "10")).Images.Image |
         Sort-Object CreationTime -Descending | Select-Object -First 5 |
         Format-Table ImageId, OSName -AutoSize
@@ -221,20 +221,26 @@ else {
 }
 
 # ── 概要 ───────────────────────────────────────────────────────────────────
-Write-Host ("=" * 64)
+$rule = '  ' + (([string][char]0x2500) * 64)
+Write-Host $rule -ForegroundColor DarkCyan
 if ($useTemplate) {
     $lt = if ($LaunchTemplateId) { $LaunchTemplateId } else { $LaunchTemplateName }
     $ver = if ($LaunchTemplateVersion) { $LaunchTemplateVersion } else { "默认" }
-    Write-Host "  启动模板    : $lt (版本 $ver)"
+    Write-Host "  启动模板    " -ForegroundColor DarkGray -NoNewline
+    Write-Host "$lt (版本 $ver)"
 }
 else {
-    Write-Host "  模式        : 显式配置（无启动模板）"
+    Write-Host "  模式        " -ForegroundColor DarkGray -NoNewline
+    Write-Host "显式配置（无启动模板）"
 }
-Write-Host "  抢占式策略  : $SpotStrategy"
-Write-Host "  地域 / 数量 : $RegionId / $Amount"
-$mode = if ($Yes) { "真买(会扣费)" } else { "演练 DryRun(不花钱)" }
-Write-Host "  执行模式    : $mode"
-Write-Host ("=" * 64)
+Write-Host "  抢占式策略  " -ForegroundColor DarkGray -NoNewline
+Write-Host "$SpotStrategy"
+Write-Host "  地域 / 数量 " -ForegroundColor DarkGray -NoNewline
+Write-Host "$RegionId / $Amount"
+Write-Host "  执行模式    " -ForegroundColor DarkGray -NoNewline
+if ($Yes) { Write-Host " 真买 " -BackgroundColor DarkRed -ForegroundColor White -NoNewline; Write-Host "  会扣费" -ForegroundColor Red }
+else      { Write-Host " 演练 " -BackgroundColor DarkYellow -ForegroundColor Black -NoNewline; Write-Host "  DryRun 不花钱" -ForegroundColor Yellow }
+Write-Host $rule -ForegroundColor DarkCyan
 
 # ── 执行 ───────────────────────────────────────────────────────────────────
 $res = Invoke-Aliyun $a.ToArray()
@@ -262,19 +268,25 @@ while ((Get-Date) -lt $deadline) {
         break
     }
     $st = if ($inst) { $inst.Status } else { "未知" }
-    Write-Host "  …等待启动中（当前状态: $st）"
+    Write-Host "  …等待启动中（当前状态: $st）" -ForegroundColor DarkGray
     Start-Sleep -Seconds 5
 }
 if (-not $ip -and -not $priv) { Write-Host "  ⚠ 等待 Running 超时或未拿到 IP，请到 ECS 控制台查看。" -ForegroundColor Yellow }
 
-Write-Host ("-" * 64)
-Write-Host "  实例 ID  : $instanceId"
+Write-Host $rule -ForegroundColor DarkCyan
+Write-Host "  实例 ID     " -ForegroundColor DarkGray -NoNewline
+Write-Host "$instanceId" -ForegroundColor White
 $ipShow = if ($ip) { $ip } else { "(无，检查带宽/模板是否分配了公网)" }
-Write-Host "  公网 IP  : $ipShow"
-Write-Host "  内网 IP  : $priv"
-if ($ip) { Write-Host "  SSH      : ssh root@$ip" }
+Write-Host "  公网 IP     " -ForegroundColor DarkGray -NoNewline
+Write-Host "$ipShow" -ForegroundColor Cyan
+Write-Host "  内网 IP     " -ForegroundColor DarkGray -NoNewline
+Write-Host "$priv"
+if ($ip) {
+    Write-Host "  SSH         " -ForegroundColor DarkGray -NoNewline
+    Write-Host "ssh root@$ip"
+}
 Write-Host "  ⚠ 抢占式实例库存紧张时可能被自动释放，重要数据别只放这台。" -ForegroundColor Yellow
-Write-Host ("-" * 64)
+Write-Host $rule -ForegroundColor DarkCyan
 
 # ── 可选：回写 profile 的 COMPUTE_SERVER_IP ────────────────────────────────
 if ($UpdateProfile -and $ip) {

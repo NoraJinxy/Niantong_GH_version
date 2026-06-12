@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 # ELYS local static-check gate. Run before deploy_remote.
 #   Default : backend Python compile (compileall) + frontend TypeScript typecheck (vue-tsc)
 #   -Docs   : also run `mkdocs build` in wiki/
@@ -15,7 +15,7 @@ $frontend = Join-Path $repo 'elys_project\frontend\elys-web'
 $wiki     = Join-Path $repo 'wiki'
 $failures = @()
 
-function Section($name){ Write-Host ''; Write-Host "=== $name ===" -ForegroundColor Cyan }
+function Section($name){ Write-Host ''; Write-Host ('  ' + ([string][char]0x2500) * 2 + " $name " + ([string][char]0x2500) * 2) -ForegroundColor DarkGray }
 
 Section 'Backend: Python compile (compileall)'
 if(Get-Command python -ErrorAction SilentlyContinue){
@@ -72,10 +72,12 @@ if($Pytest){
 
 Write-Host ''
 if($failures.Count -gt 0){
-  Write-Host ('[FAIL] static checks failed: {0}' -f ($failures -join ', ')) -ForegroundColor Red
-  Write-Host '       fix the above before deploying.' -ForegroundColor Red
+  Write-Host ' FAIL ' -BackgroundColor DarkRed -ForegroundColor White -NoNewline
+  Write-Host ('  static checks failed: {0}' -f ($failures -join ', ')) -ForegroundColor Red
+  Write-Host '        fix the above before deploying.' -ForegroundColor Red
   exit 1
 } else {
-  Write-Host '[OK] all static checks passed - safe to deploy.' -ForegroundColor Green
+  Write-Host ' PASS ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline
+  Write-Host '  all static checks passed - safe to deploy.' -ForegroundColor Green
   exit 0
 }

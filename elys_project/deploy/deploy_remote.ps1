@@ -269,9 +269,12 @@ function Assert-LastExitCode {
     }
 }
 
+# ── 统一视觉语法(与 step_banner.ps1 同族):细线 + 反色徽标 + 灰键彩值 ──
+$script:Accent = [ConsoleColor]::DarkMagenta   # step2 主色:部署=紫
+
 function Write-DeployRule {
     param([ConsoleColor]$Color = "DarkGray")
-    Write-Host "----------------------------------------------------------------------" -ForegroundColor $Color
+    Write-Host ('  ' + (([string][char]0x2500) * 68)) -ForegroundColor $Color
 }
 
 function Write-ConfigRow {
@@ -280,7 +283,8 @@ function Write-ConfigRow {
         [string]$Value,
         [ConsoleColor]$Color = "Gray"
     )
-    Write-Host ("  {0,-16}: {1}" -f $Name, $Value) -ForegroundColor $Color
+    Write-Host ("  {0,-16}" -f $Name) -ForegroundColor DarkGray -NoNewline
+    Write-Host $Value -ForegroundColor $Color
 }
 
 function Write-LocalStep {
@@ -291,14 +295,15 @@ function Write-LocalStep {
         [string]$Detail = ""
     )
     $script:CurrentPhase = "LOCAL ${Number}/${Total} - ${Title}"
-    # 精简:每个本地步骤压成一行(去掉 ---- 框和冗长 Detail 描述)。Detail 仍存入 CurrentPhase 供失败定位。
+    # 每个本地步骤一行:反色徽标 + 标题。Detail 仍存入 CurrentPhase 供失败定位。
     Write-Host ""
-    Write-Host ("▸ [本地 {0}/{1}] {2}" -f $Number, $Total, $Title) -ForegroundColor Cyan
+    Write-Host (" 本地 {0}/{1} " -f $Number, $Total) -BackgroundColor $script:Accent -ForegroundColor White -NoNewline
+    Write-Host ("  {0}" -f $Title) -ForegroundColor White
 }
 
 function Write-LocalInfo {
     param([string]$Message)
-    Write-Host "  [INFO] $Message" -ForegroundColor Blue
+    Write-Host "  [INFO] $Message" -ForegroundColor DarkGray
 }
 
 function Write-LocalOk {
@@ -319,127 +324,56 @@ function Write-LocalFail {
 function Write-DeploySection {
     param(
         [string]$Title,
-        [ConsoleColor]$Color = "Cyan"
+        [ConsoleColor]$Color = [ConsoleColor]::DarkMagenta
     )
     Write-Host ""
     Write-Host "── $Title ──" -ForegroundColor $Color
 }
 
-# 计算字符串的终端显示列宽（中文等全角字符占 2 列）
-function Measure-DisplayWidth {
-    param([string]$Text)
-    $w = 0
-    foreach ($c in $Text.ToCharArray()) {
-        $cp = [int][char]$c
-        if (($cp -ge 0x1100 -and $cp -le 0x115F) -or
-            ($cp -ge 0x2E80 -and $cp -le 0x303E) -or
-            ($cp -ge 0x3041 -and $cp -le 0x33FF) -or
-            ($cp -ge 0x3400 -and $cp -le 0x9FFF) -or
-            ($cp -ge 0xAC00 -and $cp -le 0xD7AF) -or
-            ($cp -ge 0xF900 -and $cp -le 0xFAFF) -or
-            ($cp -ge 0xFE30 -and $cp -le 0xFE4F) -or
-            ($cp -ge 0xFF01 -and $cp -le 0xFF60) -or
-            ($cp -ge 0xFFE0 -and $cp -le 0xFFE6)) {
-            $w += 2
-        } else {
-            $w += 1
-        }
-    }
-    return $w
-}
-
-# 输出一行带 ║ 边框的内容，自动用空格补到 $InnerWidth 列宽
-function Write-BoxLine {
-    param(
-        [string]$Content = "",
-        [ConsoleColor]$Color = "Cyan",
-        [int]$InnerWidth = 90
-    )
-    $dw = Measure-DisplayWidth $Content
-    $pad = [Math]::Max(0, $InnerWidth - $dw)
-    Write-Host ("║" + $Content + (' ' * $pad) + "║") -ForegroundColor $Color
-}
-
 function Write-DeployHeader {
-    # Banner 内宽 = 边框 ═ 的数量（与顶部/底部边框保持一致）
-    $bw = "══════════════════════════════════════════════════════════════════════════════════════════".Length
-
-    # 计算 Reset 摘要（用于 banner 顶部一句话摘要）
+    # 开放式版式(无右边框) —— 中文宽度无需补齐,右边框对不齐的问题根治。
+    # 大 logo 保留:它是"部署起点"路标,长滚动/截图里一眼定位每轮部署从哪开始。
     $resetSummary = @()
-    if ($ResetDb)         { $resetSummary += "DB" }
-    if ($ResetStorage)    { $resetSummary += "Storage" }
-    if ($ResetDataRoot)   { $resetSummary += "DataRoot" }
+    if ($ResetDb)          { $resetSummary += "DB" }
+    if ($ResetStorage)     { $resetSummary += "Storage" }
+    if ($ResetDataRoot)    { $resetSummary += "DataRoot" }
     if ($ResetVenv)        { $resetSummary += "Venv" }
     if ($ResetNodeModules) { $resetSummary += "NodeModules" }
-    $resetLine = if ($resetSummary.Count -gt 0) {
-        "⚠  本次部署会重置 [$($resetSummary -join ', ')] —— 远程数据会被清空"
-    } else {
-        "✓  本次部署保留所有现有数据 (KEEP)"
-    }
-    $resetColor = if ($resetSummary.Count -gt 0) { "Yellow" } else { "Green" }
     $nowText = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $arrow = [string][char]0x2192
 
-    # ════════════════════════════════════════════════════════════════════════════
-    # 主 Banner —— 长且明显,用于在控制台输出中快速定位"部署起点"
-    # ════════════════════════════════════════════════════════════════════════════
-    # 主 Banner 保留 —— 它是"部署起点"的醒目路标:长滚动/截图里一眼能定位每一轮部署从哪开始。
-    # (反复刷屏的噪音是每步多行框和配置罗列, 已分别精简; 这个一次性大 logo 不算噪音, 故保留。)
     Write-Host ""
+    Write-Host "   ███████  ██      ██      ██   ██   ███████" -ForegroundColor White
+    Write-Host "   ██       ██      ██       ██ ██    ██" -ForegroundColor White
+    Write-Host "   █████    ██      ██        ███     ███████   " -ForegroundColor White -NoNewline
+    Write-Host "ELYS · 念析" -ForegroundColor Gray
+    Write-Host "   ██       ██      ██        ██           ██   " -ForegroundColor White -NoNewline
+    Write-Host "EEG 分析平台 · 远程部署" -ForegroundColor DarkGray
+    Write-Host "   ███████  ███████ ███████   ██      ███████" -ForegroundColor White
     Write-Host ""
-    Write-Host "╔══════════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║          ███████  ██      ██      ██   ██   ███████                                      ║" -ForegroundColor White
-    Write-Host "║          ██       ██      ██       ██ ██    ██                                           ║" -ForegroundColor White
-    Write-BoxLine "          █████    ██      ██        ███     ███████        ELYS  ·  念 析" White $bw
-    Write-BoxLine "          ██       ██      ██        ██           ██        EEG 分析平台 · 部 署" White $bw
-    Write-Host "║          ███████  ███████ ███████   ██      ███████                                      ║" -ForegroundColor White
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-BoxLine "          ── 混 合 入 口 架 构 (Hybrid Entry Architecture) ──" Gray $bw
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-BoxLine "      本地 Windows  ──►  tar 打包  ──►  上传  ──►  阿里云入口服 + 计算服  ──►  远程部署" Cyan $bw
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host ("║      Run ID    : {0,-30}   Time     : {1}         ║" -f $DeployRunId, $nowText) -ForegroundColor White
-    Write-Host ("║      Profile   : {0,-30}   Source   : {1,-27} ║" -f $Profile, (Split-Path -Leaf $ProjectRoot)) -ForegroundColor White
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host ("║      Entry  →  {0,-20}  ⇒  {1,-48} ║" -f "${ServerUser}@${EntryServerIP}:${Port}", $EntryOrigin) -ForegroundColor Yellow
-    Write-Host ("║      Compute → {0,-20}  ⇒  {1,-48} ║" -f "${ServerUser}@${ComputeServerIP}:${Port}", $DataOrigin) -ForegroundColor Green
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-BoxLine ("   " + $resetLine) $resetColor $bw
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "║                                                                                          ║" -ForegroundColor Cyan
-    Write-Host "╚══════════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
-
-    # 精简配置摘要(只留关键: 两台服务器 + 重置标记 + 数据目录; 完整细节进远程日志)
-    Write-Host ""
-    Write-ConfigRow "入口服" "${ServerUser}@${EntryServerIP}:${Port}  ->  $EntryOrigin" Yellow
-    Write-ConfigRow "计算服" "${ServerUser}@${ComputeServerIP}:${Port}  ->  $DataOrigin" Green
-    $resetRowColor = if ($ResetDb -or $ResetStorage -or $ResetDataRoot) { "Red" } else { "Green" }
-    Write-ConfigRow "重置 WIPE" "DB=$ResetDb  Storage=$ResetStorage  DataRoot=$ResetDataRoot" $resetRowColor
+    Write-DeployRule $script:Accent
+    Write-ConfigRow "Run ID"      ("{0}   {1}" -f $DeployRunId, $nowText) Gray
+    Write-ConfigRow "Profile"     ("{0}   (source: {1})" -f $Profile, (Split-Path -Leaf $ProjectRoot)) Gray
+    Write-ConfigRow "入口服"      ("{0}@{1}:{2}  {3}  {4}" -f $ServerUser, $EntryServerIP, $Port, $arrow, $EntryOrigin) Yellow
+    Write-ConfigRow "计算服"      ("{0}@{1}:{2}  {3}  {4}" -f $ServerUser, $ComputeServerIP, $Port, $arrow, $DataOrigin) Green
+    Write-ConfigRow "流程"        ("本地打包 {0} 上传 {0} 计算服部署 {0} 入口服部署" -f $arrow) DarkGray
     Write-ConfigRow "Studies dir" $StudiesDir DarkGray
-
-    # (本机各步骤执行时会逐条显示 LOCAL 1/6~6/6, 这里不再预先罗列一遍, 保持屏幕精简)
-
-    Write-Host ""
-    Write-Host "──────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
-    Write-Host "  开始部署..." -ForegroundColor Cyan
-    Write-Host "──────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    if ($resetSummary.Count -gt 0) {
+        Write-ConfigRow "重置 WIPE" ("[{0}]  远程数据会被清空" -f ($resetSummary -join ", ")) Red
+    } else {
+        Write-ConfigRow "重置 WIPE" "无 —— 保留所有现有数据 (KEEP)" Green
+    }
+    Write-DeployRule $script:Accent
 }
 
 function Write-FailureContext {
     param([string]$ErrorMessage)
 
     Write-Host ""
-    Write-Host "======================================================================" -ForegroundColor Red
-    Write-Host "ELYS DEPLOY RESULT | FAILED" -ForegroundColor Red
-    Write-Host "======================================================================" -ForegroundColor Red
+    Write-DeployRule Red
+    Write-Host " FAIL " -BackgroundColor DarkRed -ForegroundColor White -NoNewline
+    Write-Host "  部署失败 · ELYS DEPLOY FAILED" -ForegroundColor Red
+    Write-Host ""
     Write-ConfigRow "Run ID" $DeployRunId Red
     Write-ConfigRow "Failed phase" $script:CurrentPhase Red
     Write-ConfigRow "Error" $ErrorMessage Red
@@ -895,9 +829,10 @@ finally {
 }
 
 Write-Host ""
-Write-Host "======================================================================" -ForegroundColor Green
-Write-Host "ELYS DEPLOY RESULT | SUCCESS" -ForegroundColor Green
-Write-Host "======================================================================" -ForegroundColor Green
+Write-DeployRule Green
+Write-Host " PASS " -BackgroundColor DarkGreen -ForegroundColor White -NoNewline
+Write-Host "  部署成功 · ELYS DEPLOY SUCCESS" -ForegroundColor Green
+Write-Host ""
 Write-ConfigRow "Run ID" $DeployRunId Green
 Write-ConfigRow "App" $EntryOrigin Cyan
 Write-ConfigRow "Entry API health" "${EntryOrigin}/api/v1/health" Cyan
@@ -905,7 +840,8 @@ Write-ConfigRow "Data API health" "${DataOrigin}/api/v1/health" Cyan
 Write-ConfigRow "API docs" "${DataOrigin}/docs" Cyan
 Write-ConfigRow "Studies dir" $StudiesDir Cyan
 Write-Host ""
-Write-Host "Quick checks:" -ForegroundColor Yellow
-Write-Host "  curl.exe ${EntryOrigin}/api/v1/health"
-Write-Host "  curl.exe ${DataOrigin}/api/v1/health"
+Write-Host "  快速验证:" -ForegroundColor DarkGray
+Write-Host "    curl.exe ${EntryOrigin}/api/v1/health" -ForegroundColor Gray
+Write-Host "    curl.exe ${DataOrigin}/api/v1/health" -ForegroundColor Gray
+Write-DeployRule Green
 Write-Host ""
