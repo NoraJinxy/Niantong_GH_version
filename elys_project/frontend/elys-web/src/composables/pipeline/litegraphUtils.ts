@@ -4,7 +4,8 @@
 // 全是「输入 graph/ctx/参数 → 输出」的纯函数。litegraph 实例的初始化/同步/CRUD 仍在主文件（画布核心）。
 
 import { LGraph, LGraphNode, LiteGraph } from 'litegraph.js'
-import { LITEGRAPH_NODE_ID_PROP, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
+import type { NodeSpec } from '@/types'
+import { LITEGRAPH_NODE_ID_PROP, LOAD_DATA_NODE_TYPE, NODE_CARD_WIDTH, NODE_CARD_MIN_HEIGHT } from './pipelineConstants'
 import { formatJobStatus, nodeStatusColor, nodeStatusSoftColor, withAlpha } from './pipelineFormatters'
 
 export type LiteGraphNode = LGraphNode & {
@@ -187,4 +188,16 @@ export function drawNodeSaveIcon(
   }
   ctx.fill()
   ctx.restore()
+}
+
+/** 节点卡片尺寸：优先 spec.ui.default_size/size，否则按端口行数估算（最小宽高兜底）。 */
+export function graphNodeSize(spec: NodeSpec): [number, number] {
+  const uiSize = spec.ui?.default_size || spec.ui?.size
+  if (Array.isArray(uiSize) && uiSize.length >= 2) {
+    const width = Number(uiSize[0])
+    const height = Number(uiSize[1])
+    if (Number.isFinite(width) && Number.isFinite(height)) return [Math.max(NODE_CARD_WIDTH, width), Math.max(NODE_CARD_MIN_HEIGHT, height)]
+  }
+  const portRows = Math.max(spec.inputs?.length || 0, spec.outputs?.length || 0)
+  return [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, 78 + portRows * 26)]
 }

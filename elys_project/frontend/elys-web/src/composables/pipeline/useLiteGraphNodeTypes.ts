@@ -1,0 +1,220 @@
+// 工作流编辑器 · litegraph 节点类型注册 + 节点自绘类（ElysPipelineNode）
+//
+// 从 PipelinePage.vue 抽出：为每个 NodeSpec 动态生成一个 LGraphNode 子类（端口 + 标题栏/编号圆/前景自绘），
+// 注册到 litegraph。自绘里的运行状态徽标 / 保存指示胶囊依赖运行态与 liteGraph 实例，经 options 注入（getter）。
+// 依赖承重墙 nodeSpecs + 运行态查询 jobForNodeId + liteGraph 实例 getter + 默认参数 defaultParams（均注入）。
+// registerLiteGraphNodeSpecs 返回给主文件，被 createLiteGraphNode / initLiteGraphCanvas（画布核心仍在主文件）调用。
+
+import { type Ref } from 'vue'
+import { LGraph, LGraphNode, LiteGraph } from 'litegraph.js'
+import type { NodeSpec } from '@/types'
+import {
+  categoryColor,
+  categorySoftColor,
+  portTypeColor,
+  compactNodeTitle,
+  liteGraphPortType,
+  withAlpha,
+} from './pipelineFormatters'
+import { NO_SAVE_ICON_NODE_TYPES } from './pipelineConstants'
+import {
+  drawNodeAccentBar,
+  drawNodeStatusBadge,
+  drawNodeSaveIcon,
+  getLiteGraphNodeId,
+  liteGraphReachableFromLoadData,
+  graphNodeSize,
+  type LiteGraphNode,
+} from './litegraphUtils'
+
+type ElysPipelineNodeConstructor = typeof LGraphNode & { desc?: string }
+
+interface LiteGraphNodeTypesOptions {
+  nodeSpecs: Ref<NodeSpec[]>
+  jobForNodeId: (nodeId: string) => { status: string } | null
+  getLiteGraph: () => LGraph | null
+  defaultParams: (spec: NodeSpec) => Record<string, unknown>
+}
+
+export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
+  const { nodeSpecs, jobForNodeId, getLiteGraph, defaultParams } = options
+
+  const registeredLiteGraphTypes = new Set<string>()
+
+  function registerLiteGraphNodeSpecs() {
+    for (const spec of nodeSpecs.value) {
+      if (registeredLiteGraphTypes.has(spec.type)) continue
+      if ((LiteGraph as unknown as { registered_node_types?: Record<string, unknown> }).registered_node_types?.[spec.type]) {
+        registeredLiteGraphTypes.add(spec.type)
+        continue
+      }
+
+      const accent = categoryColor(spec.category)
+      const softAccent = categorySoftColor(spec.category)
+      class ElysPipelineNode extends LGraphNode {
+        constructor() {
+          super(spec.title)
+          this.title = spec.title
+          this.properties = defaultParams(spec)
+          this.size = graphNodeSize(spec)
+          this.color = '#D4DDE8'
+          this.boxcolor = accent
+          this.bgcolor = '#FFFFFF'
+          this.shape = LiteGraph.ROUND_SHAPE
+          this.resizable = true
+          for (const input of spec.inputs || []) {
+            const color = portTypeColor(input.type)
+            this.addInput(input.name, liteGraphPortType(input.type), {
+              label: input.label || input.name,
+              color_on: color,
+              color_off: withAlpha(color, 0.36),
+              shape: LiteGraph.CIRCLE_SHAPE,
+            })
+          }
+          for (const output of spec.outputs || []) {
+            const color = portTypeColor(output.type)
+            this.addOutput(output.name, liteGraphPortType(output.type), {
+              label: output.label || output.name,
+              color_on: color,
+              color_off: withAlpha(color, 0.36),
+              shape: LiteGraph.CIRCLE_SHAPE,
+            })
+          }
+        }
+
+        getTitle() {
+          return compactNodeTitle(String(this.title || spec.title || spec.type || 'Node'))
+        }
+
+        onDrawTitleBar(ctx: CanvasRenderingContext2D, titleHeight: number, size: [number, number]) {
+          const gradient = ctx.createLinearGradient(0, -titleHeight, size[0], 0)
+          gradient.addColorStop(0, softAccent)
+          gradient.addColorStop(0.64, '#FFFFFF')
+          gradient.addColorStop(1, '#F8FAFC')
+          ctx.fillStyle = gradient
+          ctx.beginPath()
+          ctx.roundRect(0, -titleHeight, size[0] + 1, titleHeight, [6, 6, 0, 0])
+          ctx.fill()
+
+          drawNodeAccentBar(ctx, accent, size[0], size[1], titleHeight)
+
+          ctx.strokeStyle = '#D9E0EA'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(0, -0.5)
+          ctx.lineTo(size[0], -0.5)
+          ctx.stroke()
+        }
+
+        onDrawTitleBox(ctx: CanvasRenderingContext2D, titleHeight: number) {
+          const x = titleHeight * 0.5 - 1
+          const y = -titleHeight * 0.5
+          ctx.fillStyle = '#FFFFFF'
+          ctx.strokeStyle = withAlpha(accent, 0.42)
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.arc(x, y, 6, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+          ctx.fillStyle = accent
+          ctx.beginPath()
+          ctx.arc(x, y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+
+        onDrawBackground(ctx: CanvasRenderingContext2D) {
+          const node = this as unknown as LiteGraphNode
+          const [width, height] = node.size as [number, number]
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(4, 0, width - 4, height)
+
+          ctx.fillStyle = 'rgba(248, 250, 252, 0.92)'
+          ctx.fillRect(4, 0, width - 4, 1)
+        }
+
+        onDrawForeground(ctx: CanvasRenderingContext2D) {
+          const node = this as unknown as LiteGraphNode
+          const [width, height] = node.size as [number, number]
+          const titleHeight = LiteGraph.NODE_TITLE_HEIGHT
+          const selected = Boolean(node.is_selected)
+          const hovered = Boolean(node.mouseOver)
+
+          ctx.save()
+          if (selected) {
+            ctx.strokeStyle = withAlpha(accent, 0.22)
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.roundRect(-2, -titleHeight - 2, width + 5, height + titleHeight + 5, [8])
+            ctx.stroke()
+          }
+
+          ctx.strokeStyle = selected ? accent : hovered ? withAlpha(accent, 0.72) : '#D4DDE8'
+          ctx.lineWidth = selected ? 1.6 : hovered ? 1.25 : 1
+          ctx.beginPath()
+          ctx.roundRect(0.5, -titleHeight + 0.5, width, height + titleHeight, [6])
+          ctx.stroke()
+
+          if (selected || hovered) {
+            drawNodeAccentBar(ctx, selected ? accent : withAlpha(accent, 0.72), width, height, titleHeight)
+          }
+
+          const nodeId = getLiteGraphNodeId(node)
+          const job = jobForNodeId(nodeId)
+          if (job) drawNodeStatusBadge(ctx, width, job.status)
+
+          // 保存状态指示胶囊：直接看 LiteGraph 实际链接，不依赖 definition.value.graph（避开 sync 时序问题）。
+          //
+          // 规则：
+          // - LoadData 等 source 节点 → 不画（在 NO_SAVE_ICON_NODE_TYPES 里）
+          // - 必须能从某个 LoadData 节点顺流走到本节点（BFS 可达） —— 即使本节点有 input link，
+          //   但若其上游链路没接 LoadData，也不画。这是 task #71 的核心修复（task #65 漏判）。
+          // - 节点 outputs 全部未连接 → leaf → 画（默认 retention='current'）
+          // - 节点有 output 连接 → intermediate → 不画（默认 cached）
+          // - 用户在 params 里显式设了 retention：
+          //     'current' / 'pinned' → 强制画（仅当可达）
+          //     'cached' / 'none'    → 强制不画
+          //     其它/留空            → 走拓扑默认
+          // - 颜色用 closure 里的 accent（= categoryColor(spec.category)）
+          const nodeType = String((node as { type?: unknown }).type || '')
+          if (nodeType && !NO_SAVE_ICON_NODE_TYPES.has(nodeType)) {
+            // 先用 BFS 判 LoadData 可达性 —— 不可达就一定不画（用户 override 也无效）
+            const reachableSet = liteGraphReachableFromLoadData(getLiteGraph())
+            if (reachableSet.has(nodeId)) {
+              const params = (node.properties || {}) as Record<string, unknown>
+              const override = String((params.retention as string | undefined) || '').trim().toLowerCase()
+
+              let shouldDraw = false
+              if (override === 'current' || override === 'pinned') {
+                shouldDraw = true
+              } else if (override === 'cached' || override === 'none') {
+                shouldDraw = false
+              } else {
+                // 拓扑默认：可达 + 是 leaf（无 output 连接）
+                const outputs = (node as unknown as { outputs?: Array<{ links?: unknown } | null> }).outputs || []
+                const isLeaf = !outputs.some((o) => Array.isArray(o?.links) && (o.links as unknown[]).length > 0)
+                shouldDraw = isLeaf
+              }
+
+              if (shouldDraw) {
+                drawNodeSaveIcon(ctx, width, height, accent)
+              }
+            }
+          }
+          ctx.restore()
+        }
+      }
+
+      const nodeConstructor = ElysPipelineNode as ElysPipelineNodeConstructor
+      nodeConstructor.title = spec.title
+      nodeConstructor.desc = spec.description || spec.title
+      ;(ElysPipelineNode as unknown as Record<string, unknown>).title_color = softAccent
+      ;(ElysPipelineNode as unknown as Record<string, unknown>).title_text_color = '#1F2A37'
+      ;(ElysPipelineNode as unknown as Record<string, unknown>).bgcolor = '#FFFFFF'
+      ;(ElysPipelineNode as unknown as Record<string, unknown>).color = '#D4DDE8'
+      LiteGraph.registerNodeType(spec.type, ElysPipelineNode)
+      registeredLiteGraphTypes.add(spec.type)
+    }
+  }
+
+  return { registerLiteGraphNodeSpecs }
+}
