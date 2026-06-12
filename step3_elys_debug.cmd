@@ -1,5 +1,4 @@
 @echo off
 cls
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0elys_project\deploy\step_banner.ps1" -Step 3
-REM Thin shim -- real launcher is in elys_scripts\start.cmd
+REM Thin shim -- start.cmd prints the step3 banner after its chcp/venv setup
 call "%~dp0elys_scripts\start.cmd" %*

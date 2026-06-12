@@ -80,6 +80,10 @@ if not exist "%VENV_PY%" (
 REM --- 3) Activate venv ---
 call "%VENV_DIR%\Scripts\activate.bat"
 
+REM --- 3b) Step3 banner: printed AFTER chcp + venv so it is neither cleared by
+REM         chcp nor scrolled off by first-run pip logs. Sits right above the test. ---
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\elys_project\deploy\step_banner.ps1" -Step 3
+
 REM --- 4) Run ERP chain: setup (build dataset + upload) then run (pipeline) ---
 powershell -NoProfile -Command "Write-Host ''; Write-Host ' 1/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  setup: build dataset + upload data' -ForegroundColor White"
 python projects\01_erp_basic\setup.py
