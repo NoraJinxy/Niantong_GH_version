@@ -94,5 +94,3 @@ if errorlevel 1 (
 )
 powershell -NoProfile -Command "Write-Host ''; Write-Host ' 2/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  run: ERP pipeline' -ForegroundColor White"
 python projects\01_erp_basic\run.py
-echo.
-pause
