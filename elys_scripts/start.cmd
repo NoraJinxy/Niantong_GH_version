@@ -8,6 +8,11 @@ REM ===========================================================
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
+REM UTF-8 console + force Python UTF-8 stdout (GBK cannot encode the check/box glyphs)
+chcp 65001 >nul
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+
 set "VENV_DIR=.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 
@@ -76,17 +81,14 @@ REM --- 3) Activate venv ---
 call "%VENV_DIR%\Scripts\activate.bat"
 
 REM --- 4) Run ERP chain: setup (build dataset + upload) then run (pipeline) ---
-echo.
-echo [1/2] setup: build dataset + upload data
+powershell -NoProfile -Command "Write-Host ''; Write-Host ' 1/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  setup: build dataset + upload data' -ForegroundColor White"
 python projects\01_erp_basic\setup.py
 if errorlevel 1 (
-  echo.
-  echo [X] setup failed - skip pipeline. See errors above.
+  powershell -NoProfile -Command "Write-Host ''; Write-Host ' FAIL ' -BackgroundColor DarkRed -ForegroundColor White -NoNewline; Write-Host '  setup failed - skip pipeline. See errors above.' -ForegroundColor Red"
   pause
   exit /b 1
 )
-echo.
-echo [2/2] run: ERP pipeline
+powershell -NoProfile -Command "Write-Host ''; Write-Host ' 2/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  run: ERP pipeline' -ForegroundColor White"
 python projects\01_erp_basic\run.py
 echo.
 pause
