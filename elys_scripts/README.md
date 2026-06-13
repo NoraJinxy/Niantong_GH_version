@@ -26,13 +26,13 @@ elys_scripts/
 
 ## 第一次用（5 分钟）
 
-**最简单：双击 `D:\proposal\20260106 念通软件开发\claude\elys_debug.cmd`**
+**最简单：双击 `D:\proposal\20260106 念通软件开发\claude\step3_elys_debug.cmd`**
 
-- 它只是个 4 行壳子，转手调本目录下的 `start.cmd`（跟 `deploy_remote.cmd` 一样的模式）
+- 它只是个 4 行壳子，转手调本目录下的 `start.cmd`（跟 `step2_deploy_remote.cmd` 一样的模式）
 - 第一次跑：`start.cmd` 自动建 `.venv` 虚拟环境 + 装依赖（不污染你系统 Python）
 - 之后双击：直接进入"激活了 venv 的 cmd"，提示里有常用命令复制贴就跑
 
-> 也可以直接双击 `elys_scripts/start.cmd`，效果一样。外面那个 `elys_debug.cmd` 只是省你一次切目录。
+> 也可以直接双击 `elys_scripts/start.cmd`，效果一样。外面那个 `step3_elys_debug.cmd` 只是省你一次切目录。
 
 然后：
 

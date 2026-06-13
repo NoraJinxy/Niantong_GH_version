@@ -180,28 +180,18 @@ def summarize_event_vocabulary(
     }
 
 
-_KEYS = {"index", "idx", "trial", "run", "mode", "ses", "sub", "label", "epoch"}
-
-
-def _name_parts(template: str) -> list[str]:
-    """模板里"有信息量"的段(去掉数字占位 # 和纯键名),用于起名。"""
-    segs = [s for s in template.split("/") if s and s != "#"]
-    value_segs = [s for s in segs if s not in _KEYS]
-    return value_segs or segs or [template]
-
-
 def propose_condition_groups(
     descriptions: Sequence[str],
     *,
     max_conditions: int = DEFAULT_MAX_CONDITIONS,
 ) -> list[dict[str, Any]]:
-    """把原始事件自动收成「可勾选的分组」给前端展示。返回 [{name,pattern,mode,count,sample}]。
+    """把原始事件自动收成「可勾选的分组」:忠实原始 label,只把"仅差序号的重复"合并。
 
-    - 事件带序号/多到爆(instance_laden):按模板分组(忽略数字),mode="template";
-    - 事件本就干净:每个原值一组,mode="exact"。
-    起名:取末尾"有信息量"的段;若多个分组撞同名(如 mi/csp/rest 的 window_end),前缀其
-    领域段消歧(mi_window_end / csp_window_end…),不堆 `-2/-3`。
-    排序:结构性事件(含 window)沉底、任务/线索在前,让普通用户先看到要切的类。
+    返回 [{name,pattern,mode,count,sample}]。
+    - 事件带序号/多到爆(instance_laden):把"只差数字"的合并成一组,mode="template";
+      name **忠实显示原模板**、被合并的数字位写成 `*`(如 `trial/cue_sent/index/*/clench_fist`)。
+    - 事件本就干净:每个原值一组,mode="exact",name=原值。
+    前缀不同的(mi/csp/rest 的 window)天然就是不同组,不改名、不撞名、不堆 `-2/-3`。
     前端展示与运行时(epoching)调同一函数,分组一致。
     """
     texts = [str(d) for d in descriptions]
@@ -212,41 +202,20 @@ def propose_condition_groups(
         key = _DIGITS.sub("#", t) if use_template else t
         bucket = buckets.get(key)
         if bucket is None:
-            buckets[key] = {
-                "pattern": key if use_template else t,
-                "mode": "template" if use_template else "exact",
-                "count": 1,
-                "sample": t,
-            }
+            buckets[key] = {"count": 1, "sample": t}
         else:
             bucket["count"] += 1
 
-    # 末段重名统计(只 template 模式需要消歧;clean 模式名=原值,天然唯一)
-    base_counts: dict[str, int] = {}
-    if use_template:
-        for key in buckets:
-            base = _name_parts(key)[-1]
-            base_counts[base] = base_counts.get(base, 0) + 1
-
     groups: list[dict[str, Any]] = []
-    used: set[str] = set()
     for key, bucket in buckets.items():
         if use_template:
-            parts = _name_parts(key)
-            base = parts[-1]
-            name = f"{parts[0]}_{base}" if (base_counts.get(base, 0) > 1 and len(parts) >= 2) else base
-            name = name.replace("/", "_")
+            name, pattern, mode = key.replace("#", "*"), key, "template"
         else:
-            name = key
-        final = name
-        i = 2
-        while final in used:
-            final = f"{name}-{i}"
-            i += 1
-        used.add(final)
-        groups.append({"name": final, **bucket})
-
-    groups.sort(key=lambda g: (1 if "window" in g["name"] else 0, g["name"]))
+            name, pattern, mode = key, key, "exact"
+        groups.append(
+            {"name": name, "pattern": pattern, "mode": mode, "count": bucket["count"], "sample": bucket["sample"]}
+        )
+    groups.sort(key=lambda g: g["name"])
     return groups
 
 

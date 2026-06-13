@@ -861,7 +861,7 @@
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
               </div>
 
-              <label v-else class="field">
+              <label v-else class="field" :class="{ 'field--half': prop.type === 'number' || prop.type === 'integer' }">
                 <span>
                   {{ prop.label }}
                   <small v-if="prop.unit">({{ prop.unit }})</small>
@@ -3753,6 +3753,13 @@ function describeError(error: unknown, fallback: string) {
 
 .chip-row--pool {
   margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chip-row--pool .chip {
+  width: 100%;
+  justify-content: space-between;
 }
 
 .chip {
@@ -4899,11 +4906,24 @@ function describeError(error: unknown, fallback: string) {
   white-space: nowrap;
 }
 
-.property-list,
 .connections {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* 参数面板:两列网格;普通字段整行,数字参数(field--half)半宽 → 两两并排一行 */
+.property-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 8px;
+  row-gap: 10px;
+  align-items: start;
+}
+.property-list > * {
+  grid-column: 1 / -1;
+}
+.property-list > .field--half {
+  grid-column: auto;
 }
 
 .dataset-qa-cell {

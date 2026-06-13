@@ -47,7 +47,7 @@
 
 - ✅ `npm run build`（vite）**通过**：21 页全编译、CSS 打包无误（仅 PipelinePage 体积告警，既有，与本次无关）。因为没碰任何 `.vue`，**内容与交互按构造不变**。
 - ✅ 顺带刷新 `dist/`，清掉了 `ProjectsPage` / `ProjectDetailPage` / `ImportPage` 等**旧迭代残留**产物。
-- ⚠️ 本机无运行环境，**视觉效果需部署后肉眼核**（`deploy_remote.cmd`）。
+- ⚠️ 本机无运行环境，**视觉效果需部署后肉眼核**（`step2_deploy_remote.cmd`）。
 - 🛟 仓库**无 git**：已把 `src/` 快照备份到 `_backups/elys-web-src-20260605/`，需回滚直接覆盖回去。
 
 ---
@@ -78,7 +78,7 @@
 
 ## 6. 怎么看效果 / 怎么回滚
 
-- **看效果**：`deploy_remote.cmd` 部署后在浏览器看；或本机 `npm run dev`（需后端起着才有数据，但登录页 / 落地页 / 外壳样式可直接看）。
+- **看效果**：`step2_deploy_remote.cmd` 部署后在浏览器看；或本机 `npm run dev`（需后端起着才有数据，但登录页 / 落地页 / 外壳样式可直接看）。
 - **回滚**：`_backups/elys-web-src-20260605/` 覆盖回 `src/`。
 
 ---

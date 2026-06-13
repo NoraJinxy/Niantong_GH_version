@@ -49,14 +49,13 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
     if tmax <= tmin:
         raise ValueError("Epoch.tmax must be greater than tmin.")
 
-    baseline = _baseline(params)
     epochs = mne.Epochs(
         raw,
         events,
         event_id=event_id_map,
         tmin=tmin,
         tmax=tmax,
-        baseline=baseline,
+        baseline=None,  # 原子化:Epoch 只负责切分;基线校正交给独立节点(MNE 把两步合并,我们拆开)
         preload=True,
         reject_by_annotation=True,
         verbose="ERROR",
@@ -64,16 +63,6 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
     if len(epochs) == 0:
         raise ValueError(f"No epochs were created for conditions: {list(event_id_map)}")
     return epochs
-
-
-def _baseline(params: dict[str, Any]) -> tuple[float | None, float | None] | None:
-    start = params.get("baseline_start", -0.2)
-    end = params.get("baseline_end", 0.0)
-    if start in (None, "") and end in (None, ""):
-        return None
-    baseline_start = None if start in (None, "") else float(start)
-    baseline_end = None if end in (None, "") else float(end)
-    return (baseline_start, baseline_end)
 
 
 def _mne():

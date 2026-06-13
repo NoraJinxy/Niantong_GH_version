@@ -26,6 +26,10 @@
           <AppIcon v-else name="refresh" :size="16" />
           重新加载
         </button>
+        <RouterLink v-else class="btn btn--primary dashboard-primary-action" to="/studies">
+          <AppIcon name="plus" :size="16" />
+          开始新分析
+        </RouterLink>
       </div>
     </div>
 
@@ -67,19 +71,19 @@
         </RouterLink>
 
         <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">研究项</span>
+          <span class="page-stat__label">研究</span>
           <strong class="page-stat__value">{{ studyTotal }}<small>个</small></strong>
           <span class="page-stat__hint">{{ studySummary }}</span>
         </RouterLink>
 
         <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">工作流</span>
+          <span class="page-stat__label">分析流程</span>
           <strong class="page-stat__value">{{ pipelineTotal }}<small>个</small></strong>
           <span class="page-stat__hint">{{ pipelineSummary }}</span>
         </RouterLink>
 
         <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">运行记录</span>
+          <span class="page-stat__label">分析任务</span>
           <strong class="page-stat__value">{{ executionTotal }}<small>条</small></strong>
           <span class="page-stat__hint">{{ executionSummary }}</span>
         </RouterLink>
@@ -89,8 +93,8 @@
         <div class="dashboard-panel">
           <div class="section-head">
             <div>
-              <h2>最近研究项</h2>
-              <p>继续最近研究项，快速回到数据、流程和待处理任务。</p>
+              <h2>我的研究</h2>
+              <p>继续你的研究，快速回到数据、分析和待办。</p>
             </div>
             <RouterLink v-if="recentStudies.length" class="btn btn--sm" to="/studies">查看全部</RouterLink>
           </div>
@@ -128,12 +132,11 @@
                   <span v-if="study.code" class="study-code">{{ study.code }}</span>
                 </div>
                 <p>{{ study.description || '暂无描述' }}</p>
-                <div class="study-metrics">
-                  <span><b>{{ studyMetrics(study.id).pipelineCount }}</b> 工作流</span>
-                  <span><b>{{ studyMetrics(study.id).executionCount }}</b> 运行</span>
-                  <span :class="{ 'is-attention': studyMetrics(study.id).attentionExecutionCount }">
-                    <b>{{ studyMetrics(study.id).attentionExecutionCount }}</b> 需处理
-                  </span>
+                <div class="study-stage">
+                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 0 }"></span>
+                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 1 }"></span>
+                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 2 }"></span>
+                  <span class="study-stage__text" :class="{ 'is-attention': studyMetrics(study.id).attentionExecutionCount }">{{ studyStageLabel(study.id) }}</span>
                 </div>
               </div>
               <div class="study-row__meta">
@@ -147,7 +150,7 @@
         <aside class="dashboard-panel live-runs">
           <div class="section-head live-runs__head">
             <div>
-              <h2><span class="live-dot" :class="{ 'is-attention': attentionExecutions.length }"></span>处理队列</h2>
+              <h2><span class="live-dot" :class="{ 'is-attention': attentionExecutions.length }"></span>进行中</h2>
               <p>{{ executionQueueSummary }}</p>
             </div>
             <button class="btn btn--sm" type="button" @click="activeExecutionsExpanded = !activeExecutionsExpanded">
@@ -203,8 +206,8 @@
       <section class="dashboard-panel activity-panel">
         <div class="section-head">
           <div>
-            <h2>最近活动</h2>
-            <p>数据、研究、工作流和执行的最新变化。</p>
+            <h2>最近动态</h2>
+            <p>数据、研究和分析的最新变化。</p>
           </div>
         </div>
         <div v-if="!activityItems.length" class="empty dashboard-empty dashboard-empty--quiet">
@@ -225,7 +228,6 @@
               <div class="activity-line__main">
                 <span class="activity-line__type" :class="`is-${item.tone}`">{{ item.objectType }}</span>
                 <strong class="activity-line__title">{{ item.objectName }}</strong>
-                <span v-if="item.pipelineName && item.objectType === '运行记录'" class="activity-line__meta">· {{ item.pipelineName }}</span>
                 <span class="activity-line__action">{{ item.actionLabel }}</span>
                 <span class="activity-line__time" :title="formatAbsoluteTime(item.time)">{{ formatRelativeTime(item.time) }}</span>
               </div>
@@ -285,7 +287,7 @@ const EXECUTION_STATUS_PRIORITY: Record<string, number> = {
 
 interface ActivityItem {
   id: string
-  objectType: '数据集' | '研究项' | '工作流' | '运行记录'
+  objectType: '数据集' | '研究' | '分析流程' | '分析'
   objectName: string
   actionLabel: string
   time: string | null
@@ -393,8 +395,12 @@ const datasetAssetStat = computed(() => {
   return datasetAssets.value.length
 })
 const datasetAssetSummary = computed(() => {
-  if (!datasetAssetsLoaded.value) return 'working -- · active -- · error --'
-  return `working ${workingDatasetAssetCount.value} · active ${activeDatasetAssetCount.value} · error ${errorDatasetAssetCount.value}`
+  if (!datasetAssetsLoaded.value) return '读取中'
+  const parts: string[] = []
+  if (activeDatasetAssetCount.value) parts.push(`${activeDatasetAssetCount.value} 份就绪`)
+  if (workingDatasetAssetCount.value) parts.push(`${workingDatasetAssetCount.value} 份准备中`)
+  if (errorDatasetAssetCount.value) parts.push(`${errorDatasetAssetCount.value} 份异常`)
+  return parts.length ? parts.join(' · ') : '暂无数据'
 })
 const activePipelineCount = computed(() =>
   dashboardSummary.value?.states.pipelines.active ??
@@ -404,8 +410,16 @@ const draftPipelineCount = computed(() =>
   dashboardSummary.value?.states.pipelines.draft ??
   pipelineItems.value.filter((pipeline) => pipeline.status === 'draft').length,
 )
-const studySummary = computed(() => `active ${activeStudyCount.value} · archived ${archivedStudyCount.value}`)
-const pipelineSummary = computed(() => `active ${activePipelineCount.value} · draft ${draftPipelineCount.value}`)
+const studySummary = computed(() => {
+  const parts = [`${activeStudyCount.value} 项进行中`]
+  if (archivedStudyCount.value) parts.push(`${archivedStudyCount.value} 项已归档`)
+  return parts.join(' · ')
+})
+const pipelineSummary = computed(() => {
+  const parts = [`${activePipelineCount.value} 个就绪`]
+  if (draftPipelineCount.value) parts.push(`${draftPipelineCount.value} 个草稿`)
+  return parts.join(' · ')
+})
 const dashboardExecutions = computed<DashboardExecutionItem[]>(() => dashboardSummary.value?.active_executions ?? recentExecutions.value)
 const waitingUserInputExecutions = computed(() => dashboardExecutions.value.filter((execution) => execution.status === 'waiting_user_input'))
 const failedExecutions = computed(() => dashboardExecutions.value.filter((execution) => execution.status === 'failed'))
@@ -450,21 +464,26 @@ const prioritizedExecutionCount = computed(() => {
   return prioritizedExecutions.value.length
 })
 const hiddenQueueExecutionCount = computed(() => Math.max(prioritizedExecutionCount.value - executionQueueItems.value.length, 0))
-const executionSummary = computed(
-  () =>
-    `attention ${attentionExecutionCount.value} · waiting ${waitingUserInputExecutionCount.value} · failed ${failedExecutionCount.value}`,
-)
+const executionSummary = computed(() => {
+  if (waitingUserInputExecutionCount.value || failedExecutionCount.value) {
+    const parts: string[] = []
+    if (waitingUserInputExecutionCount.value) parts.push(`${waitingUserInputExecutionCount.value} 个待确认`)
+    if (failedExecutionCount.value) parts.push(`${failedExecutionCount.value} 个失败`)
+    return parts.join(' · ')
+  }
+  if (runningExecutionCount.value || queuedExecutionCount.value) {
+    return `${runningExecutionCount.value} 个进行中 · ${queuedExecutionCount.value} 个排队`
+  }
+  return '近期无异常'
+})
 const executionQueueSummary = computed(() => {
   if (attentionExecutionCount.value) {
     return `${attentionExecutionCount.value} 个需要处理 · ${waitingUserInputExecutionCount.value} 个确认 · ${failedExecutionCount.value} 个失败`
   }
   if (runningExecutionCount.value || queuedExecutionCount.value) {
-    return `${runningExecutionCount.value} 个运行中 · ${queuedExecutionCount.value} 个排队中`
+    return `${runningExecutionCount.value} 个进行中 · ${queuedExecutionCount.value} 个排队`
   }
-  if (executionTotal.value) {
-    return `当前无运行中的运行记录 · 最近读取 ${executionTotal.value} 条`
-  }
-  return '当前无运行中的运行记录'
+  return '当前没有进行中的分析'
 })
 const dashboardStatusText = computed(() => {
   if (loading.value && !dashboardSummary.value && !studies.value.length && !datasetAssetsLoaded.value) {
@@ -483,10 +502,10 @@ const dashboardStatusText = computed(() => {
     return '还没有数据集，先导入数据'
   }
   if (!studyTotal.value) {
-    return '还没有研究项，先创建一个'
+    return '还没有研究，先创建一个'
   }
   if (hasNoPipelineSnapshot.value) {
-    return '还没有工作流，可先创建处理流程'
+    return '还没有分析流程，可先建立一个'
   }
   if (hasPipelinesWithoutExecutions.value) {
     return '还没有运行记录'
@@ -560,44 +579,44 @@ const attentionBanner = computed<AttentionBanner | null>(() => {
 const studyEmptyState = computed<DashboardEmptyState>(() => {
   if (hasNoDatasetAssets.value) {
     return {
-      title: '导入数据集',
+      title: '导入数据',
       description: '先把数据放进工作台。',
       icon: 'import',
-      action: { label: '导入数据集', to: '/datasets', icon: 'import' },
+      action: { label: '导入数据', to: '/datasets', icon: 'import' },
     }
   }
   if (hasDatasetAssets.value && !studyTotal.value) {
     return {
-      title: '创建研究项',
-      description: '用研究项组织数据和流程。',
+      title: '创建研究',
+      description: '用研究组织你的数据和分析。',
       icon: 'studies',
-      action: { label: '创建研究项', to: '/studies', icon: 'plus' },
+      action: { label: '创建研究', to: '/studies', icon: 'plus' },
     }
   }
   return {
-    title: '创建研究项',
-    description: '先建立研究项，再继续处理。',
+    title: '创建研究',
+    description: '先建立研究，再继续。',
     icon: 'studies',
-    action: { label: '创建研究项', to: '/studies', icon: 'plus' },
+    action: { label: '创建研究', to: '/studies', icon: 'plus' },
   }
 })
 const executionEmptyState = computed<DashboardEmptyState>(() => {
   if (hasNoPipelineSnapshot.value) {
     return {
-      title: '创建工作流',
-      description: '为研究项配置处理流程。',
+      title: '建立分析流程',
+      description: '为研究配置一套分析流程。',
       icon: 'pipeline',
     }
   }
   if (!studyTotal.value || hasNoDatasetAssets.value) {
     return {
       title: '等待前置设置',
-      description: '先完成数据和研究项设置。',
+      description: '先完成数据和研究设置。',
       icon: 'clock',
     }
   }
   return {
-    title: '暂无活动的运行记录',
+    title: '暂无进行中的分析',
     description: '没有等待处理或正在运行的任务。',
     icon: 'clock',
   }
@@ -813,6 +832,19 @@ function studyMetrics(studyId: string) {
   return studyMetricsMap.value[studyId] || { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
 }
 
+// 研究阶段（粗粒度）：跑过分析(有结果) > 有分析流程 > 仅有数据。后端 summary 给出 completed 数后可细化。
+function studyStage(studyId: string): number {
+  const metrics = studyMetrics(studyId)
+  if (metrics.executionCount > 0) return 2
+  if (metrics.pipelineCount > 0) return 1
+  return 0
+}
+
+function studyStageLabel(studyId: string): string {
+  if (studyMetrics(studyId).attentionExecutionCount > 0) return '需要你看一下'
+  return ['待建立分析', '分析进行中', '结果就绪'][studyStage(studyId)]
+}
+
 function pipelineNameForExecution(execution: DashboardExecutionItem) {
   if ('pipeline_name' in execution && execution.pipeline_name) return execution.pipeline_name
   const pipeline = pipelineItems.value.find(
@@ -924,9 +956,9 @@ function formatAbsoluteTime(iso: string | null): string {
 function summaryObjectKindLabel(kind: DashboardRecentActivityItem['object_kind']): ActivityItem['objectType'] {
   const labels: Record<DashboardRecentActivityItem['object_kind'], ActivityItem['objectType']> = {
     dataset: '数据集',
-    study: '研究项',
-    pipeline: '工作流',
-    execution: '运行记录',
+    study: '研究',
+    pipeline: '分析流程',
+    execution: '分析',
   }
   return labels[kind]
 }
@@ -1313,38 +1345,33 @@ a.page-stat {
   white-space: nowrap;
 }
 
-.study-metrics {
+.study-stage {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin-top: 8px;
-  color: var(--c-text-3);
-  font-size: 12px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
   min-width: 0;
 }
 
-.study-metrics span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  min-width: 0;
+.study-stage__seg {
+  width: 26px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-border);
+}
+
+.study-stage__seg.is-on {
+  background: var(--c-primary);
+}
+
+.study-stage__text {
+  margin-left: 8px;
+  color: var(--c-text-2);
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.study-metrics b {
-  color: var(--c-text);
-  font-family: var(--ff-display);
-  font-size: 13px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.study-metrics span.is-attention {
-  color: var(--c-warning);
-  font-weight: 700;
-}
-
-.study-metrics span.is-attention b {
+.study-stage__text.is-attention {
   color: var(--c-warning);
 }
 

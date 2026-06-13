@@ -250,7 +250,7 @@
 
           <DatasetFilesTab v-else-if="activeTab === 'files'" />
 
-          <DatasetDataTab v-else-if="activeTab === 'data'" />
+          <DatasetMaintenanceTab v-else-if="activeTab === 'data'" />
 
           <DatasetTechnicalTab v-else />
         </div>
@@ -302,7 +302,7 @@ import DatasetOverviewTab from '@/components/datasets/DatasetOverviewTab.vue'
 import DatasetImportTab from '@/components/datasets/DatasetImportTab.vue'
 import DatasetRecordsTab from '@/components/datasets/DatasetRecordsTab.vue'
 import DatasetFilesTab from '@/components/datasets/DatasetFilesTab.vue'
-import DatasetDataTab from '@/components/datasets/DatasetDataTab.vue'
+import DatasetMaintenanceTab from '@/components/datasets/DatasetMaintenanceTab.vue'
 import DatasetTechnicalTab from '@/components/datasets/DatasetTechnicalTab.vue'
 import { useAuthStore } from '@/stores/auth'
 import {

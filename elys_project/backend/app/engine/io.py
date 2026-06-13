@@ -173,8 +173,12 @@ def summarize_evoked(evoked: Any) -> dict[str, Any]:
 def summarize_tfr(tfr: Any) -> dict[str, Any]:
     """AverageTFR 的轻量摘要(不含功率立方,热图走 tfr_view 端点按需取)。"""
     sfreq = float(tfr.info["sfreq"])
-    freqs = list(getattr(tfr, "freqs", []) or [])
-    times = list(getattr(tfr, "times", []) or [])
+    # 注意:tfr.freqs / tfr.times 是 numpy 数组,绝不能写 `arr or []`(会触发
+    # 「truth value of an array is ambiguous」)—— 显式判 None。
+    freqs_attr = getattr(tfr, "freqs", None)
+    times_attr = getattr(tfr, "times", None)
+    freqs = list(freqs_attr) if freqs_attr is not None else []
+    times = list(times_attr) if times_attr is not None else []
     return {
         "data_type": "tfr",
         "n_channels": len(tfr.ch_names),

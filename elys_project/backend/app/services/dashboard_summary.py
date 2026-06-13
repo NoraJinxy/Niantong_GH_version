@@ -420,11 +420,11 @@ def audit_event_to_activity(
             execution_seq = meta.get("execution_seq")
         pipeline_name = event.resource_label or None
 
-    # Execution 对象名优先 "Execution #<seq>" 而不是 pipeline 名
-    if object_kind == "execution" and execution_seq is not None:
-        object_name = f"Execution #{execution_seq}"
+    # Execution 用分析流程名当标题;其余对象名做人话化(BIDS 路径 → 被试名)
+    if object_kind == "execution":
+        object_name = pipeline_name or default_activity_name(object_kind)
     else:
-        object_name = event.resource_label or default_activity_name(object_kind)
+        object_name = humanize_object_name(object_kind, event.resource_label) or default_activity_name(object_kind)
 
     return DashboardActivityItem(
         object_kind=object_kind,
@@ -546,13 +546,13 @@ def build_bootstrap_card(
 
     summary_parts = []
     if dataset_name:
-        summary_parts.append(f"Dataset「{dataset_name}」")
+        summary_parts.append(f"数据「{humanize_object_name('dataset', dataset_name)}」")
     if study_name:
-        summary_parts.append(f"Study「{study_name}」")
-    group_summary = " → ".join(summary_parts) if summary_parts else None
+        summary_parts.append(f"研究「{study_name}」")
+    group_summary = " · ".join(summary_parts) if summary_parts else None
 
-    object_name = dataset_name or study_name or "Dataset"
-    action_label = "创建 Dataset 并配对 Study" if has_bootstrap_complete else "创建 Dataset 并配对 Study(进行中)"
+    object_name = study_name or humanize_object_name("dataset", dataset_name) or "新研究"
+    action_label = "新建研究并导入数据" if has_bootstrap_complete else "正在新建研究并导入数据"
 
     return DashboardActivityItem(
         object_kind="dataset",
@@ -583,26 +583,22 @@ def activity_object_kind(resource_kind: str | None, action: str) -> str | None:
 
 
 def audit_action_label(action: str) -> str | None:
+    # 只保留临床用户关心的事件、全大白话；其余(创建/更新噪音、执行中间态)返回 None 被过滤掉。
+    # 注意:bootstrap 成员(study.created / dataset_asset.created / mount.created / bootstrap.completed)
+    # 必须有标签才能进入折叠;若未折叠成一条,它们也会以这里的中文标签独立显示。
     labels = {
-        "dataset_asset.created": "Dataset 已创建",
-        "dataset_asset.updated": "Dataset 已更新",
-        "dataset.bootstrap.completed": "Dataset 导入完成",
-        "dataset.uploaded": "Dataset 导入完成",
-        "dataset.reuploaded": "Dataset 已更新",
-        "study.created": "Study 已创建",
-        "study.settings.updated": "Study 设置已更新",
-        "study.dataset_mount.created": "Dataset 已挂载",
-        "study.dataset_mount.updated": "Dataset 挂载已更新",
-        "pipeline.created": "Pipeline 已创建",
-        "pipeline.updated": "Pipeline 已更新",
-        "pipeline.execution.queued": "Execution 已排队",
-        "pipeline.execution.running": "Execution 运行中",
-        "pipeline.execution.waiting_user_input": "Execution 等待确认",
-        "pipeline.execution.failed": "Execution 运行失败",
-        "pipeline.execution.completed": "Execution 运行完成",
-        "pipeline.execution.canceled": "Execution 已取消",
-        "pipeline.execution.retry_queued": "Execution 已重新排队",
-        "pipeline.execution.dispatch_failed": "Execution 启动失败",
+        "dataset.bootstrap.completed": "导入完成",
+        "dataset.uploaded": "导入完成",
+        "dataset_asset.created": "新增数据",
+        "study.created": "新建研究",
+        "study.dataset_mount.created": "关联数据",
+        "pipeline.created": "新建分析流程",
+        "pipeline.execution.waiting_user_input": "等待你确认",
+        "pipeline.execution.completed": "分析完成，结果就绪",
+        "pipeline.execution.failed": "分析失败",
+        "pipeline.execution.dispatch_failed": "分析失败",
+        "pipeline.execution.retry_dispatch_failed": "分析失败",
+        "pipeline.execution.task_exception": "分析失败",
     }
     return labels.get(action)
 
@@ -630,11 +626,22 @@ def activity_target_url(event: AuditEvent, object_kind: str) -> str | None:
 
 def default_activity_name(object_kind: str) -> str:
     return {
-        "dataset": "Dataset",
-        "study": "Study",
-        "pipeline": "Pipeline",
-        "execution": "Execution",
+        "dataset": "数据",
+        "study": "研究",
+        "pipeline": "分析流程",
+        "execution": "分析",
     }.get(object_kind, "对象")
+
+
+def humanize_object_name(object_kind: str, name: str | None) -> str | None:
+    """把 BIDS 实体路径(如 sub-01/no-session/task-rest/no-run)收成人话(被试 sub-01)。"""
+    if not name:
+        return name
+    if object_kind == "dataset" and "/" in name:
+        for segment in name.split("/"):
+            if segment.startswith("sub-"):
+                return f"被试 {segment}"
+    return name
 
 
 def datetime_sort_value(value: datetime | None) -> float:

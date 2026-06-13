@@ -93,9 +93,13 @@ def test_dashboard_execution_priority_orders_attention_before_background_work() 
 def test_dashboard_summary_uses_business_language_for_execution_and_activity_labels() -> None:
     assert execution_stage_label("waiting_user_input") == "等待人工确认"
     assert execution_stage_label("failed") == "运行失败，请查看错误"
-    assert audit_action_label("dataset.uploaded") == "Dataset 导入完成"
-    assert audit_action_label("pipeline.updated") == "Pipeline 已更新"
-    assert audit_action_label("pipeline.execution.failed") == "Execution 运行失败"
+    # 活动文案全中文、无英文实体词；低价值的"更新/中间态"返回 None 被过滤
+    assert audit_action_label("dataset.uploaded") == "导入完成"
+    assert audit_action_label("pipeline.created") == "新建分析流程"
+    assert audit_action_label("pipeline.execution.completed") == "分析完成，结果就绪"
+    assert audit_action_label("pipeline.execution.failed") == "分析失败"
+    assert audit_action_label("pipeline.updated") is None
+    assert audit_action_label("dataset_asset.updated") is None
 
 
 def test_dashboard_activity_maps_audit_event_without_payload_or_event_id() -> None:
@@ -114,8 +118,8 @@ def test_dashboard_activity_maps_audit_event_without_payload_or_event_id() -> No
     assert item is not None
     assert item.object_kind == "execution"
     assert item.object_name == "Preprocess Pipeline v3"
-    assert item.action_label == "Execution 运行失败"
+    assert item.action_label == "分析失败"
     assert item.created_at == datetime(2026, 5, 23, 8, 10, 0)
-    assert item.target_url == "/pipeline?study_id=study-1&pipeline_id=11&execution_id=run-18"
+    assert item.target_url == "/studies/study-1/pipeline?pipeline_id=11&execution_id=run-18"
     assert "metadata_json" not in DashboardActivityItem.model_fields
     assert "event_id" not in DashboardActivityItem.model_fields
