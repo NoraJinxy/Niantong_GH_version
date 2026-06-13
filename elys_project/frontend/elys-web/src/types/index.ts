@@ -1006,6 +1006,42 @@ export interface StudyOutputTimeseriesQuery {
   maxChannels?: number
 }
 
+export interface TfrBandStat {
+  name: string
+  fmin: number
+  fmax: number
+  value: number
+}
+
+export interface StudyOutputTfr {
+  data_type: string
+  study_output_id: string
+  condition: string | null
+  method: string
+  baseline_mode: string
+  unit: string
+  sfreq: number
+  nave: number
+  channel: string
+  n_channels_total: number
+  ch_names_all: string[]
+  freqs: number[]
+  times: number[]
+  fmin: number | null
+  fmax: number | null
+  tmin: number | null
+  tmax: number | null
+  zmax: number
+  power: number[][]
+  bands: TfrBandStat[]
+}
+
+export interface StudyOutputTfrQuery {
+  channel?: string
+  maxFreqs?: number
+  maxTimes?: number
+}
+
 export interface StudyOutputUpdatePayload {
   display_name?: string | null
   description?: string | null

@@ -6,6 +6,8 @@ import type {
   StudyOutputListQuery,
   StudyOutputListResponse,
   StudyOutputPreview,
+  StudyOutputTfr,
+  StudyOutputTfrQuery,
   StudyOutputTimeseries,
   StudyOutputTimeseriesQuery,
   StudyOutputUpdatePayload,
@@ -130,6 +132,19 @@ export const pipelineApi = {
         index: query.index,
         max_points: query.maxPoints,
         max_channels: query.maxChannels,
+      },
+    }),
+  /** 时频热图：单通道 freq×time 功率矩阵（TfrPage 用） */
+  getStudyOutputTfr: (
+    studyId: string,
+    datasetId: string,
+    query: StudyOutputTfrQuery = {},
+  ) =>
+    api.get<StudyOutputTfr>(`/studies/${studyId}/outputs/${datasetId}/tfr`, {
+      params: {
+        channel: query.channel,
+        max_freqs: query.maxFreqs,
+        max_times: query.maxTimes,
       },
     }),
   downloadStudyOutput: (studyId: string, datasetId: string) =>

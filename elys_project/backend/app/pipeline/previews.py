@@ -147,6 +147,8 @@ def observe_route_for_data_type(data_type: str) -> str:
     normalized = str(data_type or "").lower()
     if normalized == "evoked":
         return "/observe/erp"
+    if normalized == "tfr":
+        return "/observe/tfr"
     return "/observe"
 
 

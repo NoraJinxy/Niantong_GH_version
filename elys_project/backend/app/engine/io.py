@@ -61,6 +61,24 @@ def read_ica_from_data_info(data_info: Any):
     return mne.preprocessing.read_ica(path, verbose="ERROR")
 
 
+def read_tfr_from_data_info(data_info: Any):
+    """读 AverageTFR(时频结果,存为 HDF5 的 -tfr.h5)。
+
+    MNE 的 read_tfrs 在不同版本返回单对象或列表,这里统一取第一个。
+    """
+    path = resolve_path_reference(
+        data_info,
+        ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
+    )
+    mne = _mne()
+    out = mne.time_frequency.read_tfrs(path)
+    if isinstance(out, (list, tuple)):
+        if not out:
+            raise ValueError("TFR file contains no time-frequency data.")
+        return out[0]
+    return out
+
+
 def save_raw_fif(raw: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "raw")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -86,6 +104,14 @@ def save_ica_fif(ica: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "ica")
     target.parent.mkdir(parents=True, exist_ok=True)
     ica.save(target, overwrite=overwrite, verbose="ERROR")
+    return target
+
+
+def save_tfr_h5(tfr: Any, path: str | Path, *, overwrite: bool = True) -> Path:
+    """把 AverageTFR 存成 MNE 的 HDF5(-tfr.h5)。TFR 不用 FIF(FIF 不支持时频立方)。"""
+    target = ensure_tfr_h5_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tfr.save(target, overwrite=overwrite, verbose="ERROR")
     return target
 
 
@@ -144,6 +170,29 @@ def summarize_evoked(evoked: Any) -> dict[str, Any]:
     }
 
 
+def summarize_tfr(tfr: Any) -> dict[str, Any]:
+    """AverageTFR 的轻量摘要(不含功率立方,热图走 tfr_view 端点按需取)。"""
+    sfreq = float(tfr.info["sfreq"])
+    freqs = list(getattr(tfr, "freqs", []) or [])
+    times = list(getattr(tfr, "times", []) or [])
+    return {
+        "data_type": "tfr",
+        "n_channels": len(tfr.ch_names),
+        "ch_names": list(tfr.ch_names),
+        "channel_types": list(tfr.info.get_channel_types()),
+        "sfreq": sfreq,
+        "n_freqs": len(freqs),
+        "fmin": float(freqs[0]) if freqs else None,
+        "fmax": float(freqs[-1]) if freqs else None,
+        "n_times": len(times),
+        "tmin": float(times[0]) if times else None,
+        "tmax": float(times[-1]) if times else None,
+        "nave": int(getattr(tfr, "nave", 0) or 0),
+        "comment": getattr(tfr, "comment", None),
+        "method": str(getattr(tfr, "method", "") or ""),
+    }
+
+
 def summarize_mne_object(obj: Any) -> dict[str, Any]:
     mne = _mne()
     if isinstance(obj, mne.io.BaseRaw):
@@ -187,6 +236,17 @@ def ensure_mne_fif_path(path: str | Path, kind: MneFifKind) -> Path:
     if filename.endswith(".fif") or filename.endswith(".fif.gz"):
         raise ValueError(f"{kind} FIF path should use an MNE-style suffix: {MNE_SUFFIXES[kind][0]}")
     return target.with_name(f"{target.name}{DEFAULT_SUFFIX[kind]}")
+
+
+def ensure_tfr_h5_path(path: str | Path) -> Path:
+    """保证 TFR 落盘文件名以 -tfr.h5 结尾(MNE read/write 的硬约束)。"""
+    target = Path(path).expanduser()
+    name = target.name.lower()
+    if name.endswith(("-tfr.h5", "-tfr.hdf5")):
+        return target
+    if name.endswith((".h5", ".hdf5")):
+        raise ValueError("TFR path should use an MNE-style suffix: -tfr.h5")
+    return target.with_name(f"{target.name}-tfr.h5")
 
 
 def _get_reference_value(reference: Any, key: str) -> Any:

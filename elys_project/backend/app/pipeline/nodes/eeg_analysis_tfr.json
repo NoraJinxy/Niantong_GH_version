@@ -1,0 +1,45 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/analysis/tfr",
+  "title": "Time-Frequency (TFR)",
+  "category": "analysis",
+  "phase": "phase1",
+  "description": "对 Epochs 做 Morlet 小波时频分解，生成时频功率谱（ERSP）。",
+  "tags": ["tfr", "time-frequency", "morlet", "ersp", "analysis"],
+  "inputs": [
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "tfr", "label": "TFR", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "condition", "label": "Condition", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选；每个 condition 单独算一张时频图。"},
+    {"name": "fmin", "label": "最低频率", "type": "number", "unit": "Hz", "default": 4, "min": 0.5, "step": 0.5},
+    {"name": "fmax", "label": "最高频率", "type": "number", "unit": "Hz", "default": 40, "min": 1, "step": 1},
+    {"name": "n_freqs", "label": "频率点数", "type": "integer", "default": 30, "min": 2, "max": 120, "description": "在频率范围内等距取多少个频点。"},
+    {"name": "n_cycles_factor", "label": "小波周期系数", "type": "number", "default": 0.5, "min": 0.1, "step": 0.1, "advanced": true, "description": "n_cycles = 频率 × 该系数；越大频率分辨率越高、时间分辨率越低。"},
+    {"name": "decim", "label": "时间抽取", "type": "integer", "default": 4, "min": 1, "max": 20, "advanced": true, "description": "输出时间点降采样因子，越大越省内存/算力。"},
+    {"name": "baseline_mode", "label": "基线归一化", "type": "select", "default": "logratio", "options": [{"value": "logratio", "label": "dB（相对基线）"}, {"value": "percent", "label": "% 变化"}, {"value": "zscore", "label": "Z-score"}, {"value": "ratio", "label": "比值"}, {"value": "mean", "label": "减均值"}, {"value": "none", "label": "不做基线"}]},
+    {"name": "baseline_tmax", "label": "基线窗结束", "type": "number", "unit": "s", "default": 0, "advanced": true, "description": "基线窗 [起点, 此值]；起点默认 epoch 开头。"}
+  ],
+  "backend": {
+    "module": "app.engine.analysis.tfr",
+    "function": "run_tfr",
+    "save_descriptor": "tfr",
+    "output_kind": "h5",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "tfr",
+    "auto_tags": ["step:tfr", "type:tfr"],
+    "dynamic_tags_always": ["cond:{condition}"],
+    "name_template_default": "{subject}_{task}_{condition}_{node_title}",
+    "split_supported": false,
+    "always_per_condition": true,
+    "data_type": "tfr"
+  },
+  "compute_cost": "moderate",
+  "output_footprint": "medium",
+  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "tfr"}
+}

@@ -6,6 +6,7 @@ import type { PipelineExecutionMode } from '@/types'
 export const LOAD_DATA_NODE_TYPE = 'eeg/data/load'
 export const EPOCH_NODE_TYPE = 'eeg/epoch/segment'
 export const ERP_NODE_TYPE = 'eeg/analysis/erp'
+export const TFR_NODE_TYPE = 'eeg/analysis/tfr'
 export const ICA_APPLY_NODE_TYPE = 'eeg/ica/apply'
 export const NULL_FILTER_VALUE = '__elys_null__'
 export const DEFAULT_LOAD_DATA_QA_STATUS = ['converted', 'checked']

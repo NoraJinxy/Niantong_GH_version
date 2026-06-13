@@ -5,8 +5,10 @@ Related: app/pipeline/dispatcher.py, app/pipeline/nodes/*.json, docs_v2/5-00.
 
 from .epoching import run_epoch_segment
 from .erp import run_erp_average
+from .tfr import run_tfr
 
 __all__ = [
     "run_epoch_segment",
     "run_erp_average",
+    "run_tfr",
 ]

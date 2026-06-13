@@ -57,6 +57,14 @@ export function useArtifactPreview(options: ArtifactPreviewOptions) {
       if (nChannels !== null) rows.push({ label: 'channels', value: String(nChannels) })
       rows.push({ label: 'tmin', value: formatMetricNumber(timeRange.tmin, 's') })
       rows.push({ label: 'tmax', value: formatMetricNumber(timeRange.tmax, 's') })
+    } else if (preview.data_type === 'tfr') {
+      if (nChannels !== null) rows.push({ label: 'channels', value: String(nChannels) })
+      const nFreqs = numericMetric(summary.n_freqs)
+      if (nFreqs !== null) rows.push({ label: 'freqs', value: String(nFreqs) })
+      rows.push({ label: 'fmin', value: formatMetricNumber(summary.fmin, 'Hz') })
+      rows.push({ label: 'fmax', value: formatMetricNumber(summary.fmax, 'Hz') })
+      rows.push({ label: 'tmin', value: formatMetricNumber(summary.tmin, 's') })
+      rows.push({ label: 'tmax', value: formatMetricNumber(summary.tmax, 's') })
     } else {
       rows.push({ label: 'type', value: preview.data_type || 'artifact' })
     }

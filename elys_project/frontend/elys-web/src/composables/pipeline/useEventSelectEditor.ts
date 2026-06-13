@@ -9,7 +9,7 @@
 
 import { computed, type Ref, type ComputedRef } from 'vue'
 import type { NodeProperty, PipelineGraphNode, LoadDataDataInfo, PipelineDefinitionPayload } from '@/types'
-import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
+import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, TFR_NODE_TYPE, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
 
 interface EventSelectEditorOptions {
   selectedNode: ComputedRef<PipelineGraphNode | null>
@@ -23,7 +23,10 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
   const { selectedNode, definition, loadDataSelectedInfos, updateLiteGraphNode, markDirty } = options
 
   const isEpochNode = computed(() => selectedNode.value?.type === EPOCH_NODE_TYPE)
-  const isErpNode = computed(() => selectedNode.value?.type === ERP_NODE_TYPE)
+  // ERP 与 TFR 同口径：候选 condition 都来自上游 Epoch 勾选的分组
+  const isConditionFromEpoch = computed(
+    () => selectedNode.value?.type === ERP_NODE_TYPE || selectedNode.value?.type === TFR_NODE_TYPE,
+  )
 
   /** 沿 graph.links 倒推：从某节点开始向上找指定 type 的最近祖先节点（BFS）。 */
   function findUpstreamNodeByType(startNodeId: string, targetType: string): typeof definition.value.graph.nodes[number] | null {
@@ -80,10 +83,10 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
         })
     }
 
-    // ERP 节点：候选 condition 只能是上游 Epoch 节点 event_id 里选过的
+    // ERP / TFR 节点：候选 condition 只能是上游 Epoch 节点 event_id 里选过的
     // count / datasets 同样按 LoadData dataset_ids 过滤。
-    if (isErpNode.value && selectedNode.value) {
-      // ERP 的候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数，无需回数据库）
+    if (isConditionFromEpoch.value && selectedNode.value) {
+      // 候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数，无需回数据库）
       const upstreamEpoch = findUpstreamNodeByType(selectedNode.value.id, EPOCH_NODE_TYPE)
       const raw = upstreamEpoch?.params?.conditions
       let names: string[] = []

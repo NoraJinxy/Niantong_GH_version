@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from app.engine.analysis.epoching import run_epoch_segment
 from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
+from app.engine.analysis.tfr import run_tfr
 from app.engine.io import (
     read_epochs_from_data_info,
     read_ica_from_data_info,
@@ -19,9 +20,11 @@ from app.engine.io import (
     save_evoked_fif,
     save_ica_fif,
     save_raw_fif,
+    save_tfr_h5,
     summarize_epochs,
     summarize_evoked,
     summarize_raw,
+    summarize_tfr,
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
@@ -74,6 +77,7 @@ class NodeDispatcher:
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/epoch/segment": self._execute_epoch_segment,
             "eeg/analysis/erp": self._execute_erp_average,
+            "eeg/analysis/tfr": self._execute_tfr_average,
         }
 
     def supported_node_types(self) -> set[str]:
@@ -424,6 +428,9 @@ class NodeDispatcher:
 
     def _execute_erp_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_evoked_output(context, run_erp_average, save_descriptor="erp")
+
+    def _execute_tfr_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        return self._execute_tfr_output(context, run_tfr, save_descriptor="tfr")
 
     def _execute_raw_preprocess(
         self,
@@ -872,6 +879,164 @@ class NodeDispatcher:
             errors=errors,
         )
 
+    def _execute_tfr_output(
+        self,
+        context: NodeExecutionContext,
+        processor: Callable[[Any, dict[str, Any]], Any],
+        *,
+        save_descriptor: str,
+    ) -> NodeDispatchResult:
+        """TFR(时频)节点执行:每个 (input epochs, condition) → 一个 AverageTFR(-tfr.h5)。
+
+        与 ERP/Evoked 同构(condition 展开逻辑一致),只是输出对象是时频功率谱、存成 HDF5。
+        """
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="TFR node has no upstream epochs data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+
+        outer_break = False
+        for index, data_info in enumerate(input_data_infos):
+            if outer_break:
+                break
+
+            input_condition_raw = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
+            input_condition = input_condition_raw.strip() if input_condition_raw else None
+            if input_condition:
+                conditions_to_run = [input_condition]
+            else:
+                conditions_to_run = _normalize_event_labels(context.params.get("condition"))
+                if not conditions_to_run:
+                    errors.append(
+                        self._issue(
+                            code="PIPELINE_NODE_DATASET_FAILED",
+                            message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
+                                    "TFR.condition is required (上游 epochs 含多 condition,请在 TFR 节点选至少一个).",
+                            node_id=node_id,
+                            node_type=node_type,
+                        )
+                    )
+                    break
+
+            try:
+                epochs = read_epochs_from_data_info(data_info, preload=True)
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
+                                f"read_epochs failed: {exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+
+            artifact_index_in_data_info = 0
+            for cond in conditions_to_run:
+                power = None
+                try:
+                    tfr_params: dict[str, Any] = {**context.params, "condition": cond}
+                    power = processor(epochs, tfr_params)
+                    summary = summarize_tfr(power)
+                    # 把基线模式记进 preview,前端据此决定展示单位(dB / % / z)
+                    summary["baseline_mode"] = str(tfr_params.get("baseline_mode", "logratio") or "logratio")
+                    filename = self._derived_tfr_filename(
+                        data_info,
+                        save_descriptor,
+                        index * 1000 + artifact_index_in_data_info,
+                        condition=cond,
+                    )
+                    upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
+                    save_meta = self._save_settings_metadata(
+                        context,
+                        data_info=data_info,
+                        index=index,
+                        split_value=cond,
+                    )
+                    artifact = study_output_store.save_file_from_writer(
+                        filename,
+                        lambda path, tfr=power: save_tfr_h5(tfr, path),
+                        kind="analysis_result",
+                        data_type=save_meta.get("data_type") or "tfr",
+                        metadata={
+                            "node_id": node_id,
+                            "node_type": node_type,
+                            "params": tfr_params,
+                            "input_data_info": self._compact_input_data_info(data_info),
+                            "mne_summary": summary,
+                            "upstream_dataset_ids": upstream_dataset_ids,
+                            "upstream_recording_ids": upstream_recording_ids,
+                            "condition": cond,
+                            **save_meta,
+                        },
+                        preview=summary,
+                        source_dataset_id=self._source_dataset_id(data_info),
+                        node_id=node_id,
+                    )
+                    artifacts.append(artifact)
+                    output_data_infos.append(
+                        self._derived_data_info(
+                            context=context,
+                            input_data_info=data_info,
+                            artifact=artifact,
+                            summary=summary,
+                        )
+                    )
+                    artifact_index_in_data_info += 1
+                except Exception as exc:
+                    errors.append(
+                        self._issue(
+                            code="PIPELINE_NODE_DATASET_FAILED",
+                            message=f"Recording {self._source_dataset_id(data_info) or index} "
+                                    f"condition={cond!r} failed in {node_type}: {exc}",
+                            node_id=node_id,
+                            node_type=node_type,
+                        )
+                    )
+                    outer_break = True
+                    break
+                finally:
+                    power = None
+
+            epochs = None  # noqa: F841 — 显式断引用让 GC 回收(epochs 可达百 MB)
+            import gc  # noqa: PLC0415
+            gc.collect()
+
+        emitted_data_infos = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted_data_infos},
+            data_infos=emitted_data_infos,
+            artifacts=artifacts,
+            metadata={
+                "dataset_count": len(output_data_infos),
+                "input_dataset_count": len(input_data_infos),
+                "save_descriptor": save_descriptor,
+            },
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted_data_infos),
+            output_ports=["output"],
+            errors=errors,
+        )
+
     @staticmethod
     def _input_data_infos(context: NodeExecutionContext, port: str) -> list[dict[str, Any]]:
         node_input = context.inputs.get(port)
@@ -984,6 +1149,50 @@ class NodeDispatcher:
             if safe_condition:
                 return f"{safe_base}_{safe_condition}_{save_descriptor}{output_suffix}"
         return f"{safe_base}_{save_descriptor}{output_suffix}"
+
+    @staticmethod
+    def _derived_tfr_filename(
+        data_info: dict[str, Any],
+        save_descriptor: str,
+        index: int,
+        *,
+        condition: str | None = None,
+    ) -> str:
+        """生成 TFR 派生文件名,必须以 -tfr.h5 结尾(MNE 硬约束)。
+
+        例:sub-01_rest_LeftMI-tfr.h5(含 condition) / sub-01_rest-tfr.h5(不含)。
+        """
+        source = (
+            data_info.get("fif_path")
+            or data_info.get("storage_path")
+            or data_info.get("artifact_storage_path")
+            or data_info.get("source_path")
+            or data_info.get("dataset_id")
+            or f"dataset-{index + 1}"
+        )
+        name = Path(str(source)).name
+        lower_name = name.lower()
+        for suffix in (".fif.gz", ".fif", "-tfr.h5", ".h5", ".hdf5"):
+            if lower_name.endswith(suffix):
+                name = name[: -len(suffix)]
+                lower_name = name.lower()
+                break
+        for suffix in ("-epo", "_epo", "-raw", "_raw", "-ave"):
+            if lower_name.endswith(suffix):
+                name = name[: -len(suffix)]
+                break
+        safe_base = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in name).strip("_")
+        if not safe_base:
+            safe_base = f"dataset-{index + 1}"
+        if save_descriptor and not safe_base.lower().endswith(save_descriptor.lower()):
+            safe_base = f"{safe_base}_{save_descriptor}"
+        if condition:
+            safe_condition = "".join(
+                char if char.isalnum() or char in {"-", "_"} else "_" for char in str(condition)
+            ).strip("_")
+            if safe_condition:
+                return f"{safe_base}_{safe_condition}-tfr.h5"
+        return f"{safe_base}-tfr.h5"
 
     @staticmethod
     def _compact_input_data_info(data_info: dict[str, Any]) -> dict[str, Any]:
