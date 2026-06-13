@@ -26,10 +26,6 @@
           <AppIcon v-else name="refresh" :size="16" />
           重新加载
         </button>
-        <RouterLink v-else class="btn btn--primary dashboard-primary-action" to="/studies">
-          <AppIcon name="plus" :size="16" />
-          开始新分析
-        </RouterLink>
       </div>
     </div>
 
@@ -63,31 +59,13 @@
     </div>
 
     <template v-if="!errorMessage">
-      <section class="page-stat-strip mb-4" aria-label="核心对象摘要">
-        <RouterLink class="page-stat" to="/datasets">
-          <span class="page-stat__label">数据集</span>
-          <strong class="page-stat__value">{{ datasetAssetStat }}<small v-if="datasetAssetsLoaded">个</small></strong>
-          <span class="page-stat__hint">{{ datasetAssetSummary }}</span>
-        </RouterLink>
-
-        <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">研究</span>
-          <strong class="page-stat__value">{{ studyTotal }}<small>个</small></strong>
-          <span class="page-stat__hint">{{ studySummary }}</span>
-        </RouterLink>
-
-        <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">分析流程</span>
-          <strong class="page-stat__value">{{ pipelineTotal }}<small>个</small></strong>
-          <span class="page-stat__hint">{{ pipelineSummary }}</span>
-        </RouterLink>
-
-        <RouterLink class="page-stat" to="/studies">
-          <span class="page-stat__label">分析任务</span>
-          <strong class="page-stat__value">{{ executionTotal }}<small>条</small></strong>
-          <span class="page-stat__hint">{{ executionSummary }}</span>
-        </RouterLink>
-      </section>
+      <RouterLink class="start-analysis" to="/studies">
+        <span class="start-analysis__icon"><AppIcon name="plus" :size="26" /></span>
+        <span class="start-analysis__text">
+          <strong>开始新分析</strong>
+          <span>上传数据 → 选意图 / 模板 → 看结果</span>
+        </span>
+      </RouterLink>
 
       <section class="dashboard-grid mb-5">
         <div class="dashboard-panel">
@@ -147,98 +125,113 @@
           </div>
         </div>
 
-        <aside class="dashboard-panel live-runs">
-          <div class="section-head live-runs__head">
-            <div>
-              <h2><span class="live-dot" :class="{ 'is-attention': attentionExecutions.length }"></span>进行中</h2>
-              <p>{{ executionQueueSummary }}</p>
-            </div>
-            <button class="btn btn--sm" type="button" @click="activeExecutionsExpanded = !activeExecutionsExpanded">
-              <AppIcon name="clock" :size="14" />
-              {{ activeExecutionsExpanded ? '收起' : '展开' }}
-            </button>
-          </div>
-
-          <div v-if="activeExecutionsExpanded" class="run-list">
-            <div v-if="loading && !dashboardExecutions.length" class="run-empty">
-              <span class="spinner spinner--dark"></span>
-              正在读取运行记录...
+        <div class="dashboard-col">
+          <aside class="dashboard-panel live-runs">
+            <div class="overview-mini">
+              <RouterLink class="overview-mini__stat" to="/datasets">
+                <span class="overview-mini__label">数据集</span>
+                <strong class="overview-mini__value">{{ datasetAssetStat }}<small v-if="datasetAssetsLoaded">个</small></strong>
+                <span class="overview-mini__hint">{{ datasetAssetSummary }}</span>
+              </RouterLink>
+              <RouterLink class="overview-mini__stat" to="/studies">
+                <span class="overview-mini__label">研究</span>
+                <strong class="overview-mini__value">{{ studyTotal }}<small>个</small></strong>
+                <span class="overview-mini__hint">{{ studySummary }}</span>
+              </RouterLink>
             </div>
 
-            <div
-              v-else-if="!executionQueueItems.length"
-              class="run-empty dashboard-empty dashboard-empty--compact dashboard-empty--quiet"
-            >
-              <div class="run-empty__icon"><AppIcon :name="executionEmptyState.icon" :size="22" /></div>
-              <strong>{{ executionEmptyState.title }}</strong>
-              <p>{{ executionEmptyState.description }}</p>
+            <div class="section-head live-runs__head">
+              <div>
+                <h2><span class="live-dot" :class="{ 'is-attention': attentionExecutions.length }"></span>进行中</h2>
+                <p>{{ executionQueueSummary }}</p>
+              </div>
+              <button class="btn btn--sm" type="button" @click="activeExecutionsExpanded = !activeExecutionsExpanded">
+                <AppIcon name="clock" :size="14" />
+                {{ activeExecutionsExpanded ? '收起' : '展开' }}
+              </button>
             </div>
 
-            <RouterLink
-              v-for="execution in executionQueueItems"
-              v-else
-              :key="execution.id"
-              class="run-row"
-              :class="{ 'is-attention': isAttentionExecutionStatus(execution.status) }"
-              :to="pipelineExecutionRoute(execution)"
-            >
-              <span class="run-row__dot" :class="`is-${execution.status}`"></span>
-              <div class="run-row__body">
-                <div class="run-row__title">
-                  <strong>{{ pipelineNameForExecution(execution) }}</strong>
-                  <span>运行 #{{ execution.execution_seq }}</span>
+            <div v-if="activeExecutionsExpanded" class="run-list">
+              <div v-if="loading && !dashboardExecutions.length" class="run-empty">
+                <span class="spinner spinner--dark"></span>
+                正在读取运行记录...
+              </div>
+
+              <div
+                v-else-if="!executionQueueItems.length"
+                class="run-empty dashboard-empty dashboard-empty--compact dashboard-empty--quiet"
+              >
+                <div class="run-empty__icon"><AppIcon :name="executionEmptyState.icon" :size="22" /></div>
+                <strong>{{ executionEmptyState.title }}</strong>
+                <p>{{ executionEmptyState.description }}</p>
+              </div>
+
+              <RouterLink
+                v-for="execution in executionQueueItems"
+                v-else
+                :key="execution.id"
+                class="run-row"
+                :class="{ 'is-attention': isAttentionExecutionStatus(execution.status) }"
+                :to="pipelineExecutionRoute(execution)"
+              >
+                <span class="run-row__dot" :class="`is-${execution.status}`"></span>
+                <div class="run-row__body">
+                  <div class="run-row__title">
+                    <strong>{{ pipelineNameForExecution(execution) }}</strong>
+                    <span>运行 #{{ execution.execution_seq }}</span>
+                  </div>
+                  <p>{{ executionQueueDetail(execution) }}</p>
+                  <div v-if="execution.status === 'running'" class="run-progress" aria-hidden="true">
+                    <span></span>
+                  </div>
                 </div>
-                <p>{{ executionQueueDetail(execution) }}</p>
-                <div v-if="execution.status === 'running'" class="run-progress" aria-hidden="true">
-                  <span></span>
-                </div>
-              </div>
-              <span v-if="isAttentionExecutionStatus(execution.status)" class="run-row__action">{{ executionActionLabel(execution.status) }}</span>
-              <span class="run-row__time">{{ formatShortDate(execution.started_at) }}</span>
-            </RouterLink>
-            <p v-if="hiddenQueueExecutionCount > 0" class="run-list__more">
-              还有 {{ hiddenQueueExecutionCount }} 条运行，可进入工作流查看。
-            </p>
-          </div>
-        </aside>
-      </section>
+                <span v-if="isAttentionExecutionStatus(execution.status)" class="run-row__action">{{ executionActionLabel(execution.status) }}</span>
+                <span class="run-row__time">{{ formatShortDate(execution.started_at) }}</span>
+              </RouterLink>
+              <p v-if="hiddenQueueExecutionCount > 0" class="run-list__more">
+                还有 {{ hiddenQueueExecutionCount }} 条运行，可进入工作流查看。
+              </p>
+            </div>
+          </aside>
 
-      <section class="dashboard-panel activity-panel">
-        <div class="section-head">
-          <div>
-            <h2>最近动态</h2>
-            <p>数据、研究和分析的最新变化。</p>
-          </div>
-        </div>
-        <div v-if="!activityItems.length" class="empty dashboard-empty dashboard-empty--quiet">
-          <div class="empty__icon"><AppIcon name="clock" :size="26" /></div>
-          <strong>暂无最近活动</strong>
-          <p>导入、创建或运行后会显示在这里。</p>
-        </div>
-        <div v-else class="activity-timeline">
-          <RouterLink
-            v-for="item in activityItems"
-            :key="item.id"
-            class="activity-line"
-            :class="[`is-sev-${item.severity || 'info'}`, item.groupKind ? 'is-group' : '']"
-            :to="item.to"
-          >
-            <span class="activity-line__mark" :class="[`is-${item.tone}`, `is-sev-${item.severity || 'info'}`]"></span>
-            <div class="activity-line__body">
-              <div class="activity-line__main">
-                <span class="activity-line__type" :class="`is-${item.tone}`">{{ item.objectType }}</span>
-                <strong class="activity-line__title">{{ item.objectName }}</strong>
-                <span class="activity-line__action">{{ item.actionLabel }}</span>
-                <span class="activity-line__time" :title="formatAbsoluteTime(item.time)">{{ formatRelativeTime(item.time) }}</span>
-              </div>
-              <div v-if="item.studyName || item.groupSummary" class="activity-line__sub">
-                <span v-if="item.studyName" class="activity-line__chip">
-                  归属 <strong>{{ item.studyName }}</strong>
-                </span>
-                <span v-if="item.groupSummary" class="activity-line__summary">{{ item.groupSummary }}</span>
+          <section class="dashboard-panel activity-panel">
+            <div class="section-head">
+              <div>
+                <h2>最近动态</h2>
+                <p>数据、研究和分析的最新变化。</p>
               </div>
             </div>
-          </RouterLink>
+            <div v-if="!activityItems.length" class="empty dashboard-empty dashboard-empty--quiet">
+              <div class="empty__icon"><AppIcon name="clock" :size="26" /></div>
+              <strong>暂无最近活动</strong>
+              <p>导入、创建或运行后会显示在这里。</p>
+            </div>
+            <div v-else class="activity-timeline">
+              <RouterLink
+                v-for="item in activityItems"
+                :key="item.id"
+                class="activity-line"
+                :class="[`is-sev-${item.severity || 'info'}`, item.groupKind ? 'is-group' : '']"
+                :to="item.to"
+              >
+                <span class="activity-line__mark" :class="[`is-${item.tone}`, `is-sev-${item.severity || 'info'}`]"></span>
+                <div class="activity-line__body">
+                  <div class="activity-line__main">
+                    <span class="activity-line__type" :class="`is-${item.tone}`">{{ item.objectType }}</span>
+                    <strong class="activity-line__title">{{ item.objectName }}</strong>
+                    <span class="activity-line__action">{{ item.actionLabel }}</span>
+                    <span class="activity-line__time" :title="formatAbsoluteTime(item.time)">{{ formatRelativeTime(item.time) }}</span>
+                  </div>
+                  <div v-if="item.studyName || item.groupSummary" class="activity-line__sub">
+                    <span v-if="item.studyName" class="activity-line__chip">
+                      归属 <strong>{{ item.studyName }}</strong>
+                    </span>
+                    <span v-if="item.groupSummary" class="activity-line__summary">{{ item.groupSummary }}</span>
+                  </div>
+                </div>
+              </RouterLink>
+            </div>
+          </section>
         </div>
       </section>
     </template>
@@ -402,22 +395,9 @@ const datasetAssetSummary = computed(() => {
   if (errorDatasetAssetCount.value) parts.push(`${errorDatasetAssetCount.value} 份异常`)
   return parts.length ? parts.join(' · ') : '暂无数据'
 })
-const activePipelineCount = computed(() =>
-  dashboardSummary.value?.states.pipelines.active ??
-  pipelineItems.value.filter((pipeline) => pipeline.status === 'active').length,
-)
-const draftPipelineCount = computed(() =>
-  dashboardSummary.value?.states.pipelines.draft ??
-  pipelineItems.value.filter((pipeline) => pipeline.status === 'draft').length,
-)
 const studySummary = computed(() => {
   const parts = [`${activeStudyCount.value} 项进行中`]
   if (archivedStudyCount.value) parts.push(`${archivedStudyCount.value} 项已归档`)
-  return parts.join(' · ')
-})
-const pipelineSummary = computed(() => {
-  const parts = [`${activePipelineCount.value} 个就绪`]
-  if (draftPipelineCount.value) parts.push(`${draftPipelineCount.value} 个草稿`)
   return parts.join(' · ')
 })
 const dashboardExecutions = computed<DashboardExecutionItem[]>(() => dashboardSummary.value?.active_executions ?? recentExecutions.value)
@@ -464,18 +444,6 @@ const prioritizedExecutionCount = computed(() => {
   return prioritizedExecutions.value.length
 })
 const hiddenQueueExecutionCount = computed(() => Math.max(prioritizedExecutionCount.value - executionQueueItems.value.length, 0))
-const executionSummary = computed(() => {
-  if (waitingUserInputExecutionCount.value || failedExecutionCount.value) {
-    const parts: string[] = []
-    if (waitingUserInputExecutionCount.value) parts.push(`${waitingUserInputExecutionCount.value} 个待确认`)
-    if (failedExecutionCount.value) parts.push(`${failedExecutionCount.value} 个失败`)
-    return parts.join(' · ')
-  }
-  if (runningExecutionCount.value || queuedExecutionCount.value) {
-    return `${runningExecutionCount.value} 个进行中 · ${queuedExecutionCount.value} 个排队`
-  }
-  return '近期无异常'
-})
 const executionQueueSummary = computed(() => {
   if (attentionExecutionCount.value) {
     return `${attentionExecutionCount.value} 个需要处理 · ${waitingUserInputExecutionCount.value} 个确认 · ${failedExecutionCount.value} 个失败`
@@ -1184,18 +1152,51 @@ onMounted(loadDashboard)
   min-width: 136px;
 }
 
-/* 顶部核心对象摘要:复用全局 .page-stat-strip/.page-stat(与 datasets 页一致),
-   这里仅补两条:RouterLink 版去下划线 + 数字后单位(个/条)弱化 */
-a.page-stat {
+/* 顶部「开始新分析」主 CTA：原右上角小按钮改成一条横向 panel（满宽、加号 + 标题 + 三步副标题） */
+.start-analysis {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: var(--s-4);
+  padding: 16px 20px;
+  color: var(--c-primary);
   text-decoration: none;
-  color: inherit;
+  background: var(--c-primary-soft);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
 }
 
-.page-stat__value small {
-  margin-left: 3px;
-  color: var(--c-text-3);
+.start-analysis:hover {
+  border-color: var(--c-primary);
+}
+
+.start-analysis__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  color: var(--c-primary);
+}
+
+.start-analysis__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.start-analysis__text strong {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--c-primary);
+}
+
+.start-analysis__text span {
+  color: var(--c-primary);
   font-size: 13px;
-  font-weight: 500;
+  opacity: 0.75;
 }
 
 .dashboard-grid {
@@ -1203,6 +1204,66 @@ a.page-stat {
   grid-template-columns: minmax(0, 1.55fr) minmax(320px, .9fr);
   gap: var(--s-4);
   align-items: start;
+}
+
+/* 右栏容器:总览 panel + 进行中 panel 上下叠放,同列宽 */
+.dashboard-col {
+  display: grid;
+  gap: var(--s-4);
+  align-items: start;
+  min-width: 0;
+}
+
+/* 总览(精简):仅「数据集 / 研究」两个数,并入「进行中」面板顶部 */
+.overview-mini {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+  padding-bottom: var(--s-4);
+  margin-bottom: var(--s-4);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.overview-mini__stat {
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r);
+}
+
+.overview-mini__stat:hover {
+  background: var(--c-bg-soft);
+}
+
+.overview-mini__label {
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.overview-mini__value {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-mini__value small {
+  margin-left: 2px;
+  color: var(--c-text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.overview-mini__hint {
+  overflow: hidden;
+  color: var(--c-text-3);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-panel {
