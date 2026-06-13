@@ -33,3 +33,16 @@ _backups/
 .DS_Store
 Thumbs.db
 .claude/
+
+# === Large data kept out of VCS (added after history slim; 2026-06-13) ===
+# EEG raw/intermediate data — keep locally or in external storage, never in git
+*.eeg
+*.bdf
+*.fif
+*.set
+*.vhdr
+*.vmrk
+*.edf
+*.cnt
+# FTP / download backup dirs (papers, PDFs) — not versioned
+**/ftp_bak/
