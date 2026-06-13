@@ -104,7 +104,17 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
 
   function getEventIdArray(prop: NodeProperty): string[] {
     const raw = selectedNode.value?.params?.[prop.name]
-    if (Array.isArray(raw)) return raw.map((item) => String(item)).filter(Boolean)
+    // conditions 可能是前端勾的「分组名字符串」，也可能是脚本/API 写的 {name,pattern,mode} 规则字典；
+    // 后者取 name 显示，避免 String(dict) 渲染成 [object Object]（chip 只做展示对齐，不还原 pattern/mode）。
+    if (Array.isArray(raw)) {
+      return raw
+        .map((item) =>
+          item && typeof item === 'object'
+            ? String((item as Record<string, unknown>).name ?? (item as Record<string, unknown>).pattern ?? '')
+            : String(item),
+        )
+        .filter(Boolean)
+    }
     if (typeof raw === 'string' && raw.trim()) {
       return raw
         .split(',')

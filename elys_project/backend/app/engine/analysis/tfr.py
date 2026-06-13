@@ -94,11 +94,27 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
     if mode and mode != "none":
         baseline_tmin = params.get("baseline_tmin", None)
         baseline_tmax = params.get("baseline_tmax", 0.0)
-        bmin = float(baseline_tmin) if baseline_tmin not in (None, "") else None
+        epoch_start = float(power.times[0])
+        epoch_end = float(power.times[-1])
+        # baseline_tmin 缺省 = epoch 起点;显式解析,别把 None 甩给 MNE 后再报看不懂的错。
+        bmin = float(baseline_tmin) if baseline_tmin not in (None, "") else epoch_start
         bmax = float(baseline_tmax) if baseline_tmax not in (None, "") else 0.0
+        # 在交给 MNE 前自检,把「基线窗落在 epoch 之外 / 区间反了」翻译成可操作的提示。
+        if bmax <= bmin:
+            raise ValueError(
+                f"TFR 基线窗非法:[{bmin:.3g}, {bmax:.3g}] 起点必须 < 终点。"
+                f"baseline_tmax({bmax:.3g}) 落在 epoch 起点({epoch_start:.3g}) 之前/之上 —— "
+                f"基线必须在 epoch 之内。把 Epoch 的 Tmin 调到比 baseline_tmax({bmax:.3g}) 更早,"
+                f"或把 baseline_tmax 调大。"
+            )
+        if bmin < epoch_start - 1e-6 or bmax > epoch_end + 1e-6:
+            raise ValueError(
+                f"TFR 基线窗 [{bmin:.3g}, {bmax:.3g}] 超出 epoch 范围 [{epoch_start:.3g}, {epoch_end:.3g}];"
+                "请把基线窗收进 epoch 内,或相应调整 Epoch 的 Tmin/Tmax。"
+            )
         try:
             power.apply_baseline((bmin, bmax), mode=mode, verbose="ERROR")
-        except Exception as exc:  # noqa: BLE001 — 基线窗越界等,给清楚的报错
+        except Exception as exc:  # noqa: BLE001 — 兜底:其它基线异常也给清楚的报错
             raise ValueError(f"TFR baseline correction failed (mode={mode}): {exc}") from exc
 
     # comment 携带 condition,供下游 / 预览标注(与 evoked.comment 同口径)

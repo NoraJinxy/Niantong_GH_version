@@ -51,8 +51,13 @@ python run.py       # 跑 ERD/ERS pipeline
 
 ## 改 pipeline 参数（都在 `config_local.py`）
 
-- **切分条件** `CONDITIONS`：econ 是 `label/1`(握拳)/`label/0`(休息)，用 `contains` 归并。
-  跑完 setup 看真实事件标签——若名字烧了 trial 序号，把 `mode` 改 `"regex"` 调 `pattern`。
-- **Epoch 窗** `EPOCH_TMIN/TMAX`：cue 前留 baseline、cue 后覆盖想象段，按 trial 时长调。
-- **TFR / ERD-ERS** `TFR_*`：`TFR_CONDITION`（看哪个条件）、`TFR_FMIN/FMAX`（频段）、
-  `TFR_BASELINE_MODE`（`percent`=% 变化，负=ERD、正=ERS）、`TFR_BASELINE_TMAX`（基线窗结束）。
+- **切分条件** `CONDITIONS`：锚 cue 指令 `clench_fist`(握拳)/`relax_arm`(放松)，`contains` 归并，各 40 trial。
+  别用 `label/1`/`label/0`：它们在 `trial/start` 和 `trial/end` 各出现一次、可能撞同采样点 → MNE 报事件不唯一。
+- **Epoch 窗** `EPOCH_TMIN/TMAX`：**关键坑** —— 这个范式里 cue 落在 MI 窗「内部」（实测单 trial：
+  `trial_start(0)→mi/window_start(+2.0)→cue(+3.55)→mi/window_end(+7.0)`，cue 恒比 MI 晚 1.55s）。
+  相对 cue：MI 段=`[-1.55,+3.45]`、MI 前干净基线≈`[-3.5,-1.9]`。故窗取 **`-3.5 ~ 4`**（旧值 `-1~5` 会把基线压进 MI 段、出鬼值）。
+- **TFR / ERD-ERS** `TFR_*`：`TFR_CONDITION`（**给列表 `["fist","rest"]` 才有握拳-放松对比**，逐条各出一图）、
+  `TFR_FMIN/FMAX`（频段）、`TFR_BASELINE_MODE`（`percent`=% 变化，负=ERD、正=ERS）、
+  `TFR_BASELINE_TMAX`（基线窗结束，本范式用 **`-1.9`** 落在 MI 起点之前，**不能用 0**）。
+- **本机真值参照**：`local_erders_reference.py`（独立 MNE 读 `data/H01.bdf` 直接出 ERD/ERS 图，
+  不经后端）可用来对拍 pipeline 产物是否正确；它同时打印 cue-old / cue-fixed / mi-locked 三口径对照。

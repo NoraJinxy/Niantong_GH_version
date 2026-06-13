@@ -46,12 +46,18 @@ def _numpy():
 
 
 def _unit_and_scale(baseline_mode: str | None) -> tuple[str, float]:
-    """基线模式 → (展示单位, 缩放系数)。logratio 是 log10(功率/基线),×10 即标准 ERSP 的 dB。"""
+    """基线模式 → (展示单位, 缩放系数)。
+
+    注意 MNE 各模式返回值的量纲:
+      - logratio = log10(功率/基线) → ×10 = 标准 ERSP 的 dB
+      - percent  = (功率-基线)/基线，是「分数」(−0.21 = −21%)，**不是**已乘 100 的百分数 → ×100 才是真 %
+      - ratio    = 功率/基线（倍数）；mean = 功率-基线；zscore/zlogratio 已是无量纲 z → 都 ×1
+    """
     mode = str(baseline_mode or "").strip().lower()
     if mode == "logratio":
         return "dB", 10.0
     if mode == "percent":
-        return "%", 1.0
+        return "%", 100.0
     if mode in ("zscore", "zlogratio"):
         return "z", 1.0
     if mode == "ratio":
