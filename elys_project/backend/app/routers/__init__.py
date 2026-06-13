@@ -5,10 +5,10 @@ Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_
 
 from .auth import router as auth_router
 from .dashboard import router as dashboard_router
-from .datasets import asset_router as dataset_assets_router
-from .datasets import file_router as dataset_files_router
-from .datasets import recording_router
-from .datasets import router as datasets_router
+from .dataset_assets import asset_router as dataset_assets_router
+from .dataset_files import file_router as dataset_files_router
+from .dataset_recordings import recording_router
+from .dataset_mounts import router as datasets_router
 from .dataset_versions import admin_router as dataset_withdrawals_router
 from .dataset_versions import asset_publicize_router as dataset_publicize_router
 from .dataset_versions import publicization_admin_router as dataset_publicizations_router

@@ -12,7 +12,7 @@ Purpose: Build the aggregated "Study overview" summary for one study.
   （本文件 build_recent_executions 复用同一 join 思路，但只取最近 N 条而非按状态优先级排序）。
 
 复用现有 Pydantic 序列化（不新造）：
-- mounts -> app.routers.datasets.study_dataset_mount_to_response + compute_asset_stats
+- mounts -> app.routers._dataset_shared.study_dataset_mount_to_response + compute_asset_stats
 - study_outputs -> app.routers.pipelines.study_output_to_response
 
 Related:
@@ -224,7 +224,7 @@ def recent_executions(db: Session, *, study: Study) -> list[StudySummaryExecutio
 def serialize_mounts(db: Session, active_mounts: list[StudyDatasetMount]) -> list:
     """复用 datasets 路由的 mount 序列化 + compute_asset_stats（给嵌套 asset 带 subject_count）。"""
     # 延迟导入：避免 service 层在模块加载期反向依赖 router 层（routers 会 import services）。
-    from app.routers.datasets import study_dataset_mount_to_response
+    from app.routers._dataset_shared import study_dataset_mount_to_response
 
     asset_ids = [mount.dataset_asset_id for mount in active_mounts]
     stats_map = compute_asset_stats(db, asset_ids)

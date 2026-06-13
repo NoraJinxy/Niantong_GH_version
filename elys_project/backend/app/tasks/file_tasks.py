@@ -344,15 +344,15 @@ def run_dataset_import(db, task: AsyncTask) -> dict[str, Any]:
     from sqlalchemy.orm import joinedload
 
     from app.models import DatasetVersion, Study, Subject, User
-    # 惰性 import：转换核心与辅助函数都在 routers.datasets 里，顶层 import 会把 router 层拉进
-    # worker 进程并可能造成循环 import；在函数体内运行时 import 可避开。
-    from app.routers.datasets import (
+    # 惰性 import：转换核心与辅助函数都在 routers 的 datasets 拆分文件里，顶层 import 会把
+    # router 层拉进 worker 进程并可能造成循环 import；在函数体内运行时 import 可避开。
+    from app.routers._dataset_shared import (
         ensure_dataset_asset_active_mounted,
         ensure_dataset_asset_uploadable,
-        get_active_study_dataset_mount_for_asset,
-        materialize_recording_import,
         recording_to_response,
     )
+    from app.routers.dataset_imports import materialize_recording_import
+    from app.services.dataset_assets import get_active_study_dataset_mount_for_asset
 
     payload = task.payload_json or {}
     required = (
