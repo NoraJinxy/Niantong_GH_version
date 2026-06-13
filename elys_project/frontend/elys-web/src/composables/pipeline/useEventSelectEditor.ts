@@ -54,26 +54,33 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
     return null
   }
 
-  const availableEventLabels = computed<Array<{ label: string; count: number; datasets: number }>>(() => {
-    // Epoch 节点：从 graph 中所有 LoadData 节点的"已选中" data_infos 聚合事件。
-    // 关键：用 loadDataSelectedInfos —— LoadData 没勾文件 → 无事件，不会泄漏数据库全集。
-    if (isEpochNode.value) {
-      const aggregate = new Map<string, { count: number; datasets: number }>()
-      for (const node of definition.value.graph.nodes) {
-        if (node.type !== LOAD_DATA_NODE_TYPE) continue
-        for (const info of loadDataSelectedInfos(node)) {
-          const groups = info.condition_groups || []
-          for (const g of groups) {
-            const name = String(g?.name ?? '').trim()
-            if (!name) continue
-            const existing = aggregate.get(name) || { count: 0, datasets: 0 }
-            existing.count += Number(g?.count) || 0
-            existing.datasets += 1
-            aggregate.set(name, existing)
-          }
+  /** 把上游所有 LoadData「已选中」data_infos 的事件分组聚合成 名字→{count,datasets}。
+   *  Epoch 节点直接列出供勾选；ERP/TFR 节点用它给候选 condition 回填真实事件数。
+   *  关键：用 loadDataSelectedInfos —— LoadData 没勾文件 → 无事件，不会泄漏数据库全集。 */
+  function loadDataGroupCounts(): Map<string, { count: number; datasets: number }> {
+    const aggregate = new Map<string, { count: number; datasets: number }>()
+    for (const node of definition.value.graph.nodes) {
+      if (node.type !== LOAD_DATA_NODE_TYPE) continue
+      for (const info of loadDataSelectedInfos(node)) {
+        for (const g of info.condition_groups || []) {
+          const name = String(g?.name ?? '').trim()
+          if (!name) continue
+          const existing = aggregate.get(name) || { count: 0, datasets: 0 }
+          existing.count += Number(g?.count) || 0
+          existing.datasets += 1
+          aggregate.set(name, existing)
         }
       }
-      return Array.from(aggregate.entries())
+    }
+    return aggregate
+  }
+
+  const availableEventLabels = computed<Array<{ label: string; count: number; datasets: number }>>(() => {
+    const groups = loadDataGroupCounts()
+
+    // Epoch 节点：列出上游 LoadData 的全部事件分组供勾选。
+    if (isEpochNode.value) {
+      return Array.from(groups.entries())
         .map(([label, info]) => ({ label, count: info.count, datasets: info.datasets }))
         .sort((a, b) => {
           const an = Number(a.label)
@@ -83,10 +90,10 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
         })
     }
 
-    // ERP / TFR 节点：候选 condition 只能是上游 Epoch 节点 event_id 里选过的
-    // count / datasets 同样按 LoadData dataset_ids 过滤。
+    // ERP / TFR 节点：候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数）。
+    // 计数回查 LoadData 分组：分组名字符串能直接命中真实事件数；脚本/API 的友好名字典
+    // （name=fist 之类）匹配不到 → 回落 0，但不再把"有 40 试次"误显成 0。
     if (isConditionFromEpoch.value && selectedNode.value) {
-      // 候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数，无需回数据库）
       const upstreamEpoch = findUpstreamNodeByType(selectedNode.value.id, EPOCH_NODE_TYPE)
       const raw = upstreamEpoch?.params?.conditions
       let names: string[] = []
@@ -96,7 +103,10 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
           .map((s) => s.trim())
           .filter(Boolean)
       }
-      return names.map((label) => ({ label, count: 0, datasets: 1 }))
+      return names.map((label) => {
+        const g = groups.get(label)
+        return { label, count: g?.count ?? 0, datasets: g?.datasets ?? 1 }
+      })
     }
 
     return []
