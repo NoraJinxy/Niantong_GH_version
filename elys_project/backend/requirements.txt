@@ -11,4 +11,6 @@ pydantic-settings==2.1.0
 numpy==1.26.4
 scipy==1.14.1
 mne==1.7.1
+h5io==0.2.5
+h5py==3.11.0
 celery[redis]==5.5.3
