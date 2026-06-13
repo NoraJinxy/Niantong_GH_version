@@ -14,7 +14,7 @@
         <strong>{{ uploadDatasetAssetName }}</strong>
       </div>
       <div>
-        <span>处理工作空间</span>
+        <span>研究项</span>
         <strong>{{ uploadStudyName }}</strong>
       </div>
       <div>
@@ -551,10 +551,10 @@ const queueStats = computed(() => {
 const filteredGroups = computed(() => groups.value.filter((group) => matchesQueueFilter(group, queueFilter.value)))
 const uploadStudyId = computed(() => props.uploadContext?.studyId || props.studyId)
 const uploadStudyName = computed(() =>
-  formatProcessingWorkspaceName(
+  formatStudyName(
     props.uploadContext?.studyName
     || props.studyName
-    || (uploadStudyId.value ? '已准备处理工作空间' : '未准备处理工作空间'),
+    || (uploadStudyId.value ? '已准备研究项' : '未准备研究项'),
   ),
 )
 const uploadDatasetAssetId = computed(() => props.uploadContext?.datasetAssetId || props.datasetAssetId || '')
@@ -637,8 +637,8 @@ const filteredQueueEmptyText = computed(() => {
 
 let uploadGroupSequence = 0
 
-function formatProcessingWorkspaceName(value: string) {
-  return value.replace(/\s*Study$/i, ' 处理工作空间')
+function formatStudyName(value: string) {
+  return value.replace(/\s*Study$/i, ' 研究项')
 }
 
 watch(hasUploadTarget, (ready) => {

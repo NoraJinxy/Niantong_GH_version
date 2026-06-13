@@ -13,7 +13,7 @@ import type { useDatasetRecordings } from './useDatasetRecordings'
 import type { useDatasetLifecycle } from './useDatasetLifecycle'
 import type { useDatasetImportTarget } from './useDatasetImportTarget'
 
-type DatasetWorkbenchTab = 'overview' | 'import' | 'data' | 'records' | 'files' | 'technical'
+type DatasetWorkbenchTab = 'data' | 'import' | 'share'
 
 interface DatasetDecisionSummary {
   className: string

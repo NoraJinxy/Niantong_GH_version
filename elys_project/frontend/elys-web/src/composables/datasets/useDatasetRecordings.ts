@@ -1,6 +1,6 @@
 // 数据集页 · 采集记录（recordings）
 //
-// 从 DatasetsPage.vue 抽出：所选数据集在处理工作空间下的采集记录列表、按被试分组、
+// 从 DatasetsPage.vue 抽出：所选数据集在研究项下的采集记录列表、按被试分组、
 // 每条记录文件的懒加载与 2 桶拆分。依赖 catalog 的 selectedDatasetAsset 与页面
 // recordsStudyContext（哪个 study / mount 下找记录），均经 options 注入。
 // 触发时机的 watch（selectedDatasetAssetId / activeTab=data 等）仍留在页面统一编排。

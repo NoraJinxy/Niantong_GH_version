@@ -7,7 +7,7 @@
                 <p>
                   {{ isTargetForSelectedAsset
                     ? '继续选择 EEG 原始数据并提交，系统会写入当前数据集的 working 版本。'
-                    : '点击后系统会自动创建或复用处理工作空间，并把该数据集设为导入目标。'
+                    : '点击后系统会自动创建或复用研究项，并把该数据集设为导入目标。'
                   }}
                 </p>
               </div>
@@ -43,8 +43,8 @@
                 <strong>{{ targetSummary.datasetAssetName }}</strong>
               </div>
               <div>
-                <span>处理工作空间</span>
-                <strong>{{ formatProcessingWorkspaceName(targetSummary.studyName) }}</strong>
+                <span>研究项</span>
+                <strong>{{ formatStudyName(targetSummary.studyName) }}</strong>
               </div>
               <div>
                 <span>导入状态</span>
@@ -74,7 +74,7 @@
 // 数据集详情「导入」tab：导入目标准备 + BidsUploadPanel。状态经 datasetContext inject。
 import { inject } from 'vue'
 import BidsUploadPanel from '@/components/BidsUploadPanel.vue'
-import { formatProcessingWorkspaceName } from '@/composables/datasets/datasetsFormatters'
+import { formatStudyName } from '@/composables/datasets/datasetsFormatters'
 import { datasetContextKey } from '@/composables/datasets/datasetContext'
 const ctx = inject(datasetContextKey)!
 const {

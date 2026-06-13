@@ -5,7 +5,7 @@
       <div>
         <h1 class="page__title">数据集管理</h1>
         <p class="page__subtitle">
-          选择数据集，查看导入状态和文件摘要，再继续导入或进入后续处理。处理工作空间只作为导入、质控和运行上下文。
+          选择数据集，查看导入状态和文件摘要，再继续导入或进入后续处理。研究项只作为导入、质控和运行上下文。
         </p>
       </div>
       <div class="dataset-page__actions">
@@ -62,8 +62,8 @@
     <section v-if="usesShortcutStudy" class="dataset-shortcut">
       <AppIcon name="studies" :size="18" />
       <div>
-        <strong>当前处于处理工作空间快捷入口</strong>
-        <span>上传目标会关联到 {{ shortcutStudyLabel }}；普通入口会自动生成处理工作空间。</span>
+        <strong>当前处于研究项快捷入口</strong>
+        <span>上传目标会关联到 {{ shortcutStudyLabel }}；普通入口会自动生成研究项。</span>
       </div>
     </section>
 
@@ -161,7 +161,7 @@
             <div>
               <span class="section-kicker">创建流程</span>
               <h3>定义数据集后直接导入</h3>
-              <p>创建完成后自动准备处理工作空间，上传区会切到新数据集。</p>
+              <p>创建完成后自动准备研究项，上传区会切到新数据集。</p>
             </div>
             <div class="dataset-create-steps" aria-label="创建步骤">
               <span>定义</span>
@@ -209,7 +209,7 @@
                   placeholder="primary"
                   @input="clearBootstrapResult"
                 />
-                <span class="field__hint">默认 primary；仅在同一处理工作空间关联多个数据集时需要调整。</span>
+                <span class="field__hint">默认 primary；仅在同一研究项关联多个数据集时需要调整。</span>
               </label>
             </details>
           </div>
@@ -242,17 +242,11 @@
             </button>
           </div>
 
-          <DatasetOverviewTab v-if="activeTab === 'overview'" />
+          <DatasetMaintenanceTab v-if="activeTab === 'data'" />
 
           <DatasetImportTab v-else-if="activeTab === 'import'" />
 
-          <DatasetRecordsTab v-else-if="activeTab === 'records'" />
-
-          <DatasetFilesTab v-else-if="activeTab === 'files'" />
-
-          <DatasetMaintenanceTab v-else-if="activeTab === 'data'" />
-
-          <DatasetTechnicalTab v-else />
+          <DatasetShareTab v-else-if="activeTab === 'share'" />
         </div>
 
         <div v-else class="dataset-detail-empty">
@@ -294,16 +288,11 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
-import BidsUploadPanel from '@/components/BidsUploadPanel.vue'
-import TechnicalFold from '@/components/TechnicalFold.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import DatasetLifecycleModals from '@/components/datasets/DatasetLifecycleModals.vue'
-import DatasetOverviewTab from '@/components/datasets/DatasetOverviewTab.vue'
 import DatasetImportTab from '@/components/datasets/DatasetImportTab.vue'
-import DatasetRecordsTab from '@/components/datasets/DatasetRecordsTab.vue'
-import DatasetFilesTab from '@/components/datasets/DatasetFilesTab.vue'
 import DatasetMaintenanceTab from '@/components/datasets/DatasetMaintenanceTab.vue'
-import DatasetTechnicalTab from '@/components/datasets/DatasetTechnicalTab.vue'
+import DatasetShareTab from '@/components/datasets/DatasetShareTab.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   datasetVersionStateClass,
@@ -314,7 +303,7 @@ import {
   formatDate,
   formatDuration,
   formatFileSize,
-  formatProcessingWorkspaceName,
+  formatStudyName,
   formatRelative,
   formatVersionLabel,
   getFileFullLogicalPath,
@@ -334,12 +323,12 @@ import { useDatasetLifecycle } from '@/composables/datasets/useDatasetLifecycle'
 import { useDatasetImportTarget } from '@/composables/datasets/useDatasetImportTarget'
 import { datasetContextKey } from '@/composables/datasets/datasetContext'
 
-type DatasetWorkbenchTab = 'overview' | 'import' | 'data' | 'records' | 'files' | 'technical'
+type DatasetWorkbenchTab = 'data' | 'import' | 'share'
 
 const datasetTabs: Array<{ key: DatasetWorkbenchTab; label: string }> = [
-  { key: 'overview', label: '概览' },
-  { key: 'import', label: '导入' },
   { key: 'data', label: '数据文件' },
+  { key: 'import', label: '上传' },
+  { key: 'share', label: '发布与共享' },
 ]
 
 const fileRoleOptions: Array<{ value: DatasetFileRoleFilter; label: string }> = [
@@ -381,7 +370,7 @@ const {
 } = files
 
 const activePanel = ref<'catalog' | 'create'>('catalog')
-const activeTab = ref<DatasetWorkbenchTab>('overview')
+const activeTab = ref<DatasetWorkbenchTab>('data')
 const copyStatus = ref('')
 
 // #15：页面级提示（渲染在详情面板之外）。删除成功后详情面板随选中清空而卸载，
@@ -597,24 +586,24 @@ async function reloadAll() {
 function selectDatasetAsset(assetId: string) {
   if (selectedDatasetAssetId.value === assetId) {
     activePanel.value = 'catalog'
-    activeTab.value = 'overview'
+    activeTab.value = 'data'
     return
   }
   selectedDatasetAssetId.value = assetId
   activePanel.value = 'catalog'
-  activeTab.value = 'overview'
+  activeTab.value = 'data'
   clearBootstrapResult()
 }
 
 function openCreatePanel() {
   resetDatasetCreateForm()
   activePanel.value = 'create'
-  activeTab.value = 'overview'
+  activeTab.value = 'data'
 }
 
 function returnToDatasetWorkbench() {
   activePanel.value = 'catalog'
-  activeTab.value = 'overview'
+  activeTab.value = 'data'
   clearBootstrapResult()
 }
 

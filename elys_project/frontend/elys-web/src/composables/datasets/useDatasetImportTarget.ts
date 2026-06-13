@@ -1,7 +1,7 @@
 // 数据集页 · 导入目标准备（bootstrap / mount + study 自动配对）
 //
 // 从 DatasetsPage.vue 抽出"把数据集准备成导入目标"的整块：新建数据集（bootstrap，连带
-// 自动建处理工作空间）或为已有数据集挂载（mount）一个处理工作空间，产出 targetSummary /
+// 自动建研究项）或为已有数据集挂载（mount）一个研究项，产出 targetSummary /
 // uploadContext（喂给 BidsUploadPanel）/ recordsStudyContext（喂给采集记录）/ technicalInfoItems。
 // 含 study 自动配对的全部退避逻辑（code 冲突重试、复用既有 mount 等）。
 //
@@ -25,7 +25,7 @@ import type {
 } from '@/types'
 import {
   formatDate,
-  formatProcessingWorkspaceName,
+  formatStudyName,
   getErrorMessage,
   queryString,
   sanitizeCode,
@@ -40,7 +40,7 @@ export interface TechnicalInfoItem {
   value: string
 }
 
-type DatasetWorkbenchTab = 'overview' | 'import' | 'data' | 'records' | 'files' | 'technical'
+type DatasetWorkbenchTab = 'data' | 'import' | 'share'
 
 interface DatasetImportTargetOptions {
   selectedDatasetAsset: ComputedRef<DatasetAsset | null>
@@ -138,20 +138,27 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
       }
     }
 
-    const pairedStudy = studies.value.find((study) => study.code === trimStudyCode(resolvedPairedStudyCode(asset)))
+    // 优先用资产自带的 primary_study_id 配对（脚本 / 页面建集时都会写这个真实指针）；
+    // 找不到再退回「数据集 code + -study」的猜测 —— 后者只对页面新建的数据集成立，
+    // 脚本（setup.py）起的研究项 code 可能不带 -study 后缀，曾导致记录列不出来。
+    const pairedStudy =
+      (asset.primary_study_id
+        ? studies.value.find((study) => study.id === asset.primary_study_id)
+        : undefined)
+      || studies.value.find((study) => study.code === trimStudyCode(resolvedPairedStudyCode(asset)))
     if (!pairedStudy) return null
     return {
       studyId: pairedStudy.id,
       studyName: pairedStudy.name,
-      mountName: sanitizeCode(mountName.value || 'primary'),
+      // 这条路拿不到具体 mount；按 dataset_asset_id 在该研究项下列全部记录，不猜 mount_name（避免误过滤）。
     }
   })
   const recordsContextLabel = computed(() => {
     const context = recordsStudyContext.value
     if (!context) return '未准备'
     return context.mountName
-      ? `${formatProcessingWorkspaceName(context.studyName)} / ${context.mountName}`
-      : formatProcessingWorkspaceName(context.studyName)
+      ? `${formatStudyName(context.studyName)} / ${context.mountName}`
+      : formatStudyName(context.studyName)
   })
   const uploadContext = computed<DatasetUploadContext | null>(() => {
     const response = bootstrapResponse.value
@@ -426,7 +433,7 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
 
   function resolvedPairedStudyName(asset?: DatasetAsset) {
     const baseName = asset?.name || datasetName.value
-    return baseName ? `${baseName} 处理工作空间` : '数据集处理工作空间'
+    return baseName ? `${baseName} 研究项` : '数据集研究项'
   }
 
   function resolvedPairedStudyCode(asset?: DatasetAsset) {

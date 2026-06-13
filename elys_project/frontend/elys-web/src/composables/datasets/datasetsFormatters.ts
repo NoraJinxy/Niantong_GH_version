@@ -93,9 +93,9 @@ export function formatFileSize(bytes: number) {
 
 // ===== 名称 / 版本标签 =====
 
-export function formatProcessingWorkspaceName(value?: string | null) {
-  if (!value) return '处理工作空间已准备'
-  return value.replace(/\s*Study$/i, ' 处理工作空间')
+export function formatStudyName(value?: string | null) {
+  if (!value) return '研究项已准备'
+  return value.replace(/\s*Study$/i, ' 研究项')
 }
 
 // 6-05 §9：内部版本标识 "working" 对用户翻成"工作版本"；已发布版本保留其 SemVer 号（如 1.0.0）

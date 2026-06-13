@@ -3,15 +3,17 @@
     <!-- 空 / 加载 / 错误态 -->
     <div v-if="!recordsStudyContext" class="dataset-detail-empty">
       <AppIcon name="database" :size="24" />
-      <strong>请先准备导入目标</strong>
-      <span>准备处理工作空间后，这里会按被试列出采集记录与维护入口。</span>
+      <strong>还没有数据</strong>
+      <span>先到「上传」准备导入目标并上传 EEG 原始数据，这里就会按被试列出采集记录与维护入口。</span>
+      <button class="btn btn--primary" type="button" @click="activeTab = 'import'">去上传</button>
     </div>
     <div v-else-if="isLoadingRecordings" class="dataset-list-empty">正在读取采集记录...</div>
     <div v-else-if="recordingsError" class="inline-error">{{ recordingsError }}</div>
     <div v-else-if="!selectedAssetRecordings.length" class="dataset-detail-empty">
       <AppIcon name="file" :size="24" />
       <strong>还没有采集记录</strong>
-      <span>导入 EEG 原始数据后，这里会按被试 / 任务列出记录与状态。</span>
+      <span>上传 EEG 原始数据后，这里会按被试 / 任务列出记录与状态。</span>
+      <button class="btn btn--primary" type="button" @click="activeTab = 'import'">去上传</button>
     </div>
 
     <template v-else>
@@ -212,6 +214,7 @@ const {
   loadRecordingFiles,
 } = ctx.recordings
 const { recordsStudyContext } = ctx.importTarget
+const { activeTab } = ctx
 
 const selectedRecordingId = ref<string | null>(null)
 const mainView = ref<'table' | 'matrix'>('table')
