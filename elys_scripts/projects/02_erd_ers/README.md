@@ -59,5 +59,5 @@ python run.py       # 跑 ERD/ERS pipeline
 - **TFR / ERD-ERS** `TFR_*`：`TFR_CONDITION`（**给列表 `["fist","rest"]` 才有握拳-放松对比**，逐条各出一图）、
   `TFR_FMIN/FMAX`（频段）、`TFR_BASELINE_MODE`（`percent`=% 变化，负=ERD、正=ERS）、
   `TFR_BASELINE_TMAX`（基线窗结束，本范式用 **`-1.9`** 落在 MI 起点之前，**不能用 0**）。
-- **本机真值参照**：`local_erders_reference.py`（独立 MNE 读 `data/H01.bdf` 直接出 ERD/ERS 图，
+- **本机真值参照**：`erders_reference.py`（独立 MNE 读 `data/H01.bdf` 直接出 ERD/ERS 图，
   不经后端）可用来对拍 pipeline 产物是否正确；它同时打印 cue-old / cue-fixed / mi-locked 三口径对照。
