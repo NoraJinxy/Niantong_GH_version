@@ -13,6 +13,10 @@ chcp 65001 >nul
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 
+REM Project subdir under projects\ (1st arg; default 01_erp_basic for back-compat)
+set "PROJECT=%~1"
+if "%PROJECT%"=="" set "PROJECT=01_erp_basic"
+
 set "VENV_DIR=.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 
@@ -83,14 +87,15 @@ call "%VENV_DIR%\Scripts\activate.bat"
 REM --- 3b) Step3 banner: printed AFTER chcp + venv so it is neither cleared by
 REM         chcp nor scrolled off by first-run pip logs. Sits right above the test. ---
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\elys_project\deploy\step_banner.ps1" -Step 3
+powershell -NoProfile -Command "Write-Host '  Test case: ' -ForegroundColor DarkGray -NoNewline; Write-Host '%PROJECT%' -ForegroundColor White"
 
-REM --- 4) Run ERP chain: setup (build dataset + upload) then run (pipeline) ---
+REM --- 4) Run test chain: setup (build dataset + upload) then run (pipeline) ---
 powershell -NoProfile -Command "Write-Host ''; Write-Host ' 1/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  setup: build dataset + upload data' -ForegroundColor White"
-python projects\01_erp_basic\setup.py
+python projects\%PROJECT%\setup.py
 if errorlevel 1 (
   powershell -NoProfile -Command "Write-Host ''; Write-Host ' FAIL ' -BackgroundColor DarkRed -ForegroundColor White -NoNewline; Write-Host '  setup failed - skip pipeline. See errors above.' -ForegroundColor Red"
   pause
   exit /b 1
 )
-powershell -NoProfile -Command "Write-Host ''; Write-Host ' 2/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  run: ERP pipeline' -ForegroundColor White"
-python projects\01_erp_basic\run.py
+powershell -NoProfile -Command "Write-Host ''; Write-Host ' 2/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  run: analysis pipeline' -ForegroundColor White"
+python projects\%PROJECT%\run.py
