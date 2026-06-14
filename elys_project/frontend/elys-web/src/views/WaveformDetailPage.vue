@@ -59,15 +59,14 @@
       </select>
       <span class="wf-div"></span>
       <label class="wf-chk"><input type="checkbox" v-model="showGrid" />网格</label>
-      <label class="wf-chk"><input type="checkbox" v-model="showZero" />基线/起始</label>
 
       <div style="flex: 1"></div>
-      <span class="wf-readout" v-if="cursor">
-        <span class="text-mono">{{ fmtX(cursor.x) }} {{ xUnit }}</span>
-        <span v-for="it in cursor.items.slice(0, 6)" :key="it.name" class="wf-readout-v" :style="{ color: it.color }">
+      <span class="wf-readout" v-if="cursorReadout">
+        <span class="text-mono">{{ fmtX(cursorReadout.x) }} {{ xUnit }}</span>
+        <span v-for="it in cursorReadout.items.slice(0, 6)" :key="it.name" class="wf-readout-v" :style="{ color: it.color }">
           {{ it.name }} {{ it.uv.toFixed(2) }}
         </span>
-        <span v-if="cursor.items.length > 6" class="wf-readout-more">+{{ cursor.items.length - 6 }}</span>
+        <span v-if="cursorReadout.items.length > 6" class="wf-readout-more">+{{ cursorReadout.items.length - 6 }}</span>
         <span class="wf-readout-unit">μV</span>
       </span>
     </div>
@@ -112,50 +111,16 @@
         <!-- 右侧绘图 -->
         <div class="wf-plot-area">
           <div class="wf-plot-wrap">
-            <svg
-              ref="svgEl"
-              class="wf-plot"
-              :viewBox="`0 0 ${VBW} ${VBH}`"
-              preserveAspectRatio="xMidYMid meet"
-              @mousemove="onMove"
-              @mouseleave="cursorX = null"
-            >
-              <rect :x="M.l" :y="M.t" :width="plotW" :height="plotH" fill="#fff" stroke="var(--c-border)" />
-
-              <g>
-                <g v-for="t in render.yTicks" :key="'y' + t.v">
-                  <line
-                    v-if="showGrid || t.v === 0"
-                    :x1="M.l" :y1="t.y" :x2="M.l + plotW" :y2="t.y"
-                    :stroke="t.v === 0 ? 'var(--c-border-2)' : 'var(--c-border)'"
-                    :stroke-dasharray="t.v === 0 ? '0' : '3 3'"
-                  />
-                  <text :x="M.l - 8" :y="t.y + 3" class="wf-axis" text-anchor="end">{{ t.v }}</text>
-                </g>
-                <text :x="14" :y="M.t + 12" class="wf-axis-unit">μV</text>
-              </g>
-
-              <g>
-                <g v-for="t in render.xTicks" :key="'x' + t.x">
-                  <line v-if="showGrid" :x1="t.x" :y1="M.t" :x2="t.x" :y2="M.t + plotH" stroke="var(--c-border)" stroke-dasharray="3 3" />
-                  <text :x="t.x" :y="M.t + plotH + 16" class="wf-axis" text-anchor="middle">{{ t.label }}</text>
-                </g>
-                <text :x="M.l + plotW" :y="M.t + plotH + 32" class="wf-axis-unit" text-anchor="end">时间 ({{ xUnit }})</text>
-              </g>
-
-              <line v-if="showZero && render.zeroX !== null" :x1="render.zeroX" :y1="M.t" :x2="render.zeroX" :y2="M.t + plotH" stroke="var(--c-danger)" stroke-width="1.1" stroke-dasharray="4 3" />
-              <text v-if="showZero && render.zeroX !== null" :x="render.zeroX + 4" :y="M.t + 12" class="wf-stim">0</text>
-
-              <g :clip-path="`url(#${clipId})`">
-                <path v-for="c in render.lines" :key="c.name" :d="c.d" :stroke="c.color" stroke-width="1.5" fill="none" />
-              </g>
-              <clipPath :id="clipId"><rect :x="M.l" :y="M.t" :width="plotW" :height="plotH" /></clipPath>
-
-              <g v-if="cursor">
-                <line :x1="cursor.px" :y1="M.t" :x2="cursor.px" :y2="M.t + plotH" stroke="var(--c-text-3)" stroke-width="1" stroke-dasharray="2 2" />
-                <circle v-for="it in cursor.items" :key="'c' + it.name" :cx="cursor.px" :cy="it.y" r="2.6" :fill="it.color" stroke="#fff" stroke-width="1.2" />
-              </g>
-            </svg>
+            <TimeCourseCanvas
+              :data="alignedData"
+              :series="seriesCfg"
+              :x-label="`时间 (${xUnit})`"
+              y-label="μV"
+              :y-max="yMaxValue"
+              :show-grid="showGrid"
+              :loading="loading"
+              @cursor="onCursor"
+            />
           </div>
           <div v-if="!selected.size" class="wf-empty-hint">未选择通道 —— 在左侧列表里选择要绘制的通道</div>
         </div>
@@ -186,17 +151,12 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { pipelineApi } from '@/api/pipelines'
 import type { StudyOutputTimeseries } from '@/types'
+import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import { channelColor } from '@/composables/observe/channelColor'
 
 const route = useRoute()
 
-// ---------- 绘图几何 ----------
-const VBW = 940
-const VBH = 460
-const M = { l: 60, r: 26, t: 22, b: 42 }
-const plotW = VBW - M.l - M.r
-const plotH = VBH - M.t - M.b
-const clipId = 'wf-clip'
-
+// ---------- 绘图：uPlot 宿主见 <TimeCourseCanvas> ----------
 const MAX_CHANNELS = 64
 const MAX_POINTS = 800 // 屏幕宽 ~850px，再多点也看不出来，少取点显著加快后端序列化/传输/渲染
 const CONTINUOUS = ['raw', 'filtered_raw', 'ica_cleaned']
@@ -240,12 +200,10 @@ const winLoInput = ref<number | string>('') // 显示单位
 const winHiInput = ref<number | string>('')
 const yScaleIdx = ref(0)
 const showGrid = ref(true)
-const showZero = ref(true)
-const cursorX = ref<number | null>(null) // 显示单位
 const selected = ref<Set<string>>(new Set())
 const anchorIndex = ref(-1)
-const svgEl = ref<SVGSVGElement | null>(null)
 const chanListRef = ref<HTMLDivElement | null>(null)
+const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
 
 // ---------- 类型 / 单位 ----------
 const dataType = computed(() => String(ts.value?.data_type ?? typeHint ?? '').toLowerCase())
@@ -388,7 +346,7 @@ const plot = computed(() => {
   const xs = t.times.map((s) => s * xFactor.value)
   const chans = t.channels.map((c, i) => ({
     name: c.name,
-    color: `hsl(${Math.round((i * 137.508) % 360)}, 62%, 47%)`,
+    color: channelColor(i),
     pts: c.values.map((v, j) => ({ x: xs[j] ?? 0, uv: v * scale })),
   }))
   return { chans, xMin: xs.length ? xs[0] : 0, xMax: xs.length ? xs[xs.length - 1] : 1 }
@@ -403,39 +361,16 @@ const autoYMax = computed(() => {
   return Math.max(2, Math.ceil((m * 1.2) / 2) * 2)
 })
 
-function niceStep(span: number): number {
-  const target = span / 6 || 1
-  const pow = Math.pow(10, Math.floor(Math.log10(target)))
-  for (const m of [1, 2, 2.5, 5, 10]) if (m * pow >= target) return m * pow
-  return 10 * pow
-}
+const yMaxValue = computed(() => Y_SCALES[yScaleIdx.value].max || autoYMax.value)
 
-const render = computed(() => {
-  const xMin = plot.value.xMin
-  const xMax = plot.value.xMax
-  const span = xMax - xMin || 1
-  const yMax = Y_SCALES[yScaleIdx.value].max || autoYMax.value
-  const xOf = (x: number) => M.l + ((x - xMin) / span) * plotW
-  const yOf = (uv: number) => M.t + ((yMax - uv) / (2 * yMax)) * plotH
-
-  const lines = visibleChans.value.map((c) => {
-    let d = ''
-    c.pts.forEach((p, i) => {
-      d += (i === 0 ? 'M' : 'L') + xOf(p.x).toFixed(1) + ',' + yOf(p.uv).toFixed(1) + ' '
-    })
-    return { name: c.name, color: c.color, d }
-  })
-
-  const yTicks = [-yMax, -yMax / 2, 0, yMax / 2, yMax].map((v) => ({ v, y: yOf(v) }))
-
-  const step = niceStep(span)
-  const xTicks: { x: number; label: number }[] = []
-  const start = Math.ceil(xMin / step) * step
-  for (let t = start; t <= xMax + step * 0.01; t += step) xTicks.push({ x: xOf(t), label: Number(t.toFixed(xPrec.value)) })
-
-  const zeroX = xMin <= 0 && xMax >= 0 ? xOf(0) : null
-  return { xMin, xMax, yMax, xOf, yOf, lines, yTicks, xTicks, zeroX }
+// 组装 uPlot AlignedData：[ xs, ...每条可见通道的 µV 值 ]（所有通道共享时间轴）
+const alignedData = computed<number[][]>(() => {
+  const vis = visibleChans.value
+  if (!vis.length || !vis[0].pts.length) return [[]]
+  const xs = vis[0].pts.map((p) => p.x)
+  return [xs, ...vis.map((c) => c.pts.map((p) => p.uv))]
 })
+const seriesCfg = computed(() => visibleChans.value.map((c) => ({ name: c.name, color: c.color })))
 
 // ---------- 通道选择 ----------
 function channelNames(): string[] {
@@ -487,35 +422,10 @@ watch(
   { immediate: true },
 )
 
-// ---------- 悬停游标 ----------
-function onMove(e: MouseEvent) {
-  const svg = svgEl.value
-  if (!svg) return
-  const rect = svg.getBoundingClientRect()
-  const scale = Math.min(rect.width / VBW, rect.height / VBH)
-  const offX = (rect.width - VBW * scale) / 2
-  const offY = (rect.height - VBH * scale) / 2
-  const vx = (e.clientX - rect.left - offX) / scale
-  const vy = (e.clientY - rect.top - offY) / scale
-  if (vx < M.l || vx > M.l + plotW || vy < M.t || vy > M.t + plotH) {
-    cursorX.value = null
-    return
-  }
-  const r = render.value
-  cursorX.value = r.xMin + ((vx - M.l) / plotW) * (r.xMax - r.xMin)
+// ---------- 悬停游标（来自 TimeCourseCanvas 的 cursor 事件） ----------
+function onCursor(payload: { x: number; items: { name: string; color: string; uv: number }[] } | null) {
+  cursorReadout.value = payload
 }
-
-const cursor = computed(() => {
-  if (cursorX.value === null || !hasCurves.value || !visibleChans.value.length) return null
-  const r = render.value
-  const x = cursorX.value
-  const items = visibleChans.value.map((c) => {
-    let best = c.pts[0]
-    for (const p of c.pts) if (Math.abs(p.x - x) < Math.abs(best.x - x)) best = p
-    return { name: c.name, color: c.color, uv: best.uv, y: r.yOf(best.uv) }
-  })
-  return { x, px: r.xOf(x), items }
-})
 
 // ---------- Ctrl+A 全选 ----------
 function onKeydown(e: KeyboardEvent) {
