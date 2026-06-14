@@ -224,6 +224,55 @@ def ensure_tfr_h5_path(path: str | Path) -> Path:
     return target.with_name(f"{target.name}-tfr.h5")
 
 
+def save_psd_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
+    """把 PSD 结果(freqs / psds / ch_names 的数组 dict)存成 numpy .npz。
+
+    PSD 故意不走 MNE Spectrum.save —— Spectrum 的 HDF5 存取 API 跨 MNE 版本易变;这里只存纯
+    numpy 数组,自给自足、版本无关。下游读回用 numpy.load(...)。
+    """
+    import numpy as np  # noqa: PLC0415
+
+    target = ensure_psd_npz_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        str(target),
+        freqs=np.asarray(result.get("freqs"), dtype=float),
+        psds=np.asarray(result.get("psds"), dtype=float),
+        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
+        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
+    )
+    return target
+
+
+def summarize_psd(result: dict[str, Any]) -> dict[str, Any]:
+    """PSD 结果的轻量摘要(不含完整功率矩阵,谱线后续走 psd 视图端点按需取)。"""
+    freqs_attr = result.get("freqs")
+    # freqs 是 numpy 数组,绝不能写 `arr or []`(会触发 array 真值歧义)—— 显式判 None 后转成 list。
+    freqs = list(freqs_attr) if freqs_attr is not None else []
+    ch_names = list(result.get("ch_names") or [])
+    return {
+        "data_type": "psd",
+        "n_channels": len(ch_names),
+        "ch_names": ch_names,
+        "channel_types": list(result.get("channel_types") or []),
+        "sfreq": float(result.get("sfreq") or 0.0),
+        "n_freqs": len(freqs),
+        "fmin": float(freqs[0]) if freqs else None,
+        "fmax": float(freqs[-1]) if freqs else None,
+        "n_epochs": int(result.get("n_epochs") or 0),
+        "method": str(result.get("method", "welch") or "welch"),
+        "comment": result.get("condition"),
+    }
+
+
+def ensure_psd_npz_path(path: str | Path) -> Path:
+    """保证 PSD 落盘文件名以 .npz 结尾(numpy savez 约束)。"""
+    target = Path(path).expanduser()
+    if target.name.lower().endswith(".npz"):
+        return target
+    return target.with_name(f"{target.name}_psd.npz")
+
+
 def _get_reference_value(reference: Any, key: str) -> Any:
     if isinstance(reference, dict):
         return reference.get(key)

@@ -149,6 +149,8 @@ def observe_route_for_data_type(data_type: str) -> str:
         return "/observe/erp"
     if normalized == "tfr":
         return "/observe/tfr"
+    if normalized == "psd":
+        return "/observe/psd"
     return "/observe"
 
 
