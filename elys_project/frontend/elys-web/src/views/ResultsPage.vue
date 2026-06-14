@@ -383,6 +383,7 @@
               <button class="btn btn--primary btn--sm" type="button" @click="downloadRow(activeRow)">
                 <AppIcon name="import" :size="14" />下载
               </button>
+              <RouterLink class="btn btn--sm" :to="observeRoute(activeRow)">打开观察</RouterLink>
               <RouterLink
                 v-if="activeRow.produced_by_execution_id"
                 class="btn btn--sm"
@@ -565,6 +566,19 @@ const copyHint = ref('')
 
 // === computed ===
 const activeRow = computed(() => datasets.value.find((d) => d.id === activeId.value) || null)
+
+// 按 data_type 路由到对应观察页（参数统一 studyId + study_output_id）
+function observeRoute(row: { id: string; data_type?: string | null; display_name?: string | null }) {
+  const dt = String(row.data_type || '').toLowerCase()
+  const query: Record<string, string> = {
+    studyId: selectedStudyId.value,
+    study_output_id: row.id,
+    name: row.display_name || row.data_type || '结果',
+  }
+  if (dt === 'tfr') return { path: '/observe/tfr', query }
+  if (dt === 'psd') return { path: '/observe/psd', query }
+  return { path: '/observe/waveform', query: { ...query, type: row.data_type || '' } }
+}
 
 const dataTypeOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.data_type)))
 const subjectOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.bids_subject_id || '').filter(Boolean)))

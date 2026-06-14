@@ -506,6 +506,7 @@ def get_study_output_timeseries(
     index: int | None = Query(default=None, ge=0),
     max_points: int = Query(default=2000, ge=50, le=8000),
     max_channels: int = Query(default=64, ge=1, le=256),
+    format: str = Query(default="json"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -517,7 +518,7 @@ def get_study_output_timeseries(
             detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，时域数据不可用。"},
         )
     try:
-        return build_timeseries(
+        payload = build_timeseries(
             study,
             dataset,
             tmin=tmin,
@@ -526,6 +527,12 @@ def get_study_output_timeseries(
             max_points=max_points,
             max_channels=max_channels,
         )
+        if str(format).lower() == "binary":
+            from fastapi import Response
+            from app.pipeline.timeseries import encode_timeseries_binary
+
+            return Response(content=encode_timeseries_binary(payload), media_type="application/octet-stream")
+        return payload
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,

@@ -84,6 +84,43 @@ def build_timeseries(
     )
 
 
+def encode_timeseries_binary(payload: dict[str, Any]) -> bytes:
+    """把 build_timeseries 的 JSON 结构编码为紧凑二进制（前端 plotCache 解码）。
+
+    布局：b"EEGBIN01" + u32(metaLen, LE) + meta(JSON utf8) + f64 times[n] + f32 data[n_ch*n_times](C-order)。
+    通道值由 V 换算成 µV，meta.unit="uV"（前端据此不再猜单位）。meta 含除 channels/times 外的全部字段
+    + n_times / ch_names / n_channels。
+    """
+    import json
+    import struct
+
+    np = _numpy()
+    channels = payload.get("channels") or []
+    times = np.asarray(payload.get("times") or [], dtype="<f8")
+    n_times = int(times.shape[0])
+    ch_names = [str(c.get("name")) for c in channels]
+    if channels:
+        data = np.asarray([c.get("values") or [] for c in channels], dtype=np.float32)
+    else:
+        data = np.zeros((0, n_times), dtype=np.float32)
+    data = np.ascontiguousarray(data * np.float32(1e6), dtype="<f4")  # V → µV
+
+    meta = {k: v for k, v in payload.items() if k not in ("channels", "times")}
+    meta["unit"] = "uV"
+    meta["n_times"] = n_times
+    meta["ch_names"] = ch_names
+    meta["n_channels"] = len(ch_names)
+    meta_bytes = json.dumps(meta, ensure_ascii=False).encode("utf-8")
+
+    out = bytearray()
+    out += b"EEGBIN01"
+    out += struct.pack("<I", len(meta_bytes))
+    out += meta_bytes
+    out += times.tobytes()
+    out += data.tobytes()
+    return bytes(out)
+
+
 def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()

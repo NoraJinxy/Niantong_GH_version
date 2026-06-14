@@ -2172,26 +2172,30 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     statusMessage.value = '该节点输出未保存（未保留的中间结果），无法查看时域图'
     return
   }
-  // 优先 evoked（带时域采样曲线），否则取第一个已保存产物
-  const target = saved.find((item) => item.data_type === 'evoked') || saved[0]
-  // TFR 是时频热图、不是时域曲线 → 走 /observe/tfr 热图页(参数名与 TfrPage 对齐:studyId + study_output_id);
-  // 其余(raw/epochs/evoked)走 /observe/waveform 时域页(study + dd)。
+  // evoked（ERP）可能是同一节点的多个条件产物 → 一起送时域页按"数据集"对比；
+  // 其余按 data_type 路由：TFR=/observe/tfr、PSD=/observe/psd、其余=/observe/waveform。
+  const evokeds = saved.filter((item) => item.data_type === 'evoked')
   let href: string
-  if (target.data_type === 'tfr') {
+  if (evokeds.length) {
+    const ids = evokeds.map((e) => e.id).join(',')
     const params = new URLSearchParams({
       studyId,
-      study_output_id: target.id,
-      name: target.display_name || 'TFR',
-    })
-    href = `/observe/tfr?${params.toString()}`
-  } else {
-    const params = new URLSearchParams({
-      study: studyId,
-      dd: target.id,
-      name: target.display_name || target.data_type || '结果',
-      type: target.data_type || '',
+      study_output_id: ids,
+      name: evokeds.length > 1 ? 'ERP（多条件对比）' : evokeds[0].display_name || 'ERP',
+      type: 'evoked',
     })
     href = `/observe/waveform?${params.toString()}`
+  } else {
+    const target = saved[0]
+    const dt = (target.data_type || '').toLowerCase()
+    const base = {
+      studyId,
+      study_output_id: target.id,
+      name: target.display_name || target.data_type || '结果',
+    }
+    if (dt === 'tfr') href = `/observe/tfr?${new URLSearchParams(base).toString()}`
+    else if (dt === 'psd') href = `/observe/psd?${new URLSearchParams(base).toString()}`
+    else href = `/observe/waveform?${new URLSearchParams({ ...base, type: target.data_type || '' }).toString()}`
   }
   // 用 <a target="_blank"> 模拟点链接 → 浏览器按"在新标签页打开"处理（可拖进标签栏并排），
   // 比 window.open(name) 更可靠：后者在部分浏览器里会被当成独立弹窗，无法并入标签栏

@@ -7,6 +7,7 @@
 <script setup lang="ts">
 // 时域 uPlot 宿主：只负责「拿数据画线 + 冒泡游标」，不持业务状态。
 // 决策见 日志/10_观察作图与缓存架构260614/06 §4。1D 曲线统一走 uPlot（P-1）。
+// 支持两种格内呈现：overlay(同轴叠加) / spread(纵向排列，多通道堆叠浏览)。
 import { onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
@@ -21,16 +22,19 @@ const props = withDefaults(
     series: SeriesCfg[]
     xLabel?: string
     yLabel?: string
-    /** null=自动；非 null=对称 ±yMax。 */
+    /** null=自动；非 null=对称 ±yMax（µV）。spread 模式下作为每道幅值归一化的满量程。 */
     yMax?: number | null
+    /** overlay=同轴叠加；spread=纵向排列（每道一条泳道）。 */
+    displayMode?: 'overlay' | 'spread'
     showGrid?: boolean
     loading?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, showGrid: true, loading: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false },
 )
 
 const emit = defineEmits<{
   (e: 'cursor', payload: { x: number; items: CursorItem[] } | null): void
+  (e: 'select', region: { x0: number; x1: number } | null): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -41,26 +45,94 @@ let ro: ResizeObserver | null = null
 const AXIS = '#79859A' // --c-text-3
 const GRID = '#E4E9F1' // --c-border
 
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v
+}
+
+/** spread 归一化满量程：优先用 props.yMax，否则取数据峰值绝对值。 */
+function effYMax(): number {
+  if (props.yMax != null && props.yMax > 0) return props.yMax
+  let m = 0
+  for (let si = 1; si < props.data.length; si++) {
+    const col = props.data[si] || []
+    for (const v of col) m = Math.max(m, Math.abs(Number(v) || 0))
+  }
+  return Math.max(1, m)
+}
+
+/** 按显示模式生成喂给 uPlot 的数据（spread 会做泳道偏移；原始 µV 仍保留在 props.data 供游标读数）。 */
+function buildDisplayData(): number[][] {
+  if (props.displayMode !== 'spread') return props.data as number[][]
+  const n = props.series.length
+  const xs = props.data[0] || []
+  const ey = effYMax()
+  const out: number[][] = [xs]
+  for (let si = 1; si <= n; si++) {
+    const center = n - si // 第 i=si-1 道 → 泳道中心 n-1-i（首道在顶）
+    const src = props.data[si] || []
+    out.push(src.map((v) => center + clamp((Number(v) || 0) / ey, -1, 1) * 0.45))
+  }
+  return out
+}
+
 function buildOpts(w: number, h: number): uPlot.Options {
   const grid = props.showGrid
+  const spread = props.displayMode === 'spread'
+  const n = props.series.length
+
+  const yAxis: uPlot.Axis = spread
+    ? {
+        // 排列模式：y 轴显示通道名（在各泳道中心），不显示数值刻度
+        stroke: AXIS,
+        grid: { show: false },
+        ticks: { show: false },
+        size: 64,
+        font: '11px var(--ff-mono, monospace)',
+        splits: () => Array.from({ length: n }, (_, k) => k),
+        values: (_u, splits) => splits.map((c) => props.series[n - 1 - Math.round(c)]?.name ?? ''),
+      }
+    : {
+        label: props.yLabel,
+        stroke: AXIS,
+        grid: { show: grid, stroke: GRID },
+        ticks: { stroke: GRID },
+        font: '11px var(--ff-mono, monospace)',
+      }
+
   const opts: uPlot.Options = {
     width: w,
     height: h,
     legend: { show: false },
-    cursor: { drag: { x: true, y: false }, focus: { prox: 16 } },
+    cursor: { drag: { x: true, y: false, setScale: false }, focus: { prox: 16 } },
     scales: {
       x: { time: false },
-      y: props.yMax != null ? { range: [-props.yMax, props.yMax] } : {},
+      y: spread
+        ? { range: [-0.6, n - 0.4] }
+        : props.yMax != null
+          ? { range: [-props.yMax, props.yMax] }
+          : {},
     },
     axes: [
       { label: props.xLabel, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { stroke: GRID }, font: '11px var(--ff-mono, monospace)' },
-      { label: props.yLabel, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { stroke: GRID }, font: '11px var(--ff-mono, monospace)' },
+      yAxis,
     ],
     series: [
       {},
       ...props.series.map((s) => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false } })),
     ],
     hooks: {
+      setSelect: [
+        (u: uPlot) => {
+          const sel = u.select
+          if (!sel || sel.width <= 2) {
+            emit('select', null)
+            return
+          }
+          const a = u.posToVal(sel.left, 'x')
+          const b = u.posToVal(sel.left + sel.width, 'x')
+          emit('select', { x0: Math.min(a, b), x1: Math.max(a, b) })
+        },
+      ],
       setCursor: [
         (u: uPlot) => {
           const idx = u.cursor.idx
@@ -68,7 +140,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
             emit('cursor', null)
             return
           }
-          const xv = u.data[0]?.[idx]
+          // 读数永远报「原始 µV」（props.data），不受 spread 偏移影响
+          const xv = props.data[0]?.[idx]
           if (xv == null) {
             emit('cursor', null)
             return
@@ -76,7 +149,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
           const items: CursorItem[] = props.series.map((s, si) => ({
             name: s.name,
             color: s.color,
-            uv: Number(u.data[si + 1]?.[idx] ?? 0),
+            uv: Number(props.data[si + 1]?.[idx] ?? 0),
           }))
           emit('cursor', { x: Number(xv), items })
         },
@@ -94,7 +167,7 @@ function rebuild() {
   if (!props.series.length || !props.data[0]?.length) return
   const w = host.clientWidth || 800
   const h = host.clientHeight || 400
-  chart.value = new uPlot(buildOpts(w, h), props.data as unknown as uPlot.AlignedData, host)
+  chart.value = new uPlot(buildOpts(w, h), buildDisplayData() as unknown as uPlot.AlignedData, host)
 }
 
 onMounted(async () => {
@@ -114,9 +187,9 @@ onUnmounted(() => {
   chart.value = null
 })
 
-// 数据/序列/Y档/网格 都是用户级低频变化 → 直接重建（最稳，避免 setData/setScale 微妙状态问题）。
+// 数据/序列/Y档/显示模式/网格 都是用户级低频变化 → 直接重建（最稳）。
 watch(
-  () => [props.data, props.series, props.yMax, props.showGrid],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid],
   () => rebuild(),
   { deep: false },
 )
