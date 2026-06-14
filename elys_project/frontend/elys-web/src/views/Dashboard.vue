@@ -62,8 +62,8 @@
       <RouterLink class="start-analysis" to="/studies">
         <span class="start-analysis__icon"><AppIcon name="plus" :size="26" /></span>
         <span class="start-analysis__text">
-          <strong>开始新分析</strong>
-          <span>上传数据 → 选意图 / 模板 → 看结果</span>
+          <strong>快速开始新分析</strong>
+          <span>上传数据 → 选意图 → 确认参数 → 看结果</span>
         </span>
       </RouterLink>
 
