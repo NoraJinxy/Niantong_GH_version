@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from app.engine.analysis.baseline import run_baseline
 from app.engine.analysis.epoching import run_epoch_segment
 from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
 from app.engine.analysis.psd import run_psd
@@ -79,6 +80,7 @@ class NodeDispatcher:
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/epoch/segment": self._execute_epoch_segment,
+            "eeg/epoch/baseline": self._execute_baseline,
             "eeg/analysis/erp": self._execute_erp_average,
             "eeg/analysis/tfr": self._execute_tfr_average,
             "eeg/analysis/psd": self._execute_psd_average,
@@ -429,6 +431,76 @@ class NodeDispatcher:
 
     def _execute_epoch_segment(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_epochs_output(context, run_epoch_segment, save_descriptor="epo")
+
+    def _execute_baseline(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """Baseline 基线校正:epochs → epochs(逐输入 apply_baseline,复用 epochs 保存路径)。"""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Baseline node has no upstream epochs data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+
+        for index, data_info in enumerate(input_data_infos):
+            try:
+                epochs = read_epochs_from_data_info(data_info, preload=True)
+                baselined = run_baseline(epochs, context.params)
+                input_condition = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
+                info = self._save_epochs_dataset(
+                    context=context,
+                    data_info=data_info,
+                    epochs=baselined,
+                    study_output_store=study_output_store,
+                    artifacts=artifacts,
+                    save_descriptor="bl",
+                    index=index,
+                    condition=input_condition,
+                    node_id=node_id,
+                    node_type=node_type,
+                )
+                output_data_infos.append(info)
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: {exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+
+        emitted_data_infos = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted_data_infos},
+            data_infos=emitted_data_infos,
+            artifacts=artifacts,
+            metadata={
+                "dataset_count": len(output_data_infos),
+                "input_dataset_count": len(input_data_infos),
+                "save_descriptor": "bl",
+            },
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted_data_infos),
+            output_ports=["output"],
+            errors=errors,
+        )
 
     def _execute_erp_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_evoked_output(context, run_erp_average, save_descriptor="erp")
