@@ -3,10 +3,10 @@
   释放(退还)阿里云 ECS 计算服实例。与 step1 buy_ecs 配对。
 
 .EXAMPLE
-  .\step4_release_ecs.cmd -List
-  .\step4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx
-  .\step4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx -Yes -UpdateProfile
-  .\step4_release_ecs.cmd -Yes -UpdateProfile
+  .\s4_release_ecs.cmd -List
+  .\s4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx
+  .\s4_release_ecs.cmd -InstanceId i-wz9xxxxxxxxx -Yes -UpdateProfile
+  .\s4_release_ecs.cmd -Yes -UpdateProfile
 #>
 param(
     [string]$RegionId        = "cn-shenzhen",
@@ -95,7 +95,7 @@ if ($List) {
             创建时间   = $_.CreationTime
         }
     } | Format-Table -AutoSize
-    Write-Host "  释放指定实例:  .\step4_release_ecs.cmd -InstanceId <id> [-Yes] [-UpdateProfile]" -ForegroundColor DarkGray
+    Write-Host "  释放指定实例:  .\s4_release_ecs.cmd -InstanceId <id> [-Yes] [-UpdateProfile]" -ForegroundColor DarkGray
     return
 }
 
@@ -104,7 +104,7 @@ if (-not $InstanceId) {
     $profileIp = Get-ProfileIp
     if (-not $profileIp) {
         Write-Host "[X] 没给 -InstanceId，且 $Profile.env 的 COMPUTE_SERVER_IP 为空。" -ForegroundColor Red
-        Write-Host "    先查实例:  .\step4_release_ecs.cmd -List" -ForegroundColor DarkGray
+        Write-Host "    先查实例:  .\s4_release_ecs.cmd -List" -ForegroundColor DarkGray
         exit 1
     }
     Write-Host "  按 IP $profileIp 反查实例 ..." -ForegroundColor DarkGray
@@ -152,7 +152,7 @@ if (-not $Yes) {
     Write-Host ""
     Write-Host "  [演练] 确认无误后真正释放，加 -Yes：" -ForegroundColor Yellow
     $extra = if ($UpdateProfile) { " -UpdateProfile" } else { "" }
-    Write-Host "    .\step4_release_ecs.cmd -InstanceId $InstanceId -Yes$extra" -ForegroundColor Gray
+    Write-Host "    .\s4_release_ecs.cmd -InstanceId $InstanceId -Yes$extra" -ForegroundColor Gray
     return
 }
 
@@ -179,4 +179,4 @@ try {
 if ($UpdateProfile) { Clear-ProfileIp }
 
 Write-Host ""
-Write-Host "  下次开机:  .\step1_buy_ecs.cmd -Yes -UpdateProfile" -ForegroundColor DarkGray
+Write-Host "  下次开机:  .\s1_buy_ecs.cmd -Yes -UpdateProfile" -ForegroundColor DarkGray

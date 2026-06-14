@@ -1,6 +1,6 @@
 """本机 ERD/ERS 参照脚本(独立于 ELYS 后端,直接用 MNE 读 H01.bdf 出图)。
 
-目的:给 step3_test2_erders.cmd 的产物做一个"地面真值"对照——
+目的:给 s3_test2_erders.cmd 的产物做一个"地面真值"对照——
   - 严格复刻测试管线参数(带通 1-40 IIR / 陷波 50 / Epoch[-1,5] / Morlet 4-40Hz, n_cycles=f/2 / % 基线[-1,0]),
   - 但**握拳 + 放松两个条件都算**(测试只算了握拳 TFR_CONDITION="fist"),
   - 并量一下 cue→MI 执行窗的延迟(解释为什么 cue-locked 的 ERD 会推后)。

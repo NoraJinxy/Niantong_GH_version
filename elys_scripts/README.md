@@ -28,13 +28,13 @@ elys_scripts/
 
 ## 第一次用（5 分钟）
 
-**最简单：双击仓库根的 `step3_test1_erp.cmd`（ERP）或 `step3_test2_erders.cmd`（ERD/ERS）**
+**最简单：双击仓库根的 `s3_test1_erp.cmd`（ERP）或 `s3_test2_erders.cmd`（ERD/ERS）**
 
-- 它只是个壳子，转手调本目录下的 `start.cmd <项目名>`（跟 `step2_deploy_remote.cmd` 一样的模式）。
+- 它只是个壳子，转手调本目录下的 `start.cmd <项目名>`（跟 `s2_deploy_remote.cmd` 一样的模式）。
 - 第一次跑：`start.cmd` 自动建 `.venv` 虚拟环境 + 装 `requirements.txt`（不污染你系统 Python）。
 - 之后每次跑：激活 venv → 打印 step3 横幅 → 依次跑该项目的 `setup.py`（建数据集 + 上传）和 `run.py`（建 + 跑 pipeline + 下产物）。
 
-> 也可以直接双击 `elys_scripts/start.cmd`（默认项目 `01_erp_basic`），或命令行 `start.cmd 02_erd_ers` 指定项目。外面那两个 `step3_test*.cmd` 只是省你一次切目录、自带项目名。
+> 也可以直接双击 `elys_scripts/start.cmd`（默认项目 `01_erp_basic`），或命令行 `start.cmd 02_erd_ers` 指定项目。外面那两个 `s3_test*.cmd` 只是省你一次切目录、自带项目名。
 
 跑之前先改一次账号与目标：
 

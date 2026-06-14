@@ -22,23 +22,23 @@
 
 .EXAMPLE
   # 先看账号里有哪些 启动模板 / 安全组 / 交换机 / 镜像
-  .\step1_buy_ecs.cmd -List
+  .\s1_buy_ecs.cmd -List
 
 .EXAMPLE
   # 演练：按模板 elys-compute 抢占式购买（只校验，不花钱）
-  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute
+  .\s1_buy_ecs.cmd -LaunchTemplateName elys-compute
 
 .EXAMPLE
   # 真买；默认就把拿到的公网 IP 写回 aliyun-test.env 的 COMPUTE_SERVER_IP
-  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes
+  .\s1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes
 
 .EXAMPLE
   # 真买但不回写 profile（自己手动设 IP）
-  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes -NoUpdateProfile
+  .\s1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes -NoUpdateProfile
 
 .EXAMPLE
   # 设每小时上限价的抢占式
-  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -SpotStrategy SpotWithPriceLimit -SpotPriceLimit 0.5 -Yes
+  .\s1_buy_ecs.cmd -LaunchTemplateName elys-compute -SpotStrategy SpotWithPriceLimit -SpotPriceLimit 0.5 -Yes
 #>
 param(
     [string]$RegionId = "cn-shenzhen",   # 华南1(深圳)，跟现有计算服一致
@@ -199,7 +199,7 @@ if ($useTemplate) {
 }
 else {
     if (-not $SecurityGroupId -or -not $VSwitchId) {
-        throw "没用启动模板时，必须给 -SecurityGroupId 和 -VSwitchId（先跑 .\step1_buy_ecs.cmd -List 查），或改用 -LaunchTemplateName。"
+        throw "没用启动模板时，必须给 -SecurityGroupId 和 -VSwitchId（先跑 .\s1_buy_ecs.cmd -List 查），或改用 -LaunchTemplateName。"
     }
     $it = if ($InstanceType) { $InstanceType } else { "ecs.e-c1m2.large" }
     $img = if ($ImageId) { $ImageId } else { Resolve-LatestImage }
@@ -306,7 +306,7 @@ if (-not $NoUpdateProfile -and $ip) {
         $enc = New-Object System.Text.UTF8Encoding($false)   # UTF-8 无 BOM，跟现有 .env 一致
         [System.IO.File]::WriteAllLines($profilePath, [string[]]$out, $enc)
         Write-Host "[OK] 已把 COMPUTE_SERVER_IP=$ip 写回 $Profile.env" -ForegroundColor Green
-        Write-Host "     接着就能部署：  .\step2_deploy_remote.cmd -Profile $Profile"
+        Write-Host "     接着就能部署：  .\s2_deploy_remote.cmd -Profile $Profile"
     }
     else {
         Write-Host "  ⚠ 没找到 $profilePath，跳过回写。" -ForegroundColor Yellow

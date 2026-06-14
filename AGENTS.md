@@ -35,7 +35,7 @@
 
 ## 开发与部署
 
-- 本地 Windows 写代码 → 跑 `step2_deploy_remote.cmd` → 在阿里云双服务器（入口 + 计算）上调试，**没有本地运行环境**。
+- 本地 Windows 写代码 → 跑 `s2_deploy_remote.cmd` → 在阿里云双服务器（入口 + 计算）上调试，**没有本地运行环境**。
 - 部署前可本地静态校验：后端 `python -m py_compile`、前端 `npm run typecheck`、文档 `mkdocs build`；真实 pytest / 起服务只能在云端。
 - 计算服务器是阿里云按量实例、**IP 每次部署都会变**，部署后需更新 `elys_scripts/common/config.py` 的 `DATA_BASE_URL`。
 - 测试账号、密钥、服务器密码等**不写进本仓库**，找用户或看 `deploy/` 配置。

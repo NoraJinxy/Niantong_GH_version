@@ -14,7 +14,7 @@ ERD/ERS（事件相关去同步/同步）= 运动想象时 mu(8-13Hz)/beta(13-30
 | `setup.py` | 建 Dataset+Study+挂载 → 上传单个 econ `.bdf` → 打印通道名/事件标签 | 数据没变时跑一次 |
 | `run.py`   | 建 pipeline → validate → run → 打印每节点状态 → 列 TFR 产物 | 调 pipeline 参数时反复跑 |
 
-仓库根的 `step3_test2_erders.cmd` 会**先跑 setup 再跑 run**，一键到底；
+仓库根的 `s3_test2_erders.cmd` 会**先跑 setup 再跑 run**，一键到底；
 只调 pipeline 时直接 `python run.py`，不必每次重传数据。
 
 ## pipeline 链路

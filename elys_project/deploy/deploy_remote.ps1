@@ -686,7 +686,7 @@ function Install-DeployKey {
     Write-Host "######################################################################" -ForegroundColor Yellow
     Write-LocalWarn "目标 ${Label} (${ServerIP}) 的【免密钥登录失败】, 现在要用 root 密码把部署公钥重新装上去。"
     Write-LocalWarn "下面会出现 `"root@${ServerIP}'s password:`" 提示符, 请输入该服务器 root 密码 (输入时不显示字符, 正常现象)。"
-    Write-LocalInfo "  → 密码输错会在这步 FAIL; 重新跑 step2_deploy_remote.cmd 再输一次即可。"
+    Write-LocalInfo "  → 密码输错会在这步 FAIL; 重新跑 s2_deploy_remote.cmd 再输一次即可。"
     Write-LocalWarn "  → 安全提示: 若这台服务器【以前能免密、现在突然要密码】, 可能 authorized_keys 被改或系统被重装,"
     Write-LocalWarn "     请先去阿里云控制台核对异常登录告警, 确认安全后再继续输入密码!"
     $publicKey = (Get-Content -Raw -Encoding ascii -Path "${SshKeyPath}.pub").Trim()
@@ -699,7 +699,7 @@ function Install-DeployKey {
     catch {
         Write-LocalFail "在 ${Label} (${ServerIP}) 安装 deploy key 失败"
         Write-LocalFail "  常见原因: (1) 密码输错  (2) 服务器禁了 root SSH  (3) 网络不通"
-        Write-LocalFail "  重试: 重新跑 step2_deploy_remote.cmd, 这次输对密码"
+        Write-LocalFail "  重试: 重新跑 s2_deploy_remote.cmd, 这次输对密码"
         throw
     }
 

@@ -10,7 +10,7 @@
 | `setup.py` | 建 Dataset+Study+挂载 → 上传 BrainVision 数据 → 打印通道名/事件标签 | 数据没变时跑一次就够 |
 | `run.py`   | 建 pipeline → validate → run → 打印每节点状态 → 下载 evoked | 调 pipeline 参数时反复跑 |
 
-仓库根的 `step3_elys_debug.cmd` 会**先跑 setup 再跑 run**，一键到底；
+仓库根的 `s3_test1_erp.cmd` 会**先跑 setup 再跑 run**，一键到底；
 只调 pipeline 时直接 `python run.py`，不必每次重传数据。
 
 ## 用前
