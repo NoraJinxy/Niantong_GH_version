@@ -13,10 +13,8 @@ from .io import (
     summarize_evoked,
     summarize_raw,
 )
-from .testing import make_synthetic_raw
 
 __all__ = [
-    "make_synthetic_raw",
     "read_epochs_from_data_info",
     "read_raw_from_data_info",
     "save_epochs_fif",

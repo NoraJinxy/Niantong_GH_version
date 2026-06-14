@@ -615,5 +615,5 @@ async function copyDoi(doi: string) {
 </script>
 
 <!-- 拆分批 2：CSS 改全局（类名均为本页独有、无 :deep / 无全局类覆盖，渲染与 scoped 一致），
-     以便抽出的 tab 子组件直接复用这些 .dataset-* / .df-* 样式，无需逐 tab 搬 CSS。 -->
+     以便抽出的 tab 子组件直接复用这些 .dataset-* 样式，无需逐 tab 搬 CSS。 -->
 <style src="./DatasetsPage.css"></style>

@@ -202,7 +202,6 @@ CREATE TABLE IF NOT EXISTS dataset_files (
     storage_uri             VARCHAR(1024) NOT NULL,
     relative_path           VARCHAR(512) NOT NULL,
     logical_path            VARCHAR(1024),
-    source_file_id          UUID REFERENCES dataset_files(id) ON DELETE SET NULL,
     file_size               BIGINT,
     sha256                  VARCHAR(64),
     mime_type               VARCHAR(128),
@@ -216,7 +215,6 @@ COMMENT ON COLUMN dataset_files.file_role IS '文件角色（2026-06-10 精简�
 COMMENT ON COLUMN dataset_files.storage_uri IS '存储抽象 URI。数据集文件统一用 elys://datasets/{dataset_asset_id}/{logical_path}（asset 级根；logical_path 形如 sourcedata/original_uploads/... 或 BIDSdata/sub-/ses-/eeg/... 或 ver{label}/sub-/...）。由 StorageService.resolve_uri 解析。';
 COMMENT ON COLUMN dataset_files.relative_path IS '相对于研究项 data_root 的 POSIX 路径。';
 COMMENT ON COLUMN dataset_files.logical_path IS '相对于 Dataset Version 根或 Study 根的稳定逻辑路径。';
-COMMENT ON COLUMN dataset_files.source_file_id IS '可选的直接来源文件。复杂多源关系使用 dataset_file_derivations 表表达。';
 
 -- ============================================
 -- 版本文件清单（version ↔ file 多对多，支持「逻辑链接」复用旧版本物理文件）
@@ -362,7 +360,6 @@ CREATE INDEX IF NOT EXISTS idx_dataset_files_recording_role ON dataset_files(rec
 CREATE INDEX IF NOT EXISTS idx_dataset_files_recording_version ON dataset_files(recording_version_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_files_version_role ON dataset_files(dataset_version_id, file_role);
 CREATE INDEX IF NOT EXISTS idx_dataset_files_logical_path ON dataset_files(dataset_version_id, logical_path);
-CREATE INDEX IF NOT EXISTS idx_dataset_files_source_file ON dataset_files(source_file_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_files_sha256 ON dataset_files(sha256);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_recordings_bids_entities
     ON recordings(study_id, subject_id, COALESCE(session, ''), task, COALESCE(run, ''));

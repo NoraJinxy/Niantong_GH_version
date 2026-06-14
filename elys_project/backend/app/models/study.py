@@ -453,7 +453,6 @@ class DatasetFile(Base):
         Index("idx_dataset_files_recording_version", "recording_version_id"),
         Index("idx_dataset_files_version_role", "dataset_version_id", "file_role"),
         Index("idx_dataset_files_logical_path", "dataset_version_id", "logical_path"),
-        Index("idx_dataset_files_source_file", "source_file_id"),
         Index("idx_dataset_files_sha256", "sha256"),
     )
 
@@ -466,7 +465,6 @@ class DatasetFile(Base):
     storage_uri = Column(String(1024), nullable=False)
     relative_path = Column(String(512), nullable=False)
     logical_path = Column(String(1024))
-    source_file_id = Column(UUID(as_uuid=True), ForeignKey("dataset_files.id", ondelete="SET NULL"))
     file_size = Column(BigInteger)
     sha256 = Column(String(64))
     mime_type = Column(String(128))
@@ -478,17 +476,6 @@ class DatasetFile(Base):
     recording = relationship("Recording", foreign_keys=[recording_id], back_populates="files")
     recording_version = relationship("RecordingVersion", foreign_keys=[recording_version_id], back_populates="files")
     dataset_version = relationship("DatasetVersion", foreign_keys=[dataset_version_id], back_populates="files")
-    source_file = relationship(
-        "DatasetFile",
-        remote_side=[id],
-        foreign_keys=[source_file_id],
-        back_populates="derived_files",
-    )
-    derived_files = relationship(
-        "DatasetFile",
-        foreign_keys="DatasetFile.source_file_id",
-        back_populates="source_file",
-    )
     source_derivations = relationship(
         "DatasetFileDerivation",
         foreign_keys="DatasetFileDerivation.source_file_id",

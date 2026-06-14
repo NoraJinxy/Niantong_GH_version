@@ -185,7 +185,7 @@ $ResolvedProfilePath = if (-not [string]::IsNullOrWhiteSpace($ProfilePath)) {
 }
 
 if ($Profile -eq "local") {
-    throw "Profile 'local' is for one-machine development. Run deploy/apply_local_profile.sh on the Mac instead of deploy_remote.ps1."
+    throw "Profile 'local' is for one-machine development. Use start_local.cmd + docker-compose.local.yml instead of deploy_remote.ps1."
 }
 
 $ProfileValues = Read-EnvProfile -Path $ResolvedProfilePath
