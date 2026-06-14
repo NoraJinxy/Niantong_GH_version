@@ -587,15 +587,6 @@ const summaryText = computed(() => {
 const activeBatchGroup = computed(() =>
   groups.value.find((group) => group.id === batchProgressActiveGroupId.value) || null,
 )
-const batchProgressPercent = computed(() => {
-  const total = batchProgressTotal.value
-  if (!total) return 0
-  const activeFraction = isUploading.value && activeBatchGroup.value
-    ? getBatchGroupFraction(activeBatchGroup.value)
-    : 0
-  const handled = Math.min(batchProgressCompleted.value + activeFraction, total)
-  return Math.max(0, Math.min(100, Math.round((handled / total) * 100)))
-})
 const batchProgressText = computed(() => {
   const total = batchProgressTotal.value
   const handled = Math.min(batchProgressCompleted.value, total)

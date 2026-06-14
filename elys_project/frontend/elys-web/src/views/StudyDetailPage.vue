@@ -222,23 +222,6 @@ function qaStatusLabel(status: string | null) {
   return status ? labels[status] || status : '未校验'
 }
 
-function statusLabel(status: string | null | undefined) {
-  const labels: Record<string, string> = {
-    active: '活跃',
-    archived: '已归档',
-    trashed: '回收站',
-    deleted: '已删除',
-  }
-  return status ? labels[status] || status : '未知'
-}
-
-function statusPillClass(status: string | null | undefined) {
-  if (status === 'active') return 'status-pill--ok'
-  if (status === 'archived') return 'status-pill--warn'
-  if (status === 'deleted' || status === 'trashed') return 'status-pill--danger'
-  return ''
-}
-
 function qualityPillClass(status: string | null) {
   if (status === 'checked') return 'status-pill--ok'
   if (status === 'failed' || status === 'rejected') return 'status-pill--danger'

@@ -1198,42 +1198,6 @@ export interface PipelineExecutionLineage {
   graph_edges: PipelineExecutionLineageGraphEdge[]
 }
 
-export interface ExecutionManifestSummary {
-  execution_id: string
-  study_id?: string | null
-  pipeline_id?: number | string | null
-  pipeline_version?: number | null
-  status?: string | null
-  execution_mode?: PipelineExecutionMode | string | null
-  input_count?: number | null
-  artifact_count?: number | null
-  task_count?: number | null
-  warning_count?: number | null
-  error_count?: number | null
-  generated_at?: string | null
-  manifest_uri?: string | null
-  [key: string]: unknown
-}
-
-export interface StudyOverview {
-  study: Study
-  mounts?: StudyDatasetMount[]
-  dataset_assets?: DatasetAsset[]
-  recordings?: Recording[]
-  pipelines?: Pipeline[]
-  recent_executions?: PipelineExecution[]
-  recent_study_outputs?: StudyOutput[]
-  recent_activity?: StudyActivityItem[]
-  dataset_asset_count?: number
-  recording_count?: number
-  pipeline_count?: number
-  execution_count?: number
-  active_execution_count?: number
-  failed_execution_count?: number
-  artifact_count?: number
-  updated_at?: string | null
-}
-
 export interface PipelineIcaComponentPreview {
   index: number
   label?: string | null

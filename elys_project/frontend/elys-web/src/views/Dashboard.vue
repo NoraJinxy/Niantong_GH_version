@@ -408,11 +408,6 @@ const attentionExecutions = computed(() =>
     .filter((execution) => isAttentionExecutionStatus(execution.status))
     .sort(compareExecutionsByPriority),
 )
-const activeExecutions = computed(() =>
-  [...dashboardExecutions.value]
-    .filter((execution) => isActiveExecutionStatus(execution.status))
-    .sort(compareExecutionsByPriority),
-)
 const prioritizedExecutions = computed(() =>
   [...dashboardExecutions.value]
     .filter((execution) => isAttentionExecutionStatus(execution.status) || isActiveExecutionStatus(execution.status))

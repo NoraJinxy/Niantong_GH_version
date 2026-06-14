@@ -61,24 +61,6 @@ def read_ica_from_data_info(data_info: Any):
     return mne.preprocessing.read_ica(path, verbose="ERROR")
 
 
-def read_tfr_from_data_info(data_info: Any):
-    """读 AverageTFR(时频结果,存为 HDF5 的 -tfr.h5)。
-
-    MNE 的 read_tfrs 在不同版本返回单对象或列表,这里统一取第一个。
-    """
-    path = resolve_path_reference(
-        data_info,
-        ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
-    )
-    mne = _mne()
-    out = mne.time_frequency.read_tfrs(path)
-    if isinstance(out, (list, tuple)):
-        if not out:
-            raise ValueError("TFR file contains no time-frequency data.")
-        return out[0]
-    return out
-
-
 def save_raw_fif(raw: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "raw")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -195,17 +177,6 @@ def summarize_tfr(tfr: Any) -> dict[str, Any]:
         "comment": getattr(tfr, "comment", None),
         "method": str(getattr(tfr, "method", "") or ""),
     }
-
-
-def summarize_mne_object(obj: Any) -> dict[str, Any]:
-    mne = _mne()
-    if isinstance(obj, mne.io.BaseRaw):
-        return summarize_raw(obj)
-    if isinstance(obj, mne.BaseEpochs):
-        return summarize_epochs(obj)
-    if isinstance(obj, mne.Evoked):
-        return summarize_evoked(obj)
-    raise TypeError(f"Unsupported MNE object type: {type(obj)!r}")
 
 
 def resolve_path_reference(reference: Any, keys: tuple[str, ...]) -> Path:

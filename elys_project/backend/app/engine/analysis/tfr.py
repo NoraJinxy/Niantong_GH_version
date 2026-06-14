@@ -29,7 +29,6 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
       baseline_tmin / baseline_tmax: 基线窗(秒)。tmin 缺省时用 epoch 起点,tmax 默认 0(刺激前)。
       channels:       可选,只算这些通道(默认全通道)。
     """
-    mne = _mne()
     import numpy as np  # noqa: PLC0415
 
     labels = _normalize_event_labels(params.get("condition"))

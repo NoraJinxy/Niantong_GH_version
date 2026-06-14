@@ -8,7 +8,7 @@ Related: app/pipeline/dispatcher.py, app/pipeline/nodes/*.json (save.* 配置)�
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 
 # 节点拓扑角色

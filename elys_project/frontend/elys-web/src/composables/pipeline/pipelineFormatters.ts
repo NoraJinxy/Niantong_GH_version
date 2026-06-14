@@ -212,10 +212,6 @@ export function categorySoftColor(category?: string | null) {
   return CATEGORY_SOFT_COLORS[categoryKey(category)] || '#EEF2F8'
 }
 
-export function categoryLabel(category?: string | null) {
-  return String(category || 'Node').trim() || 'Node'
-}
-
 export function compactNodeTitle(title: string) {
   const normalized = title.trim()
   if (normalized.length <= NODE_TITLE_MAX_CHARS) return normalized

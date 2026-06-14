@@ -11,7 +11,6 @@ from .io import (
     save_raw_fif,
     summarize_epochs,
     summarize_evoked,
-    summarize_mne_object,
     summarize_raw,
 )
 from .testing import make_synthetic_raw
@@ -25,6 +24,5 @@ __all__ = [
     "save_raw_fif",
     "summarize_epochs",
     "summarize_evoked",
-    "summarize_mne_object",
     "summarize_raw",
 ]

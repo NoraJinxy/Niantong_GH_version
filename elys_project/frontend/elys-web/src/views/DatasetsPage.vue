@@ -295,26 +295,10 @@ import DatasetMaintenanceTab from '@/components/datasets/DatasetMaintenanceTab.v
 import DatasetShareTab from '@/components/datasets/DatasetShareTab.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  datasetVersionStateClass,
-  datasetVersionStateLabel,
-} from '@/api/datasetVersions'
-import {
-  type DatasetFileRoleFilter,
-  formatDate,
   formatDuration,
-  formatFileSize,
-  formatStudyName,
   formatRelative,
-  formatVersionLabel,
-  getFileFullLogicalPath,
-  getFileRelativePath,
-  getFileRoleLabel,
-  getFileShortPath,
-  getQaStatusClass,
-  getQaStatusLabel,
   getVisibilityClass,
   getVisibilityLabel,
-  qaStatusLabel,
 } from '@/composables/datasets/datasetsFormatters'
 import { useDatasetCatalog } from '@/composables/datasets/useDatasetCatalog'
 import { useDatasetFiles, FILE_INDEX_PAGE_SIZE } from '@/composables/datasets/useDatasetFiles'
@@ -329,14 +313,6 @@ const datasetTabs: Array<{ key: DatasetWorkbenchTab; label: string }> = [
   { key: 'data', label: '数据文件' },
   { key: 'import', label: '上传' },
   { key: 'share', label: '发布与共享' },
-]
-
-const fileRoleOptions: Array<{ value: DatasetFileRoleFilter; label: string }> = [
-  { value: 'all', label: '全部角色' },
-  { value: 'original', label: '原始上传' },
-  { value: 'raw-bids', label: 'BIDS 逻辑视图' },
-  { value: 'canonical-fif', label: '标准 FIF' },
-  { value: 'other', label: '其他' },
 ]
 
 const auth = useAuthStore()

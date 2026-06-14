@@ -5,7 +5,7 @@ Related: app/routers/dashboard.py, app/schemas/dashboard.py, app/models/study.py
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Iterable
 
 from sqlalchemy import and_, func, or_

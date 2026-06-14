@@ -363,10 +363,6 @@ const filterPlaceholder = computed(() => {
   return '过滤实验维度...'
 })
 
-const hasAnyExcludes = computed(() => {
-  return excludes.value.subject.size > 0 || excludes.value.exp.size > 0
-})
-
 // === 筛选逻辑 (同 Tab OR + 跨 Tab AND) ===
 const filteredDatasets = computed<Recording[]>(() => {
   return props.studyDatasets.filter((dataset) => {

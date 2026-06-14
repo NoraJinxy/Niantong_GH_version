@@ -510,7 +510,6 @@ class PipelineExecutor:
         commit_progress: bool = False,
     ) -> dict[str, Any]:
         started_at = datetime.utcnow()
-        node_id = str(node.get("id") or "")
         node_type = str(node.get("type") or "")
         params = self._params_for_job(node, job)
         node_spec = self.node_registry.get(node_type) or {}

@@ -1087,40 +1087,19 @@ import 'litegraph.js/css/litegraph.css'
 import AppIcon from '@/components/AppIcon.vue'
 import LoadDataPanel from '@/components/LoadDataPanel.vue'
 import IconLine from '@/components/IconLine.vue'
-import { datasetApi } from '@/api/datasets'
 import { pipelineApi } from '@/api/pipelines'
 import type {
-  Recording,
-  AsyncTask,
   LoadDataDataInfo,
-  LoadDataResolveRequest,
-  NodeProperty,
   NodeSpec,
   Pipeline,
-  StudyOutput,
-  StudyOutputPreview,
   PipelineDefinitionPayload,
-  PipelineEditLock,
   PipelineGraphLink,
   PipelineGraphNode,
-  PipelineIcaComponentPreview,
-  PipelineInteraction,
   PipelineJob,
-  PipelineExecution,
-  PipelineExecutionDetail,
-  PipelineExecutionLineage,
-  PipelineExecutionMode,
-  PipelineExecutionSelectionOverride,
   PipelineValidationResponse,
-  TaskEvent,
 } from '@/types'
 import {
   LOAD_DATA_NODE_TYPE,
-  EPOCH_NODE_TYPE,
-  ERP_NODE_TYPE,
-  ICA_APPLY_NODE_TYPE,
-  NULL_FILTER_VALUE,
-  DEFAULT_LOAD_DATA_QA_STATUS,
   LITEGRAPH_NODE_ID_PROP,
   LITEGRAPH_HIDPI_EVENT_PROP,
   LITEGRAPH_ORIGINAL_CLIENT_X_PROP,
@@ -1130,11 +1109,6 @@ import {
   LINK_HIGHLIGHT_COLOR,
   LINK_CONNECTING_COLOR,
   LINK_HIGHLIGHT_WIDTH_MULT,
-  EXECUTION_POLL_INTERVAL_MS,
-  EXECUTION_CANCELABLE_STATUSES,
-  EXECUTION_RETRYABLE_STATUSES,
-  TASK_CANCELABLE_STATUSES,
-  TASK_RETRYABLE_STATUSES,
   EXECUTION_MODE_OPTIONS,
   NODE_CARD_WIDTH,
   NODE_CARD_MIN_HEIGHT,
@@ -1143,15 +1117,10 @@ import {
   LITEGRAPH_MIN_ZOOM,
   LITEGRAPH_MAX_ZOOM,
   LITEGRAPH_MAX_PIXEL_RATIO,
-  DRAFT_LS_PREFIX,
-  DRAFT_STORAGE_VERSION,
-  LAYOUT_LS_PREFIX,
   LINK_HIGHLIGHT_PATCH_MARK,
-  NO_SAVE_ICON_NODE_TYPES,
 } from '@/composables/pipeline/pipelineConstants'
 import {
   pipelinePortColors,
-  portTypeColor,
   withAlpha,
   nodeStatusColor,
   nodeStatusSoftColor,
@@ -1162,22 +1131,13 @@ import {
   isStepDone,
   formatFileSize,
   shortId,
-  numericMetric,
-  formatMetricNumber,
-  formatSecondsMetric,
   formatDurationMs,
   formatPipelineExecutionStatus,
   formatTaskStatus,
-  formatDateTime,
   formatPipelineStatus,
-  allowedExecutionModeText,
   formatExecutionMode,
   formatArtifactRetention,
   categoryColor,
-  categorySoftColor,
-  compactNodeTitle,
-  portTypesCompatible,
-  liteGraphPortType,
 } from '@/composables/pipeline/pipelineFormatters'
 import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
 import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
@@ -1770,18 +1730,6 @@ const manifestOutputCount = computed(() => {
     return Array.isArray(artifacts) ? artifacts.length : Object.keys(outputs).length
   }
   return 0
-})
-
-const upstreamCandidates = computed(() => {
-  if (!selectedNode.value) return []
-  return definition.value.graph.nodes.filter((node) => node.id !== selectedNode.value?.id)
-})
-
-const selectedNodeLinks = computed(() => {
-  if (!selectedNode.value) return []
-  return definition.value.graph.links.filter(
-    (link) => link.from.node === selectedNode.value?.id || link.to.node === selectedNode.value?.id,
-  )
 })
 
 // 节点连接管理（入链列表/上游候选/快连/断连）见 composables/pipeline/useGraphConnections

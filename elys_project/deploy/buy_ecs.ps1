@@ -4,7 +4,7 @@
   无需 Python —— 底层用官方 aliyun CLI，跟 deploy_remote 一样 cmd → ps1。
 
 .DESCRIPTION
-  Purpose: 一键按启动模板开一台抢占式(便宜) ECS 计算服，拿到公网 IP 可回写 deploy profile。
+  Purpose: 一键按启动模板开一台抢占式(便宜) ECS 计算服，拿到公网 IP 默认回写 deploy profile。
   Related: deploy_remote.ps1 / deploy/profiles/*.env (COMPUTE_SERVER_IP，计算服 IP 单一数据源)。
 
   两种路径（优先启动模板）：
@@ -29,8 +29,12 @@
   .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute
 
 .EXAMPLE
-  # 真买，并把拿到的公网 IP 写回 aliyun-test.env 的 COMPUTE_SERVER_IP
-  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes -UpdateProfile
+  # 真买；默认就把拿到的公网 IP 写回 aliyun-test.env 的 COMPUTE_SERVER_IP
+  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes
+
+.EXAMPLE
+  # 真买但不回写 profile（自己手动设 IP）
+  .\step1_buy_ecs.cmd -LaunchTemplateName elys-compute -Yes -NoUpdateProfile
 
 .EXAMPLE
   # 设每小时上限价的抢占式
@@ -73,11 +77,11 @@ param(
     [string]$AccessKeyId = $env:ALIBABA_CLOUD_ACCESS_KEY_ID,
     [string]$AccessKeySecret = $env:ALIBABA_CLOUD_ACCESS_KEY_SECRET,
 
-    [string]$Profile = "aliyun-test",      # -UpdateProfile 时回写哪个 profile
+    [string]$Profile = "aliyun-test",      # 默认回写哪个 profile 的 COMPUTE_SERVER_IP（-NoUpdateProfile 关闭）
 
     [switch]$List,
     [switch]$Yes,
-    [switch]$UpdateProfile
+    [switch]$NoUpdateProfile      # 默认会回写 profile；加这个开关才跳过（自己手动设 IP）
 )
 
 $ErrorActionPreference = "Stop"
@@ -289,7 +293,7 @@ Write-Host "  ⚠ 抢占式实例库存紧张时可能被自动释放，重要�
 Write-Host $rule -ForegroundColor DarkCyan
 
 # ── 可选：回写 profile 的 COMPUTE_SERVER_IP ────────────────────────────────
-if ($UpdateProfile -and $ip) {
+if (-not $NoUpdateProfile -and $ip) {
     $profilePath = Join-Path $PSScriptRoot "profiles\$Profile.env"
     if (Test-Path $profilePath) {
         $lines = Get-Content -Path $profilePath -Encoding UTF8   # UTF-8 读，跟写回的 UTF8NoBom 一致，避免 mojibake
@@ -309,5 +313,5 @@ if ($UpdateProfile -and $ip) {
     }
 }
 elseif ($ip) {
-    Write-Host "提示：把这 IP 设为 ELYS 计算服，加 -UpdateProfile 自动回写 $Profile.env。"
+    Write-Host "提示：已按 -NoUpdateProfile 跳过回写，公网 IP=$ip，记得手动写进 $Profile.env 的 COMPUTE_SERVER_IP。" -ForegroundColor Yellow
 }
