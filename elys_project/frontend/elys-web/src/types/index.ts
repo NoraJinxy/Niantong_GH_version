@@ -981,6 +981,7 @@ export interface TimeseriesChannel {
 
 export interface StudyOutputTimeseries {
   data_type: string
+  unit?: string | null
   sfreq: number
   tmin: number
   tmax: number
