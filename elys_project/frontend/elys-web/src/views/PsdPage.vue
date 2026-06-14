@@ -1,6 +1,6 @@
 <template>
   <WorkbenchShell active-key="view-psd" active-top-key="observe">
-    <div class="obs-layout">
+    <div v-if="!isLive" class="obs-layout">
       <aside class="selector-panel">
         <div class="sel-section">
           <h4>数据集 <span class="count">3</span></h4>
@@ -199,13 +199,176 @@
         </div>
       </aside>
     </div>
+
+    <div v-else class="obs-layout obs-layout--live">
+      <main class="obs-main">
+        <ObserveTabs active="psd">
+          <template #meta>
+            <span style="font-size: 11px; color: var(--c-text-3)">{{ liveMeta }}</span>
+          </template>
+        </ObserveTabs>
+
+        <div class="obs-toolbar">
+          <span class="tool-lbl">通道</span>
+          <select :value="selectedChannel" @change="selectChannel(($event.target as HTMLSelectElement).value)">
+            <option v-for="ch in channelOptions" :key="ch" :value="ch">{{ ch }}</option>
+          </select>
+          <div style="flex: 1"></div>
+          <button class="btn btn--sm btn--primary" @click="refresh">▶ 刷新</button>
+        </div>
+
+        <div class="psd-live-card">
+          <div class="psd-live-card__head">
+            <h2>功率谱 · {{ selectedChannel }} · {{ live?.condition || '—' }}</h2>
+            <p>Welch · {{ fmtHz(live?.fmin) }}–{{ fmtHz(live?.fmax) }} Hz · {{ live?.n_channels_total ?? '—' }} 通道</p>
+          </div>
+          <div class="psd-live-plot">
+            <div v-if="liveLoading" class="psd-state">正在加载功率谱…</div>
+            <div v-else-if="liveError" class="psd-state psd-state--err">{{ liveError }}</div>
+            <svg viewBox="0 0 760 320" preserveAspectRatio="xMidYMid meet" class="psd-svg">
+              <rect width="760" height="320" fill="#fff" />
+              <g transform="translate(56, 16)">
+                <line v-for="g in yGrid" :key="`y${g.y}`" x1="0" :y1="g.y" x2="660" :y2="g.y" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
+                <text v-for="g in yGrid" :key="`yl${g.y}`" x="-8" :y="g.y + 3" font-size="10" text-anchor="end" fill="#577190" font-family="monospace">{{ g.label }}</text>
+                <line x1="0" y1="0" x2="0" y2="260" stroke="#bbccdd" />
+                <line x1="0" y1="260" x2="660" y2="260" stroke="#bbccdd" />
+                <text v-for="t in xTicks" :key="`x${t.x}`" :x="t.x" y="278" font-size="10" text-anchor="middle" fill="#577190" font-family="monospace">{{ t.label }}</text>
+                <polyline v-if="linePath" :points="linePath" fill="none" stroke="#2563EB" stroke-width="1.8" />
+                <text x="-44" y="130" font-size="11" fill="#5B6B85" transform="rotate(-90 -44 130)">功率 (dB)</text>
+                <text x="330" y="300" font-size="11" fill="#5B6B85">频率 (Hz)</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </main>
+
+      <aside class="stats-panel">
+        <div class="st-section">
+          <h4>频带平均功率 (dB)</h4>
+          <div class="stat-grid">
+            <div v-for="b in live?.bands || []" :key="b.name" class="stat-card">
+              <div class="stat-label">{{ b.name }} ({{ b.fmin }}–{{ b.fmax }} Hz)</div>
+              <div class="stat-value">{{ b.value.toFixed(1) }}<span class="unit"> dB</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="st-section">
+          <h4>导出</h4>
+          <RouterLink class="btn" to="/figures">发送到作图模块</RouterLink>
+          <RouterLink class="btn" to="/statistics">发送到统计模块</RouterLink>
+        </div>
+      </aside>
+    </div>
   </WorkbenchShell>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import ObserveTabs from '@/components/ObserveTabs.vue'
+import { pipelineApi } from '@/api/pipelines'
+import type { StudyOutputPsd } from '@/types'
+
+// ── 双模式：路由带 study_output_id+studyId → 拉真实功率谱；否则保留静态设计稿 ──
+const route = useRoute()
+const studyId = computed(() => String(route.query.studyId || route.query.study_id || ''))
+const outputId = computed(() => String(route.query.study_output_id || ''))
+const isLive = computed(() => Boolean(studyId.value && outputId.value))
+
+const live = ref<StudyOutputPsd | null>(null)
+const liveLoading = ref(false)
+const liveError = ref('')
+const selectedChannel = ref('')
+
+async function loadPsd(channel?: string) {
+  if (!isLive.value) return
+  liveLoading.value = true
+  liveError.value = ''
+  try {
+    const res = await pipelineApi.getStudyOutputPsd(studyId.value, outputId.value, channel ? { channel } : {})
+    live.value = res.data
+    selectedChannel.value = res.data.channel
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail
+    liveError.value = detail?.message || (error as Error)?.message || '功率谱加载失败'
+  } finally {
+    liveLoading.value = false
+  }
+}
+
+onMounted(() => {
+  if (isLive.value) loadPsd()
+})
+
+function selectChannel(ch: string) {
+  if (!ch) return
+  selectedChannel.value = ch
+  if (isLive.value) loadPsd(ch)
+}
+
+function refresh() {
+  if (isLive.value) loadPsd(selectedChannel.value)
+}
+
+const channelOptions = computed(() => (live.value ? live.value.ch_names_all : []))
+
+const liveMeta = computed(() => {
+  if (!live.value) return ''
+  return `${selectedChannel.value} · ${live.value.condition || '—'} · ${Math.round(live.value.sfreq)} Hz`
+})
+
+function fmtHz(value: number | null | undefined) {
+  if (value == null) return '—'
+  return Math.abs(value) >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
+}
+
+// ── 折线 / 坐标：把 freqs/power 映射到 660×260 绘图区 ──
+const PLOT_W = 660
+const PLOT_H = 260
+
+const prange = computed(() => {
+  const p = live.value?.power || []
+  if (!p.length) return { pmin: -1, pmax: 1 }
+  const pmin = live.value?.pmin ?? Math.min(...p)
+  const pmax = live.value?.pmax ?? Math.max(...p)
+  if (pmax <= pmin) return { pmin: pmin - 1, pmax: pmax + 1 }
+  return { pmin, pmax }
+})
+
+const linePath = computed(() => {
+  const freqs = live.value?.freqs || []
+  const power = live.value?.power || []
+  const n = Math.min(freqs.length, power.length)
+  if (n < 2) return ''
+  const fmin = freqs[0]
+  const fspan = freqs[n - 1] - fmin || 1
+  const { pmin, pmax } = prange.value
+  const pspan = pmax - pmin || 1
+  const pts: string[] = []
+  for (let i = 0; i < n; i++) {
+    const x = ((freqs[i] - fmin) / fspan) * PLOT_W
+    const y = PLOT_H - ((power[i] - pmin) / pspan) * PLOT_H
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+  }
+  return pts.join(' ')
+})
+
+const yGrid = computed(() => {
+  const { pmin, pmax } = prange.value
+  return [0, 0.5, 1].map((f) => ({
+    y: PLOT_H - f * PLOT_H,
+    label: String(Math.round(pmin + f * (pmax - pmin))),
+  }))
+})
+
+const xTicks = computed(() => {
+  const freqs = live.value?.freqs || []
+  if (!freqs.length) return [] as Array<{ x: number; label: string }>
+  const fmin = freqs[0]
+  const fmax = freqs[freqs.length - 1]
+  return [0, 0.5, 1].map((f) => ({ x: f * PLOT_W, label: fmtHz(fmin + f * (fmax - fmin)) }))
+})
 
 function pseudoRand(seed: number) {
   const x = Math.sin(seed * 13.4567) * 43758.5453
@@ -324,4 +487,46 @@ const bands = [
 }
 .iaf-alert strong { color: var(--c-success); }
 .iaf-sub { font-size: 11px; color: var(--c-text-2); margin-top: 2px; }
+
+/* ── live 模式（接真实 PSD 结果）── */
+.psd-live-card {
+  margin: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.psd-live-card__head {
+  padding: 12px 16px;
+  background: var(--c-bg-soft);
+  border-bottom: 1px solid var(--c-border);
+}
+.psd-live-card__head h2 { margin: 0; font-size: 14px; }
+.psd-live-card__head p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; }
+.psd-live-plot { padding: 12px; position: relative; }
+.psd-svg { width: 100%; max-width: 100%; height: auto; }
+.psd-state {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: var(--r-pill);
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-2);
+}
+.psd-state--err { color: var(--c-danger, #d43f34); border-color: var(--c-danger, #d43f34); }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stat-card {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-soft);
+  padding: 8px 10px;
+  text-align: center;
+}
+.stat-label { font-size: 10px; color: var(--c-text-3); }
+.stat-value { font-family: var(--ff-mono); font-size: 15px; font-weight: 600; margin-top: 2px; color: var(--c-text); }
+.stat-value .unit { font-size: 10px; color: var(--c-text-3); margin-left: 2px; }
 </style>

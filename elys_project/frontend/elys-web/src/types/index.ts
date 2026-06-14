@@ -1042,6 +1042,30 @@ export interface StudyOutputTfrQuery {
   maxTimes?: number
 }
 
+export interface StudyOutputPsd {
+  data_type: string
+  study_output_id: string
+  condition: string | null
+  method: string
+  unit: string
+  sfreq: number
+  channel: string
+  n_channels_total: number
+  ch_names_all: string[]
+  freqs: number[]
+  power: number[]
+  fmin: number | null
+  fmax: number | null
+  pmax: number | null
+  pmin: number | null
+  bands: TfrBandStat[]
+}
+
+export interface StudyOutputPsdQuery {
+  channel?: string
+  maxFreqs?: number
+}
+
 export interface StudyOutputUpdatePayload {
   display_name?: string | null
   description?: string | null

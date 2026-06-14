@@ -42,6 +42,7 @@ from app.pipeline.previews import (
     validate_study_output_file,
 )
 from app.pipeline.timeseries import build_timeseries
+from app.pipeline.psd_view import build_psd_lines
 from app.pipeline.tfr_view import build_tfr_heatmap
 from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
@@ -571,6 +572,42 @@ def get_study_output_tfr(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "DERIVED_DATASET_TFR_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/psd")
+def get_study_output_psd(
+    study_id: str,
+    dataset_id: UUID,
+    channel: str | None = Query(default=None),
+    max_freqs: int = Query(default=300, ge=8, le=2000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """单通道功率谱(频率 → 功率 dB 折线 + 频带统计)。供功率谱观察页按通道切换拉取。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，功率谱不可用。"},
+        )
+    if str(dataset.data_type or "").lower() != "psd":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "DERIVED_DATASET_NOT_PSD", "message": "该结果不是功率谱(PSD)类型。"},
+        )
+    try:
+        return build_psd_lines(study, dataset, channel=channel, max_freqs=max_freqs)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DERIVED_DATASET_PSD_ENGINE_UNAVAILABLE", "message": str(exc)},
         ) from exc
 
 

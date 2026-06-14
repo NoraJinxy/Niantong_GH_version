@@ -6,6 +6,8 @@ import type {
   StudyOutputListQuery,
   StudyOutputListResponse,
   StudyOutputPreview,
+  StudyOutputPsd,
+  StudyOutputPsdQuery,
   StudyOutputTfr,
   StudyOutputTfrQuery,
   StudyOutputTimeseries,
@@ -145,6 +147,18 @@ export const pipelineApi = {
         channel: query.channel,
         max_freqs: query.maxFreqs,
         max_times: query.maxTimes,
+      },
+    }),
+  /** 功率谱：单通道 频率→功率(dB) 折线（PsdPage 用） */
+  getStudyOutputPsd: (
+    studyId: string,
+    datasetId: string,
+    query: StudyOutputPsdQuery = {},
+  ) =>
+    api.get<StudyOutputPsd>(`/studies/${studyId}/outputs/${datasetId}/psd`, {
+      params: {
+        channel: query.channel,
+        max_freqs: query.maxFreqs,
       },
     }),
   downloadStudyOutput: (studyId: string, datasetId: string) =>
