@@ -80,6 +80,15 @@
       </select>
       <span class="wf-div"></span>
       <label class="wf-chk"><input type="checkbox" v-model="showGrid" />网格</label>
+      <span class="wf-div"></span>
+      <label class="wf-chk" title="仅用于观察滤波对结果的影响，不写入、不影响计算"><input type="checkbox" v-model="filterOn" />滤波<span class="wf-view-tag">仅看</span></label>
+      <template v-if="filterOn">
+        <input v-model="hpInput" class="wf-num" style="width: 46px" type="number" step="0.1" title="高通 Hz" @keydown.enter="applyFilter" />
+        <span class="wf-dash">~</span>
+        <input v-model="lpInput" class="wf-num" style="width: 46px" type="number" step="1" title="低通 Hz" @keydown.enter="applyFilter" />
+        <input v-model="notchInput" class="wf-num" style="width: 44px" type="number" step="1" placeholder="陷波" title="陷波 Hz" @keydown.enter="applyFilter" />
+        <button class="wf-mini" @click="applyFilter">应用</button>
+      </template>
 
       <div style="flex: 1"></div>
       <span class="wf-readout" v-if="cursorReadout">
@@ -257,6 +266,12 @@ const selectedSegs = ref<Set<number>>(new Set(isMultiOutput ? outputIds.map((_, 
 const overlayFactor = ref<'none' | 'segment' | 'channel'>(isMultiOutput ? 'segment' : 'none')
 const reqTmin = ref<number | null>(null) // 秒
 const reqTmax = ref<number | null>(null)
+// view-only 瞬时滤波（仅观察、不存储、不影响 pipeline）
+const filterOn = ref(false)
+const hpInput = ref<number | string>('0.5')
+const lpInput = ref<number | string>('30')
+const notchInput = ref<number | string>('')
+const reqFilter = ref<{ lFreq: number | null; hFreq: number | null; notch: number | null }>({ lFreq: null, hFreq: null, notch: null })
 const winLoInput = ref<number | string>('') // 显示单位
 const winHiInput = ref<number | string>('')
 const yScaleIdx = ref(0)
@@ -469,6 +484,7 @@ async function load() {
             tmax: reqTmax.value,
             maxPoints: MAX_POINTS,
             maxChannels: MAX_CHANNELS,
+            ...reqFilter.value,
           })
           return [i, data] as const
         }),
@@ -488,6 +504,7 @@ async function load() {
             tmax: reqTmax.value,
             maxPoints: MAX_POINTS,
             maxChannels: MAX_CHANNELS,
+            ...reqFilter.value,
           })
           return [seg, data] as const
         }),
@@ -569,6 +586,12 @@ function toggleSeg(i: number) {
   if (!s.size) s.add(i)
   selectedSegs.value = s
 }
+function applyFilter() {
+  reqFilter.value = filterOn.value
+    ? { lFreq: toNum(hpInput.value), hFreq: toNum(lpInput.value), notch: toNum(notchInput.value) }
+    : { lFreq: null, hFreq: null, notch: null }
+}
+watch(filterOn, applyFilter) // 开关切换立即生效；改输入框走「应用」/回车
 
 watch(overlayFactor, (mode) => {
   region.value = null
@@ -579,7 +602,7 @@ watch(overlayFactor, (mode) => {
 })
 
 // 段集合 / 窗口 / 对比模式变化 → 重新取数（通道选择是客户端过滤，不触发）
-watch([overlayFactor, () => sortedSegs.value.join(','), reqTmin, reqTmax], () => {
+watch([overlayFactor, () => sortedSegs.value.join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
   void load()
 })
 
@@ -696,6 +719,7 @@ onUnmounted(() => {
 .wf-mini:disabled { opacity: .5; cursor: default; }
 .wf-div { width: 1px; height: 20px; background: var(--c-border); margin: 0 2px; }
 .wf-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--c-text-2); cursor: pointer; }
+.wf-view-tag { font-size: 8px; color: var(--c-warning); background: var(--c-warning-soft); border-radius: 6px; padding: 0 4px; margin-left: 2px; }
 .wf-readout { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .wf-readout-v { font-family: var(--ff-mono); font-weight: 600; }
 .wf-readout-more { font-family: var(--ff-mono); color: var(--c-text-3); }
@@ -726,9 +750,9 @@ onUnmounted(() => {
 
 /* 中间绘图区 + facet 网格 */
 .wf-plot-area { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 14px; }
-.wf-facet { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; overflow: auto; align-content: start; }
+.wf-facet { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); grid-auto-rows: 320px; gap: 10px; overflow: auto; align-content: start; }
 .wf-facet.is-single { display: flex; }
-.wf-cell { display: flex; flex-direction: column; min-height: 200px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; }
+.wf-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; }
 .wf-facet.is-single .wf-cell { flex: 1; }
 .wf-cell-title { font-size: 11px; font-weight: 600; color: var(--c-text-2); padding: 4px 8px; border-bottom: 1px solid var(--c-border); font-family: var(--ff-mono); background: var(--c-bg-soft); }
 .wf-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }

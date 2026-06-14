@@ -507,6 +507,9 @@ def get_study_output_timeseries(
     max_points: int = Query(default=2000, ge=50, le=8000),
     max_channels: int = Query(default=64, ge=1, le=256),
     format: str = Query(default="json"),
+    l_freq: float | None = Query(default=None, description="高通 Hz（view-only 瞬时滤波，不存储）"),
+    h_freq: float | None = Query(default=None, description="低通 Hz（view-only）"),
+    notch: float | None = Query(default=None, description="陷波 Hz（view-only）"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -526,6 +529,9 @@ def get_study_output_timeseries(
             index=index,
             max_points=max_points,
             max_channels=max_channels,
+            l_freq=l_freq,
+            h_freq=h_freq,
+            notch=notch,
         )
         if str(format).lower() == "binary":
             from fastapi import Response

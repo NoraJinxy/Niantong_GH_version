@@ -1,7 +1,6 @@
 // 时域绘图数据的三级缓存：内存 Map → IndexedDB → 网络（二进制优先，失败回退 JSON）。
 // 决策见 日志/10_观察作图与缓存架构260614/01 §3、06 §5。模块级单例，命中统计供 CacheDebugOverlay 显示。
 import { reactive } from 'vue'
-import { pipelineApi } from '@/api/pipelines'
 import { dataApi } from '@/api/client'
 import type { StudyOutputTimeseries } from '@/types'
 import { idbGet, idbSet } from './idbCache'
@@ -13,6 +12,10 @@ export interface FetchParams {
   tmax?: number | null
   maxPoints: number
   maxChannels: number
+  // view-only 瞬时滤波（不存储、不影响 pipeline）
+  lFreq?: number | null
+  hFreq?: number | null
+  notch?: number | null
 }
 
 export const cacheStats = reactive({
@@ -28,7 +31,7 @@ const MEM_MAX = 64
 const mem = new Map<string, StudyOutputTimeseries>()
 
 function keyOf(studyId: string, dd: string, p: FetchParams): string {
-  return [studyId, dd, p.index ?? 0, p.tmin ?? '', p.tmax ?? '', p.maxPoints, p.maxChannels].join('::')
+  return [studyId, dd, p.index ?? 0, p.tmin ?? '', p.tmax ?? '', p.maxPoints, p.maxChannels, p.lFreq ?? '', p.hFreq ?? '', p.notch ?? ''].join('::')
 }
 
 function memSet(key: string, v: StudyOutputTimeseries) {
@@ -61,19 +64,20 @@ function decodeBinary(buf: ArrayBuffer): StudyOutputTimeseries {
 }
 
 async function fetchNetwork(studyId: string, dd: string, p: FetchParams): Promise<StudyOutputTimeseries> {
-  // 先试二进制端点；任何问题（未部署/解码失败）回退现有 JSON 端点，保证可用
+  const url = `/studies/${studyId}/outputs/${dd}/timeseries`
+  const params: Record<string, unknown> = {
+    index: p.index,
+    tmin: p.tmin ?? undefined,
+    tmax: p.tmax ?? undefined,
+    max_points: p.maxPoints,
+    max_channels: p.maxChannels,
+    l_freq: p.lFreq ?? undefined,
+    h_freq: p.hFreq ?? undefined,
+    notch: p.notch ?? undefined,
+  }
+  // 先试二进制端点；任何问题（未部署/解码失败）回退 JSON，保证可用。两路都带滤波参数。
   try {
-    const res = await dataApi.get(`/studies/${studyId}/outputs/${dd}/timeseries`, {
-      params: {
-        format: 'binary',
-        index: p.index,
-        tmin: p.tmin ?? undefined,
-        tmax: p.tmax ?? undefined,
-        max_points: p.maxPoints,
-        max_channels: p.maxChannels,
-      },
-      responseType: 'arraybuffer',
-    })
+    const res = await dataApi.get(url, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
     const buf = res.data as ArrayBuffer
     if (!buf || buf.byteLength < 12) throw new Error('empty binary')
     const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 8))
@@ -81,14 +85,8 @@ async function fetchNetwork(studyId: string, dd: string, p: FetchParams): Promis
     cacheStats.bytes += buf.byteLength
     return decodeBinary(buf)
   } catch {
-    const res = await pipelineApi.getStudyOutputTimeseries(studyId, dd, {
-      index: p.index,
-      tmin: p.tmin ?? undefined,
-      tmax: p.tmax ?? undefined,
-      maxPoints: p.maxPoints,
-      maxChannels: p.maxChannels,
-    })
-    return res.data
+    const res = await dataApi.get(url, { params })
+    return res.data as StudyOutputTimeseries
   }
 }
 

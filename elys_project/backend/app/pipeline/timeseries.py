@@ -67,16 +67,19 @@ def build_timeseries(
     index: int | None = None,
     max_points: int = DEFAULT_MAX_POINTS,
     max_channels: int = DEFAULT_MAX_CHANNELS,
+    l_freq: float | None = None,
+    h_freq: float | None = None,
+    notch: float | None = None,
 ) -> dict[str, Any]:
     data_type = str(getattr(artifact, "data_type", "") or "").strip().lower()
     path = resolve_study_output_path(study, artifact)
     validate_study_output_file(path, artifact)
     if data_type in CONTINUOUS_TYPES:
-        return _ts_raw(path, data_type, tmin, tmax, max_points, max_channels)
+        return _ts_raw(path, data_type, tmin, tmax, max_points, max_channels, l_freq, h_freq, notch)
     if data_type == "epochs":
-        return _ts_epochs(path, tmin, tmax, index, max_points, max_channels)
+        return _ts_epochs(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
     if data_type == "evoked":
-        return _ts_evoked(path, tmin, tmax, index, max_points, max_channels)
+        return _ts_evoked(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
     raise StudyOutputPreviewError(
         "DERIVED_DATASET_TIMESERIES_UNSUPPORTED",
         f"暂不支持 data_type={data_type or 'unknown'} 的时域曲线",
@@ -121,7 +124,32 @@ def encode_timeseries_binary(payload: dict[str, Any]) -> bytes:
     return bytes(out)
 
 
-def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels) -> dict[str, Any]:
+def _apply_view_filter(np, data, sfreq, l_freq, h_freq, notch):
+    """view-only 瞬时滤波（下采样前、在全分辨率窗口数据上跑），仅供观察、不存储、不影响 pipeline。
+
+    data: (n_ch, n_times) 伏特；l_freq=高通、h_freq=低通、notch=陷波。
+    任何失败（如窗口过短不够滤波长度）→ 原样返回，不阻断观察。
+    """
+    if data is None or getattr(data, "size", 0) == 0:
+        return data
+    has_band = l_freq is not None or h_freq is not None
+    has_notch = notch is not None and float(notch) > 0
+    if not has_band and not has_notch:
+        return data
+    try:
+        from mne.filter import filter_data, notch_filter  # noqa: PLC0415
+
+        out = np.asarray(data, dtype="float64")
+        if has_band:
+            out = filter_data(out, sfreq, l_freq, h_freq, verbose="ERROR")
+        if has_notch:
+            out = notch_filter(out, sfreq, float(notch), verbose="ERROR")
+        return out
+    except Exception:
+        return data
+
+
+def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels, l_freq=None, h_freq=None, notch=None) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()
     raw = mne.io.read_raw_fif(path, preload=False, verbose="ERROR")
@@ -141,6 +169,7 @@ def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels) ->
 
     picks, names = _data_picks(mne, raw.info, max_channels)
     data, times = raw[picks, start:stop]  # data: (n_pick, n_samp); times: 秒（绝对）
+    data = _apply_view_filter(np, data, sfreq, l_freq, h_freq, notch)
     idx = _downsample(np, data.shape[1], max_points)
     out_times = np.round(times[idx], 5).tolist()
     sub = data[:, idx].tolist()  # 一次性 numpy → list，避免逐元素 float() 循环
@@ -165,7 +194,7 @@ def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels) ->
     }
 
 
-def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[str, Any]:
+def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=None, h_freq=None, notch=None) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()
     epochs = mne.read_epochs(path, preload=False, verbose="ERROR")
@@ -178,6 +207,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[
 
     full = epochs[ei].get_data()[0]  # (n_ch, n_times)
     arr = full[np.asarray(picks, dtype=int)]
+    arr = _apply_view_filter(np, arr, float(epochs.info["sfreq"]), l_freq, h_freq, notch)
 
     lo = float(times_all[0]) if tmin is None else float(tmin)
     hi = float(times_all[-1]) if tmax is None else float(tmax)
@@ -219,7 +249,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[
     }
 
 
-def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[str, Any]:
+def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=None, h_freq=None, notch=None) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()
     evokeds = mne.read_evokeds(path, condition=None, verbose="ERROR")
@@ -233,6 +263,7 @@ def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels) -> dict[
     times_all = ev.times
     picks, names = _data_picks(mne, ev.info, max_channels)
     arr = ev.data[np.asarray(picks, dtype=int)]  # (n_pick, n_times) 伏特
+    arr = _apply_view_filter(np, arr, float(ev.info["sfreq"]), l_freq, h_freq, notch)
 
     lo = float(times_all[0]) if tmin is None else float(tmin)
     hi = float(times_all[-1]) if tmax is None else float(tmax)

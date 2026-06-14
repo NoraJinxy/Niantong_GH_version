@@ -118,7 +118,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
     ],
     series: [
       {},
-      ...props.series.map((s) => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false } })),
+      ...props.series.map((s) => ({ label: s.name, stroke: s.color, width: 1.25, points: { show: false } })),
     ],
     hooks: {
       setSelect: [
@@ -156,6 +156,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
       ],
     },
   }
+  // pxRatio：强制 ≥2x 超采样抗锯齿（uPlot 运行时支持，类型未声明 → 断言赋值）；1x 屏按 2 倍像素渲染再缩放，线条更细腻
+  ;(opts as unknown as { pxRatio: number }).pxRatio = Math.max(window.devicePixelRatio || 1, 2)
   return opts
 }
 
