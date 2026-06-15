@@ -111,9 +111,9 @@
                   :class="{ 'is-sel': selected.has(name) }"
                   @click="toggleChannel(name)"
                 >
-                  <span class="wf-li-dot" :style="{ background: selected.has(name) ? channelColor(i) : INACTIVE_DOT }"></span>
+                  <span class="wf-li-dot" :style="{ background: selected.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
                   <span class="wf-li-name text-mono">{{ name }}</span>
-                  <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="channelColor(i)" />
+                  <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="chColor(i)" />
                 </div>
               </div>
               <p v-if="ts && ts.n_channels_total > allChanNames.length" class="wf-sec-hint">
@@ -185,6 +185,12 @@
                 </div>
               </div>
               <p class="wf-sec-hint">行/列留「—」的因素将在每张子图内叠加显示。</p>
+              <div class="wf-grid2-lbl" style="margin-top: 6px">配色</div>
+              <select class="wf-inp" v-model="paletteKey">
+                <option value="elys">elys 烙印</option>
+                <option value="npg">NPG（期刊感）</option>
+                <option value="wong">Wong（色盲安全）</option>
+              </select>
             </div>
           </section>
 
@@ -197,7 +203,11 @@
             <div v-show="!collapsed.modules" class="wf-sec-body">
               <label class="wf-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
               <label class="wf-chk"><input type="checkbox" v-model="showGrid" /> 网格线</label>
-              <label class="wf-chk"><input type="checkbox" v-model="showTopo" /> 地形图（区间均值）</label>
+              <label class="wf-chk"><input type="checkbox" v-model="showTopo" /> 地形图</label>
+              <div v-if="showTopo" class="wf-topo-mode">
+                <button class="wf-mini2" :class="{ 'is-on': topoMode === 'mean' }" @click="topoMode = 'mean'">区间均值</button>
+                <button class="wf-mini2" :class="{ 'is-on': topoMode === 'live' }" @click="topoMode = 'live'">跟随游标</button>
+              </div>
             </div>
           </section>
         </div>
@@ -266,13 +276,15 @@
                     :highlight="highlightChan"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
+                    :hide-x-labels="cellHideX(ci)"
+                    :hide-y-labels="cellHideY(ci)"
                     @cursor="onCursor"
                     @select="onSelect"
                   />
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" :subtitle="topoSubtitle" />
           </template>
 
           <div v-else class="wf-state">该数据没有可绘制的通道曲线。</div>
@@ -332,6 +344,17 @@
               <div class="wf-hl-card hc-lat"><div class="wf-hl-val">{{ fmtX(highlightStats!.peakLat) }}</div><div class="wf-hl-lbl">峰潜伏 {{ xUnit }}</div><div class="wf-hl-sub">{{ highlightStats!.peakAt }}</div></div>
             </div>
             <div class="wf-stats-range text-mono">区间 {{ fmtX(region!.x0) }}–{{ fmtX(region!.x1) }} {{ xUnit }}</div>
+            <div v-if="condCards.length" class="wf-cond-cards">
+              <div v-for="c in condCards" :key="c.seg" class="wf-cond-card" :style="{ borderLeftColor: c.color }">
+                <div class="wf-cond-hd"><span class="wf-li-dot" :style="{ background: c.color }"></span>{{ c.label }}</div>
+                <div class="wf-cond-grid">
+                  <div><div class="wf-cond-v wf-dt-peak">{{ c.peak.toFixed(2) }}</div><div class="wf-cond-l">峰 {{ c.peakChan }}</div></div>
+                  <div><div class="wf-cond-v wf-dt-trough">{{ c.trough.toFixed(2) }}</div><div class="wf-cond-l">谷 {{ c.troughChan }}</div></div>
+                  <div><div class="wf-cond-v">{{ c.mean.toFixed(2) }}</div><div class="wf-cond-l">均值</div></div>
+                  <div><div class="wf-cond-v wf-dt-lat">{{ fmtX(c.peakLat) }}</div><div class="wf-cond-l">峰潜伏</div></div>
+                </div>
+              </div>
+            </div>
             <table class="wf-dtable">
               <thead>
                 <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
@@ -365,7 +388,7 @@ import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import { channelColor } from '@/composables/observe/channelColor'
+import { channelColor, PALETTES } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
 
 const route = useRoute()
@@ -436,10 +459,18 @@ const yScaleIdx = ref(0)
 const showGrid = ref(true)
 const showStats = ref(true)
 const showTopo = ref(true)
+const topoMode = ref<'mean' | 'live'>('mean') // 地形图取值：区间均值 / 跟随游标时刻
 const showLeft = ref(true) // 左栏（选择器）折叠
+const paletteKey = ref<'elys' | 'npg' | 'wong'>('elys')
+const palette = computed(() => PALETTES[paletteKey.value])
+// 统一过配色下拉的取色器：所有曲线/圆点/sparkline 都走它，切换色板即全站生效
+function chColor(i: number) {
+  return channelColor(i, palette.value)
+}
 const displayMode = ref<'overlay' | 'spread'>('overlay')
 const selected = ref<Set<string>>(new Set())
 const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
+const cursorX = ref<number | null>(null) // 当前游标时刻（显示单位），驱动实时地形图
 const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
@@ -522,7 +553,7 @@ function segLabel(seg: number) {
 }
 function segColor(seg: number) {
   // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色
-  return channelColor(seg)
+  return chColor(seg)
 }
 
 // ---------- 单位缩放（V → µV，逐产物判定）----------
@@ -626,7 +657,7 @@ const cells = computed<Cell[]>(() => {
           cols.push(ch.values.map((v) => v * sc))
           const nm = multiSeg && multiChan ? `${segLabel(seg)}·${chan}` : multiSeg ? segLabel(seg) : chan
           // 颜色编码"叠加因素"：段叠加→按段着色；否则按通道
-          const color = !segIsGrid && multiSeg ? segColor(seg) : channelColor(allChanNames.value.indexOf(chan))
+          const color = !segIsGrid && multiSeg ? segColor(seg) : chColor(allChanNames.value.indexOf(chan))
           series.push({ name: nm, color })
         }
       }
@@ -661,6 +692,21 @@ const legendCellIndex = computed(() => {
 })
 // 多子图时压缩坐标轴占用（去 μV/时间 标题、缩小刻度区）
 const denseAxes = computed(() => cells.value.length > 1)
+// 共享 facet 轴（仅严格矩阵布局、列数已知）：y 刻度只画最左列、x 刻度只画最底行
+const gridCols = computed(() => {
+  if (rowFactor.value === 'none' || colFactor.value === 'none') return 0
+  return (colFactor.value === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
+})
+function cellHideY(ci: number): boolean {
+  const cols = gridCols.value
+  return cols > 0 && ci % cols !== 0
+}
+function cellHideX(ci: number): boolean {
+  const cols = gridCols.value
+  if (cols <= 0) return false
+  const lastRow = Math.floor((cells.value.length - 1) / cols)
+  return Math.floor(ci / cols) !== lastRow
+}
 
 const hasCurves = computed(() => allChanNames.value.length > 0 && (ts.value?.times.length || 0) > 1)
 
@@ -715,7 +761,7 @@ const statsRows = computed<StatRow[]>(() => {
         seg,
         segName: segLabel(seg),
         chan,
-        color: channelColor(allChanNames.value.indexOf(chan)),
+        color: chColor(allChanNames.value.indexOf(chan)),
         peak,
         trough,
         mean: sum / idxs.length,
@@ -749,6 +795,43 @@ const highlightStats = computed(() => {
   }
 })
 
+// 每条件聚合卡：每个选中段一张，跨所选通道聚合（峰/谷/均/峰潜伏）；单条件时与全局高亮重复，不展示
+interface CondCard {
+  seg: number
+  label: string
+  color: string
+  peak: number
+  peakChan: string
+  trough: number
+  troughChan: string
+  mean: number
+  peakLat: number
+}
+const condCards = computed<CondCard[]>(() => {
+  if (sortedSegs.value.length < 2) return []
+  const bySeg = new Map<number, StatRow[]>()
+  for (const r of statsRows.value) {
+    const arr = bySeg.get(r.seg)
+    if (arr) arr.push(r)
+    else bySeg.set(r.seg, [r])
+  }
+  const out: CondCard[] = []
+  for (const seg of sortedSegs.value) {
+    const rows = bySeg.get(seg)
+    if (!rows || !rows.length) continue
+    let pk = rows[0]
+    let tr = rows[0]
+    let sum = 0
+    for (const r of rows) {
+      if (r.peak > pk.peak) pk = r
+      if (r.trough < tr.trough) tr = r
+      sum += r.mean
+    }
+    out.push({ seg, label: segLabel(seg), color: segColor(seg), peak: pk.peak, peakChan: pk.chan, trough: tr.trough, troughChan: tr.chan, mean: sum / rows.length, peakLat: pk.peakLat })
+  }
+  return out
+})
+
 // ---------- 地形图（区间均值 → 电极点着色，需后端 ch_pos）----------
 interface TopoCell {
   seg: number
@@ -759,6 +842,8 @@ interface TopoCell {
 const topoCells = computed<TopoCell[]>(() => {
   if (!showTopo.value) return []
   const r = region.value
+  const live = topoMode.value === 'live' && cursorX.value != null
+  const cx = cursorX.value
   const out: TopoCell[] = []
   for (const seg of sortedSegs.value) {
     const t = tsMap.value.get(seg)
@@ -770,9 +855,21 @@ const topoCells = computed<TopoCell[]>(() => {
     }
     const sc = scaleFor(t)
     const xs = xsFor(t)
-    let idxs: number[] = []
-    if (r) for (let i = 0; i < xs.length; i++) if (xs[i] >= r.x0 && xs[i] <= r.x1) idxs.push(i)
-    if (!idxs.length) idxs = xs.map((_, i) => i)
+    let idxs: number[]
+    if (live && cx != null) {
+      // 跟随游标：取最接近游标时刻的单个采样点（一次定位，所有通道复用）
+      let best = 0
+      let bestD = Infinity
+      for (let i = 0; i < xs.length; i++) {
+        const d = Math.abs(xs[i] - cx)
+        if (d < bestD) { bestD = d; best = i }
+      }
+      idxs = [best]
+    } else {
+      idxs = []
+      if (r) for (let i = 0; i < xs.length; i++) if (xs[i] >= r.x0 && xs[i] <= r.x1) idxs.push(i)
+      if (!idxs.length) idxs = xs.map((_, i) => i)
+    }
     const points: { name: string; x: number; y: number; value: number }[] = []
     for (const ch of t.channels) {
       const p = pos[ch.name]
@@ -794,6 +891,11 @@ const topoVmax = computed(() => {
   for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
   return m
 })
+const topoSubtitle = computed(() =>
+  topoMode.value === 'live' && cursorX.value != null
+    ? `游标 ${fmtX(cursorX.value)}${xUnit.value} · 全部通道`
+    : '区间均值 µV · 全部通道',
+)
 
 const filterDesc = computed(() => {
   if (!filterOn.value) return '滤波 关'
@@ -1046,6 +1148,7 @@ watch(
 // ---------- 游标 / 选区（来自 TimeCourseCanvas）----------
 function onCursor(payload: { x: number; items: { name: string; color: string; uv: number }[] } | null) {
   cursorReadout.value = payload
+  cursorX.value = payload ? payload.x : null
 }
 function onSelect(r: { x0: number; x1: number } | null) {
   if (!r) return
@@ -1161,6 +1264,10 @@ onUnmounted(() => {
 .wf-chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--c-text-2); cursor: pointer; padding: 2px 0; }
 .wf-chk input { accent-color: var(--c-primary); width: 12px; height: 12px; }
 .wf-chk.is-disabled { color: var(--c-text-3); cursor: default; }
+.wf-topo-mode { display: flex; gap: 4px; margin: 3px 0 0 18px; }
+.wf-mini2 { flex: 1; padding: 2px 4px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 9.5px; color: var(--c-text-2); cursor: pointer; }
+.wf-mini2:hover { background: var(--c-bg-tint); }
+.wf-mini2.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
 .wf-apply { width: 100%; padding: 5px 0; margin-top: 5px; border: none; border-radius: 3px; background: var(--c-primary); color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .wf-apply:hover:not(:disabled) { opacity: .9; }
 .wf-apply:disabled { opacity: .45; cursor: default; }
@@ -1242,6 +1349,13 @@ onUnmounted(() => {
 .wf-hl-lbl { font-size: 8px; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
 .wf-hl-sub { font-size: 8.5px; color: var(--c-text-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-stats-range { font-size: 10px; color: var(--c-text-3); margin: 0 2px 4px; }
+.wf-cond-cards { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.wf-cond-card { border: 1px solid var(--c-border); border-left-width: 3px; border-radius: var(--r-sm); overflow: hidden; }
+.wf-cond-hd { display: flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 10px; font-weight: 600; color: var(--c-text-2); background: var(--c-bg-soft); border-bottom: 1px solid var(--c-border); }
+.wf-cond-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; padding: 5px 4px; gap: 2px; }
+.wf-cond-grid > div { text-align: center; min-width: 0; }
+.wf-cond-v { font-size: 13px; font-weight: 700; font-family: var(--ff-mono); line-height: 1.15; }
+.wf-cond-l { font-size: 7.5px; color: var(--c-text-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .wf-dtable { width: 100%; border-collapse: collapse; font-size: 10px; }
 .wf-dtable th { position: sticky; top: 0; background: var(--c-bg-soft); color: var(--c-text-3); font-weight: 600; text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--c-border); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.3px; }

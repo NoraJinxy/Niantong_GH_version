@@ -39,8 +39,11 @@ const props = withDefaults(
     highlight?: string
     /** 密集坐标轴：多子图时去掉 μV/时间 标题、缩小刻度区，省空间。 */
     denseAxes?: boolean
+    /** 共享 facet 轴：隐藏本格 x / y 刻度标签（保留刻度区宽度以对齐），只在边缘格显示。 */
+    hideXLabels?: boolean
+    hideYLabels?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false },
 )
 
 const emit = defineEmits<{
@@ -197,6 +200,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
   const dense = props.denseAxes
   const axisFont = dense ? '9px var(--ff-mono, monospace)' : '11px var(--ff-mono, monospace)'
+  // 共享 facet 轴：非边缘格把刻度标签置空（仍占同样刻度区宽度以对齐网格）
+  const blank = (_u: uPlot, splits: number[]): string[] => splits.map(() => '')
 
   const yAxis: uPlot.Axis = spread
     ? {
@@ -214,8 +219,9 @@ function buildOpts(w: number, h: number): uPlot.Options {
         size: dense ? 34 : 50,
         stroke: AXIS,
         grid: { show: grid, stroke: GRID },
-        ticks: { stroke: GRID },
+        ticks: { show: !props.hideYLabels, stroke: GRID },
         font: axisFont,
+        values: props.hideYLabels ? blank : undefined,
       }
 
   // 框选区间用：drag 选区不缩放（setScale:false）。不开 cursor.sync——它会把 mousedown/up
@@ -236,7 +242,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
           : {},
     },
     axes: [
-      { label: dense ? undefined : props.xLabel, size: dense ? 26 : 38, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { stroke: GRID }, font: axisFont },
+      { label: dense ? undefined : props.xLabel, size: dense ? 26 : 38, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !props.hideXLabels, stroke: GRID }, font: axisFont, values: props.hideXLabels ? blank : undefined },
       yAxis,
     ],
     series: [
@@ -322,7 +328,7 @@ onUnmounted(() => {
 
 // 数据/序列/Y档/显示模式/网格/高亮 = 结构性变化 → 重建（最稳）。
 watch(
-  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.highlight, props.denseAxes],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.highlight, props.denseAxes, props.hideXLabels, props.hideYLabels],
   () => rebuild(),
   { deep: false },
 )

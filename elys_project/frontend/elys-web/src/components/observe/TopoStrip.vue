@@ -1,6 +1,6 @@
 <template>
   <div class="topo-strip">
-    <div class="topo-cap">地形图<span class="topo-cap-sub">区间均值 µV · 全部通道</span></div>
+    <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span></div>
     <div class="topo-cards">
       <div v-for="c in cells" :key="c.seg" class="topo-card" :style="{ borderTopColor: c.color }">
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
@@ -33,7 +33,7 @@
 // 不做插值热力图（那是出图二期 doc04）；这里只画「电极点按值着色 + 头皮轮廓」，是真实数据、不造假。
 interface TopoPoint { name: string; x: number; y: number; value: number }
 interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null }
-defineProps<{ cells: TopoCell[]; vmax: number }>()
+withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; subtitle?: string }>(), { subtitle: '区间均值 µV · 全部通道' })
 
 // 按 |value| 升序：饱和度高的电极后画、压在近白点之上，避免被遮
 function sortedPoints(points: TopoPoint[]): TopoPoint[] {
