@@ -71,7 +71,7 @@ export const sideNavGroups: WorkbenchNavGroup[] = [
     title: '观察与出图',
     items: [
       { key: 'observe', label: '观察入口', to: '/observe', icon: 'observe', status: 'preview' },
-      { key: 'view-erp', label: '事件相关电位', to: '/observe/erp', icon: 'wave', status: 'preview' },
+      { key: 'view-erp', label: '事件相关电位', to: '/observe/waveform', icon: 'wave', status: 'preview' },
       { key: 'view-psd', label: '功率谱密度', to: '/observe/psd', icon: 'spectrum', status: 'preview' },
       { key: 'view-tfr', label: '时频分析', to: '/observe/tfr', icon: 'heatmap', status: 'preview' },
       { key: 'view-connectivity', label: '脑网络', to: '/observe/connectivity', icon: 'network', status: 'preview' },
@@ -237,7 +237,7 @@ export const modulePages: Record<string, ModulePage> = {
       { title: '快速输出', items: ['PNG 快照', 'SVG 图层', '统计标注', '加入论文画布'] },
     ],
     actions: [
-      { key: 'view-erp', label: '事件相关电位', to: '/observe/erp', icon: 'wave', status: 'preview' },
+      { key: 'view-erp', label: '事件相关电位', to: '/observe/waveform', icon: 'wave', status: 'preview' },
       { key: 'view-psd', label: '功率谱密度', to: '/observe/psd', icon: 'spectrum', status: 'preview' },
       { key: 'view-tfr', label: '时频分析', to: '/observe/tfr', icon: 'heatmap', status: 'preview' },
       { key: 'view-connectivity', label: '脑网络', to: '/observe/connectivity', icon: 'network', status: 'preview' },

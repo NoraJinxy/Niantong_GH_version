@@ -145,12 +145,6 @@ const router = createRouter({
       meta: { requiresAuth: true, pageKey: 'observe' },
     },
     {
-      path: '/observe/erp',
-      name: 'ObserveErp',
-      component: () => import('@/views/ErpPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/observe/psd',
       name: 'ObservePsd',
       component: () => import('@/views/PsdPage.vue'),

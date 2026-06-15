@@ -19,6 +19,8 @@
       </div>
     </header>
 
+    <ObserveTabs active="erp" />
+
     <div class="wf-main">
       <!-- ============ 左栏：选择器 ============ -->
       <aside class="wf-left">
@@ -87,6 +89,7 @@
                   <input type="checkbox" :checked="selected.has(name)" @change="toggleChannel(name)" />
                   <span class="wf-li-dot" :style="{ background: channelColor(i) }"></span>
                   <span class="wf-li-name text-mono">{{ name }}</span>
+                  <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="channelColor(i)" />
                 </label>
               </div>
               <p v-if="ts && ts.n_channels_total > allChanNames.length" class="wf-sec-hint">
@@ -199,8 +202,8 @@
             <button class="wf-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             <button class="wf-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
           </div>
-          <div class="wf-tg">
-            <button class="wf-ctb is-disabled" disabled title="出版级出图二期（FigureSpec）">⬇ 保存图片</button>
+          <div class="wf-tg wf-tg--hint">
+            <span class="wf-lbl">每张子图右上 ⬇ 可导出 PNG</span>
           </div>
         </div>
 
@@ -217,8 +220,13 @@
             <div v-if="partialNote" class="wf-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="wf-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="wf-facet" :class="{ 'is-single': cells.length <= 1 }" :style="facetStyle">
-              <section v-for="cell in cells" :key="cell.key" class="wf-cell">
-                <div v-if="cell.title" class="wf-cell-title">{{ cell.title }}</div>
+              <section v-for="cell in cells" :key="cell.key" class="wf-cell" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+                <div class="wf-cell-hd">
+                  <span class="wf-cell-tag" :style="{ background: cellAccent(cell) }"></span>
+                  <span class="wf-cell-name">{{ cell.title || (dataType === 'evoked' ? 'ERP' : '波形') }}</span>
+                  <span class="wf-cell-meta text-mono">{{ cell.series.length }}线 · {{ ts ? ts.sfreq.toFixed(0) : '–' }}Hz</span>
+                  <button class="wf-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title)">⬇</button>
+                </div>
                 <div class="wf-cell-plot">
                   <TimeCourseCanvas
                     :data="cell.data"
@@ -229,6 +237,9 @@
                     :display-mode="displayMode"
                     :show-grid="showGrid"
                     :loading="loading"
+                    :region="region"
+                    :ref-lines="refLinesOn"
+                    :sync-key="SYNC_KEY"
                     @cursor="onCursor"
                     @select="onSelect"
                   />
@@ -314,6 +325,8 @@ import { useRoute } from 'vue-router'
 import type { StudyOutputTimeseries } from '@/types'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
+import MiniSparkline from '@/components/observe/MiniSparkline.vue'
+import ObserveTabs from '@/components/ObserveTabs.vue'
 import { channelColor } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
 
@@ -341,6 +354,7 @@ const DATA_TYPE_LABELS: Record<string, string> = {
   evoked: '平均 (evoked / ERP)',
 }
 const DEFAULT_SELECT = 8
+const SYNC_KEY = 'wf-cursor' // 多子图游标联动同步键
 
 // ---------- 查询参数 ----------
 function qstr(key: string, fallback = ''): string {
@@ -408,6 +422,8 @@ const ts = computed<StudyOutputTimeseries | null>(
 // ---------- 类型 / 单位 ----------
 const dataType = computed(() => String(ts.value?.data_type ?? typeHint ?? '').toLowerCase())
 const isContinuous = computed(() => CONTINUOUS.includes(dataType.value))
+// 参考线（t=0 竖线 + 0µV 基线）：相对时间的 evoked/epochs 才有意义；raw 是绝对时间不画
+const refLinesOn = computed(() => dataType.value === 'evoked' || dataType.value === 'epochs')
 const xUnit = computed(() => (isContinuous.value ? 's' : 'ms'))
 const xFactor = computed(() => (isContinuous.value ? 1 : 1000))
 const xStep = computed(() => (isContinuous.value ? 0.5 : 50))
@@ -480,6 +496,42 @@ function scaleFor(t: StudyOutputTimeseries): number {
 
 const allChanNames = computed(() => (ts.value?.channels ?? []).map((c) => c.name))
 const orderedSel = computed(() => allChanNames.value.filter((n) => selected.value.has(n)))
+
+// 通道 sparkline 取主段原始值（形状由组件内 min/max 归一，不必换算 µV）
+function chanValues(name: string): number[] {
+  const ch = ts.value?.channels.find((c) => c.name === name)
+  return ch ? ch.values : []
+}
+// 子图强调色 = 该格首条曲线色（按通道一图→通道色；按条件叠加→条件色）
+function cellAccent(cell: Cell): string {
+  return cell.series[0]?.color || 'var(--c-border)'
+}
+// 导出当前子图为 PNG（一期简版）：白底合成 + 顶部标题，抓子图内 uPlot canvas
+function exportCell(e: MouseEvent, title: string) {
+  const cellEl = (e.target as HTMLElement).closest('.wf-cell')
+  const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
+  if (!src || !src.width) return
+  const scale = src.clientWidth ? src.width / src.clientWidth : 2
+  const headH = Math.round(20 * scale)
+  const out = document.createElement('canvas')
+  out.width = src.width
+  out.height = src.height + headH
+  const ctx = out.getContext('2d')
+  if (!ctx) return
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, out.width, out.height)
+  if (title) {
+    ctx.fillStyle = '#1F2733'
+    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.textBaseline = 'middle'
+    ctx.fillText(title, Math.round(8 * scale), headH / 2)
+  }
+  ctx.drawImage(src, 0, headH)
+  const a = document.createElement('a')
+  a.href = out.toDataURL('image/png')
+  a.download = `waveform_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
+  a.click()
+}
 
 function xsFor(t: StudyOutputTimeseries) {
   return t.times.map((s) => s * xFactor.value)
@@ -927,6 +979,8 @@ onUnmounted(() => {
 <style scoped>
 .wf-page { display: flex; flex-direction: column; height: 100vh; background: var(--c-bg-soft); color: var(--c-text); font-family: var(--ff-sans); }
 .text-mono { font-family: var(--ff-mono); }
+.wf-page :deep(.obs-tabs) { flex-shrink: 0; }
+.wf-tg--hint { border-right: none; opacity: .85; }
 
 /* ===== 顶部信息条 ===== */
 .wf-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
@@ -978,6 +1032,7 @@ onUnmounted(() => {
 .wf-li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-li-tag { margin-left: auto; font-size: 8px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
 .wf-chanlist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.wf-li-spark { margin-left: auto; flex-shrink: 0; }
 .wf-seg-stepper { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
 
 .wf-row { display: flex; align-items: center; gap: 4px; }
@@ -1030,7 +1085,12 @@ onUnmounted(() => {
 .wf-facet.is-single { display: flex; }
 .wf-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .wf-facet.is-single .wf-cell { flex: 1; }
-.wf-cell-title { font-size: 11px; font-weight: 600; color: var(--c-text-2); padding: 4px 8px; border-bottom: 1px solid var(--c-border); font-family: var(--ff-mono); background: var(--c-bg-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-cell-hd { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 8px; border-bottom: 1px solid var(--c-border); background: var(--c-bg-soft); }
+.wf-cell-tag { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.wf-cell-name { font-size: 11px; font-weight: 600; color: var(--c-text-2); font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-cell-meta { margin-left: auto; font-size: 9px; color: var(--c-text-3); flex-shrink: 0; }
+.wf-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+.wf-cell-dl:hover { color: var(--c-primary); }
 .wf-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
 
 /* ===== 状态条 ===== */

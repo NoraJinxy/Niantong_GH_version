@@ -38,7 +38,7 @@ function tabTo(path: string) {
 
 const tabs = [
   {
-    key: 'erp', path: '/observe/erp', label: '时域 ERP', preview: true,
+    key: 'erp', path: '/observe/waveform', label: '时域', preview: false,
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
   },
   {
