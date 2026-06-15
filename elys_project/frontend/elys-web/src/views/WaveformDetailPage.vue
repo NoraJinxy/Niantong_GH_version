@@ -173,7 +173,7 @@
             <div v-show="!collapsed.modules" class="wf-sec-body">
               <label class="wf-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
               <label class="wf-chk"><input type="checkbox" v-model="showGrid" /> 网格线</label>
-              <label class="wf-chk is-disabled" title="地形图条 / sparkline 后续接入"><input type="checkbox" disabled /> 地形图（后续）</label>
+              <label class="wf-chk"><input type="checkbox" v-model="showTopo" /> 地形图（区间均值）</label>
             </div>
           </section>
         </div>
@@ -246,6 +246,7 @@
                 </div>
               </section>
             </div>
+            <TopoStrip v-if="showTopo && selected.size" :cells="topoCells" :vmax="topoVmax" />
           </template>
 
           <div v-else class="wf-state">该数据没有可绘制的通道曲线。</div>
@@ -326,6 +327,7 @@ import type { StudyOutputTimeseries } from '@/types'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
+import TopoStrip from '@/components/observe/TopoStrip.vue'
 import ObserveTabs from '@/components/ObserveTabs.vue'
 import { channelColor } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
@@ -397,6 +399,7 @@ const winHiInput = ref<number | string>('')
 const yScaleIdx = ref(0)
 const showGrid = ref(true)
 const showStats = ref(true)
+const showTopo = ref(true)
 const displayMode = ref<'overlay' | 'spread'>('overlay')
 const selected = ref<Set<string>>(new Set())
 const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
@@ -692,6 +695,48 @@ const highlightStats = computed(() => {
     mean: sum / rows.length,
     count: rows.length,
   }
+})
+
+// ---------- 地形图（区间均值 → 电极点着色，需后端 ch_pos）----------
+interface TopoCell {
+  seg: number
+  label: string
+  color: string
+  points: { name: string; x: number; y: number; value: number }[] | null
+}
+const topoCells = computed<TopoCell[]>(() => {
+  if (!showTopo.value) return []
+  const r = region.value
+  const out: TopoCell[] = []
+  for (const seg of sortedSegs.value) {
+    const t = tsMap.value.get(seg)
+    if (!t) continue
+    const pos = t.ch_pos
+    if (!pos) {
+      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
+      continue
+    }
+    const sc = scaleFor(t)
+    const xs = xsFor(t)
+    let idxs: number[] = []
+    if (r) for (let i = 0; i < xs.length; i++) if (xs[i] >= r.x0 && xs[i] <= r.x1) idxs.push(i)
+    if (!idxs.length) idxs = xs.map((_, i) => i)
+    const points: { name: string; x: number; y: number; value: number }[] = []
+    for (const ch of t.channels) {
+      const p = pos[ch.name]
+      if (!p) continue
+      let sum = 0
+      for (const i of idxs) sum += (ch.values[i] ?? 0) * sc
+      points.push({ name: ch.name, x: p[0], y: p[1], value: sum / idxs.length })
+    }
+    out.push({ seg, label: segLabel(seg), color: segColor(seg), points: points.length ? points : null })
+  }
+  return out
+})
+const topoVmax = computed(() => {
+  let m = 0
+  for (const c of topoCells.value) if (c.points) for (const p of c.points) m = Math.max(m, Math.abs(p.value))
+  return m
 })
 
 const filterDesc = computed(() => {

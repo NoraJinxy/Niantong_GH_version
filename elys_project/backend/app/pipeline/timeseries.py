@@ -58,6 +58,47 @@ def _downsample(np, n: int, max_points: int):
     return np.unique(np.linspace(0, n - 1, count).astype(int))
 
 
+def _ch_positions(info, names) -> dict[str, list[float]] | None:
+    """提取通道 2D 头皮投影坐标（单位圆内，+x=右、+y=前）供地形图用；无 montage / 取不到 → None。
+
+    用方位等距投影（azimuthal equidistant）：顶点落圆心、耳缘落边界。纯 numpy，不依赖 MNE 私有 API，
+    全程 try/except 兜底——拿不到坐标只是没有地形图，绝不影响时域曲线本身。
+    """
+    try:
+        np = _numpy()
+        montage = info.get_montage()
+        if montage is None:
+            return None
+        ch_pos = montage.get_positions().get("ch_pos") or {}
+        pts: dict[str, Any] = {}
+        for nm in names:
+            xyz = ch_pos.get(nm)
+            if xyz is None:
+                continue
+            a = np.asarray(xyz, dtype="float64").ravel()
+            if a.shape[0] < 3 or not np.all(np.isfinite(a[:3])) or np.allclose(a[:3], 0.0):
+                continue
+            pts[nm] = a[:3]
+        if len(pts) < 3:
+            return None
+        arr = np.asarray(list(pts.values()), dtype="float64")
+        center = arr.mean(axis=0)
+        out: dict[str, list[float]] = {}
+        for nm, xyz in pts.items():
+            v = xyz - center
+            norm = float(np.linalg.norm(v))
+            if norm <= 0:
+                continue
+            vz = max(-1.0, min(1.0, float(v[2]) / norm))
+            theta = float(np.arccos(vz))  # 0=顶点
+            phi = float(np.arctan2(float(v[1]), float(v[0])))
+            r = min(1.0, theta / (np.pi / 2.0))
+            out[nm] = [round(r * float(np.cos(phi)), 4), round(r * float(np.sin(phi)), 4)]
+        return out or None
+    except Exception:
+        return None
+
+
 def build_timeseries(
     study: Any,
     artifact: Any,
@@ -189,6 +230,7 @@ def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels, l_
         "segment_options": None,
         "n_channels_total": len(raw.ch_names),
         "ch_names_all": [str(c) for c in raw.ch_names],
+        "ch_pos": _ch_positions(raw.info, names),
         "times": out_times,
         "channels": channels,
     }
@@ -244,6 +286,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
         "segment_options": None,
         "n_channels_total": len(epochs.ch_names),
         "ch_names_all": [str(c) for c in epochs.ch_names],
+        "ch_pos": _ch_positions(epochs.info, names),
         "times": out_times,
         "channels": channels,
     }
@@ -294,6 +337,7 @@ def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
         "segment_options": options,
         "n_channels_total": len(ev.ch_names),
         "ch_names_all": [str(c) for c in ev.ch_names],
+        "ch_pos": _ch_positions(ev.info, names),
         "times": out_times,
         "channels": channels,
     }

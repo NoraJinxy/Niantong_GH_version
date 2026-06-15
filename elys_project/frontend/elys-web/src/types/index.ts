@@ -995,6 +995,8 @@ export interface StudyOutputTimeseries {
   segment_options: string[] | null
   n_channels_total: number
   ch_names_all: string[]
+  /** 通道 2D 头皮投影坐标（单位圆内，+x=右 +y=前）；无 montage 时为 null。供地形图条。 */
+  ch_pos?: Record<string, [number, number]> | null
   times: number[]
   channels: TimeseriesChannel[]
 }
