@@ -81,19 +81,33 @@ def _ch_positions(info, names) -> dict[str, list[float]] | None:
             pts[nm] = a[:3]
         if len(pts) < 3:
             return None
-        arr = np.asarray(list(pts.values()), dtype="float64")
+        names_list = list(pts.keys())
+        arr = np.asarray([pts[nm] for nm in names_list], dtype="float64")
         center = arr.mean(axis=0)
-        out: dict[str, list[float]] = {}
-        for nm, xyz in pts.items():
+        # 退化点云（电极近共面、z 无展开）→ 方位投影无意义，宁可不画（返回 None 走诚实空态）
+        z_span = float(np.ptp(arr[:, 2]))
+        xy_span = float(max(float(np.ptp(arr[:, 0])), float(np.ptp(arr[:, 1]))) or 1.0)
+        if z_span <= 1e-6 * xy_span:
+            return None
+        # 第一遍：相对中心的极角 theta（0=顶点）+ 方位角 phi
+        thetas: list[float] = []
+        phis: list[float] = []
+        for xyz in arr:
             v = xyz - center
             norm = float(np.linalg.norm(v))
             if norm <= 0:
+                thetas.append(0.0)
+                phis.append(0.0)
                 continue
             vz = max(-1.0, min(1.0, float(v[2]) / norm))
-            theta = float(np.arccos(vz))  # 0=顶点
-            phi = float(np.arctan2(float(v[1]), float(v[0])))
-            r = min(1.0, theta / (np.pi / 2.0))
-            out[nm] = [round(r * float(np.cos(phi)), 4), round(r * float(np.sin(phi)), 4)]
+            thetas.append(float(np.arccos(vz)))
+            phis.append(float(np.arctan2(float(v[1]), float(v[0]))))
+        theta_max = max(thetas) or 1.0
+        # 按最大极角归一（不裁剪到 π/2），最外电极落边界、保留径向次序——否则下半球电极全堆在圆周
+        out: dict[str, list[float]] = {}
+        for nm, th, ph in zip(names_list, thetas, phis):
+            r = th / theta_max
+            out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
         return out or None
     except Exception:
         return None

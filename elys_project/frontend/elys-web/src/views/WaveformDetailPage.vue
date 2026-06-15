@@ -246,7 +246,7 @@
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && selected.size" :cells="topoCells" :vmax="topoVmax" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" />
           </template>
 
           <div v-else class="wf-state">该数据没有可绘制的通道曲线。</div>
@@ -726,8 +726,12 @@ const topoCells = computed<TopoCell[]>(() => {
       const p = pos[ch.name]
       if (!p) continue
       let sum = 0
-      for (const i of idxs) sum += (ch.values[i] ?? 0) * sc
-      points.push({ name: ch.name, x: p[0], y: p[1], value: sum / idxs.length })
+      let cnt = 0
+      for (const i of idxs) {
+        const v = ch.values[i]
+        if (Number.isFinite(v)) { sum += v * sc; cnt++ } // 跳过 NaN/Inf，否则毒化整张图的色标
+      }
+      if (cnt) points.push({ name: ch.name, x: p[0], y: p[1], value: sum / cnt })
     }
     out.push({ seg, label: segLabel(seg), color: segColor(seg), points: points.length ? points : null })
   }
@@ -735,7 +739,7 @@ const topoCells = computed<TopoCell[]>(() => {
 })
 const topoVmax = computed(() => {
   let m = 0
-  for (const c of topoCells.value) if (c.points) for (const p of c.points) m = Math.max(m, Math.abs(p.value))
+  for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
   return m
 })
 
