@@ -15,7 +15,7 @@
   ],
   "properties": [
     {"name": "n_components", "label": "Components", "type": "integer", "default": null, "min": 1},
-    {"name": "method", "label": "Method", "type": "select", "default": "fastica", "options": [{"value": "fastica", "label": "FastICA"}, {"value": "infomax", "label": "Infomax"}]},
+    {"name": "method", "label": "Method", "type": "select", "default": "fastica", "options": [{"value": "fastica", "label": "FastICA"}, {"value": "infomax", "label": "Infomax"}, {"value": "picard", "label": "Picard"}]},
     {"name": "random_state", "label": "Random State", "type": "integer", "default": 42}
   ],
   "backend": {

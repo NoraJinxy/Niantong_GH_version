@@ -49,6 +49,27 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
   )
   const icaInteractionComponents = computed(() => icaInteraction.value?.components || [])
 
+  // 跳到富 ICA 审阅台（地形图 / 时序 / 频谱），带 job 上下文以便就地提交剔除决策；
+  // ICA 结果 id 从交互 preview_json.datasets[].ica_artifact_id 取，取不到则返回空（不显示入口）。
+  const icaReviewerHref = computed(() => {
+    const studyId = selectedStudyId.value
+    const executionId = activeExecutionId.value
+    const job = selectedJob.value
+    const interaction = icaInteraction.value
+    if (!studyId || !executionId || !job || !interaction) return ''
+    const datasets = (interaction.preview_json as { datasets?: Array<{ ica_artifact_id?: string | null }> } | null)?.datasets
+    const outputId = Array.isArray(datasets) ? datasets.find((d) => d && d.ica_artifact_id)?.ica_artifact_id || '' : ''
+    if (!outputId) return ''
+    const query = new URLSearchParams({
+      studyId,
+      study_output_id: String(outputId),
+      executionId,
+      jobId: job.id,
+      decisionVersion: String(interaction.decision_version || 1),
+    })
+    return `/ica?${query.toString()}`
+  })
+
   function resetIcaInteractionState() {
     icaInteractionSeq += 1
     icaInteraction.value = null
@@ -162,6 +183,7 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
     icaInteractionError,
     showIcaInteractionPanel,
     icaInteractionComponents,
+    icaReviewerHref,
     resetIcaInteractionState,
     loadSelectedIcaInteraction,
     toggleIcaComponent,

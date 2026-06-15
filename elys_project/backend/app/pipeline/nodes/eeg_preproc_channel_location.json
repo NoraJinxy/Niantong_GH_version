@@ -1,0 +1,50 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/channel_location",
+  "title": "Ch Loc Assign",
+  "category": "preprocessing",
+  "phase": "phase1",
+  "description": "指派标准电极位置（10-20 / 10-05 模板）写入数据，供地形图 / ICA 成分图 / 坏导插值使用。可自动按通道数选帽并把通道名归一化到标准命名。输出写入 derivatives，不改写 fifdata。",
+  "tags": ["channel", "montage", "topomap", "location", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Located EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "montage", "label": "电极帽模板", "type": "select", "default": "auto", "required": true,
+     "options": [
+       {"value": "auto", "label": "自动（按通道数）"},
+       {"value": "standard_1020", "label": "标准 10-20"},
+       {"value": "standard_1005", "label": "标准 10-05（高密度）"}
+     ],
+     "description": "auto：≤32 导用 10-20、否则 10-05。模板为标准头位坐标（非个体真实数字化坐标），足够观察用地形图与成分图。"},
+    {"name": "rename", "label": "自动规范通道名", "type": "boolean", "default": true,
+     "description": "把 FP1 / 'EEG Fp1-Ref' 等写法归一化到标准命名（Fp1）以便匹配电极帽；非脑电通道（EOG / 触发）不动。"},
+    {"name": "on_missing", "label": "未匹配通道", "type": "select", "default": "ignore", "advanced": true,
+     "options": [
+       {"value": "ignore", "label": "跳过（保留无坐标）"},
+       {"value": "warn", "label": "警告但继续"}
+     ],
+     "description": "数据里有、模板里没有的脑电通道如何处理。默认跳过——这些通道只是缺地形图坐标，不影响其余分析。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.channel_location",
+    "function": "run_channel_location",
+    "save_descriptor": "chanloc",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "channel-location",
+    "auto_tags": ["step:channel-location", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
+  "ui": {"color": "#00A5A8", "default_size": [190, 90], "preview_type": "time_series"}
+}

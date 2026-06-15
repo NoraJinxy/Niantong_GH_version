@@ -44,6 +44,7 @@ from app.pipeline.previews import (
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.psd_view import build_psd_lines
 from app.pipeline.tfr_view import build_tfr_heatmap
+from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail
 from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
 from app.services.execution_dependencies import ArtifactDependencyError, assert_artifact_can_be_deleted
@@ -548,6 +549,76 @@ def get_study_output_timeseries(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "DERIVED_DATASET_TIMESERIES_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/ica-components")
+def get_study_output_ica_components(
+    study_id: str,
+    dataset_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ICA 成分网格：总览 + 每成分地形图（电极权重落 2D 坐标）+ 解释方差 + 主导通道。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，ICA 成分不可用。"},
+        )
+    try:
+        return build_ica_components(study, dataset)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "ICA_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/ica-components/{index}")
+def get_study_output_ica_component_detail(
+    study_id: str,
+    dataset_id: UUID,
+    index: int,
+    excluded: str | None = Query(default=None, description="逗号分隔的成分序号；给出则附去除前后对比"),
+    max_seconds: float = Query(default=10.0, gt=0, le=60),
+    fmax: float = Query(default=50.0, gt=0, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """单成分详情：时域波形 + Welch 频谱（+ excluded 给出时的去除前后对比）。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，ICA 成分不可用。"},
+        )
+    excluded_list = [int(tok) for tok in re.split(r"[,;\s]+", excluded or "") if tok.strip().lstrip("-").isdigit()]
+    try:
+        return build_ica_component_detail(
+            study, dataset, index, excluded=excluded_list, max_seconds=max_seconds, fmax=fmax
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "ICA_COMPONENT_INDEX_INVALID", "message": str(exc)},
+        ) from exc
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "ICA_ENGINE_UNAVAILABLE", "message": str(exc)},
         ) from exc
 
 

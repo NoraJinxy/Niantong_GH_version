@@ -687,6 +687,16 @@
               </label>
               <div v-if="!icaInteractionComponents.length" class="state-text">暂无可展示的 ICA 成分。</div>
               <div class="ica-interaction-panel__actions">
+                <a
+                  v-if="icaReviewerHref"
+                  class="button"
+                  :href="icaReviewerHref"
+                  target="_blank"
+                  rel="noopener"
+                  title="在 ICA 审阅台查看地形图 / 时序 / 频谱并提交剔除"
+                >
+                  审阅台打开 ↗
+                </a>
                 <button
                   class="button"
                   type="button"
@@ -1423,6 +1433,7 @@ const {
   icaInteractionError,
   showIcaInteractionPanel,
   icaInteractionComponents,
+  icaReviewerHref,
   resetIcaInteractionState,
   loadSelectedIcaInteraction,
   toggleIcaComponent,

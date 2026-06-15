@@ -32,6 +32,7 @@ from app.engine.io import (
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
+from app.engine.preprocess.channel_location import run_channel_location
 from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
 from app.engine.preprocess.resample import run_resample
@@ -77,6 +78,7 @@ class NodeDispatcher:
             "eeg/filter/apply": self._execute_filter,
             "eeg/preproc/resample": self._execute_resample,
             "eeg/preproc/rereference": self._execute_rereference,
+            "eeg/preproc/channel_location": self._execute_channel_location,
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/epoch/segment": self._execute_epoch_segment,
@@ -224,6 +226,9 @@ class NodeDispatcher:
     def _execute_rereference(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_raw_preprocess(context, run_rereference, save_descriptor="ref")
 
+    def _execute_channel_location(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        return self._execute_raw_preprocess(context, run_channel_location, save_descriptor="chanloc")
+
     def _execute_ica_compute(self, context: NodeExecutionContext) -> NodeDispatchResult:
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
@@ -248,6 +253,8 @@ class NodeDispatcher:
                 raw = read_raw_from_data_info(data_info, preload=True)
                 ica = run_compute_ica(raw, context.params)
                 summary = summarize_ica(ica, raw)
+                # 记录源 raw 紧凑引用，供 ICA 成分审阅端点回溯载入（算时序 / 频谱 / 去除前后对比）
+                summary["source_ref"] = self._compact_input_data_info(data_info)
                 filename = self._derived_fif_filename(data_info, "ica", index, kind="ica")
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
