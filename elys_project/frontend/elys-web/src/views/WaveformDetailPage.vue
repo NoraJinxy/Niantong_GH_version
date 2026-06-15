@@ -524,7 +524,7 @@ function exportCell(e: MouseEvent, title: string) {
     ctx.fillStyle = '#1F2733'
     ctx.font = `${Math.round(11 * scale)}px sans-serif`
     ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(8 * scale), headH / 2)
+    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
   }
   ctx.drawImage(src, 0, headH)
   const a = document.createElement('a')

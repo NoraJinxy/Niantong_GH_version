@@ -31,11 +31,12 @@ function draw() {
   const vals = props.values
   const n = vals.length
   if (n < 2) return
-  const step = Math.max(1, Math.floor(n / w))
+  // 全样本扫真实极值（抽样会漏掉尖峰；逐列 min/max 包络保峰）
   let min = Infinity
   let max = -Infinity
-  for (let i = 0; i < n; i += step) {
+  for (let i = 0; i < n; i++) {
     const v = vals[i]
+    if (!Number.isFinite(v)) continue
     if (v < min) min = v
     if (v > max) max = v
   }
@@ -44,20 +45,33 @@ function draw() {
     max += 1
   }
   const pad = 1.5
-  const cols = Math.ceil(n / step)
+  const cols = Math.min(w, n)
+  const colW = n / cols
+  const yOf = (v: number) => h - pad - ((v - min) / (max - min)) * (h - 2 * pad)
+  const xOf = (ci: number) => (ci / Math.max(1, cols - 1)) * (w - 2 * pad) + pad
   ctx.beginPath()
   ctx.strokeStyle = props.color
   ctx.lineWidth = 0.9
-  let first = true
-  let xi = 0
-  for (let i = 0; i < n; i += step) {
-    const v = vals[i]
-    const x = (xi / Math.max(1, cols - 1)) * (w - 2 * pad) + pad
-    const y = h - pad - ((v - min) / (max - min)) * (h - 2 * pad)
-    if (first) ctx.moveTo(x, y)
-    else ctx.lineTo(x, y)
-    first = false
-    xi++
+  let started = false
+  for (let ci = 0; ci < cols; ci++) {
+    const lo = Math.floor(ci * colW)
+    const hi = Math.min(n, Math.floor((ci + 1) * colW))
+    let cmin = Infinity
+    let cmax = -Infinity
+    for (let i = lo; i < hi; i++) {
+      const v = vals[i]
+      if (!Number.isFinite(v)) continue
+      if (v < cmin) cmin = v
+      if (v > cmax) cmax = v
+    }
+    if (!Number.isFinite(cmin)) {
+      started = false // 该列全无有限值 → 断笔，下一有效列重新起笔
+      continue
+    }
+    const x = xOf(ci)
+    if (started) ctx.lineTo(x, yOf(cmax))
+    else { ctx.moveTo(x, yOf(cmax)); started = true }
+    ctx.lineTo(x, yOf(cmin)) // 同列 max→min 画竖段成包络
   }
   ctx.stroke()
 }

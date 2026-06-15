@@ -135,7 +135,7 @@ function drawUnder(u: uPlot) {
   }
 }
 
-// 画内紧凑图例（series 之后画 → draw 钩子），右上角
+// 画内紧凑图例（series 之后画 → draw 钩子），右上角；带半透明背板防与曲线糊在一起
 function drawLegend(u: uPlot) {
   if (!props.showLegend || props.series.length < 2 || props.displayMode === 'spread') return
   const ctx = u.ctx
@@ -143,29 +143,46 @@ function drawLegend(u: uPlot) {
   const dpr = PX_RATIO
   const max = 8
   const rowH = 13 * dpr
-  const pad = 6 * dpr
+  const ipad = 5 * dpr // 块内边距
+  const swatchW = 12 * dpr
+  const gap = 6 * dpr
   ctx.save()
   ctx.font = `${10 * dpr}px var(--ff-mono, monospace)`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
-  const items = props.series.slice(0, max)
-  let y = top + pad + rowH / 2
-  for (const s of items) {
-    const tx = left + width - pad - 86 * dpr
-    ctx.strokeStyle = s.color
-    ctx.lineWidth = 2 * dpr
-    ctx.beginPath()
-    ctx.moveTo(tx, y)
-    ctx.lineTo(tx + 12 * dpr, y)
-    ctx.stroke()
-    ctx.fillStyle = '#57636F'
-    const label = s.name.length > 12 ? s.name.slice(0, 11) + '…' : s.name
-    ctx.fillText(label, tx + 16 * dpr, y)
+  const items = props.series.slice(0, max).map((s) => ({
+    color: s.color,
+    label: s.name.length > 14 ? s.name.slice(0, 13) + '…' : s.name,
+  }))
+  if (props.series.length > max) items.push({ color: '', label: `+${props.series.length - max}` })
+  // 背板宽度按最长标签实测，避免硬编码留白或长名挤压
+  let labelW = 0
+  for (const it of items) labelW = Math.max(labelW, ctx.measureText(it.label).width)
+  const blockW = swatchW + gap + labelW + ipad * 2
+  const blockH = items.length * rowH + ipad * 2
+  const bx = left + width - 6 * dpr - blockW
+  const by = top + 6 * dpr
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.82)'
+  ctx.fillRect(bx, by, blockW, blockH)
+  ctx.strokeStyle = 'rgba(228, 233, 241, 0.9)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(bx + 0.5, by + 0.5, blockW - 1, blockH - 1)
+  let y = by + ipad + rowH / 2
+  for (const it of items) {
+    const sx = bx + ipad
+    if (it.color) {
+      ctx.strokeStyle = it.color
+      ctx.lineWidth = 2 * dpr
+      ctx.beginPath()
+      ctx.moveTo(sx, y)
+      ctx.lineTo(sx + swatchW, y)
+      ctx.stroke()
+      ctx.fillStyle = '#57636F'
+    } else {
+      ctx.fillStyle = '#9AA4B0'
+    }
+    ctx.fillText(it.label, sx + swatchW + gap, y)
     y += rowH
-  }
-  if (props.series.length > max) {
-    ctx.fillStyle = '#9AA4B0'
-    ctx.fillText(`+${props.series.length - max}`, left + width - pad - 86 * dpr + 16 * dpr, y)
   }
   ctx.restore()
 }
