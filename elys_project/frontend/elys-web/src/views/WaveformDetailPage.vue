@@ -32,11 +32,16 @@
             </div>
             <div v-show="!collapsed.dataset" class="wf-sec-body">
               <template v-if="isMultiOutput">
-                <label v-for="(oid, i) in outputIds" :key="oid" class="wf-li">
-                  <input type="checkbox" :checked="selectedSegs.has(i)" @change="toggleSeg(i)" />
-                  <span class="wf-li-dot" :style="{ background: segColor(i) }"></span>
+                <div
+                  v-for="(oid, i) in outputIds"
+                  :key="oid"
+                  class="wf-li"
+                  :class="{ 'is-sel': selectedSegs.has(i) }"
+                  @click="toggleSeg(i)"
+                >
+                  <span class="wf-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="wf-li-name">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
-                </label>
+                </div>
               </template>
               <div v-else class="wf-li is-static">
                 <span class="wf-li-dot" :style="{ background: typeColor }"></span>
@@ -54,11 +59,16 @@
               <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.segment }">▾</span>
             </div>
             <div v-show="!collapsed.segment" class="wf-sec-body">
-              <label v-for="i in segCheckboxes" :key="i" class="wf-li">
-                <input type="checkbox" :checked="selectedSegs.has(i)" @change="toggleSeg(i)" />
-                <span class="wf-li-dot" :style="{ background: segColor(i) }"></span>
+              <div
+                v-for="i in segCheckboxes"
+                :key="i"
+                class="wf-li"
+                :class="{ 'is-sel': selectedSegs.has(i) }"
+                @click="toggleSeg(i)"
+              >
+                <span class="wf-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                 <span class="wf-li-name">{{ segOptions?.[i] ?? ('#' + (i + 1)) }}</span>
-              </label>
+              </div>
               <div v-if="segCount > segCheckboxes.length" class="wf-sec-hint">
                 仅列前 {{ segCheckboxes.length }} / {{ segCount }} 段（上一/下一切换主段）
                 <div class="wf-seg-stepper">
@@ -83,12 +93,17 @@
                 <button v-if="selected.size > 0" type="button" class="wf-link" @click="selectNone">清空</button>
               </div>
               <div class="wf-chanlist">
-                <label v-for="(name, i) in allChanNames" :key="name" class="wf-li">
-                  <input type="checkbox" :checked="selected.has(name)" @change="toggleChannel(name)" />
-                  <span class="wf-li-dot" :style="{ background: channelColor(i) }"></span>
+                <div
+                  v-for="(name, i) in allChanNames"
+                  :key="name"
+                  class="wf-li"
+                  :class="{ 'is-sel': selected.has(name) }"
+                  @click="toggleChannel(name)"
+                >
+                  <span class="wf-li-dot" :style="{ background: selected.has(name) ? channelColor(i) : INACTIVE_DOT }"></span>
                   <span class="wf-li-name text-mono">{{ name }}</span>
                   <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="channelColor(i)" />
-                </label>
+                </div>
               </div>
               <p v-if="ts && ts.n_channels_total > allChanNames.length" class="wf-sec-hint">
                 仅列出前 {{ allChanNames.length }} / {{ ts.n_channels_total }} 通道
@@ -354,6 +369,7 @@ const DATA_TYPE_LABELS: Record<string, string> = {
 }
 const DEFAULT_SELECT = 8
 const SYNC_KEY = 'wf-cursor' // 多子图游标联动同步键
+const INACTIVE_DOT = '#cbd2dc' // 未选中项的灰点（Niantong 风格：选中=彩色、未选=灰）
 
 // ---------- 查询参数 ----------
 function qstr(key: string, fallback = ''): string {
@@ -1069,10 +1085,10 @@ onUnmounted(() => {
 .wf-link { background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 11px; padding: 0; }
 .wf-link:hover { text-decoration: underline; }
 
-.wf-li { display: flex; align-items: center; gap: 6px; padding: 2px 5px; border-radius: 3px; font-size: 11px; color: var(--c-text-2); cursor: pointer; user-select: none; }
+.wf-li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 3px; font-size: 11px; color: var(--c-text-2); cursor: pointer; user-select: none; transition: background .1s, color .1s; }
 .wf-li:hover { background: var(--c-bg-tint); }
-.wf-li.is-static { cursor: default; }
-.wf-li input[type="checkbox"] { accent-color: var(--c-primary); width: 12px; height: 12px; margin: 0; flex-shrink: 0; }
+.wf-li.is-sel { background: var(--c-primary-soft); color: var(--c-primary); font-weight: 500; }
+.wf-li.is-static, .wf-li.is-static:hover { cursor: default; background: none; }
 .wf-li-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .wf-li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-li-tag { margin-left: auto; font-size: 8px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
