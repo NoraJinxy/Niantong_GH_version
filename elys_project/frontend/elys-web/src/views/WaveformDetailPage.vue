@@ -19,8 +19,6 @@
       </div>
     </header>
 
-    <ObserveTabs active="erp" />
-
     <div class="wf-main">
       <!-- ============ 左栏：选择器 ============ -->
       <aside class="wf-left">
@@ -328,7 +326,6 @@ import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import ObserveTabs from '@/components/ObserveTabs.vue'
 import { channelColor } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
 
@@ -1028,7 +1025,6 @@ onUnmounted(() => {
 <style scoped>
 .wf-page { display: flex; flex-direction: column; height: 100vh; background: var(--c-bg-soft); color: var(--c-text); font-family: var(--ff-sans); }
 .text-mono { font-family: var(--ff-mono); }
-.wf-page :deep(.obs-tabs) { flex-shrink: 0; }
 .wf-tg--hint { border-right: none; opacity: .85; }
 
 /* ===== 顶部信息条 ===== */
