@@ -35,10 +35,10 @@ const props = withDefaults(
     showLegend?: boolean
     /** 参考线：t=0 竖线 + 0µV 基线（evoked/epochs 用）。 */
     refLines?: boolean
-    /** 多子图游标联动的同步键（同键的子图共享游标 x）。 */
-    syncKey?: string
+    /** 高亮某条序列（按名）：匹配的加粗、其余压细——点右栏行定位用。 */
+    highlight?: string
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, syncKey: '' },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '' },
 )
 
 const emit = defineEmits<{
@@ -191,6 +191,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
   const grid = props.showGrid
   const spread = props.displayMode === 'spread'
   const n = props.series.length
+  // 高亮仅在「目标序列确实在本格」时生效，否则本格保持常规线宽（避免别的格被无谓压细）
+  const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
 
   const yAxis: uPlot.Axis = spread
     ? {
@@ -211,8 +213,9 @@ function buildOpts(w: number, h: number): uPlot.Options {
         font: '11px var(--ff-mono, monospace)',
       }
 
+  // 框选区间用：drag 选区不缩放（setScale:false）。不开 cursor.sync——它会把 mousedown/up
+  // 广播到每个子图、各自再处理一遍，踩坏框选（见排查：filters.pub 默认 retTrue）。
   const cursor: uPlot.Cursor = { drag: { x: true, y: false, setScale: false }, focus: { prox: 16 } }
-  if (props.syncKey) cursor.sync = { key: props.syncKey }
 
   const opts: uPlot.Options = {
     width: w,
@@ -233,7 +236,13 @@ function buildOpts(w: number, h: number): uPlot.Options {
     ],
     series: [
       {},
-      ...props.series.map((s) => ({ label: s.name, stroke: s.color, width: 1.25, points: { show: false } })),
+      ...props.series.map((s) => ({
+        label: s.name,
+        stroke: s.color,
+        // 命中本格高亮目标：加粗、其余压细；本格无该目标则统一 1.25
+        width: hlActive ? (s.name === props.highlight ? 2.6 : 0.7) : 1.25,
+        points: { show: false },
+      })),
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
@@ -306,9 +315,9 @@ onUnmounted(() => {
   chart.value = null
 })
 
-// 数据/序列/Y档/显示模式/网格/联动键 = 结构性变化 → 重建（最稳）。
+// 数据/序列/Y档/显示模式/网格/高亮 = 结构性变化 → 重建（最稳）。
 watch(
-  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.syncKey],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.highlight],
   () => rebuild(),
   { deep: false },
 )

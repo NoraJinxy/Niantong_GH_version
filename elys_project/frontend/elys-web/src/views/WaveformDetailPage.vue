@@ -233,7 +233,7 @@
             <div v-if="partialNote" class="wf-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="wf-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="wf-facet" :class="{ 'is-single': cells.length <= 1 }" :style="facetStyle">
-              <section v-for="cell in cells" :key="cell.key" class="wf-cell" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+              <section v-for="cell in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': highlightChan && cell.title === highlightChan }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="wf-cell-hd">
                   <span class="wf-cell-tag" :style="{ background: cellAccent(cell) }"></span>
                   <span class="wf-cell-name">{{ cell.title || (dataType === 'evoked' ? 'ERP' : '波形') }}</span>
@@ -252,7 +252,7 @@
                     :loading="loading"
                     :region="region"
                     :ref-lines="refLinesOn"
-                    :sync-key="SYNC_KEY"
+                    :highlight="highlightChan"
                     @cursor="onCursor"
                     @select="onSelect"
                   />
@@ -294,6 +294,17 @@
           </div>
         </div>
         <div class="wf-right-scroll">
+          <!-- 游标读数：悬停曲线时把当前时刻各序列瞬时值带进右栏 -->
+          <div v-if="cursorReadout" class="wf-hover">
+            <div class="wf-hover-hd">游标 <span class="text-mono">{{ fmtX(cursorReadout.x) }}{{ xUnit }}</span></div>
+            <div class="wf-hover-list">
+              <div v-for="it in cursorReadout.items.slice(0, 16)" :key="it.name" class="wf-hover-row">
+                <span class="wf-li-dot" :style="{ background: it.color }"></span>
+                <span class="wf-hover-name">{{ it.name }}</span>
+                <span class="wf-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+              </div>
+            </div>
+          </div>
           <div v-if="!statsRows.length" class="wf-right-empty">
             <template v-if="regionUserSet && region && hasCurves">
               统计区间（{{ fmtX(region.x0) }}–{{ fmtX(region.x1) }} {{ xUnit }}）不在当前时间窗内。<button class="wf-link" @click="resetStatsRange">跟随窗口</button>
@@ -313,7 +324,7 @@
                 <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
               </thead>
               <tbody>
-                <tr v-for="(r, i) in statsRows" :key="i">
+                <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': highlightChan === r.chan }" @click="focusChan(r.chan)">
                   <td class="wf-dt-seg">{{ r.segName }}</td>
                   <td class="wf-dt-ch"><span class="wf-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
                   <td class="wf-dt-peak">{{ r.peak.toFixed(2) }}</td>
@@ -368,7 +379,6 @@ const DATA_TYPE_LABELS: Record<string, string> = {
   evoked: '平均 (evoked / ERP)',
 }
 const DEFAULT_SELECT = 8
-const SYNC_KEY = 'wf-cursor' // 多子图游标联动同步键
 const INACTIVE_DOT = '#cbd2dc' // 未选中项的灰点（Niantong 风格：选中=彩色、未选=灰）
 
 // ---------- 查询参数 ----------
@@ -416,6 +426,7 @@ const showTopo = ref(true)
 const displayMode = ref<'overlay' | 'spread'>('overlay')
 const selected = ref<Set<string>>(new Set())
 const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
+const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
 const regionUserSet = ref(false)
@@ -1012,6 +1023,10 @@ function onSelect(r: { x0: number; x1: number } | null) {
   statLoInput.value = round(r.x0, xPrec.value)
   statHiInput.value = round(r.x1, xPrec.value)
 }
+// 点右栏明细行 → 高亮该通道（再点取消）
+function focusChan(name: string) {
+  highlightChan.value = highlightChan.value === name ? '' : name
+}
 
 // ---------- 左栏分区折叠 ----------
 function toggleSec(key: string) {
@@ -1153,6 +1168,7 @@ onUnmounted(() => {
 .wf-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
 .wf-cell-dl:hover { color: var(--c-primary); }
 .wf-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
+.wf-cell.is-focus { box-shadow: 0 0 0 2px var(--c-primary); position: relative; z-index: 1; }
 
 /* ===== 状态条 ===== */
 .wf-sbar { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--c-surface); border-top: 1px solid var(--c-border); font-size: 10.5px; color: var(--c-text-3); flex-shrink: 0; overflow: hidden; }
@@ -1197,6 +1213,14 @@ onUnmounted(() => {
 .wf-dtable td { padding: 3px 5px; text-align: right; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
 .wf-dtable td:first-child, .wf-dtable td:nth-child(2) { text-align: left; }
 .wf-dtable tr:hover td { background: var(--c-bg-tint); }
+.wf-dt-row { cursor: pointer; }
+.wf-dtable tr.is-focus td { background: var(--c-primary-soft); }
+.wf-hover { margin-bottom: 8px; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-bg-soft); }
+.wf-hover-hd { font-size: 10px; color: var(--c-text-3); margin-bottom: 4px; }
+.wf-hover-list { display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; }
+.wf-hover-row { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 0; }
+.wf-hover-name { color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-hover-val { margin-left: auto; font-weight: 600; color: var(--c-text); }
 .wf-dt-seg { color: var(--c-text-2); }
 .wf-dt-ch { display: flex; align-items: center; gap: 4px; }
 .wf-dt-peak { color: #3F5E8F; font-weight: 600; }
