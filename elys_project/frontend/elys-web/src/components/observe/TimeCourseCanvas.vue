@@ -37,8 +37,10 @@ const props = withDefaults(
     refLines?: boolean
     /** 高亮某条序列（按名）：匹配的加粗、其余压细——点右栏行定位用。 */
     highlight?: string
+    /** 密集坐标轴：多子图时去掉 μV/时间 标题、缩小刻度区，省空间。 */
+    denseAxes?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '' },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false },
 )
 
 const emit = defineEmits<{
@@ -193,6 +195,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
   const n = props.series.length
   // 高亮仅在「目标序列确实在本格」时生效，否则本格保持常规线宽（避免别的格被无谓压细）
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
+  const dense = props.denseAxes
+  const axisFont = dense ? '9px var(--ff-mono, monospace)' : '11px var(--ff-mono, monospace)'
 
   const yAxis: uPlot.Axis = spread
     ? {
@@ -206,11 +210,12 @@ function buildOpts(w: number, h: number): uPlot.Options {
         values: (_u, splits) => splits.map((c) => props.series[n - 1 - Math.round(c)]?.name ?? ''),
       }
     : {
-        label: props.yLabel,
+        label: dense ? undefined : props.yLabel,
+        size: dense ? 34 : 50,
         stroke: AXIS,
         grid: { show: grid, stroke: GRID },
         ticks: { stroke: GRID },
-        font: '11px var(--ff-mono, monospace)',
+        font: axisFont,
       }
 
   // 框选区间用：drag 选区不缩放（setScale:false）。不开 cursor.sync——它会把 mousedown/up
@@ -231,7 +236,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
           : {},
     },
     axes: [
-      { label: props.xLabel, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { stroke: GRID }, font: '11px var(--ff-mono, monospace)' },
+      { label: dense ? undefined : props.xLabel, size: dense ? 26 : 38, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { stroke: GRID }, font: axisFont },
       yAxis,
     ],
     series: [
@@ -317,7 +322,7 @@ onUnmounted(() => {
 
 // 数据/序列/Y档/显示模式/网格/高亮 = 结构性变化 → 重建（最稳）。
 watch(
-  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.highlight],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.highlight, props.denseAxes],
   () => rebuild(),
   { deep: false },
 )

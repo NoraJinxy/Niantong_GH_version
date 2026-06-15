@@ -14,6 +14,17 @@
         </div>
       </div>
       <div class="wf-head-right">
+        <div class="wf-layout-btns">
+          <button class="wf-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+          </button>
+          <button class="wf-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+          </button>
+          <button class="wf-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
+          </button>
+        </div>
         <span class="wf-source is-real">真实时域数据</span>
         <button class="wf-btn wf-btn--ghost" @click="load" :disabled="loading">刷新</button>
       </div>
@@ -21,7 +32,7 @@
 
     <div class="wf-main">
       <!-- ============ 左栏：选择器 ============ -->
-      <aside class="wf-left">
+      <aside v-show="showLeft" class="wf-left">
         <div class="wf-left-scroll">
           <!-- 数据集 -->
           <section class="wf-sec">
@@ -233,7 +244,7 @@
             <div v-if="partialNote" class="wf-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="wf-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="wf-facet" :class="{ 'is-single': cells.length <= 1 }" :style="facetStyle">
-              <section v-for="cell in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': highlightChan && cell.title === highlightChan }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+              <section v-for="(cell, ci) in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': highlightChan && cell.title === highlightChan }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="wf-cell-hd">
                   <span class="wf-cell-tag" :style="{ background: cellAccent(cell) }"></span>
                   <span class="wf-cell-name">{{ cell.title || (dataType === 'evoked' ? 'ERP' : '波形') }}</span>
@@ -253,6 +264,8 @@
                     :region="region"
                     :ref-lines="refLinesOn"
                     :highlight="highlightChan"
+                    :show-legend="ci === legendCellIndex"
+                    :dense-axes="denseAxes"
                     @cursor="onCursor"
                     @select="onSelect"
                   />
@@ -423,6 +436,7 @@ const yScaleIdx = ref(0)
 const showGrid = ref(true)
 const showStats = ref(true)
 const showTopo = ref(true)
+const showLeft = ref(true) // 左栏（选择器）折叠
 const displayMode = ref<'overlay' | 'spread'>('overlay')
 const selected = ref<Set<string>>(new Set())
 const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
@@ -464,9 +478,11 @@ const displayName = computed(() => nameHint || dataTypeLabel.value)
 // 段数：单产物=该产物 n_segments；多产物=产物个数（把"数据集"映射到段维度，复用对比/网格机制）
 const segCount = computed(() => (isMultiOutput ? outputIds.length : ts.value?.n_segments || 0))
 const segKindLabel = computed(() => (isMultiOutput ? '数据集' : ts.value?.segment_kind === 'condition' ? '条件' : 'Epoch'))
+// 数据集名缓存：取过名就记住，避免取消勾选（不再取数）后名字退回「数据集 N」
+const labelCache = reactive<Record<number, string>>({})
 const segOptions = computed(() =>
   isMultiOutput
-    ? outputIds.map((_, i) => tsMap.value.get(i)?.segment_label || `数据集 ${i + 1}`)
+    ? outputIds.map((_, i) => labelCache[i] || tsMap.value.get(i)?.segment_label || `数据集 ${i + 1}`)
     : ts.value?.segment_options ?? null,
 )
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
@@ -617,7 +633,8 @@ const cells = computed<Cell[]>(() => {
       const titleParts: string[] = []
       if (rf !== 'none') titleParts.push(rf === 'seg' ? segLabel(rv as number) : String(rv))
       if (cf !== 'none') titleParts.push(cf === 'seg' ? segLabel(cv as number) : String(cv))
-      out.push({ key: `r:${String(rv)}|c:${String(cv)}`, title: titleParts.join(' · '), data: [xs, ...cols], series })
+      // key 带上当前选中段签名：改选数据集/段时强制重建子图（与矩阵布局一致），规避复用组件不刷新致空图
+      out.push({ key: `r:${String(rv)}|c:${String(cv)}|s:${segs.join(',')}`, title: titleParts.join(' · '), data: [xs, ...cols], series })
     }
   }
   return out
@@ -633,6 +650,17 @@ const facetStyle = computed(() => {
   }
   return { gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }
 })
+
+// 图例去重：只在一张子图画（矩阵→右上角；画廊/单因素→第一格），各格内容相同无需重复
+const legendCellIndex = computed(() => {
+  if (rowFactor.value !== 'none' && colFactor.value !== 'none') {
+    const cols = (colFactor.value === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
+    return cols - 1
+  }
+  return 0
+})
+// 多子图时压缩坐标轴占用（去 μV/时间 标题、缩小刻度区）
+const denseAxes = computed(() => cells.value.length > 1)
 
 const hasCurves = computed(() => allChanNames.value.length > 0 && (ts.value?.times.length || 0) > 1)
 
@@ -842,7 +870,10 @@ async function load() {
       return
     }
     const m = new Map<number, StudyOutputTimeseries>()
-    for (const s of ok) m.set(s.value[0], s.value[1])
+    for (const s of ok) {
+      m.set(s.value[0], s.value[1])
+      if (isMultiOutput && s.value[1].segment_label) labelCache[s.value[0]] = s.value[1].segment_label
+    }
     tsMap.value = m
     const failed = settled.length - ok.length
     partialNote.value = failed > 0 ? `部分结果未能加载（${failed} 个），仅显示可用的 ${ok.length} 个。` : ''
@@ -1068,6 +1099,11 @@ onUnmounted(() => {
 .wf-dot { color: var(--c-text-3); }
 .wf-cond { display: inline-flex; align-items: center; gap: 4px; background: var(--c-bg-tint); padding: 1px 7px; border-radius: var(--r-pill); }
 .wf-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.wf-layout-btns { display: flex; gap: 2px; padding-right: 6px; border-right: 1px solid var(--c-border); }
+.wf-lyt { width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-3); cursor: pointer; padding: 0; }
+.wf-lyt svg { width: 16px; height: 16px; }
+.wf-lyt:hover { background: var(--c-bg-tint); color: var(--c-text-2); }
+.wf-lyt.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); }
 .wf-source { font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill); }
 .wf-source.is-real { color: var(--c-success); background: var(--c-success-soft); border: 1px solid rgba(16, 185, 129, .3); }
 .wf-btn { height: 28px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; }
