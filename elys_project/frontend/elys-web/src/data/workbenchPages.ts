@@ -203,7 +203,7 @@ export const modulePages: Record<string, ModulePage> = {
     status: '当前为管理页静态预览，不直接改服务器配置',
     visualKind: 'admin',
     metrics: [
-      { label: '存储模型', value: 'Dataset / Study', hint: '数据资产与研究输出分区', tone: 'primary' },
+      { label: '存储模型', value: 'Dataset / Study', hint: '数据集与研究输出分区', tone: 'primary' },
       { label: '计算节点', value: '1', hint: 'data server', tone: 'accent' },
       { label: '在线服务', value: '4', hint: 'Nginx / FastAPI / PostgreSQL / Redis', tone: 'success' },
       { label: '告警', value: '2', hint: '容量与队列阈值', tone: 'warning' },

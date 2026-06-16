@@ -3,11 +3,6 @@
   gap: var(--s-4);
 }
 
-/* 统计条与下方主区之间留块级间距（原为 0，上下太挤）*/
-.page-stat-strip {
-  margin-bottom: var(--s-6);
-}
-
 .dataset-page__actions {
   display: flex;
   align-items: center;
@@ -172,19 +167,6 @@
   padding-right: 2px;
 }
 
-.dataset-list-empty,
-.dataset-detail-empty {
-  min-height: 120px;
-  display: grid;
-  place-items: center;
-  gap: var(--s-2);
-  padding: var(--s-4);
-  color: var(--c-text-3);
-  text-align: center;
-  background: var(--c-bg);
-  border: 1px dashed var(--c-border);
-  border-radius: var(--r);
-}
 
 .dataset-row {
   width: 100%;

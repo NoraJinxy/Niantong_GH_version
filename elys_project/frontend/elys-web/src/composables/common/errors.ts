@@ -11,5 +11,7 @@ export function friendlyError(err: unknown, fallback: string): string {
     if (msg) return `${fallback}：${msg}`
   }
   const message = err instanceof Error ? err.message : ''
+  // axios 在网络/5xx 时只给 "Request failed with status code 500" 这类英文，对用户没意义，换成可操作的中文。
+  if (/status code \d{3}/i.test(message)) return `${fallback}：接口暂时不可用，请确认后端服务或 mock API 已开启。`
   return message || fallback
 }

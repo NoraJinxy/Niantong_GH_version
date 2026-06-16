@@ -27,7 +27,7 @@
         <div class="section-head">
           <div>
             <h2>数据</h2>
-            <p>本研究项引用的数据集、采集记录与标准化 FIF 状态。</p>
+            <p>本研究项引用的数据集、采集记录与标准化文件状态。</p>
           </div>
           <RouterLink class="btn btn--sm" :to="importTarget">导入数据集</RouterLink>
         </div>
@@ -72,7 +72,7 @@
                   <th>任务</th>
                   <th>轮次</th>
                   <th>格式</th>
-                  <th>标准化 FIF</th>
+                  <th>标准化文件</th>
                   <th>通道 / 事件</th>
                   <th>质量状态</th>
                   <th>导入时间</th>

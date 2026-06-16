@@ -11,7 +11,7 @@
         </p>
       </div>
       <div class="dashboard-actions">
-        <button class="btn btn--icon" type="button" :disabled="loading" title="刷新" aria-label="刷新" @click="loadDashboard">
+        <button class="btn btn--icon" type="button" :disabled="loading" title="刷新" aria-label="刷新" @click="loadDashboard()">
           <span v-if="loading" class="spinner spinner--dark"></span>
           <AppIcon v-else name="refresh" :size="16" />
         </button>
@@ -20,7 +20,7 @@
           class="btn btn--primary dashboard-primary-action"
           type="button"
           :disabled="loading"
-          @click="loadDashboard"
+          @click="loadDashboard()"
         >
           <span v-if="loading" class="spinner"></span>
           <AppIcon v-else name="refresh" :size="16" />
@@ -32,13 +32,13 @@
     <div v-if="errorMessage" class="alert alert--danger dashboard-alert mb-4">
       <AppIcon name="admin" :size="18" />
       <div class="alert__body">{{ errorMessage }}</div>
-      <button class="btn btn--sm" type="button" :disabled="loading" @click="loadDashboard">刷新</button>
+      <button class="btn btn--sm" type="button" :disabled="loading" @click="loadDashboard()">刷新</button>
     </div>
 
     <div v-if="warningMessage" class="alert alert--warning dashboard-alert mb-4">
       <AppIcon name="clock" :size="18" />
       <div class="alert__body">{{ warningMessage }}</div>
-      <button class="btn btn--sm" type="button" :disabled="loading" @click="loadDashboard">刷新</button>
+      <button class="btn btn--sm" type="button" :disabled="loading" @click="loadDashboard()">刷新</button>
     </div>
 
     <!-- UI Phase (docs_v2/6-05) P1-1: 需要处理 警示横幅 -->
@@ -59,12 +59,20 @@
     </div>
 
     <template v-if="!errorMessage">
-      <RouterLink class="start-analysis" to="/studies">
+      <!-- 引导式向导未完成：入口仍可点击（进入功能蓝图页），但整体置灰并标注「待完成」。
+           待 featureBlueprints 里 start-analysis 改为 status:'live' 后，本卡片自动切回真功能路由、去灰。 -->
+      <RouterLink
+        class="start-analysis"
+        :class="{ 'start-analysis--pending': !startAnalysisLive }"
+        :to="startAnalysisTo"
+        :title="startAnalysisLive ? '开始新分析' : '快速开始新分析：功能规划中，点击查看蓝图与进度'"
+      >
         <span class="start-analysis__icon"><AppIcon name="plus" :size="26" /></span>
         <span class="start-analysis__text">
           <strong>快速开始新分析</strong>
           <span>上传数据 → 选意图 → 确认参数 → 看结果</span>
         </span>
+        <span v-if="!startAnalysisLive" class="start-analysis__badge">待完成 · 看蓝图</span>
       </RouterLink>
 
       <section class="dashboard-grid mb-5">
@@ -111,14 +119,14 @@
                 </div>
                 <p>{{ study.description || '暂无描述' }}</p>
                 <div class="study-stage">
-                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 0 }"></span>
-                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 1 }"></span>
-                  <span class="study-stage__seg" :class="{ 'is-on': studyStage(study.id) >= 2 }"></span>
-                  <span class="study-stage__text" :class="{ 'is-attention': studyMetrics(study.id).attentionExecutionCount }">{{ studyStageLabel(study.id) }}</span>
+                  <span class="study-stage__seg" :class="{ 'is-on': stageResultFor(study.id).step > 0 }"></span>
+                  <span class="study-stage__seg" :class="{ 'is-on': stageResultFor(study.id).step > 1 }"></span>
+                  <span class="study-stage__seg" :class="{ 'is-on': stageResultFor(study.id).step > 2 }"></span>
+                  <span class="study-stage__text" :class="{ 'is-attention': stageResultFor(study.id).needsAttention }">{{ stageResultFor(study.id).label }}</span>
                 </div>
               </div>
               <div class="study-row__meta">
-                <span class="state-badge" :class="`is-${study.status}`">{{ statusLabel(study.status) }}</span>
+                <span class="state-badge" :class="`is-${study.status}`">{{ studyStatusLabel(study.status) }}</span>
                 <span>{{ formatShortDate(study.updated_at || study.created_at) }}</span>
               </div>
             </RouterLink>
@@ -239,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -250,6 +258,11 @@ import { studyApi } from '@/api/studies'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import { getFeatureBlueprint } from '@/data/featureBlueprints'
+import { formatAbsoluteTime, formatRelativeTime, formatShortDate, timestamp } from '@/composables/common/formatters'
+import { formatExecutionMode, formatPipelineExecutionStatus } from '@/composables/pipeline/pipelineFormatters'
+import { deriveStudyStage } from '@/composables/studies/studyStage'
+import { studyStatusLabel } from '@/composables/studies/studyFormatters'
 import { useAuthStore } from '@/stores/auth'
 import type {
   DashboardActiveExecution,
@@ -277,6 +290,16 @@ const EXECUTION_STATUS_PRIORITY: Record<string, number> = {
   queued: 3,
   pending: 4,
 }
+
+// 「快速开始新分析」入口由功能蓝图注册表驱动：未上线时点进蓝图页（灰色 + 待完成徽标），
+// 上线后（status:'live' + liveRoute）自动切回真功能路由、去灰，无需改本模板。
+const startAnalysisBlueprint = getFeatureBlueprint('start-analysis')
+const startAnalysisLive = computed(() => startAnalysisBlueprint?.status === 'live')
+const startAnalysisTo = computed<RouteLocationRaw>(() =>
+  startAnalysisLive.value && startAnalysisBlueprint?.liveRoute
+    ? startAnalysisBlueprint.liveRoute
+    : '/blueprint/start-analysis',
+)
 
 interface ActivityItem {
   id: string
@@ -674,15 +697,16 @@ function timeWithin(a: string | null, b: string | null, windowMs: number): boole
   return Math.abs(ta - tb) <= windowMs
 }
 
-async function loadDashboard() {
-  loading.value = true
+// silent=true 用于后台轮询：不翻 loading（不闪刷新转圈、不闪空状态），数据原地替换。
+async function loadDashboard(silent = false) {
+  if (!silent) loading.value = true
   errorMessage.value = ''
   warnings.value = []
 
   try {
     const summaryRes = await dashboardApi.summary()
     applyDashboardSummary(summaryRes.data)
-    loading.value = false
+    if (!silent) loading.value = false
     return
   } catch {
     dashboardSummary.value = null
@@ -690,7 +714,7 @@ async function loadDashboard() {
   }
 
   await loadDashboardFallback()
-  loading.value = false
+  if (!silent) loading.value = false
 }
 
 async function loadDashboardFallback() {
@@ -795,17 +819,16 @@ function studyMetrics(studyId: string) {
   return studyMetricsMap.value[studyId] || { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
 }
 
-// 研究阶段（粗粒度）：跑过分析(有结果) > 有分析流程 > 仅有数据。后端 summary 给出 completed 数后可细化。
-function studyStage(studyId: string): number {
-  const metrics = studyMetrics(studyId)
-  if (metrics.executionCount > 0) return 2
-  if (metrics.pipelineCount > 0) return 1
-  return 0
-}
-
-function studyStageLabel(studyId: string): string {
-  if (studyMetrics(studyId).attentionExecutionCount > 0) return '需要你看一下'
-  return ['待建立分析', '分析进行中', '结果就绪'][studyStage(studyId)]
+// 研究阶段收口到 deriveStudyStage（与 StudiesPage、右栏「建议下一步」同一份事实源）。
+// Dashboard 的 metrics 没有记录数 / 运行中数，缺省字段由 deriveStudyStage 自动降级判定。
+function stageResultFor(studyId: string) {
+  const m = studyMetrics(studyId)
+  return deriveStudyStage({
+    loaded: true,
+    pipelineCount: m.pipelineCount,
+    executionCount: m.executionCount,
+    attentionExecutionCount: m.attentionExecutionCount,
+  })
 }
 
 function pipelineNameForExecution(execution: DashboardExecutionItem) {
@@ -828,9 +851,9 @@ function pipelineExecutionRoute(execution: DashboardExecutionItem): RouteLocatio
 
 function executionQueueDetail(execution: DashboardExecutionItem) {
   if ('stage_label' in execution && execution.stage_label) {
-    return `${executionStatusLabel(execution.status)} · ${execution.stage_label}`
+    return `${formatPipelineExecutionStatus(execution.status)} · ${execution.stage_label}`
   }
-  return `${executionStatusLabel(execution.status)} · ${executionModeLabel(execution.execution_mode)}`
+  return `${formatPipelineExecutionStatus(execution.status)} · ${formatExecutionMode(execution.execution_mode)}`
 }
 
 function isActiveExecutionStatus(status: string) {
@@ -885,37 +908,6 @@ function activityTone(kind: DashboardRecentActivityItem['object_kind']): Activit
   return kind
 }
 
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  const diffMs = Date.now() - date.getTime()
-  if (!Number.isFinite(diffMs)) return ''
-  const diffSec = Math.round(diffMs / 1000)
-  if (diffSec < 0) return formatShortDate(iso)
-  if (diffSec < 60) return '刚刚'
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin} 分钟前`
-  const diffH = Math.floor(diffMin / 60)
-  if (diffH < 24 && date.toDateString() === new Date().toDateString()) {
-    return `${diffH} 小时前`
-  }
-  // 同一日历日(理论上覆盖很多边缘),否则降级到 MM/DD HH:MM
-  return formatShortDate(iso)
-}
-
-function formatAbsoluteTime(iso: string | null): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return ''
-  const yyyy = date.getFullYear()
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const dd = String(date.getDate()).padStart(2, '0')
-  const HH = String(date.getHours()).padStart(2, '0')
-  const MM = String(date.getMinutes()).padStart(2, '0')
-  const SS = String(date.getSeconds()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd} ${HH}:${MM}:${SS}`
-}
-
 function summaryObjectKindLabel(kind: DashboardRecentActivityItem['object_kind']): ActivityItem['objectType'] {
   const labels: Record<DashboardRecentActivityItem['object_kind'], ActivityItem['objectType']> = {
     dataset: '数据集',
@@ -931,62 +923,30 @@ function defaultActivityRoute(kind: DashboardRecentActivityItem['object_kind']):
   return '/studies'
 }
 
-function executionModeLabel(mode: string) {
-  const labels: Record<string, string> = {
-    trial: '试跑',
-    analysis: '分析',
-    replay: '复现',
-    system: '系统',
-  }
-  return labels[mode] || mode
-}
-
 function isDatasetAssetErrorStatus(status: string) {
   return ['error', 'failed', 'quarantined', 'deleted'].includes(status)
 }
 
-function timestamp(value: string | null | undefined) {
-  if (!value) return 0
-  const time = new Date(value).getTime()
-  return Number.isNaN(time) ? 0 : time
+// 仅在有运行中 / 排队中的分析时自动刷新（让「进行中」自己动起来，医生不必想到手点刷新）；
+// 页面切到后台或正在加载时跳过，避免无谓请求。
+const POLL_INTERVAL_MS = 15000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function pollDashboard() {
+  if (typeof document !== 'undefined' && document.hidden) return
+  if (loading.value) return
+  if (runningExecutionCount.value <= 0 && queuedExecutionCount.value <= 0) return
+  void loadDashboard(true)
 }
 
-function formatShortDate(value: string | null | undefined) {
-  if (!value) return '暂无时间'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '暂无时间'
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+onMounted(() => {
+  void loadDashboard()
+  pollTimer = setInterval(pollDashboard, POLL_INTERVAL_MS)
+})
 
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    active: '活跃',
-    archived: '已归档',
-    trashed: '回收站',
-    deleted: '已删除',
-  }
-  return labels[status] || status
-}
-
-function executionStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    queued: '排队中',
-    pending: '等待调度',
-    running: '运行中',
-    waiting_user_input: '等待确认',
-    completed: '已完成',
-    failed: '失败',
-    canceled: '已取消',
-  }
-  return labels[status] || status
-}
-
-onMounted(loadDashboard)
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
 </script>
 
 <style scoped>
@@ -1163,6 +1123,34 @@ onMounted(loadDashboard)
 
 .start-analysis:hover {
   border-color: var(--c-primary);
+}
+
+/* 功能规划中：仍可点击（进入蓝图页），但整体置灰；保留 hover 反馈以示“可点” */
+.start-analysis--pending {
+  color: var(--c-muted);
+  background: var(--c-bg-soft);
+  border-color: var(--c-border);
+}
+.start-analysis--pending:hover {
+  border-color: var(--c-muted);
+}
+.start-analysis--pending .start-analysis__icon,
+.start-analysis--pending .start-analysis__text strong,
+.start-analysis--pending .start-analysis__text span {
+  color: var(--c-muted);
+}
+.start-analysis__badge {
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-muted);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .start-analysis__icon {
@@ -1643,6 +1631,7 @@ onMounted(loadDashboard)
 }
 
 .run-progress {
+  position: relative;
   height: 5px;
   margin-top: 8px;
   overflow: hidden;
@@ -1650,14 +1639,26 @@ onMounted(loadDashboard)
   border-radius: 999px;
 }
 
+/* 真·不定式进度：一段滑块来回扫过，不再用固定 58% 宽度假装“完成度”。 */
 .run-progress span {
-  display: block;
-  width: 58%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
   height: 100%;
   background: linear-gradient(90deg, var(--c-primary), var(--c-info), var(--c-accent));
-  background-size: 220% 100%;
   border-radius: inherit;
-  animation: progress-flow 1.8s linear infinite;
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+/* 降级：用户开启“减少动态效果”时不滑动，显示一条安静的满条表示“进行中”。 */
+@media (prefers-reduced-motion: reduce) {
+  .run-progress span {
+    width: 100%;
+    transform: none;
+    opacity: 0.55;
+    animation: none;
+  }
 }
 
 .run-empty {
@@ -1928,12 +1929,12 @@ onMounted(loadDashboard)
   }
 }
 
-@keyframes progress-flow {
+@keyframes progress-indeterminate {
   0% {
-    background-position: 0% 0;
+    transform: translateX(-110%);
   }
   100% {
-    background-position: 220% 0;
+    transform: translateX(260%);
   }
 }
 

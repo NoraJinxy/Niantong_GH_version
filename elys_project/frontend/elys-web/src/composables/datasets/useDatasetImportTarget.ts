@@ -290,9 +290,12 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
     }
   }
 
-  async function mountExistingDatasetAsset() {
+  // silent=true 用于「隐形化准备」：进入上传页时后台静默准备导入目标，不弹成功提示、不滚动、
+  // 失败也不报红（回退到手动按钮）。手动点击仍走非静默路径，给明确反馈。
+  async function mountExistingDatasetAsset(options?: { silent?: boolean }) {
     const asset = selectedDatasetAsset.value
     if (!asset || isBootstrapping.value) return
+    const silent = options?.silent === true
     isBootstrapping.value = true
     bootstrapError.value = ''
     bootstrapSuccess.value = ''
@@ -303,12 +306,16 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
       mountedTarget.value = { asset, study, mount }
       selectedStudyId.value = study.id
       activeTab.value = 'import'
-      bootstrapSuccess.value = '数据集已设为导入目标。'
-      await loadStudies()
-      await scrollToUploadSection()
+      if (!silent) {
+        bootstrapSuccess.value = '已准备好，可以上传了。'
+        await loadStudies()
+        await scrollToUploadSection()
+      } else {
+        await loadStudies()
+      }
     } catch (err: any) {
       mountedTarget.value = null
-      bootstrapError.value = getErrorMessage(err)
+      if (!silent) bootstrapError.value = getErrorMessage(err)
     } finally {
       isBootstrapping.value = false
     }
@@ -330,6 +337,13 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
         created_at: null,
         updated_at: null,
       } satisfies Study
+    }
+    // 优先用资产自带 primary_study_id（与 recordsStudyContext 一致）：脚本建的研究项 code
+    // 未必符合「{code}-study」约定，仅按 code 找会落空而误建重复研究项。自动准备导入目标
+    // 依赖这条保证——找到既有主研究项就复用，绝不新建。
+    if (asset.primary_study_id) {
+      const primary = studies.value.find((study) => study.id === asset.primary_study_id)
+      if (primary) return primary
     }
     const reusableStudy = await findReusablePairedStudy(asset)
     if (reusableStudy) return reusableStudy

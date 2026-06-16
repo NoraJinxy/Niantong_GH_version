@@ -2,7 +2,7 @@
   <section class="bids-uploader">
     <div class="bids-uploader__head">
       <div>
-        <h3>导入到数据集工作版本</h3>
+        <h3>导入 EEG 数据</h3>
         <p>{{ uploadTargetSentence }}</p>
       </div>
       <span class="badge badge--primary">{{ uploadStatusBadgeText }}</span>
@@ -23,12 +23,15 @@
       </div>
     </div>
 
-    <div class="bids-stage-strip" aria-label="Dataset import stages">
-      <div v-for="stage in importStages" :key="stage.key" class="bids-stage">
-        <span>{{ stage.label }}</span>
-        <small>{{ stage.description }}</small>
+    <details class="bids-stages-disclosure">
+      <summary>导入后会自动整理、标准化并建立文件清单 <span class="muted text-sm">（点开了解过程）</span></summary>
+      <div class="bids-stage-strip" aria-label="导入处理过程">
+        <div v-for="stage in importStages" :key="stage.key" class="bids-stage">
+          <span>{{ stage.label }}</span>
+          <small>{{ stage.description }}</small>
+        </div>
       </div>
-    </div>
+    </details>
 
     <div
       class="bids-dropzone"
@@ -114,10 +117,10 @@
       </div>
     </details>
 
-    <div v-if="groups.length" class="bids-queue-panel">
+    <div v-if="groups.length > 1" class="bids-queue-panel">
       <div class="bids-queue-summary" aria-label="批量导入总进度">
         <div>
-          <span>总组数</span>
+          <span>总份数</span>
           <strong>{{ queueStats.total }}</strong>
         </div>
         <div>
@@ -312,9 +315,9 @@
                 v-if="['uploading', 'processing', 'done'].includes(group.status)"
                 class="upload-processing-steps"
               >
-                <span class="is-done">original upload 已发送</span>
-                <span :class="{ 'is-active': group.status === 'processing' }">Raw BIDS / canonical FIF / dataset_files 处理中</span>
-                <span :class="{ 'is-done': group.status === 'done' }">完成后返回结果摘要</span>
+                <span class="is-done">原始文件已上传</span>
+                <span :class="{ 'is-active': group.status === 'processing' }">正在整理与标准化</span>
+                <span :class="{ 'is-done': group.status === 'done' }">完成后显示结果</span>
               </div>
             </div>
           </div>
@@ -337,7 +340,7 @@
     <div class="bids-uploader__footer">
       <div>
         <div v-if="summaryText" class="muted text-sm">{{ summaryText }}</div>
-        <div v-if="!hasUploadTarget" class="inline-error">请先准备导入目标；文件可以先选择，目标就绪后再提交导入。</div>
+        <div v-if="!hasUploadTarget" class="muted text-sm">系统正在自动准备上传位置；文件可以先选择，稍候即可提交。</div>
         <div v-if="globalError" class="inline-error">{{ globalError }}</div>
         <div v-if="globalSuccess" class="inline-success">{{ globalSuccess }}</div>
       </div>
@@ -348,7 +351,7 @@
         @click="uploadSelectedGroups"
       >
         <span v-if="isUploading" class="spinner"></span>
-        {{ isUploading ? `导入中 ${queueProgressPercent}%` : `导入 ${selectedReadyGroups.length} 组数据` }}
+        {{ isUploading ? `导入中 ${queueProgressPercent}%` : `导入 ${selectedReadyGroups.length} 份数据` }}
       </button>
     </div>
 
@@ -357,7 +360,7 @@
         <form class="bids-confirm-card" @submit.prevent="confirmReplacement">
           <div class="card__header">
             <div>
-              <h3 class="card__title">作为 Recording 新版本导入？</h3>
+              <h3 class="card__title">这条记录已存在，保存为新版本？</h3>
               <div class="card__sub">
                 {{ replaceCandidate.subject }} / {{ replaceCandidate.session || '无 session' }} /
                 {{ replaceCandidate.task }} / {{ replaceCandidate.run || '无 run' }}
@@ -369,13 +372,13 @@
           <div class="alert alert--warning">
             <AppIcon name="database" :size="18" />
             <div class="alert__body">
-              该数据位已经存在。确认后系统会新增一个原始上传版本，并在 BIDS 逻辑视图、标准 FIF 与文件索引写入成功后切换为当前版本。失败时，旧版本继续作为当前数据集工作版本。
+              这条记录已经存在。确认后会把这次上传保存为新版本，整理与标准化成功后切换为当前版本；万一失败，仍然保留原来的版本。
             </div>
           </div>
 
           <div class="bids-replace-summary">
             <div>
-              <span>已有 Recording</span>
+              <span>已有记录</span>
               <strong>{{ replaceDetail?.dataset_id || '已存在' }}</strong>
             </div>
             <div>
@@ -383,8 +386,8 @@
               <strong>{{ replaceDetail?.current_upload_seq ? `upload-${String(replaceDetail.current_upload_seq).padStart(3, '0')}` : '当前版本' }}</strong>
             </div>
             <div>
-              <span>本次行为</span>
-              <strong>新增原始上传版本并切换当前指针</strong>
+              <span>本次操作</span>
+              <strong>保存为新版本并设为当前</strong>
             </div>
           </div>
 
@@ -519,10 +522,10 @@ const batchProgressCompleted = ref(0)
 const batchProgressActiveGroupId = ref('')
 
 const importStages = [
-  { key: 'original', label: '原始上传', description: '保留原始文件' },
-  { key: 'raw-bids', label: 'BIDS 逻辑视图', description: '整理可追踪结构' },
-  { key: 'canonical-fif', label: '标准 FIF', description: '生成兼容文件' },
-  { key: 'dataset-files', label: '文件索引', description: '更新可检索清单' },
+  { key: 'original', label: '原始文件', description: '保留你上传的原文件' },
+  { key: 'raw-bids', label: '标准目录', description: '整理为可追踪结构' },
+  { key: 'canonical-fif', label: '标准化文件', description: '生成统一分析格式' },
+  { key: 'dataset-files', label: '文件清单', description: '更新可检索清单' },
 ] as const
 
 const queueFilterOptions: Array<{ value: QueueFilter; label: string }> = [
@@ -568,12 +571,12 @@ const hasUploadTarget = computed(() =>
   Boolean(uploadStudyId.value && uploadDatasetAssetId.value && uploadMountName.value),
 )
 const uploadStatusBadgeText = computed(() =>
-  hasUploadTarget.value ? `${readyGroups.value.length} 组可导入` : '等待导入目标',
+  hasUploadTarget.value ? `${readyGroups.value.length} 份可导入` : '准备中',
 )
 const uploadTargetSentence = computed(() =>
   hasUploadTarget.value
-    ? `上传会写入 ${uploadDatasetAssetName.value} 的工作版本。`
-    : '请先准备导入目标；文件可以先选择，目标就绪后再提交。',
+    ? `上传会保存到「${uploadDatasetAssetName.value}」。`
+    : '系统正在自动准备上传位置；文件可以先选择，稍候即可提交。',
 )
 const canUploadSelected = computed(() =>
   !isUploading.value && selectedReadyGroups.value.length > 0 && hasUploadTarget.value,
@@ -582,7 +585,7 @@ const summaryText = computed(() => {
   if (!groups.value.length) return ''
   const invalid = groups.value.filter((group) => !group.valid).length
   const done = groups.value.filter((group) => group.status === 'done').length
-  return `${groups.value.length} 组文件，${readyGroups.value.length} 组可导入，${done} 组已完成${invalid ? `，${invalid} 组需要处理` : ''}`
+  return `${groups.value.length} 份文件，${readyGroups.value.length} 份可导入，${done} 份已完成${invalid ? `，${invalid} 份需要处理` : ''}`
 })
 const activeBatchGroup = computed(() =>
   groups.value.find((group) => group.id === batchProgressActiveGroupId.value) || null,
@@ -591,15 +594,15 @@ const batchProgressText = computed(() => {
   const total = batchProgressTotal.value
   const handled = Math.min(batchProgressCompleted.value, total)
   if (!total) return '批量进度：等待导入'
-  if (!isUploading.value) return `批量进度：${handled} / ${total} 组已处理`
+  if (!isUploading.value) return `批量进度：${handled} / ${total} 份已处理`
   const current = Math.min(handled + 1, total)
-  return `批量进度：${handled} / ${total} 组已处理，当前第 ${current} 组`
+  return `批量进度：${handled} / ${total} 份已处理，当前第 ${current} 份`
 })
 const currentBatchText = computed(() => {
   if (isUploading.value && batchProgressTotal.value) {
-    return `第 ${Math.min(batchProgressCompleted.value + 1, batchProgressTotal.value)} / ${batchProgressTotal.value} 组`
+    return `第 ${Math.min(batchProgressCompleted.value + 1, batchProgressTotal.value)} / ${batchProgressTotal.value} 份`
   }
-  if (batchProgressTotal.value) return `${Math.min(batchProgressCompleted.value, batchProgressTotal.value)} / ${batchProgressTotal.value} 组`
+  if (batchProgressTotal.value) return `${Math.min(batchProgressCompleted.value, batchProgressTotal.value)} / ${batchProgressTotal.value} 份`
   return '未开始'
 })
 const queueProgressPercent = computed(() => {
@@ -614,15 +617,15 @@ const queueProgressPercent = computed(() => {
 const queueProgressText = computed(() => {
   if (!groups.value.length) return '等待选择数据'
   if (isUploading.value) return batchProgressText.value
-  if (queueStats.value.failed) return `${queueStats.value.failed} 组失败，可筛选后重试`
-  if (queueStats.value.done && queueStats.value.done === queueStats.value.total) return '全部组已处理完成'
-  return `${queueStats.value.done} / ${queueStats.value.total} 组已完成`
+  if (queueStats.value.failed) return `${queueStats.value.failed} 份失败，可筛选后重试`
+  if (queueStats.value.done && queueStats.value.done === queueStats.value.total) return '全部都已处理完成'
+  return `${queueStats.value.done} / ${queueStats.value.total} 份已完成`
 })
 const queueProgressBarStyle = computed(() => ({ width: `${queueProgressPercent.value}%` }))
 const filteredQueueEmptyText = computed(() => {
-  if (queueFilter.value === 'pending') return '没有待导入组。'
-  if (queueFilter.value === 'failed') return '没有失败组。'
-  if (queueFilter.value === 'done') return '没有已完成组。'
+  if (queueFilter.value === 'pending') return '没有待导入的数据。'
+  if (queueFilter.value === 'failed') return '没有失败的数据。'
+  if (queueFilter.value === 'done') return '没有已完成的数据。'
   return '当前队列为空。'
 })
 
@@ -857,9 +860,9 @@ function getGroupStatusLabel(group: UploadGroup) {
 }
 
 function getGroupSuccessSummary(group: UploadGroup) {
-  if (!group.outcome) return '已导入 · 标准 FIF 已处理 · 文件索引已更新'
-  const fifText = group.outcome.canonicalFifGenerated ? '已生成标准 FIF' : '标准 FIF 状态待确认'
-  const fileIndexText = group.outcome.datasetFileCount ? '文件索引已更新' : '文件索引待查询'
+  if (!group.outcome) return '已导入 · 标准化文件已处理 · 文件清单已更新'
+  const fifText = group.outcome.canonicalFifGenerated ? '已生成标准化文件' : '标准化文件状态待确认'
+  const fileIndexText = group.outcome.datasetFileCount ? '文件清单已更新' : '文件清单待查询'
   return `已导入 · ${fifText} · ${fileIndexText}`
 }
 
@@ -1206,33 +1209,29 @@ function buildImportOutcome(response: RecordingUploadResponse, group: UploadGrou
 function getOutcomeItems(outcome: ImportOutcome) {
   return [
     {
-      label: '用户摘要',
+      label: '导入结果',
       value: getOutcomeUserSummary(outcome),
     },
     {
-      label: 'original upload',
+      label: '原始文件',
       value: `已登记 ${outcome.originalFileCount} 个原始文件`,
     },
     {
-      label: 'canonical FIF',
-      value: outcome.canonicalFifGenerated ? '已生成或已登记' : '未返回生成状态，可能仍待转换',
+      label: '标准化文件',
+      value: outcome.canonicalFifGenerated ? '已生成或已登记' : '尚未返回生成状态，可能仍在转换',
     },
     {
-      label: 'dataset_files',
+      label: '文件清单',
       value: outcome.datasetFileCount
-        ? `已返回 ${outcome.datasetFileCount} 条文件索引`
-        : '当前上传响应未返回索引详情',
-    },
-    {
-      label: 'API response',
-      value: outcome.responseMessage,
+        ? `已返回 ${outcome.datasetFileCount} 条文件清单`
+        : '本次上传未返回清单详情',
     },
   ]
 }
 
 function getOutcomeUserSummary(outcome: ImportOutcome) {
-  const fifText = outcome.canonicalFifGenerated ? '已生成标准 FIF' : '标准 FIF 状态待确认'
-  const fileIndexText = outcome.datasetFileCount ? '文件索引已更新' : '文件索引待查询'
+  const fifText = outcome.canonicalFifGenerated ? '已生成标准化文件' : '标准化文件状态待确认'
+  const fileIndexText = outcome.datasetFileCount ? '文件清单已更新' : '文件清单待查询'
   return `已导入；${fifText}；${fileIndexText}`
 }
 
@@ -1295,7 +1294,7 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
           group.status = 'processing'
           group.progress = 100
           group.speedBps = undefined
-          group.statusText = '上传完成，正在生成 BIDS 逻辑视图、标准 FIF 和文件索引'
+          group.statusText = '上传完成，正在整理与标准化'
         },
       },
     )
@@ -1363,14 +1362,14 @@ async function uploadSelectedGroups() {
   }
 
   if (successCount) {
-    globalSuccess.value = `已成功导入 ${successCount} 组数据到当前数据集`
+    globalSuccess.value = `已成功导入 ${successCount} 份数据到当前数据集`
     emit('uploaded')
   }
   if (duplicateCount) {
     globalError.value = '有 Recording 已经存在，请在弹窗中确认是否新增原始上传版本并切换当前指针'
   }
   if (failCount) {
-    globalError.value = `${failCount} 组导入失败，请查看对应红色提示后重试`
+    globalError.value = `${failCount} 份导入失败，请查看对应红色提示后重试`
   }
   batchProgressActiveGroupId.value = ''
   isUploading.value = false

@@ -1,10 +1,5 @@
 <template>
-  <div
-    v-if="open"
-    class="modal-backdrop"
-    role="presentation"
-    @click.self="emitClose"
-  >
+  <Modal v-if="open" @close="emitClose">
     <form class="modal-card review-modal" @submit.prevent="emitSubmit">
       <header>
         <div>
@@ -44,13 +39,14 @@
         </button>
       </footer>
     </form>
-  </div>
+  </Modal>
 </template>
 
 <script setup lang="ts">
 // 受控审核弹窗：所有差异（标题、眉标、按钮文案、说明富文本）由父层传入；
 // 组件内部不区分撤回 / 转公开，只持有备注 notes 的本地状态。
 import { ref, watch } from 'vue'
+import Modal from '@/components/common/Modal.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -134,17 +130,7 @@ function emitSubmit() {
   font-weight: 700;
 }
 
-/* modal */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.45);
-  padding: 24px;
-}
+/* 卡片本体（遮罩/居中/Esc 关闭由 <Modal> 提供） */
 .modal-card {
   width: min(560px, 100%);
   border-radius: 10px;

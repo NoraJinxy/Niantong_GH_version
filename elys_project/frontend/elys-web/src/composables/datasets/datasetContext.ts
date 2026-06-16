@@ -15,15 +15,6 @@ import type { useDatasetImportTarget } from './useDatasetImportTarget'
 
 type DatasetWorkbenchTab = 'data' | 'import' | 'share'
 
-interface DatasetDecisionSummary {
-  className: string
-  title: string
-  message: string
-  detail: string
-  processing: string
-  processingHint: string
-}
-
 export interface DatasetContext {
   catalog: ReturnType<typeof useDatasetCatalog>
   files: ReturnType<typeof useDatasetFiles>
@@ -34,7 +25,6 @@ export interface DatasetContext {
   isAdmin: ComputedRef<boolean>
   activeTab: Ref<DatasetWorkbenchTab>
   dataView: Ref<'by-subject' | 'by-type'>
-  datasetDecisionSummary: ComputedRef<DatasetDecisionSummary>
   copyStatus: Ref<string>
   copyTechnicalValue: (value: string, label: string) => Promise<void>
   copyDoi: (doi: string) => Promise<void>

@@ -30,29 +30,19 @@
               <small>{{ executionReadinessText }}</small>
             </div>
           </div>
-          <div class="progress-stat">
-            <span class="progress-stat__icon"><IconLine name="lock" :size="22" /></span>
-            <div>
-              <strong>{{ summary.counts.members }} 人</strong>
-              <small>{{ permissionText }}</small>
-            </div>
-          </div>
         </div>
 
         <div v-if="summary.mounts.length" class="study-mounted-list">
-          <span class="study-mounted-list__label">已挂载的数据集</span>
+          <span class="study-mounted-list__label">使用的数据集</span>
           <div class="study-mounted-list__items">
             <RouterLink
               v-for="mount in summary.mounts"
               :key="mount.id"
               class="mounted-data-item"
-              :class="{ 'is-upgradable': isMountUpgradable(mount) }"
               to="/datasets"
             >
               <strong>{{ mountAssetLabel(mount) }}</strong>
-              <span v-if="mount.dataset_version">v{{ mount.dataset_version.version_label }}</span>
               <small v-if="mount.dataset_asset?.subject_count">{{ mount.dataset_asset.subject_count }} 名被试</small>
-              <span v-if="isMountUpgradable(mount)" class="upgrade-marker" title="有新版本可升级">⇡</span>
             </RouterLink>
           </div>
         </div>
@@ -74,7 +64,7 @@
           <div class="study-workspace-col">
             <span class="study-workspace-col__label">工作流</span>
             <div v-if="!summary.pipelines.length" class="study-inline-empty">
-              暂无工作流，进入工作流 tab 可创建分析流程。
+              暂无工作流，进入工作区即可创建分析流程。
             </div>
             <div v-else class="study-compact-list">
               <article v-for="pipeline in summary.pipelines" :key="pipeline.id" class="study-compact-item">
@@ -82,9 +72,7 @@
                   <strong>{{ pipeline.name }}</strong>
                   <p>v{{ pipeline.version }} · {{ pipeline.node_count }} 个节点</p>
                 </div>
-                <span class="status-pill" :class="pipelinePillClass(pipeline.status)">
-                  {{ pipelineStatusLabel(pipeline.status) }}
-                </span>
+                <StatusPill :tone="pipelineStatusTone(pipeline.status)" :label="formatPipelineStatus(pipeline.status)" />
               </article>
             </div>
           </div>
@@ -97,11 +85,9 @@
               <article v-for="execution in summary.executions" :key="execution.id" class="study-compact-item">
                 <div>
                   <strong>第 {{ execution.execution_seq }} 次运行</strong>
-                  <p>{{ executionModeLabel(execution.execution_mode) }} · {{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
+                  <p>{{ formatExecutionMode(execution.execution_mode) }} · {{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
                 </div>
-                <span class="status-pill" :class="executionPillClass(execution.status)">
-                  {{ executionStatusLabel(execution.status) }}
-                </span>
+                <StatusPill :tone="executionStatusTone(execution.status)" :label="formatPipelineExecutionStatus(execution.status)" />
               </article>
             </div>
           </div>
@@ -110,17 +96,15 @@
         <div class="study-mounted-list">
           <span class="study-mounted-list__label">结果</span>
           <div v-if="!visibleStudyOutputs.length" class="study-inline-empty">
-            暂无结果，运行完成后在「结果」tab 汇总可预览或可固定的输出。
+            暂无结果，运行完成后会在这里汇总可预览或已保存的结果。
           </div>
           <div v-else class="study-compact-list">
             <article v-for="artifact in visibleStudyOutputs" :key="artifact.id" class="study-compact-item">
               <div>
-                <strong>{{ artifact.display_name || artifact.data_type }}</strong>
-                <p>{{ artifact.data_type }} · {{ formatFileSize(artifact.file_size) }}</p>
+                <strong>{{ artifact.display_name || formatDataType(artifact.data_type) }}</strong>
+                <p>{{ formatDataType(artifact.data_type) }} · {{ formatFileSize(artifact.file_size) }}</p>
               </div>
-              <span class="status-pill" :class="artifactPillClass(artifact)">
-                {{ retentionStatusLabel(artifact) }}
-              </span>
+              <StatusPill :tone="artifactRetentionTone(artifact)" :label="formatArtifactRetention(artifact)" />
             </article>
           </div>
         </div>
@@ -139,19 +123,20 @@
             <dd>{{ formatDateTime(study.currentStudy.created_at) }}</dd>
           </div>
           <div>
-            <dt>访问范围</dt>
-            <dd>按成员权限</dd>
+            <dt>成员</dt>
+            <dd>{{ summary.counts.members }} 人</dd>
           </div>
           <div>
-            <dt>存储配额</dt>
-            <dd>{{ formatStorageQuota(study.currentStudy.storage_quota_bytes) }}</dd>
+            <dt>你的角色</dt>
+            <dd>{{ permissionText }}</dd>
           </div>
         </dl>
         <details class="study-technical-details">
           <summary>技术信息</summary>
           <dl>
             <div><dt>研究项 ID</dt><dd>{{ study.currentStudy.id }}</dd></div>
-            <div><dt>状态</dt><dd>{{ study.currentStudy.status }}</dd></div>
+            <div><dt>状态</dt><dd>{{ studyStatusLabel(study.currentStudy.status) }}</dd></div>
+            <div><dt>存储配额</dt><dd>{{ formatStorageQuota(study.currentStudy.storage_quota_bytes) }}</dd></div>
           </dl>
         </details>
       </section>
@@ -162,9 +147,24 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import type { RouteLocationRaw } from 'vue-router'
 import IconLine from '@/components/IconLine.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
 import { useStudyStore } from '@/stores/study'
 import { useStudySummary } from '@/composables/useStudySummary'
+import {
+  artifactRetentionTone,
+  executionStatusTone,
+  formatArtifactRetention,
+  formatDataType,
+  formatExecutionMode,
+  formatPipelineExecutionStatus,
+  formatPipelineStatus,
+  pipelineStatusTone,
+} from '@/composables/pipeline/pipelineFormatters'
+import { formatDateTime, formatFileSize } from '@/composables/common/formatters'
+import { deriveStudyStage, type StudyNextTarget } from '@/composables/studies/studyStage'
+import { studyRoleLabel, studyStatusLabel } from '@/composables/studies/studyFormatters'
 import type { StudyDatasetMount } from '@/types'
 
 const props = defineProps<{ studyId?: string }>()
@@ -186,21 +186,27 @@ watch(studyId, (id) => {
   if (id) loadAll(id)
 })
 
-// 沿用原 StudiesPage 的 studyDecision 主线判断：数据空→导入 / 工作流空→配置 / 运行中→看运行 / 就绪→继续
+// 「建议下一步」复用 deriveStudyStage（与 Dashboard/StudiesPage 同一份阶段判定），路由按 target 在本页拼。
+function nextStepRoute(target: StudyNextTarget, sid: string): RouteLocationRaw {
+  if (target === 'import-data') return `/datasets?study_id=${sid}`
+  if (target === 'view-data') return `/studies/${sid}/data`
+  return `/studies/${sid}/pipeline` // configure-pipeline / view-run / continue
+}
 const decision = computed(() => {
   const s = summary.value
   const sid = studyId.value
-  if (!s) return { title: '加载中', description: '', action: '查看数据', to: `/studies/${sid}/data` }
-  if (s.counts.recordings === 0) {
-    return { title: '先导入数据集', description: '当前研究项还没有可处理的数据引用。导入或挂载数据集后再进入后续处理。', action: '导入数据集', to: `/datasets?study_id=${sid}` }
-  }
-  if (s.counts.pipelines === 0) {
-    return { title: '配置工作流', description: '已有数据引用，但还没有工作流。下一步是创建或选择分析流程。', action: '进入工作区', to: `/studies/${sid}/pipeline` }
-  }
-  if (s.running_execution_count > 0) {
-    return { title: '查看运行状态', description: '当前有运行正在进行，建议先查看进度、日志和输出状态。', action: '查看运行记录', to: `/studies/${sid}/pipeline` }
-  }
-  return { title: '可以继续分析', description: '数据和工作流已就绪，可以创建新运行或查看既有运行结果。', action: '进入工作区', to: `/studies/${sid}/pipeline` }
+  const stage = deriveStudyStage(
+    s
+      ? {
+          loaded: true,
+          recordingCount: s.counts.recordings,
+          pipelineCount: s.counts.pipelines,
+          executionCount: s.counts.executions,
+          runningExecutionCount: s.running_execution_count,
+        }
+      : { loaded: false },
+  )
+  return { ...stage.nextStep, to: nextStepRoute(stage.nextStep.target, sid) }
 })
 
 // 概览结果区只展示「保存 / 缓存 / 回收站」三类；纯临时（keep=false 且 cache_eligible=false 且未删）
@@ -221,85 +227,23 @@ const executionReadinessText = computed(() => {
   if (!s) return ''
   if (s.running_execution_count > 0) return `${s.running_execution_count} 条运行正在进行`
   if (s.counts.executions === 0) return '暂无运行记录'
-  return '已有运行记录，可查看结果和审计信息'
+  return '已有运行记录，可查看结果和运行详情'
 })
 const permissionText = computed(() => {
   const s = summary.value
   if (!s) return ''
-  const role = roleLabel(s.member_role)
+  const role = studyRoleLabel(s.member_role)
   return s.can_run ? `${role}，可发起运行` : `${role}，不可发起运行`
 })
 
-function roleLabel(role?: string | null) {
-  if (!role) return '未同步'
-  const labels: Record<string, string> = { owner: '负责人', admin: '管理员', editor: '编辑', viewer: '查看', pi: 'PI' }
-  return labels[role] || role
-}
 function mountAssetLabel(mount: StudyDatasetMount) {
   return mount.dataset_asset?.name || mount.mount_name || '未命名 Asset'
-}
-function isMountUpgradable(mount: StudyDatasetMount) {
-  const locked = mount.dataset_version_id
-  const current = mount.dataset_asset?.current_version_id
-  if (!locked || !current) return false
-  return locked !== current
-}
-function pipelineStatusLabel(status: string) {
-  const labels: Record<string, string> = { draft: '草稿', active: '可运行', archived: '已归档', deleted: '已删除' }
-  return labels[status] || status
-}
-function pipelinePillClass(status: string) {
-  if (status === 'active') return 'status-pill--success'
-  if (status === 'draft') return 'status-pill--warn'
-  return 'status-pill--muted'
-}
-function executionStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    queued: '排队中', pending: '排队中', running: '运行中', waiting_user_input: '等待确认',
-    completed: '已完成', failed: '失败', canceled: '已取消',
-  }
-  return labels[status] || status
-}
-function executionPillClass(status: string) {
-  if (status === 'completed') return 'status-pill--success'
-  if (['queued', 'pending', 'running', 'waiting_user_input'].includes(status)) return 'status-pill--warn'
-  if (['failed', 'canceled'].includes(status)) return 'status-pill--danger'
-  return 'status-pill--muted'
-}
-function executionModeLabel(mode: string) {
-  const labels: Record<string, string> = { trial: '试运行', analysis: '正式分析', replay: '重放', system: '系统' }
-  return labels[mode] || mode
-}
-function retentionStatusLabel(artifact: { keep?: boolean; cache_eligible?: boolean; deleted_at?: string | null }) {
-  if (artifact.deleted_at) return '已删除'
-  if (artifact.keep) return '保存'
-  if (artifact.cache_eligible) return '缓存'
-  return '临时'
-}
-function artifactPillClass(artifact: { keep?: boolean; deleted_at?: string | null }) {
-  if (artifact.deleted_at) return 'status-pill--danger'
-  if (artifact.keep) return 'status-pill--success'
-  return 'status-pill--warn'
-}
-function formatFileSize(bytes?: number | null) {
-  if (!bytes) return '未知大小'
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 function formatStorageQuota(bytes?: number | null) {
   if (!bytes) return '未设置'
   const gb = bytes / 1024 ** 3
   if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`
   return `${(bytes / 1024 ** 2).toFixed(0)} MB`
-}
-function formatDateTime(value?: string | null) {
-  if (!value) return '暂无'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(date)
 }
 </script>
 
@@ -407,16 +351,8 @@ function formatDateTime(value?: string | null) {
   font-size: 12px;
   text-decoration: none;
 }
-.mounted-data-item.is-upgradable {
-  border-color: #f0c674;
-  background: #fff7e6;
-}
 .mounted-data-item small {
   color: var(--c-text-3);
-}
-.upgrade-marker {
-  color: var(--c-warning);
-  font-weight: 700;
 }
 .study-decision-inline {
   display: flex;
@@ -527,19 +463,4 @@ function formatDateTime(value?: string | null) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
 }
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--c-bg-tint);
-  color: var(--c-text-3);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.status-pill--success { background: var(--c-success-soft); color: var(--c-success); }
-.status-pill--warn { background: var(--c-warning-soft); color: var(--c-warning); }
-.status-pill--danger { background: var(--c-danger-soft); color: var(--c-danger); }
-.status-pill--muted { background: var(--c-bg-tint); color: var(--c-text-3); }
 </style>

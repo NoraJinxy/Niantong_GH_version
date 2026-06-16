@@ -1,20 +1,24 @@
 <template>
   <section class="dataset-tab-panel dmt" aria-label="数据维护中心">
     <!-- 空 / 加载 / 错误态 -->
-    <div v-if="!recordsStudyContext" class="dataset-detail-empty">
-      <AppIcon name="database" :size="24" />
-      <strong>还没有数据</strong>
-      <span>先到「上传」准备导入目标并上传 EEG 原始数据，这里就会按被试列出采集记录与维护入口。</span>
+    <EmptyState
+      v-if="!recordsStudyContext"
+      icon="database"
+      title="还没有数据"
+      description="先到「上传」准备导入目标并上传 EEG 原始数据，这里就会按被试列出采集记录与维护入口。"
+    >
       <button class="btn btn--primary" type="button" @click="activeTab = 'import'">去上传</button>
-    </div>
-    <div v-else-if="isLoadingRecordings" class="dataset-list-empty">正在读取采集记录...</div>
+    </EmptyState>
+    <EmptyState v-else-if="isLoadingRecordings" description="正在读取采集记录…" compact />
     <div v-else-if="recordingsError" class="inline-error">{{ recordingsError }}</div>
-    <div v-else-if="!selectedAssetRecordings.length" class="dataset-detail-empty">
-      <AppIcon name="file" :size="24" />
-      <strong>还没有采集记录</strong>
-      <span>上传 EEG 原始数据后，这里会按被试 / 任务列出记录与状态。</span>
+    <EmptyState
+      v-else-if="!selectedAssetRecordings.length"
+      icon="file"
+      title="还没有采集记录"
+      description="上传 EEG 原始数据后，这里会按被试 / 任务列出记录与状态。"
+    >
       <button class="btn btn--primary" type="button" @click="activeTab = 'import'">去上传</button>
-    </div>
+    </EmptyState>
 
     <template v-else>
       <!-- 体检条 -->
@@ -32,7 +36,7 @@
         <strong class="dmt-toolbar__title">采集记录 · {{ selectedAssetRecordings.length }}</strong>
         <div class="dmt-seg">
           <button type="button" :class="{ 'is-active': mainView === 'table' }" @click="mainView = 'table'">表格</button>
-          <button type="button" :class="{ 'is-active': mainView === 'matrix' }" @click="mainView = 'matrix'">矩阵</button>
+          <button type="button" :class="{ 'is-active': mainView === 'matrix' }" @click="mainView = 'matrix'">覆盖</button>
         </div>
         <button class="dmt-chip-btn" :class="{ 'is-active': onlyProblems }" type="button" @click="onlyProblems = !onlyProblems">
           仅看有问题
@@ -71,7 +75,7 @@
               <tr>
                 <th v-if="showSession">会话</th>
                 <th>任务</th>
-                <th v-if="showRun">run</th>
+                <th v-if="showRun">轮次</th>
                 <th class="dmt-table__status">状态</th>
               </tr>
             </thead>
@@ -139,13 +143,13 @@
             <div><dt>被试</dt><dd>{{ selectedRecording.subject }}</dd></div>
             <div v-if="selectedRecording.session"><dt>会话</dt><dd>{{ selectedRecording.session }}</dd></div>
             <div><dt>任务</dt><dd>{{ selectedRecording.task }}</dd></div>
-            <div v-if="selectedRecording.run"><dt>run</dt><dd>{{ selectedRecording.run }}</dd></div>
+            <div v-if="selectedRecording.run"><dt>轮次</dt><dd>{{ selectedRecording.run }}</dd></div>
             <div><dt>源格式</dt><dd>{{ selectedRecording.sourceFormat }}</dd></div>
             <div><dt>通道 / 事件</dt><dd>{{ selectedRecording.channelEventLabel }}</dd></div>
           </dl>
 
-          <div class="dmt-drawer__label">两套维数</div>
-          <div v-if="recordingFilesLoading[selectedRecording.id]" class="dataset-list-empty">正在读取文件...</div>
+          <div class="dmt-drawer__label">两份数据（原始 + 标准化）</div>
+          <EmptyState v-if="recordingFilesLoading[selectedRecording.id]" description="正在读取文件…" compact />
           <div v-else class="dmt-tracks">
             <div class="dmt-track">
               <IconLine name="folder" :size="14" />
@@ -158,15 +162,15 @@
             <div v-if="selectedRecording.hasCanonicalFif" class="dmt-track dmt-track--fif">
               <IconLine name="sparkles" :size="14" />
               <div class="dmt-track__main">
-                <strong>标准 FIF</strong>
+                <strong>标准化文件</strong>
                 <span>{{ selectedBuckets?.fif.length || 0 }} 个 · {{ formatFileSize(selectedBuckets?.fifSize || 0) }} · 可重建</span>
               </div>
             </div>
             <div v-else class="dmt-track dmt-track--missing">
               <IconLine name="sparkles" :size="14" />
               <div class="dmt-track__main">
-                <strong>标准 FIF 待生成</strong>
-                <span>原始数据已在，可在后续阶段生成标准 FIF</span>
+                <strong>标准化文件待生成</strong>
+                <span>原始数据已就绪，可在后续阶段生成标准化文件</span>
               </div>
             </div>
           </div>
@@ -179,7 +183,6 @@
             </div>
           </details>
 
-          <p class="dmt-drawer__note">维护操作（重生成 / 标记 / 替换 / 删除）将在后续阶段开放。</p>
         </aside>
       </div>
     </template>
@@ -193,6 +196,7 @@
 import { computed, inject, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import {
   formatFileSize,
   getFileShortPath,
@@ -229,7 +233,7 @@ interface RecStatusInfo {
 
 // 状态只在「异常」时返回；就绪（有 FIF 且质控未挂）返回 null —— 主表多数行因此保持安静
 function recStatus(rec: DatasetRecordingRow): RecStatusInfo | null {
-  if (!rec.hasCanonicalFif) return { tone: 'warning', label: '待生成 FIF' }
+  if (!rec.hasCanonicalFif) return { tone: 'warning', label: '待标准化' }
   const cls = getQaStatusClass(rec.qaStatus)
   if (cls === 'badge--danger') return { tone: 'danger', label: getQaStatusLabel(rec.qaStatus) }
   if (cls === 'badge--warning') return { tone: 'warning', label: getQaStatusLabel(rec.qaStatus) }
@@ -255,7 +259,7 @@ const healthSummary = computed(() => {
   for (const r of selectedAssetRecordings.value) {
     const s = recStatus(r)
     if (!s) continue
-    if (s.label === '待生成 FIF') noFif += 1
+    if (s.label === '待标准化') noFif += 1
     else if (s.tone === 'info') pending += 1
     else qaIssue += 1
   }
@@ -263,7 +267,7 @@ const healthSummary = computed(() => {
 })
 const healthText = computed(() => {
   const parts: string[] = []
-  if (healthSummary.value.noFif) parts.push(`${healthSummary.value.noFif} 条待生成 FIF`)
+  if (healthSummary.value.noFif) parts.push(`${healthSummary.value.noFif} 条待标准化`)
   if (healthSummary.value.qaIssue) parts.push(`${healthSummary.value.qaIssue} 条质控未过`)
   if (healthSummary.value.pending) parts.push(`${healthSummary.value.pending} 条待质控`)
   return parts.join(' · ')

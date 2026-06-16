@@ -1,6 +1,6 @@
 <template>
     <!-- Phase 3 (docs_v2/3-25): 发布版本弹窗 -->
-    <div v-if="publishModal.open" class="modal-backdrop" role="presentation" @click.self="closePublishModal">
+    <Modal v-if="publishModal.open" @close="closePublishModal">
       <form class="modal-card lifecycle-modal" @submit.prevent="submitPublish">
         <header>
           <div>
@@ -62,10 +62,10 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 
     <!-- Phase 3 (docs_v2/3-25): 撤回申请弹窗 -->
-    <div v-if="withdrawModal.open" class="modal-backdrop" role="presentation" @click.self="closeWithdrawModal">
+    <Modal v-if="withdrawModal.open" @close="closeWithdrawModal">
       <form class="modal-card lifecycle-modal" @submit.prevent="submitWithdraw">
         <header>
           <div>
@@ -99,10 +99,10 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 
     <!-- 紧急下架弹窗（仅 admin 触发，3-25 §6.4） -->
-    <div v-if="emergencyModal.open" class="modal-backdrop" role="presentation" @click.self="closeEmergencyModal">
+    <Modal v-if="emergencyModal.open" @close="closeEmergencyModal">
       <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitEmergencyTakedown">
         <header>
           <div>
@@ -137,10 +137,10 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 
     <!-- 数据集生命周期 v2（3-25）规则 5：可见范围「开放」单向确认弹窗（只升不降，不可逆释放） -->
-    <div v-if="visibilityModal.open" class="modal-backdrop" role="presentation" @click.self="closeVisibilityModal">
+    <Modal v-if="visibilityModal.open" @close="closeVisibilityModal">
       <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitOpenVisibility">
         <header>
           <div>
@@ -177,10 +177,10 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 
     <!-- 规则 4：删除整个数据集（仅纯未发布资产）强确认弹窗 -->
-    <div v-if="deleteAssetModal.open" class="modal-backdrop" role="presentation" @click.self="closeDeleteAssetModal">
+    <Modal v-if="deleteAssetModal.open" @close="closeDeleteAssetModal">
       <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitDeleteAsset">
         <header>
           <div>
@@ -217,10 +217,10 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 
     <!-- 规则 4：丢弃已发布资产上的 v+1 未发布版本强确认弹窗 -->
-    <div v-if="discardVersionModal.open" class="modal-backdrop" role="presentation" @click.self="closeDiscardVersionModal">
+    <Modal v-if="discardVersionModal.open" @close="closeDiscardVersionModal">
       <form class="modal-card lifecycle-modal lifecycle-modal--danger" @submit.prevent="submitDiscardVersion">
         <header>
           <div>
@@ -241,7 +241,7 @@
           </button>
         </footer>
       </form>
-    </div>
+    </Modal>
 </template>
 
 <script setup lang="ts">
@@ -250,6 +250,7 @@
 // 状态与动作全部来自父页面的 useDatasetLifecycle，经 props 注入；modal 对象按引用传入，
 // v-model 直接改其字段（Vue props 浅只读，嵌套改可生效且不告警）。
 import type { DatasetAsset, DatasetVersion } from '@/types'
+import Modal from '@/components/common/Modal.vue'
 import { formatVersionLabel, getVisibilityLabel } from '@/composables/datasets/datasetsFormatters'
 
 interface PublishModalState { open: boolean; versionLabel: string; submitting: boolean; error: string; targetVersionId: string | null; deidentified: boolean; ethics: string; license: string }

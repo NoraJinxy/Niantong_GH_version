@@ -13,6 +13,7 @@ import {
   CATEGORY_SOFT_COLORS,
   NODE_TITLE_MAX_CHARS,
 } from './pipelineConstants'
+import type { StatusTone } from '@/composables/common/statusTone'
 
 export function pipelinePortColors(alpha = 1) {
   return Object.fromEntries(
@@ -142,10 +143,35 @@ export function formatPipelineExecutionStatus(status: string) {
   if (status === 'completed') return '已完成'
   if (status === 'failed') return '失败'
   if (status === 'running') return '运行中'
-  if (status === 'queued') return '排队'
+  if (status === 'queued' || status === 'pending') return '排队中'
   if (status === 'waiting_user_input') return '等待确认'
   if (status === 'canceled') return '已取消'
   return status
+}
+
+// 运行状态 → 药丸 tone（供 StatusPill）。queued/pending/未知归 muted。
+export function executionStatusTone(status?: string | null): StatusTone {
+  if (status === 'completed') return 'success'
+  if (status === 'failed' || status === 'canceled') return 'danger'
+  if (status === 'waiting_user_input') return 'warn'
+  if (status === 'running') return 'info'
+  return 'muted'
+}
+
+// 工作流状态 → 药丸 tone（供 StatusPill）。
+export function pipelineStatusTone(status?: string | null): StatusTone {
+  if (status === 'active') return 'success'
+  if (status === 'draft') return 'warn'
+  return 'muted'
+}
+
+// 结果保留态 → 药丸 tone（供 StatusPill）。配合 formatArtifactRetention 使用。
+export function artifactRetentionTone(
+  artifact?: { keep?: boolean; deleted_at?: string | null } | null,
+): StatusTone {
+  if (artifact?.deleted_at) return 'danger'
+  if (artifact?.keep) return 'success'
+  return 'muted'
 }
 
 export function formatTaskStatus(status?: string | null) {
@@ -173,7 +199,7 @@ export function formatDateTime(value?: string | null) {
 }
 
 export function formatPipelineStatus(status: string) {
-  if (status === 'active') return '已启用'
+  if (status === 'active') return '可运行'
   if (status === 'draft') return '草稿'
   if (status === 'archived') return '已归档'
   if (status === 'deleted') return '已删除'
@@ -189,7 +215,7 @@ export function allowedExecutionModeText(status: string) {
 export function formatExecutionMode(mode?: string | null) {
   if (mode === 'trial') return '试跑'
   if (mode === 'analysis') return '正式分析'
-  if (mode === 'replay') return '重放'
+  if (mode === 'replay') return '重跑'
   if (mode === 'system') return '系统运行'
   return mode || '-'
 }
@@ -200,8 +226,30 @@ export function formatArtifactRetention(
   if (!artifact) return '未标记'
   if (artifact.deleted_at) return '已删除'
   if (artifact.keep) return '保存'
-  if (artifact.cache_eligible) return '缓存'
-  return '临时'
+  // 缓存/临时是内部保留态，对用户统一收敛成「不保存」（不暴露 cache/temp 语义）
+  return '不保存'
+}
+
+// 输出数据类型枚举 → 临床友好标签。结果列表 / 筛选的「显示文本」用它；
+// 技术折叠仍显原始枚举、路由与筛选匹配仍用原值。未知类型回退原文（不致空白）。
+const DATA_TYPE_LABELS: Record<string, string> = {
+  raw: '原始数据',
+  filtered_raw: '滤波后数据',
+  epochs: '分段数据',
+  evoked: 'ERP 波形',
+  erp: 'ERP 波形',
+  tfr: '时频图',
+  psd: '功率谱',
+  ica: 'ICA 成分',
+  source: '源定位',
+  microstate: '微状态',
+  connectivity: '脑连接',
+  json: '指标数据',
+}
+
+export function formatDataType(type?: string | null) {
+  if (!type) return '结果'
+  return DATA_TYPE_LABELS[String(type).toLowerCase()] || type
 }
 
 export function categoryColor(category?: string | null) {
@@ -239,6 +287,8 @@ export function portTypesCompatible(sourceType?: string, targetType?: string) {
   const compatibleTargets: Record<string, string[]> = {
     analysis_result: ['analysis_result', 'evoked', 'epochs', 'psd', 'tfr', 'connectivity', 'microstate', 'source_estimate'],
     eeg_data: ['eeg_data', 'raw', 'dataset_collection'],
+    // 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs。
+    spectral_source: ['spectral_source', 'eeg_data', 'raw', 'dataset_collection', 'epochs'],
   }
   return Boolean(sourceType && targetType && compatibleTargets[targetType]?.includes(sourceType))
 }
@@ -247,9 +297,18 @@ export function isWildcardPortType(type?: string): boolean {
   return type === '*' || type === 'any' || type === '' || type === undefined
 }
 
+// 某些 input 端口语义上接受多种上游类型。litegraph 0.7.x 的原生连线校验
+// (isValidConnection) 支持「逗号分隔的类型列表」——任一类型命中即放行，
+// 所以这里把这类端口的 litegraph slot 类型展开成它实际接受的具体类型列表，
+// 让画布拖线与后端 port_types_compatible 判定一致。
+const MULTI_ACCEPT_LITEGRAPH_TYPES: Record<string, string> = {
+  spectral_source: 'epochs,eeg_data',
+}
+
 export function liteGraphPortType(type?: string): string {
   // litegraph.js 0.7.x 的 wildcard 端口必须是 falsy（空字符串 / 0 / null）。
   // 注意：-1 在该版本是 LiteGraph.EVENT/ACTION，会被画成方块且拒绝普通数据线连接。
   if (isWildcardPortType(type)) return ''
+  if (type && MULTI_ACCEPT_LITEGRAPH_TYPES[type]) return MULTI_ACCEPT_LITEGRAPH_TYPES[type]
   return type || 'eeg_data'
 }

@@ -54,6 +54,7 @@ export const PORT_COLORS: Record<string, string> = {
   events: '#9A6A28',
   figure_spec: '#687386',
   psd: '#2F766F',
+  spectral_source: '#2F766F',
   tfr: '#9B557A',
   connectivity: '#4F6F9F',
   microstate: '#9B557A',
@@ -85,7 +86,7 @@ export const TASK_RETRYABLE_STATUSES = ['failed', 'canceled']
 export const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label: string; description: string }> = [
   { value: 'trial', label: '试跑', description: '用于边调参数边看数据' },
   { value: 'analysis', label: '正式分析', description: '用于正式结果和报告追溯' },
-  { value: 'replay', label: '重放', description: '复用历史快照重放一次执行；当前后端通常由 Retry 触发' },
+  { value: 'replay', label: '重跑', description: '复用历史快照重跑一次执行；当前后端通常由 Retry 触发' },
   { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
 ]
 export const NODE_CARD_WIDTH = 264

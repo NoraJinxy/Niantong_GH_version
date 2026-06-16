@@ -27,17 +27,7 @@
   flex-shrink: 0;
 }
 
-/* lifecycle 弹窗：modal 基础样式 */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.45);
-  padding: 24px;
-}
+/* lifecycle 弹窗：卡片本体（遮罩/居中/Esc 关闭已由 <Modal> 提供） */
 .modal-card {
   width: min(560px, 100%);
   border-radius: 10px;

@@ -5,28 +5,28 @@
       <div>
         <h1 class="page__title">数据集管理</h1>
         <p class="page__subtitle">
-          选择数据集，查看导入状态和文件摘要，再继续导入或进入后续处理。研究项只作为导入、质控和运行上下文。
+          上传并管理你的 EEG 数据，按被试查看每条记录的状态，再进入后续分析。
         </p>
       </div>
       <div class="dataset-page__actions">
         <!-- Phase 3 (docs_v2/3-25): 管理员审核入口 -->
         <RouterLink
-          v-if="isAdmin"
+          v-if="isAdmin && pendingWithdrawals > 0"
           class="btn btn--ghost admin-link"
           to="/admin/withdrawals"
           title="审核数据集负责人提交的撤回申请"
         >
           <AppIcon name="alert" :size="15" />
-          撤回审核
+          撤回审核 ({{ pendingWithdrawals }})
         </RouterLink>
         <RouterLink
-          v-if="isAdmin"
+          v-if="isAdmin && pendingPublicizations > 0"
           class="btn btn--ghost admin-link"
           to="/admin/publicizations"
           title="审核数据集负责人提交的转公开申请（shared → public）"
         >
           <AppIcon name="observe" :size="15" />
-          转公开审核
+          转公开审核 ({{ pendingPublicizations }})
         </RouterLink>
         <button class="btn btn--primary" type="button" @click="openCreatePanel">
           <AppIcon name="plus" :size="15" />
@@ -37,27 +37,6 @@
 
     <!-- #15：页面级成功提示（在详情面板之外，删除后选中清空、面板卸载仍可见） -->
     <div v-if="pageNotice" class="inline-success" role="status" style="margin-bottom: 16px;">{{ pageNotice }}</div>
-
-    <!-- UI Phase (docs_v2/6-05) 统一顶部 stat 条 - 仅展示用户关心的 4 张数字卡 -->
-    <section class="page-stat-strip" aria-label="数据集概览">
-      <article class="page-stat">
-        <span class="page-stat__label">数据集总数</span>
-        <strong class="page-stat__value">{{ assetStats.total }}</strong>
-      </article>
-      <!-- 6-05 §6.2 + B 方案：按可见范围分桶，零值不渲染 -->
-      <article v-if="assetStats.private" class="page-stat">
-        <span class="page-stat__label">私有</span>
-        <strong class="page-stat__value">{{ assetStats.private }}</strong>
-      </article>
-      <article v-if="assetStats.shared" class="page-stat">
-        <span class="page-stat__label">共享</span>
-        <strong class="page-stat__value">{{ assetStats.shared }}</strong>
-      </article>
-      <article v-if="assetStats.public" class="page-stat">
-        <span class="page-stat__label">公开</span>
-        <strong class="page-stat__value">{{ assetStats.public }}</strong>
-      </article>
-    </section>
 
     <section v-if="usesShortcutStudy" class="dataset-shortcut">
       <AppIcon name="studies" :size="18" />
@@ -72,17 +51,17 @@
         <div class="dataset-catalog__head">
           <div>
             <h2>数据集</h2>
-            <p>{{ filteredDatasetAssets.length }} / {{ datasetAssets.length }}</p>
+            <p>{{ assetSearch || assetVisibilityFilter !== 'all' ? `匹配 ${filteredDatasetAssets.length} / 共 ${datasetAssets.length}` : `${datasetAssets.length} 个数据集` }}</p>
           </div>
           <button class="icon-btn" type="button" title="刷新" @click="reloadAll">
             <AppIcon name="restore" :size="15" />
           </button>
         </div>
 
-        <div class="dataset-catalog__filters">
+        <div v-if="datasetAssets.length > 1" class="dataset-catalog__filters">
           <label class="dataset-search">
             <AppIcon name="search" :size="15" />
-            <input v-model.trim="assetSearch" type="search" placeholder="搜索名称或 code" />
+            <input v-model.trim="assetSearch" type="search" placeholder="搜索数据集名称" />
           </label>
           <select v-model="assetVisibilityFilter" class="input">
             <option value="all">全部可见范围</option>
@@ -92,13 +71,14 @@
           </select>
         </div>
 
-        <div v-if="isLoadingAssets" class="dataset-list-empty">正在读取数据集...</div>
-        <div v-else-if="!datasetAssets.length" class="dataset-list-empty">
-          还没有数据集。请先新建一个数据集，然后导入 EEG 原始数据。
-        </div>
-        <div v-else-if="!filteredDatasetAssets.length" class="dataset-list-empty">
-          没有匹配的数据集。
-        </div>
+        <EmptyState v-if="isLoadingAssets" description="正在读取数据集…" compact />
+        <EmptyState
+          v-else-if="!datasetAssets.length"
+          title="还没有数据集"
+          description="请先新建一个数据集，然后导入 EEG 原始数据。"
+          compact
+        />
+        <EmptyState v-else-if="!filteredDatasetAssets.length" description="没有匹配的数据集。" compact />
         <div v-else class="dataset-list">
           <button
             v-for="asset in filteredDatasetAssets"
@@ -139,7 +119,7 @@
             <span class="section-kicker">{{ activePanel === 'create' ? '新建数据集' : '数据集工作台' }}</span>
             <h2>{{ activePanel === 'create' ? '创建新的数据集' : (selectedDatasetAsset?.name || '数据集工作台') }}</h2>
             <p v-if="activePanel === 'create'" class="dataset-detail__subtitle">
-              这是新的数据资产，不会修改左侧目录中的已有数据集。
+              这是新的数据集，不会修改左侧目录中的已有数据集。
             </p>
           </div>
           <div class="dataset-detail__actions">
@@ -152,6 +132,18 @@
               @click="returnToDatasetWorkbench"
             >
               返回当前数据集
+            </button>
+            <!-- 发布与共享：高级入口。不与日常的「数据文件 / 上传」并列，仅在需要对外发布 / 授权时进入。 -->
+            <button
+              v-else-if="selectedDatasetAsset"
+              class="btn btn--sm btn--ghost"
+              :class="{ 'is-active': activeTab === 'share' }"
+              type="button"
+              title="数据集的版本发布、对外可见范围与授权成员（高级）"
+              @click="activeTab = activeTab === 'share' ? 'data' : 'share'"
+            >
+              <AppIcon name="network" :size="14" />
+              发布与共享
             </button>
           </div>
         </div>
@@ -249,10 +241,7 @@
           <DatasetShareTab v-else-if="activeTab === 'share'" />
         </div>
 
-        <div v-else class="dataset-detail-empty">
-          <AppIcon name="database" :size="28" />
-          <strong>请选择一个数据集，或新建数据集。</strong>
-        </div>
+        <EmptyState v-else icon="database" title="请选择一个数据集，或新建数据集。" />
       </section>
     </section>
 
@@ -289,6 +278,7 @@ import { RouterLink } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import DatasetLifecycleModals from '@/components/datasets/DatasetLifecycleModals.vue'
 import DatasetImportTab from '@/components/datasets/DatasetImportTab.vue'
 import DatasetMaintenanceTab from '@/components/datasets/DatasetMaintenanceTab.vue'
@@ -306,17 +296,31 @@ import { useDatasetRecordings } from '@/composables/datasets/useDatasetRecording
 import { useDatasetLifecycle } from '@/composables/datasets/useDatasetLifecycle'
 import { useDatasetImportTarget } from '@/composables/datasets/useDatasetImportTarget'
 import { datasetContextKey } from '@/composables/datasets/datasetContext'
+import { datasetWithdrawalApi, datasetPublicizationApi } from '@/api/datasetVersions'
 
 type DatasetWorkbenchTab = 'data' | 'import' | 'share'
 
+// 发布与共享降级为高级入口：不再做主 tab，仅从工作台头部的次级按钮进入（见模板）。
 const datasetTabs: Array<{ key: DatasetWorkbenchTab; label: string }> = [
   { key: 'data', label: '数据文件' },
   { key: 'import', label: '上传' },
-  { key: 'share', label: '发布与共享' },
 ]
 
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.roles?.includes('admin') ?? false)
+
+// 管理员审核入口仅在「确有待审申请」时出现：空队列时按钮无意义，藏掉保持页面干净。
+const pendingWithdrawals = ref(0)
+const pendingPublicizations = ref(0)
+async function loadPendingReviewCounts() {
+  if (!isAdmin.value) return
+  const [withdrawals, publicizations] = await Promise.all([
+    datasetWithdrawalApi.listPending().then((r) => r.data).catch(() => []),
+    datasetPublicizationApi.listPending().then((r) => r.data).catch(() => []),
+  ])
+  pendingWithdrawals.value = withdrawals.length
+  pendingPublicizations.value = publicizations.length
+}
 
 // 目录主轴（批 2）：数据集资产列表 + 选中 + 搜索 / 筛选，是其他 composable 的依赖底座。
 const catalog = useDatasetCatalog()
@@ -328,19 +332,15 @@ const {
   isLoadingAssets,
   selectedDatasetAsset,
   filteredDatasetAssets,
-  assetStats,
   loadDatasetAssets,
 } = catalog
 
 // working 文件索引 + 数据文件分桶（批 3）
 const files = useDatasetFiles({ selectedDatasetAssetId })
 const {
-  isLoadingAssetFiles,
-  selectedAssetFilesError,
   fileSearch,
   fileRoleFilter,
   fileDisplayLimit,
-  selectedAssetFileStats,
   loadSelectedAssetFiles,
   resetFileIndexView,
 } = files
@@ -424,61 +424,6 @@ const {
 // ===== 数据文件管理器（filemanager 视图）：后台 3 类文件角色 → 用户 2 个桶 =====
 const dataView = ref<'by-subject' | 'by-type'>('by-subject')
 
-const datasetDecisionSummary = computed(() => {
-  const stats = selectedAssetFileStats.value
-  if (isLoadingAssetFiles.value) {
-    return {
-      className: 'is-syncing',
-      title: '正在读取文件摘要',
-      message: '正在同步该数据集的 working 文件索引摘要。',
-      detail: '请稍候，概览会在读取完成后更新。',
-      processing: '等待摘要',
-      processingHint: '文件摘要完成后再判断是否可进入后续处理。',
-    }
-  }
-  if (selectedAssetFilesError.value) {
-    return {
-      className: 'is-warning',
-      title: '文件摘要待确认',
-      message: '文件索引读取失败，暂时无法判断该数据集的导入完整度。',
-      detail: '可以刷新文件索引，或先进入导入页继续准备上传。',
-      processing: '暂缓处理',
-      processingHint: '建议先确认文件索引状态，再进入 QC 或 Pipeline。',
-    }
-  }
-  if (!stats.total) {
-    return {
-      className: 'is-empty',
-      title: '尚未导入',
-      message: isTargetForSelectedAsset.value
-        ? '该数据集已准备导入目标，可以继续上传 EEG 原始数据。'
-        : '该数据集还没有文件摘要，请先准备导入目标并上传原始数据。',
-      detail: isTargetForSelectedAsset.value
-        ? '进入导入页选择 EDF、BDF 或 BrainVision 文件。'
-        : '准备目标后，系统会把上传写入 Dataset working 版本。',
-      processing: '暂不可进入',
-      processingHint: '后续处理需要至少完成原始数据导入和文件索引写入。',
-    }
-  }
-  if (stats.canonicalFif > 0) {
-    return {
-      className: 'is-ready',
-      title: '已导入，可进入后续处理',
-      message: '该数据集已有文件索引和标准 FIF 摘要，可继续导入，也可进入 QC 或 Pipeline。',
-      detail: '如需追加数据，可进入导入页；如需处理分析，可在工作流中选择该数据集。',
-      processing: '可进入',
-      processingHint: '标准 FIF 已生成，适合进入质控、预览或工作流处理。',
-    }
-  }
-  return {
-    className: 'is-partial',
-    title: '已导入，等待标准文件',
-    message: '该数据集已有原始上传或 BIDS 逻辑视图，但标准 FIF 摘要尚未出现。',
-    detail: '可以继续导入，或等待/触发标准 FIF 生成后再进入后续处理。',
-    processing: '需确认',
-    processingHint: '进入 QC 或 Pipeline 前，建议确认标准 FIF 和文件索引已完整。',
-  }
-})
 // 采集记录：列表 + 每条记录文件懒加载 + 按被试分组（批 4）。依赖 recordsStudyContext。
 const recordings = useDatasetRecordings({ selectedDatasetAsset, recordsStudyContext })
 const {
@@ -498,7 +443,6 @@ provide(datasetContextKey, {
   isAdmin,
   activeTab,
   dataView,
-  datasetDecisionSummary,
   copyStatus,
   copyTechnicalValue,
   copyDoi,
@@ -539,6 +483,7 @@ watch(
 )
 
 onMounted(async () => {
+  void loadPendingReviewCounts()
   await Promise.all([loadStudies(), loadDatasetAssets()])
   if (queryStudyId.value) {
     selectedStudyId.value = studies.value.find((study) => study.id === queryStudyId.value)?.id || queryStudyId.value

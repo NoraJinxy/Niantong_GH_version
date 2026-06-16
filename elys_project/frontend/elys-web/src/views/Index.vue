@@ -140,7 +140,7 @@
         <div class="row row--between mb-4">
           <div>
             <h2 style="margin: 0 0 4px">从原始文件到可分析数据</h2>
-            <div class="muted">当前主线：Study 组织协作，Dataset 管数据资产，Pipeline 定义流程，Run 记录执行事实。</div>
+            <div class="muted">当前主线：Study 组织协作，Dataset 管数据集，Pipeline 定义流程，Run 记录执行事实。</div>
           </div>
           <span class="badge badge--accent">
             <span class="dot"></span>工作流
@@ -155,12 +155,12 @@
           <div class="nav-card">
             <span class="nav-card__num">02</span>
             <div class="nav-card__title">⇧ 导入 Dataset</div>
-            <div class="nav-card__hint">上传原始脑电数据，登记为可选择的数据资产。</div>
+            <div class="nav-card__hint">上传原始脑电数据，登记为可选择的数据集。</div>
           </div>
           <div class="nav-card">
             <span class="nav-card__num">03</span>
-            <div class="nav-card__title">🗂 建立文件索引</div>
-            <div class="nav-card__hint">通过 dataset_files 追踪原始数据、Raw BIDS 和 canonical FIF。</div>
+            <div class="nav-card__title">🗂 建立文件清单</div>
+            <div class="nav-card__hint">统一追踪原始数据、标准目录与标准化文件。</div>
           </div>
           <div class="nav-card">
             <span class="nav-card__num">04</span>
@@ -219,7 +219,7 @@
           <RouterLink class="nav-card" to="/datasets">
             <span class="nav-card__num">05</span>
             <div class="nav-card__title">📥 数据集管理</div>
-            <div class="nav-card__hint">原始上传 · Raw BIDS · canonical FIF · 版本发布</div>
+            <div class="nav-card__hint">原始文件 · 标准目录 · 标准化文件 · 版本发布</div>
           </RouterLink>
           <RouterLink class="nav-card" to="/studies" title="工作流 / 运行：进入研究项后在容器内操作">
             <span class="nav-card__num">06</span>

@@ -38,7 +38,7 @@
             <div v-if="moreOpen" class="results-more__menu" @click.self="moreOpen = false">
               <button type="button" :disabled="cleanupLoading" @click="onCleanupAndClose">
                 <AppIcon name="trash" :size="14" />
-                清理缓存 / 临时数据
+                清理未保存的结果
               </button>
             </div>
           </div>
@@ -88,7 +88,7 @@
             @click="toggleFilter('data_types', opt)"
           >
             <span class="type-chip__icon"><AppIcon :name="dataTypeIcon(opt)" :size="14" /></span>
-            {{ opt }} <small>{{ countByType(opt) }}</small>
+            {{ formatDataType(opt) }} <small>{{ countByType(opt) }}</small>
           </button>
         </section>
 
@@ -123,7 +123,7 @@
               <label v-for="opt in dataTypeOptions" :key="'dd-dt-' + opt" class="filter-dd__opt">
                 <input type="checkbox" :checked="filters.data_types.includes(opt)" @change="toggleFilter('data_types', opt)" />
                 <span class="data-type-tag" :class="dataTypeClass(opt)">
-                  {{ opt }}
+                  {{ formatDataType(opt) }}
                 </span>
               </label>
             </div>
@@ -285,7 +285,7 @@
 
               <span class="data-type-tag data-type-tag--lg" :class="dataTypeClass(row.data_type)">
                 <AppIcon :name="dataTypeIcon(row.data_type)" :size="12" />
-                {{ row.data_type }}
+                {{ formatDataType(row.data_type) }}
               </span>
 
               <div class="result-row__main">
@@ -331,7 +331,7 @@
               <div class="result-detail__hero-top">
                 <span class="data-type-tag data-type-tag--lg" :class="dataTypeClass(activeRow.data_type)">
                   <AppIcon :name="dataTypeIcon(activeRow.data_type)" :size="12" />
-                  {{ activeRow.data_type }}
+                  {{ formatDataType(activeRow.data_type) }}
                 </span>
                 <button class="btn btn--icon btn--ghost" type="button" aria-label="关闭" @click="activeId = ''">×</button>
               </div>
@@ -457,7 +457,6 @@
                 <div v-if="activeRow.produced_by_job_id"><dt>节点任务 ID</dt><dd>{{ activeRow.produced_by_job_id }}</dd></div>
                 <div v-if="activeRow.data_type"><dt>数据类型枚举</dt><dd>{{ activeRow.data_type }}</dd></div>
                 <div><dt>保存</dt><dd>{{ activeRow.keep ? '是' : '否' }}</dd></div>
-                <div><dt>系统缓存</dt><dd>{{ activeRow.cache_eligible ? '是' : '否' }}</dd></div>
                 <div v-if="activeRow.storage_uri"><dt>存储 URI</dt><dd>{{ activeRow.storage_uri }}</dd></div>
                 <div v-if="activeRow.sha256"><dt>SHA-256</dt><dd>{{ activeRow.sha256 }}</dd></div>
                 <div v-if="activeRow.mime_type"><dt>MIME 类型</dt><dd>{{ activeRow.mime_type }}</dd></div>
@@ -497,6 +496,7 @@ import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
 import { pipelineApi } from '@/api/pipelines'
+import { formatDataType } from '@/composables/pipeline/pipelineFormatters'
 import type {
   StudyOutput,
   StudyOutputListQuery,
@@ -1011,16 +1011,15 @@ function retentionLabel(row: StudyOutput): string {
   if (row.purged_at) return '已清盘'
   if (row.deleted_at) return '已删除'
   if (row.keep) return '保存'
-  if (row.cache_eligible) return '缓存'
-  return '临时'
+  // 缓存/临时是内部保留态，对用户统一收敛成「不保存」（与筛选标签同口径）
+  return '不保存'
 }
 
 function retentionBadgeClass(row: StudyOutput): string {
   if (row.purged_at) return 'badge--muted'
   if (row.deleted_at) return 'badge--danger'
   if (row.keep) return 'badge--success'
-  if (row.cache_eligible) return 'badge--outline'
-  return 'badge--warning'
+  return 'badge--muted'
 }
 
 function dataTypeClass(type?: string | null): string {

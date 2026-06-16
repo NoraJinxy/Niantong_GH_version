@@ -18,6 +18,7 @@ import {
   compactNodeTitle,
   formatExecutionMode,
   formatArtifactRetention,
+  formatDataType,
   formatPipelineStatus,
 } from './pipelineFormatters'
 
@@ -171,15 +172,22 @@ describe('mode / retention / pipeline status', () => {
     expect(formatExecutionMode('analysis')).toBe('正式分析')
     expect(formatExecutionMode(null)).toBe('-')
   })
-  it('formatArtifactRetention precedence (deleted > keep > cache > temp)', () => {
+  it('formatArtifactRetention precedence (deleted > keep > 不保存)', () => {
     expect(formatArtifactRetention({ deleted_at: 'x', keep: true })).toBe('已删除')
     expect(formatArtifactRetention({ keep: true })).toBe('保存')
-    expect(formatArtifactRetention({ cache_eligible: true })).toBe('缓存')
-    expect(formatArtifactRetention({})).toBe('临时')
+    expect(formatArtifactRetention({ cache_eligible: true })).toBe('不保存')
+    expect(formatArtifactRetention({})).toBe('不保存')
     expect(formatArtifactRetention(null)).toBe('未标记')
   })
+  it('formatDataType maps enums to friendly labels, falls back to raw', () => {
+    expect(formatDataType('evoked')).toBe('ERP 波形')
+    expect(formatDataType('tfr')).toBe('时频图')
+    expect(formatDataType('psd')).toBe('功率谱')
+    expect(formatDataType('weird_unknown')).toBe('weird_unknown')
+    expect(formatDataType(null)).toBe('结果')
+  })
   it('formatPipelineStatus defaults empty to draft', () => {
-    expect(formatPipelineStatus('active')).toBe('已启用')
+    expect(formatPipelineStatus('active')).toBe('可运行')
     expect(formatPipelineStatus('draft')).toBe('草稿')
     expect(formatPipelineStatus('')).toBe('草稿')
   })

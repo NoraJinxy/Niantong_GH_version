@@ -180,6 +180,12 @@ const router = createRouter({
       component: () => import('@/views/WaveformDetailPage.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/blueprint/:blueprintKey',
+      name: 'FeatureBlueprint',
+      component: () => import('@/views/FeatureBlueprintPage.vue'),
+      meta: { requiresAuth: true },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

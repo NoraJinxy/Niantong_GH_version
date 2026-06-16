@@ -4,7 +4,7 @@
       <div>
         <span class="section-kicker">发布与共享</span>
         <h3>{{ selectedDatasetAsset.name }}</h3>
-        <p>管理这个数据集的版本发布、对外可见范围与授权成员。发布会冻结当前文件并铸 DOI；发布≠公开，是否对外开放由你单独决定。</p>
+        <p>管理这个数据集的版本发布、对外可见范围与授权成员。发布会冻结当前文件并生成 DOI（可被论文引用的唯一标识）；发布≠公开，是否对外开放由你单独决定。</p>
       </div>
       <div class="dataset-profile__badges">
         <!-- 数据集生命周期 v2（3-25）：可见范围与发布解耦。徽章只读展示可见范围（私有/共享/公开）；
@@ -85,7 +85,7 @@
         </div>
       </div>
       <p v-if="currentVersion.state === 'unpublished'" class="dataset-version-card__hint">
-        此版本仅主研究项可关联使用。发布后才能被其他研究项引用，且发布后不可修改文件（要改请开新版本）。发布≠分享：发布只冻结并铸 DOI，可见范围默认保持私有，是否对外开放由你单独决定。
+        此版本仅主研究项可关联使用。发布后才能被其他研究项引用，且发布后不可修改文件（要改请开新版本）。发布≠分享：发布只冻结并生成 DOI，可见范围默认保持私有，是否对外开放由你单独决定。
       </p>
       <p v-else-if="currentVersion.state === 'published'" class="dataset-version-card__hint">
         已发布版本不可修改。如需变更内容请创建新的未发布版本；如需下架请提交撤回申请由管理员审核。
@@ -221,7 +221,7 @@
           v-model.trim="memberAddUserId"
           class="input"
           type="text"
-          placeholder="用户名 / 用户 ID"
+          placeholder="对方的用户名或邮箱"
           :disabled="isAddingMember"
         />
         <button class="btn btn--primary btn--sm" type="submit" :disabled="isAddingMember || !memberAddUserId">
@@ -231,10 +231,12 @@
       </form>
       <div v-if="memberError" class="inline-error">{{ memberError }}</div>
 
-      <div v-if="isLoadingMembers" class="dataset-list-empty">正在读取授权用户...</div>
-      <div v-else-if="!datasetMembers.length" class="dataset-list-empty">
-        还没有授权任何用户。在上方输入用户 ID 即可授权。
-      </div>
+      <EmptyState v-if="isLoadingMembers" description="正在读取授权用户…" compact />
+      <EmptyState
+        v-else-if="!datasetMembers.length"
+        description="还没有授权任何用户。在上方输入对方的用户名或邮箱即可授权。"
+        compact
+      />
       <ul v-else class="dataset-member-list">
         <li v-for="member in datasetMembers" :key="member.id">
           <div class="dataset-member-identity">
@@ -277,6 +279,7 @@
 import { inject } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { datasetVersionStateClass, datasetVersionStateLabel } from '@/api/datasetVersions'
 import {
   formatDate,
