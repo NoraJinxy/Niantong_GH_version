@@ -295,45 +295,10 @@
           </div>
 
           <div v-if="!focusCell" class="ov-right-empty">
-            选择通道后，这里显示峰值 ERD/ERS、频段功率变化与明细。
+            移动游标到热图上读各图在该 (时间, 频率) 点的值；拖拽框选一块区域量区间均值。
           </div>
           <template v-else-if="focusCell">
-            <!-- 焦点卡：峰值 ERD/ERS 英雄数字 -->
-            <div class="ov-focus">
-              <select v-model="focusKey" class="ov-focus-pick">
-                <option v-for="c in cells" :key="c.key" :value="c.key">{{ c.title }}</option>
-              </select>
-              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: focusCell.accent }"></span>{{ focusCell.title }}</div>
-              <div class="ov-focus-main">
-                <div class="ov-focus-cell">
-                  <span class="ov-focus-num" :style="{ color: focusPeak ? (focusPeak.kind === 'ERD' ? '#265CBA' : '#CE3430') : '#3F5E8F' }">{{ peakText }}</span>
-                  <span class="ov-focus-u">{{ unit }} · 峰值{{ focusPeak ? focusPeak.kind : '' }}</span>
-                </div>
-                <div class="ov-focus-cell" v-if="focusPeak">
-                  <span class="ov-focus-num2">{{ fmtFreq(focusPeak.f) }}</span>
-                  <span class="ov-focus-u">Hz @ {{ fmtTime(focusPeak.t) }}s</span>
-                </div>
-              </div>
-              <div class="ov-focus-sub">峰值取刺激后窗口 (t ≥ 0) 内绝对值最大处；ERD=减弱、ERS=增强。</div>
-            </div>
-
-            <!-- 频段功率变化（刺激后均值，相对基线，有正负；只列数据实际覆盖的频段） -->
-            <div class="ov-contrast">
-              <div class="ov-sec-mini">频段功率变化 · 刺激后均值（相对基线 {{ unit }}）</div>
-              <div class="ov-contrast-list">
-                <div v-for="b in focusBandRows" :key="b.name" class="ov-contrast-row">
-                  <span class="ov-li-dot" :style="{ background: b.color }"></span>
-                  <span class="ov-contrast-lbl">{{ b.label }}</span>
-                  <span class="ov-contrast-bar">
-                    <span class="ov-contrast-fill" :style="{ width: b.width, background: b.value < 0 ? '#265CBA' : '#CE3430' }"></span>
-                  </span>
-                  <span class="ov-contrast-val text-mono">{{ fmtSigned(b.value) }}</span>
-                </div>
-                <div v-if="!focusBandRows.length" class="ov-right-empty" style="padding: 6px 0">该结果无频段统计</div>
-              </div>
-            </div>
-
-            <!-- ROI 区间均值（拖拽框选后出现） -->
+            <!-- ROI 区间均值（拖拽框选后出现）；未框选给提示。时频面本身已表达「何时·何频·增强减弱」，故不再做峰值英雄数字 / 频段 bar -->
             <div v-if="region" class="ov-contrast">
               <div class="ov-sec-mini">
                 ROI 区间均值 · {{ fmtTime(region.t0) }}–{{ fmtTime(region.t1) }}s × {{ fmtFreq(region.f0) }}–{{ fmtFreq(region.f1) }}Hz
@@ -347,24 +312,27 @@
                 </div>
               </div>
             </div>
+            <div v-else class="ov-right-empty" style="text-align: left; padding: 8px 4px; line-height: 1.6">
+              在热图上拖拽框选一块（时间 × 频率），即可量出该区间内各图的平均功率变化（相对基线 {{ unit }}）。
+            </div>
 
-            <!-- 明细表 -->
+            <!-- 明细表（导出参考·默认折叠）：刺激后各频段平均 -->
             <div class="ov-detail">
               <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
                 <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
-                明细表 · {{ statsRows.length }} 行
+                明细表 · 刺激后频段均值 · {{ statsRows.length }} 行
               </button>
               <table v-if="showDetailTable" class="ov-dtable">
                 <thead>
-                  <tr><th>数据集</th><th>通道</th><th>峰值</th><th>@s</th><th>α</th></tr>
+                  <tr><th>数据集</th><th>通道</th><th>θ</th><th>α</th><th>β</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="r in statsRows" :key="r.key" class="ov-dt-row" :class="{ 'is-focus': focusKey === r.key }" @click="focusKey = r.key">
                     <td>{{ r.segName }}</td>
                     <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.channel }}</td>
-                    <td>{{ r.peak != null ? fmtSigned(r.peak.v) : '—' }}</td>
-                    <td>{{ r.peak != null ? fmtTime(r.peak.t) : '—' }}</td>
+                    <td>{{ r.bands.theta != null ? fmtSigned(r.bands.theta) : '—' }}</td>
                     <td>{{ r.bands.alpha != null ? fmtSigned(r.bands.alpha) : '—' }}</td>
+                    <td>{{ r.bands.beta != null ? fmtSigned(r.bands.beta) : '—' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -397,8 +365,6 @@ const TYPE_COLOR = '#B0544C'
 const MAX_FREQS = 80
 const MAX_TIMES = 160
 const MAX_CELLS = 16 // 软上限：通道×数据集 同时显示的热图数（防一墙小图 + 海量请求）
-const BAND_COLORS: Record<string, string> = { delta: '#378ADD', theta: '#1D9E75', alpha: '#BA7517', beta: '#D85A30', gamma: '#D4537E' }
-const BAND_LABEL: Record<string, string> = { delta: 'δ', theta: 'θ', alpha: 'α', beta: 'β', gamma: 'γ' }
 const TIME_WINDOWS = [
   { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
   { key: 'post', label: '刺激后', lo: 0, hi: null as number | null },
@@ -725,49 +691,20 @@ const roiRows = computed(() => {
     .map((c) => ({ key: c.key, name: c.title, color: c.accent, mean: roiMean(c.tfr as StudyOutputTfr, r) }))
 })
 
-// ---------- 临床读数：峰值 ERD/ERS + 频段功率 ----------
-interface Peak { v: number; t: number; f: number; kind: 'ERD' | 'ERS' }
-function peakOf(tfr: StudyOutputTfr): Peak | null {
-  let best: Peak | null = null
-  for (let iF = 0; iF < tfr.freqs.length; iF++) {
-    const row = tfr.power[iF] || []
-    for (let iT = 0; iT < tfr.times.length; iT++) {
-      const t = tfr.times[iT]
-      if (t < 0) continue // 仅刺激后
-      const v = row[iT]
-      if (!Number.isFinite(v)) continue
-      if (!best || Math.abs(v) > Math.abs(best.v)) best = { v, t, f: tfr.freqs[iF], kind: v < 0 ? 'ERD' : 'ERS' }
-    }
-  }
-  return best
-}
+// ---------- 频段均值（仅明细表 / CSV 导出用）----------
+// 不再做「峰值 ERD/ERS 英雄数字」（取单点最大值易抓边缘伪迹、数值突兀）与「频段功率变化 bar」
+// （把二维时频面压成 4 个相对基线百分数、对临床读图反而抽象）——时频面本身已表达何时/何频/增强减弱。
 function bandsOf(tfr: StudyOutputTfr): Record<string, number> {
   const out: Record<string, number> = {}
   for (const b of tfr.bands) out[b.name] = b.value
   return out
 }
-const focusPeak = computed<Peak | null>(() => (focusCell.value?.tfr ? peakOf(focusCell.value.tfr) : null))
-const peakText = computed(() => (focusPeak.value ? fmtSigned(focusPeak.value.v) : '—'))
-// 右栏频段功率条：只列数据实际覆盖的频段（后端 tfr.bands 已跳过窗外频段，故 alpha/beta-only 数据就只显示这两个）
-const focusBandRows = computed(() => {
-  const tfr = focusCell.value?.tfr
-  if (!tfr || !tfr.bands.length) return [] as { name: string; label: string; color: string; value: number; width: string }[]
-  const maxAbs = Math.max(1e-9, ...tfr.bands.map((b) => Math.abs(b.value)))
-  return tfr.bands.map((b) => ({
-    name: b.name,
-    label: `${BAND_LABEL[b.name] ?? b.name} ${fmtFreq(b.fmin)}–${fmtFreq(b.fmax)}`,
-    color: BAND_COLORS[b.name] ?? 'var(--c-border)',
-    value: b.value,
-    width: `${Math.min(100, (Math.abs(b.value) / maxAbs) * 100)}%`,
-  }))
-})
 
 interface StatRow {
   key: string
   segName: string
   channel: string
   color: string
-  peak: Peak | null
   bands: Record<string, number>
 }
 const statsRows = computed<StatRow[]>(() =>
@@ -778,7 +715,6 @@ const statsRows = computed<StatRow[]>(() =>
       segName: segLabel(c.seg),
       channel: c.channel,
       color: c.accent,
-      peak: peakOf(c.tfr as StudyOutputTfr),
       bands: bandsOf(c.tfr as StudyOutputTfr),
     })),
 )
@@ -926,10 +862,9 @@ watch(
 
 // ---------- 导出 ----------
 function statsMatrix(): string[][] {
-  const head = ['数据集', '通道', '峰值', '峰值类型', '峰值时刻 s', '峰值频率 Hz', 'δ', 'θ', 'α', 'β', 'γ']
+  const head = ['数据集', '通道', 'δ', 'θ', 'α', 'β', 'γ']
   const body = statsRows.value.map((r) => [
     r.segName, r.channel,
-    r.peak ? r.peak.v.toFixed(3) : '', r.peak ? r.peak.kind : '', r.peak ? r.peak.t.toFixed(3) : '', r.peak ? r.peak.f.toFixed(2) : '',
     r.bands.delta != null ? r.bands.delta.toFixed(3) : '', r.bands.theta != null ? r.bands.theta.toFixed(3) : '', r.bands.alpha != null ? r.bands.alpha.toFixed(3) : '',
     r.bands.beta != null ? r.bands.beta.toFixed(3) : '', r.bands.gamma != null ? r.bands.gamma.toFixed(3) : '',
   ])
