@@ -109,7 +109,11 @@
               <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线（淡，默认关·对标专业软件）</label>
               <label class="ov-chk"><input type="checkbox" v-model="showStim" /> 刺激线 (t=0)</label>
               <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（空间分布）</label>
-              <p v-if="showTopo" class="ov-sec-hint">底部头皮图 = 当前频窗 × 时窗内各通道的平均功率（红=ERS、蓝=ERD）；想看某频段用上方「频窗」缩范围或框选 ROI。</p>
+              <div v-if="showTopo" class="ov-topo-mode">
+                <button class="ov-mini2" :class="{ 'is-on': topoMode === 'window' }" @click="topoMode = 'window'">区间</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoMode === 'cursor' }" @click="topoMode = 'cursor'">跟随游标</button>
+              </div>
+              <p v-if="showTopo" class="ov-sec-hint">{{ topoModeHint }}</p>
             </div>
           </section>
         </div>
@@ -807,11 +811,19 @@ function autoFmt(v: number) {
   return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
 }
 
-// ---------- 频段地形图（全通道在 时窗×频窗 的平均功率 → 头皮投影，复用 TopoStrip）----------
+// ---------- 地形图（全通道在 时窗×频窗 / 游标点 的平均功率 → 头皮投影，复用 TopoStrip）----------
+const topoMode = ref<'window' | 'cursor'>('window') // 区间 / 跟随游标
 const topoMap = ref<Map<number, StudyOutputTfrTopo>>(new Map())
 let topoSeq = 0
-// 取数窗口：框选了 ROI → 跟随 ROI；否则 当前频窗 × 刺激后时窗（不绑固定频段，想看某频段用频窗输入框或框选）
-const topoWindow = computed(() => {
+// 取数窗口：跟随游标→游标 (t,f) 附近小窗；否则 区间（框选 ROI / 当前频窗×刺激后时窗）。cursor 模式无游标 → null（不取数、留上次图）
+const topoWindow = computed<{ tmin: number; tmax: number; fmin: number; fmax: number } | null>(() => {
+  if (topoMode.value === 'cursor') {
+    const tf = displayTF.value
+    if (!tf) return null
+    const dt = (dataTMax.value - dataTMin.value) / 60 || 0.03
+    const df = (dataFMax.value - dataFMin.value) / 40 || 0.5
+    return { tmin: tf.t - dt, tmax: tf.t + dt, fmin: tf.f - df, fmax: tf.f + df }
+  }
   if (region.value) {
     const r = region.value
     return { tmin: r.t0, tmax: r.t1, fmin: r.f0, fmax: r.f1 }
@@ -822,10 +834,15 @@ const topoWindow = computed(() => {
   const fmax = viewFMax.value ?? dataFMax.value
   return { tmin, tmax, fmin, fmax }
 })
+let lastTopoKey = ''
 async function loadTopo() {
   if (!showTopo.value || !studyId || !primaryMeta.value) return
   const w = topoWindow.value
+  if (!w) return // 跟随游标但无游标 → 留上次图
   const segs = sortedSegs.value
+  const key = `${segs.join(',')}|${w.tmin.toFixed(3)},${w.tmax.toFixed(3)},${w.fmin.toFixed(2)},${w.fmax.toFixed(2)}`
+  if (key === lastTopoKey) return // 同窗同段 → 不重复取
+  lastTopoKey = key
   const myId = ++topoSeq
   const settled = await Promise.allSettled(
     segs.map(async (seg) => {
@@ -837,6 +854,16 @@ async function loadTopo() {
   const m = new Map<number, StudyOutputTfrTopo>()
   for (const s of settled) if (s.status === 'fulfilled') m.set(s.value[0], s.value[1])
   topoMap.value = m
+}
+// 防抖调度：跟随游标移动频繁（每跨一 bin）、后端要读 h5 切片 → 防抖 180ms + 去重；区间模式即时取
+let topoTimer: number | null = null
+function scheduleTopo() {
+  if (!showTopo.value) return
+  if (topoTimer) clearTimeout(topoTimer)
+  topoTimer = window.setTimeout(() => {
+    topoTimer = null
+    void loadTopo()
+  }, topoMode.value === 'cursor' ? 180 : 0)
 }
 interface TopoPoint {
   name: string
@@ -868,15 +895,23 @@ const topoVmax = computed(() => {
   return m
 })
 const topoSubtitle = computed(() => {
+  if (topoMode.value === 'cursor') {
+    const tf = displayTF.value
+    return tf ? `游标 @ ${fmtTime(tf.t)}s · ${fmtFreq(tf.f)}Hz` : '移动游标到热图上看该点全脑分布'
+  }
   const w = topoWindow.value
+  if (!w) return ''
   const src = region.value ? 'ROI' : '刺激后'
   return `${src} ${fmtFreq(w.fmin)}–${fmtFreq(w.fmax)}Hz · ${fmtTime(w.tmin)}–${fmtTime(w.tmax)}s`
 })
+const topoModeHint = computed(() =>
+  topoMode.value === 'cursor'
+    ? '地形图跟随游标所在 (时间,频率) 点的全脑分布，随鼠标实时更新；双击锁定后冻结在该点。'
+    : '地形图 = 当前频窗 × 时窗内各通道平均功率；框选 ROI 后跟随 ROI。',
+)
 watch(
-  () => [topoWindow.value, sortedSegs.value.join(','), showTopo.value],
-  () => {
-    if (showTopo.value) void loadTopo()
-  },
+  () => [topoWindow.value, sortedSegs.value.join(','), showTopo.value, topoMode.value],
+  () => scheduleTopo(),
   { deep: true },
 )
 
