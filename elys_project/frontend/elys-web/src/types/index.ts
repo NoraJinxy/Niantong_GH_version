@@ -161,6 +161,7 @@ export interface DashboardStudyMetrics {
   dataset_count: number
   pipeline_count: number
   execution_count: number
+  running_execution_count: number
   attention_execution_count: number
 }
 
@@ -636,6 +637,13 @@ export interface RecordingUploadResponse {
   recording: Recording
 }
 
+export interface RecordingRelabelPayload {
+  subject: string
+  session?: string | null
+  task: string
+  run?: string | null
+}
+
 export interface DatasetFile {
   id: string
   study_id: string
@@ -1014,6 +1022,8 @@ export interface TfrBandStat {
   fmin: number
   fmax: number
   value: number
+  /** 相对功率(占总功率 %)；PSD 视图提供，TFR 不填。 */
+  rel?: number
 }
 
 export interface StudyOutputTfr {
@@ -1045,6 +1055,43 @@ export interface StudyOutputTfrQuery {
   maxTimes?: number
 }
 
+export interface StudyOutputTfrTopoChannel {
+  name: string
+  value: number
+  x: number | null
+  y: number | null
+}
+
+export interface StudyOutputTfrTopo {
+  data_type: string
+  study_output_id: string
+  condition: string | null
+  unit: string
+  tmin: number
+  tmax: number
+  fmin: number
+  fmax: number
+  n_channels: number
+  n_positioned: number
+  vmax: number
+  channels: StudyOutputTfrTopoChannel[]
+}
+
+export interface StudyOutputTfrTopoQuery {
+  tmin?: number
+  tmax?: number
+  fmin?: number
+  fmax?: number
+}
+
+export interface StudyOutputPsdChannel {
+  name: string
+  power: number[]
+  bands: TfrBandStat[]
+  pmax: number | null
+  pmin: number | null
+}
+
 export interface StudyOutputPsd {
   data_type: string
   study_output_id: string
@@ -1052,21 +1099,20 @@ export interface StudyOutputPsd {
   method: string
   unit: string
   sfreq: number
-  channel: string
   n_channels_total: number
   ch_names_all: string[]
+  ch_pos: Record<string, number[]> | null
   freqs: number[]
-  power: number[]
   fmin: number | null
   fmax: number | null
-  pmax: number | null
-  pmin: number | null
-  bands: TfrBandStat[]
+  default_channel: string
+  channels: StudyOutputPsdChannel[]
 }
 
 export interface StudyOutputPsdQuery {
   channel?: string
   maxFreqs?: number
+  maxChannels?: number
 }
 
 export interface StudyOutputUpdatePayload {

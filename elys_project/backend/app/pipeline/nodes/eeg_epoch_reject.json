@@ -1,0 +1,51 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/epoch/reject",
+  "title": "Reject Trials",
+  "category": "epoch",
+  "phase": "phase1",
+  "description": "自动剔除坏试次(epoch)：峰峰值 / 平坦阈值（MNE 内置，快）或 AutoReject（交叉验证自动学阈值，需 autoreject 库）。输出干净 Epochs，常接在分段 / 基线之后、ERP / 时频 / 频域之前，提升平均结果可信度。输出写入 derivatives。",
+  "tags": ["reject", "artifact", "epochs", "autoreject", "qc", "trial"],
+  "inputs": [
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "epochs", "label": "Cleaned Epochs", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "method", "label": "剔除方法", "type": "select", "default": "threshold", "required": true,
+     "options": [
+       {"value": "threshold", "label": "峰峰值 / 平坦阈值（MNE 内置，快）"},
+       {"value": "autoreject", "label": "AutoReject（自动学阈值，需 autoreject 库）"}
+     ],
+     "description": "阈值法＝任一通道在该 epoch 内峰峰值超阈、或低于平坦阈值，就剔掉整段（经典 ERP 做法，Luck 2014）；AutoReject＝交叉验证给每通道自动学阈值、还能先插值少量坏通道再决定剔不剔（Jas 2017，更省心但慢，插值需电极坐标）。"},
+    {"name": "reject_peak_to_peak", "label": "峰峰值阈值", "type": "number", "unit": "µV", "default": 150, "min": 0, "required": true,
+     "visible_when": {"method": ["threshold"]},
+     "description": "任一通道在该 epoch 内（最大−最小）＞ 此值 → 剔除整个 epoch。ERP 常用 100–200µV；越小剔得越多。"},
+    {"name": "flat", "label": "平坦阈值", "type": "number", "unit": "µV", "default": "", "min": 0, "advanced": true,
+     "visible_when": {"method": ["threshold"]},
+     "description": "任一通道在该 epoch 内峰峰值 ＜ 此值 → 视为断线 / 丢信号剔除。留空＝不启用。"},
+    {"name": "n_interpolate", "label": "最多插值通道数", "type": "integer", "default": 4, "min": 0, "max": 32, "advanced": true,
+     "visible_when": {"method": ["autoreject"]},
+     "description": "AutoReject 每个 epoch 最多插值修几个坏通道（超过才整段剔）。需电极坐标，请先接 Ch Loc Assign。"}
+  ],
+  "backend": {
+    "module": "app.engine.analysis.reject",
+    "function": "run_reject_trials",
+    "save_descriptor": "rej",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "reject",
+    "auto_tags": ["step:reject", "type:epochs"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "name_template_default_split": "{subject}_{task}_{condition}_{node_title}",
+    "split_supported": false,
+    "data_type": "epochs"
+  },
+  "compute_cost": "low",
+  "output_footprint": "medium",
+  "ui": {"color": "#0D9488", "default_size": [200, 110], "preview_type": "epochs"}
+}

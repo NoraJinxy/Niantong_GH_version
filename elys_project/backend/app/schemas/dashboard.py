@@ -51,6 +51,7 @@ class DashboardStudyMetrics(BaseModel):
     dataset_count: int
     pipeline_count: int
     execution_count: int
+    running_execution_count: int
     attention_execution_count: int
 
 

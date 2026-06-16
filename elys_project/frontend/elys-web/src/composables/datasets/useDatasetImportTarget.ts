@@ -62,7 +62,6 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
   const selectedStudyId = ref('')
   const mountName = ref('primary')
   const uploadSectionRef = ref<HTMLElement | null>(null)
-  const uploadPanelRef = ref<HTMLElement | null>(null)
   const bootstrapResponse = ref<DatasetBootstrapResponse | null>(null)
   const mountedTarget = ref<{
     asset: DatasetAsset
@@ -482,11 +481,6 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
     uploadSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  async function scrollToUploadPanel() {
-    await nextTick()
-    uploadPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   return {
     studies,
     datasetName,
@@ -495,7 +489,6 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
     selectedStudyId,
     mountName,
     uploadSectionRef,
-    uploadPanelRef,
     isBootstrapping,
     bootstrapError,
     bootstrapSuccess,
@@ -516,6 +509,5 @@ export function useDatasetImportTarget(options: DatasetImportTargetOptions) {
     clearBootstrapResult,
     bootstrapDataset,
     mountExistingDatasetAsset,
-    scrollToUploadPanel,
   }
 }

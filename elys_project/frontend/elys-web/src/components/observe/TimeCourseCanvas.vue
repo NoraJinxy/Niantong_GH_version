@@ -51,8 +51,16 @@ const props = withDefaults(
     viewMax?: number | null
     /** 幅度缩放系数（Ctrl+滚轮）：1=基准；overlay 改 y 量程、spread 改泳道波高。 */
     ampScale?: number
+    /** 显式 y 量程 [min,max]（PSD dB 等非对称单位用）：非 null 时覆盖 ±yMax 对称量程；仅 overlay 生效。 */
+    yDomain?: [number, number] | null
+    /** 频段背景着色（PSD δθαβγ）：按 x 区间 [lo,hi] 画淡色带；active 加深。仅 overlay。 */
+    bands?: { lo: number; hi: number; color: string; active?: boolean }[]
+    /** 竖向标记（如 PSD 的 α 峰 / IAF）：在 x 处画虚线 + 顶部三角 + 标签。 */
+    markers?: { x: number; label?: string; color?: string }[]
+    /** 对数频率轴（PSD 看 1/f）：true=x 走对数刻度（uPlot distr=3，需正值）；默认线性。 */
+    logX?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1 },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false },
 )
 
 const emit = defineEmits<{
@@ -106,22 +114,71 @@ function buildDisplayData(): number[][] {
   if (props.displayMode !== 'spread') return props.data as number[][]
   const n = props.series.length
   const xs = props.data[0] || []
-  // 幅度系数折进满量程：amp 越大→ey 越小→波形越高（仍 clamp 在泳道内，不串道）
+  // 幅度系数折进满量程：amp 越大→ey 越小→波形越高。不再限幅——曲线可超出本泳道、与相邻道重叠
+  // （去掉「不能 overlap」的硬限制：原 clamp(±1) 把每道钉死在 ±0.45 泳道内，多通道时看着扁平）。
+  // 用 0.9 的泳道填充（默认即明显起伏 + 轻度交叠），更密 / 更高靠 Ctrl+滚轮调幅。
   const amp = props.ampScale && props.ampScale > 0 ? props.ampScale : 1
   const ey = effYMax() / amp
   const out: number[][] = [xs]
   for (let si = 1; si <= n; si++) {
     const center = n - si // 第 i=si-1 道 → 泳道中心 n-1-i（首道在顶）
     const src = props.data[si] || []
-    out.push(src.map((v) => center + clamp((Number(v) || 0) / ey, -1, 1) * 0.45))
+    out.push(src.map((v) => center + ((Number(v) || 0) / ey) * 0.9))
   }
   return out
+}
+
+// 竖向标记（PSD α 峰 / IAF 等）：在 x 处画虚线 + 顶部三角 + 标签（series 之后画 → draw 钩子）
+function drawMarkers(u: uPlot) {
+  if (!props.markers || !props.markers.length) return
+  const ctx = u.ctx
+  const { left, top, width, height } = u.bbox
+  ctx.save()
+  ctx.font = `${11 * PX_RATIO}px monospace`
+  ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
+  for (const m of props.markers) {
+    if (!Number.isFinite(m.x)) continue
+    const x = u.valToPos(m.x, 'x', true)
+    if (x < left || x > left + width) continue
+    const col = m.color || LOCK_LINE
+    ctx.strokeStyle = col
+    ctx.fillStyle = col
+    ctx.lineWidth = 1.5 * PX_RATIO
+    ctx.setLineDash([3 * PX_RATIO, 3 * PX_RATIO])
+    ctx.beginPath()
+    ctx.moveTo(x, top)
+    ctx.lineTo(x, top + height)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(x - 4 * PX_RATIO, top)
+    ctx.lineTo(x + 4 * PX_RATIO, top)
+    ctx.lineTo(x, top + 6 * PX_RATIO)
+    ctx.closePath()
+    ctx.fill()
+    if (m.label) ctx.fillText(m.label, x + 5 * PX_RATIO, top + 2 * PX_RATIO)
+  }
+  ctx.restore()
 }
 
 // 叠加层：统计区间着色 + 参考线（在 series 之前画 → drawClear 钩子）
 function drawUnder(u: uPlot) {
   const ctx = u.ctx
   const { left, top, width, height } = u.bbox
+  // 频段背景着色（PSD δθαβγ；最底层，先于区间/参考线/曲线）
+  if (props.bands && props.bands.length && props.displayMode !== 'spread') {
+    for (const b of props.bands) {
+      const xa = clamp(u.valToPos(b.lo, 'x', true), left, left + width)
+      const xb = clamp(u.valToPos(b.hi, 'x', true), left, left + width)
+      if (xb <= xa) continue
+      ctx.save()
+      ctx.fillStyle = b.color
+      ctx.globalAlpha = b.active ? 0.18 : 0.08
+      ctx.fillRect(xa, top, xb - xa, height)
+      ctx.restore()
+    }
+  }
   // 统计区间高亮
   const r = props.region
   if (r && r.x1 > r.x0) {
@@ -264,6 +321,9 @@ function xRange(u: uPlot): [number, number] {
 }
 // y 量程（仅 overlay）：基准(±yMax 或数据峰值) ÷ 幅度系数；spread 用固定泳道量程、幅度折进数据。
 function yRange(u: uPlot): [number, number] {
+  // 显式非对称量程（PSD dB 等）：直接用，不做 ±对称归一
+  const yd = props.yDomain
+  if (yd && yd[1] > yd[0]) return [yd[0], yd[1]]
   const amp = props.ampScale && props.ampScale > 0 ? props.ampScale : 1
   let base = props.yMax != null && props.yMax > 0 ? props.yMax : 0
   if (!base) {
@@ -322,8 +382,8 @@ function buildOpts(w: number, h: number): uPlot.Options {
     legend: { show: false },
     cursor,
     scales: {
-      x: { time: false, range: xRange },
-      y: spread ? { range: [-0.6, n - 0.4] } : { range: yRange },
+      x: { time: false, range: xRange, distr: props.logX ? 3 : 1 },
+      y: spread ? { range: [-1, n] } : { range: yRange }, // spread 留 ±1 余量：曲线超出泳道交叠时首/末道不被裁掉
     },
     axes: [
       { label: dense ? undefined : props.xLabel, size: dense ? 30 : 44, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !props.hideXLabels, stroke: GRID }, font: axisFont, values: props.hideXLabels ? blank : undefined },
@@ -341,7 +401,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
-      draw: [(u: uPlot) => { drawLegend(u); drawLocked(u) }],
+      draw: [(u: uPlot) => { drawLegend(u); drawLocked(u); drawMarkers(u) }],
       setSelect: [
         (u: uPlot) => {
           const sel = u.select
@@ -510,7 +570,7 @@ onUnmounted(() => {
 // 数据/序列/Y档/显示模式/网格 = 结构性变化 → 重建（最稳）。
 // highlight / locked 已移出：分别走「就地改线宽」与「CSS 隐藏十字线」，不再为悬停高亮 / 双击锁定整图重建。
 watch(
-  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.denseAxes, props.hideXLabels, props.hideYLabels],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.denseAxes, props.hideXLabels, props.hideYLabels, props.logX],
   () => rebuild(),
   { deep: false },
 )
@@ -518,7 +578,7 @@ watch(
 watch(() => props.highlight, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
-  () => [props.region, props.showLegend, props.refLines, props.lockedX],
+  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers],
   () => chart.value?.redraw(),
   { deep: true },
 )
@@ -541,6 +601,17 @@ watch(
     if (props.displayMode === 'spread') u.setData(buildDisplayData() as unknown as uPlot.AlignedData)
     else { const [mn, mx] = yRange(u); u.setScale('y', { min: mn, max: mx }) }
   },
+)
+// 显式 y 量程变化（PSD 切频窗/通道致 dB 范围变）→ overlay 就地 setScale y（不重建，保留缩放/游标）。
+watch(
+  () => props.yDomain,
+  () => {
+    const u = chart.value
+    if (!u || props.displayMode === 'spread') return
+    const [mn, mx] = yRange(u)
+    u.setScale('y', { min: mn, max: mx })
+  },
+  { deep: true },
 )
 </script>
 

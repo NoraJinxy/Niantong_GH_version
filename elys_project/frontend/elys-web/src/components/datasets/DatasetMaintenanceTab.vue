@@ -138,41 +138,92 @@
             <button class="icon-btn" type="button" title="关闭" @click="selectedRecordingId = null">×</button>
           </div>
 
-          <div class="dmt-drawer__label">元数据</div>
-          <dl class="dmt-meta">
-            <div><dt>被试</dt><dd>{{ selectedRecording.subject }}</dd></div>
-            <div v-if="selectedRecording.session"><dt>会话</dt><dd>{{ selectedRecording.session }}</dd></div>
-            <div><dt>任务</dt><dd>{{ selectedRecording.task }}</dd></div>
-            <div v-if="selectedRecording.run"><dt>轮次</dt><dd>{{ selectedRecording.run }}</dd></div>
-            <div><dt>源格式</dt><dd>{{ selectedRecording.sourceFormat }}</dd></div>
-            <div><dt>通道 / 事件</dt><dd>{{ selectedRecording.channelEventLabel }}</dd></div>
-          </dl>
+          <!-- 归类：BIDS 标签，可调整（relabel：改实体 + 后端物理重排派生层，原始数据不碰） -->
+          <div class="dmt-drawer__label dmt-label-row">
+            <span>归类（标签）</span>
+            <button v-if="!relabelEditing" class="dmt-link-btn" type="button" @click="openRelabel">调整</button>
+          </div>
 
-          <div class="dmt-drawer__label">两份数据（原始 + 标准化）</div>
-          <EmptyState v-if="recordingFilesLoading[selectedRecording.id]" description="正在读取文件…" compact />
-          <div v-else class="dmt-tracks">
-            <div class="dmt-track">
-              <IconLine name="folder" :size="14" />
-              <div class="dmt-track__main">
-                <strong>原始数据</strong>
-                <span>{{ selectedBuckets?.upload.length || 0 }} 个 · {{ formatFileSize(selectedBuckets?.uploadSize || 0) }} · 永久保留</span>
-              </div>
+          <div v-if="!relabelEditing" class="dmt-tags">
+            <span class="dmt-tag">被试 <b>{{ selectedRecording.subject }}</b></span>
+            <span v-if="selectedRecording.session" class="dmt-tag">会话 <b>{{ selectedRecording.session }}</b></span>
+            <span class="dmt-tag">任务 <b>{{ selectedRecording.task }}</b></span>
+            <span v-if="selectedRecording.run" class="dmt-tag">轮次 <b>{{ selectedRecording.run }}</b></span>
+            <span class="dmt-tag dmt-tag--muted">{{ selectedRecording.channelEventLabel }}</span>
+          </div>
+
+          <form v-else class="dmt-relabel" @submit.prevent="saveRelabel">
+            <div class="dmt-relabel__grid">
+              <label>被试<input v-model.trim="relabelForm.subject" class="input" placeholder="093" :disabled="relabelSaving" /></label>
+              <label>会话<input v-model.trim="relabelForm.session" class="input" placeholder="可空" :disabled="relabelSaving" /></label>
+              <label>任务<input v-model.trim="relabelForm.task" class="input" placeholder="rest" :disabled="relabelSaving" /></label>
+              <label>轮次<input v-model.trim="relabelForm.run" class="input" placeholder="可空" :disabled="relabelSaving" /></label>
             </div>
-            <div class="dmt-track__arrow">↓ 标准化生成</div>
-            <div v-if="selectedRecording.hasCanonicalFif" class="dmt-track dmt-track--fif">
-              <IconLine name="sparkles" :size="14" />
-              <div class="dmt-track__main">
-                <strong>标准化文件</strong>
-                <span>{{ selectedBuckets?.fif.length || 0 }} 个 · {{ formatFileSize(selectedBuckets?.fifSize || 0) }} · 可重建</span>
-              </div>
+            <p class="dmt-relabel__hint">改标签只重排 BIDS 组织方式，不动你上传的原始数据。</p>
+            <div v-if="relabelError" class="inline-error">{{ relabelError }}</div>
+            <div class="dmt-relabel__actions">
+              <button class="btn btn--sm" type="button" :disabled="relabelSaving" @click="cancelRelabel">取消</button>
+              <button
+                class="btn btn--sm btn--primary"
+                type="submit"
+                :disabled="relabelSaving || !relabelForm.subject || !relabelForm.task"
+              >
+                <span v-if="relabelSaving" class="spinner"></span>{{ relabelSaving ? '保存中…' : '保存' }}
+              </button>
             </div>
-            <div v-else class="dmt-track dmt-track--missing">
-              <IconLine name="sparkles" :size="14" />
-              <div class="dmt-track__main">
-                <strong>标准化文件待生成</strong>
-                <span>原始数据已就绪，可在后续阶段生成标准化文件</span>
+          </form>
+
+          <!-- 原始数据：你上传的，按第几次上传存档、不可改 -->
+          <div class="dmt-drawer__label">原始数据（你上传的）· 存档不可改</div>
+          <EmptyState
+            v-if="recordingVersionsLoading[selectedRecording.id] || recordingFilesLoading[selectedRecording.id]"
+            description="正在读取上传历史…"
+            compact
+          />
+          <div v-else class="dmt-uploads">
+            <template v-if="selectedVersions.length">
+              <div
+                v-for="v in selectedVersions"
+                :key="v.id"
+                class="dmt-upload"
+                :class="{ 'is-current': v.version_seq === selectedRecording.currentVersionSeq }"
+              >
+                <div class="dmt-upload__head">
+                  <strong>第 {{ v.version_seq }} 次上传</strong>
+                  <span v-if="v.version_seq === selectedRecording.currentVersionSeq" class="badge badge--success">当前使用</span>
+                  <span v-else class="dmt-upload__hist">已替换 · 留作历史</span>
+                </div>
+                <div class="dmt-upload__meta">
+                  {{ formatSourceFormat(v.source_format) }} · {{ v.source_files.length }} 个文件 · {{ formatFileSize(v.file_size || 0) }}<template v-if="v.uploaded_at"> · {{ formatDate(v.uploaded_at) }}</template>
+                </div>
+                <ul v-if="v.version_seq === selectedRecording.currentVersionSeq && v.source_files.length" class="dmt-upload__files">
+                  <li v-for="(f, i) in v.source_files" :key="i">{{ baseName(f) }}</li>
+                </ul>
               </div>
+            </template>
+            <div v-else class="dmt-upload is-current">
+              <div class="dmt-upload__head">
+                <strong>已上传</strong>
+                <span class="badge badge--success">当前使用</span>
+              </div>
+              <div class="dmt-upload__meta">
+                {{ selectedRecording.sourceFormat }} · {{ selectedBuckets?.upload.length || 0 }} 个文件 · {{ formatFileSize(selectedBuckets?.uploadSize || 0) }}
+              </div>
+              <ul v-if="(selectedBuckets?.upload.length || 0) > 0" class="dmt-upload__files">
+                <li v-for="f in selectedBuckets?.upload" :key="f.id">{{ getFileShortPath(f) }}</li>
+              </ul>
             </div>
+          </div>
+          <p class="dmt-drawer__note">上传过的原始数据不会被修改或删除。要换数据，请到「上传」重新上传这条记录。</p>
+          <button class="btn btn--sm dmt-reupload" type="button" @click="activeTab = 'import'">
+            <AppIcon name="import" :size="13" /> 重新上传这条记录
+          </button>
+
+          <!-- 分析数据：系统自动准备、跟随「当前」那次上传；不暴露标准化/派生说法 -->
+          <div class="dmt-drawer__label">分析数据</div>
+          <div class="dmt-analysis" :class="selectedRecording.hasCanonicalFif ? 'is-ready' : 'is-pending'">
+            <AppIcon v-if="selectedRecording.hasCanonicalFif" name="check" :size="14" />
+            <span>{{ selectedRecording.hasCanonicalFif ? '已整理好，可直接分析' : '原始数据已就绪，分析数据稍后自动准备' }}</span>
           </div>
 
           <details v-if="(selectedBuckets?.tech.length || 0) > 0" class="dmt-tech">
@@ -198,7 +249,9 @@ import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import {
+  formatDate,
   formatFileSize,
+  formatSourceFormat,
   getFileShortPath,
   getQaStatusClass,
   getQaStatusLabel,
@@ -212,10 +265,14 @@ const {
   recordingsBySubject,
   recordingBucketsById,
   recordingFilesLoading,
+  recordingVersionsById,
+  recordingVersionsLoading,
   isLoadingRecordings,
   recordingsError,
   loadSelectedAssetRecordings,
   loadRecordingFiles,
+  loadRecordingVersions,
+  relabelRecording,
 } = ctx.recordings
 const { recordsStudyContext } = ctx.importTarget
 const { activeTab } = ctx
@@ -339,8 +396,75 @@ const selectedRecording = computed(
 const selectedBuckets = computed(() =>
   selectedRecordingId.value ? recordingBucketsById.value[selectedRecordingId.value] : undefined,
 )
+// 这条记录的上传历史（第几次上传），最新一次在前；版本接口无数据时为空数组、抽屉走文件桶退路。
+const selectedVersions = computed(() =>
+  selectedRecordingId.value ? recordingVersionsById.value[selectedRecordingId.value] || [] : [],
+)
+// source_files 是相对路径，抽屉里只显文件名
+function baseName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path
+}
 function selectRecording(rec: DatasetRecordingRow) {
   selectedRecordingId.value = rec.id
+  relabelEditing.value = false
   void loadRecordingFiles(rec)
+  void loadRecordingVersions(rec)
+}
+
+// 「调整归类」：抽屉内联改 BIDS 标签
+const relabelEditing = ref(false)
+const relabelForm = ref({ subject: '', session: '', task: '', run: '' })
+const relabelError = ref('')
+const relabelSaving = ref(false)
+
+function openRelabel() {
+  const rec = selectedRecording.value
+  if (!rec) return
+  relabelForm.value = {
+    subject: rec.subject === '-' ? '' : rec.subject,
+    session: rec.session || '',
+    task: rec.task === '-' ? '' : rec.task,
+    run: rec.run || '',
+  }
+  relabelError.value = ''
+  relabelEditing.value = true
+}
+
+function cancelRelabel() {
+  relabelEditing.value = false
+  relabelError.value = ''
+}
+
+async function saveRelabel() {
+  const rec = selectedRecording.value
+  if (!rec) return
+  relabelSaving.value = true
+  relabelError.value = ''
+  try {
+    await relabelRecording(rec, {
+      subject: relabelForm.value.subject,
+      session: relabelForm.value.session || null,
+      task: relabelForm.value.task,
+      run: relabelForm.value.run || null,
+    })
+    relabelEditing.value = false
+    await loadSelectedAssetRecordings()
+    const updated = selectedRecording.value
+    if (updated) {
+      await loadRecordingVersions(updated, true)
+      await loadRecordingFiles(updated, true)
+    }
+  } catch (err: any) {
+    relabelError.value = extractRelabelError(err)
+  } finally {
+    relabelSaving.value = false
+  }
+}
+
+function extractRelabelError(err: any): string {
+  const detail = err?.response?.data?.detail
+  if (detail && typeof detail === 'object' && detail.message) return detail.message
+  if (typeof detail === 'string') return detail
+  return '调整归类失败，请稍后重试'
 }
 </script>

@@ -196,9 +196,19 @@ def topological_node_order(definition_json: dict[str, Any]) -> list[dict[str, An
             incoming[dst] += 1
             outgoing[src].append(dst)
 
-    # 找 source（没有上游连接、且 incoming=0 的节点都算 source —— 主要是 LoadData）
-    # 从 source BFS 找可达集合
-    sources = [nid for nid, deg in incoming.items() if deg == 0]
+    # source = spec 无 required input 的节点（主要是 LoadData）。
+    # 关键：孤立节点（有必需输入却没连线）incoming 也是 0，但绝不能当 source —— 否则它会把自己
+    # 拉进执行集合，运行时因「没有上游输入」失败、还把整条 pipeline 拖垮（正是用户碰到的 bug）。
+    # 与 validate_definition 的可达性同口径（都按 spec 是否有必需输入），保证「校验说跳过」与「执行真跳过」一致。
+    registry = get_node_registry()
+
+    def _is_source_node(node_id: str) -> bool:
+        spec = registry.get(str(node_by_id[node_id].get("type") or "")) or {}
+        inputs = spec.get("inputs", [])
+        return (not inputs) or all(not port.get("required", True) for port in inputs)
+
+    # 从 source BFS 找可达集合（不可达的孤立节点不进执行集合，由 validate_definition 给 NODE_DETACHED 提示）
+    sources = [nid for nid in node_by_id if _is_source_node(nid)]
     reachable: set[str] = set(sources)
     bfs = list(sources)
     while bfs:

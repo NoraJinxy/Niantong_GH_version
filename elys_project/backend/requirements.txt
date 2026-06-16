@@ -14,6 +14,7 @@ mne==1.7.1
 scikit-learn==1.5.2
 python-picard==0.7
 pyprep==0.7.1
+autoreject==0.4.3
 h5io==0.2.5
 h5py==3.11.0
 celery[redis]==5.5.3

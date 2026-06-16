@@ -1671,6 +1671,8 @@ export interface components {
             pipeline_count: number;
             /** Execution Count */
             execution_count: number;
+            /** Running Execution Count */
+            running_execution_count: number;
             /** Attention Execution Count */
             attention_execution_count: number;
         };

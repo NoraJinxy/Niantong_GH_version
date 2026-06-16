@@ -10,7 +10,7 @@
 
 import { computed, ref, type ComputedRef } from 'vue'
 import { recordingApi } from '@/api/datasetAssets'
-import type { DatasetAsset, DatasetFile, Recording } from '@/types'
+import type { DatasetAsset, DatasetFile, Recording, RecordingRelabelPayload, RecordingVersion } from '@/types'
 import {
   fileBucketOf,
   formatChannelEvent,
@@ -32,6 +32,7 @@ export interface DatasetRecordingRow {
   run: string | null
   sourceFormat: string
   currentVersionLabel: string
+  currentVersionSeq: number | null
   hasCanonicalFif: boolean
   channelEventLabel: string
   qaStatus: string | null
@@ -60,6 +61,9 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
   const recordingFilesById = ref<Record<string, DatasetFile[]>>({})
   const recordingFilesLoading = ref<Record<string, boolean>>({})
   const recordingFilesError = ref<Record<string, string>>({})
+  // 每条记录的「第几次上传」历史（含真实源文件名）。懒加载、按 version_seq 倒序。
+  const recordingVersionsById = ref<Record<string, RecordingVersion[]>>({})
+  const recordingVersionsLoading = ref<Record<string, boolean>>({})
   const isLoadingRecordings = ref(false)
   const recordingsError = ref('')
 
@@ -116,6 +120,7 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
       run: recording.run || null,
       sourceFormat: formatSourceFormat(recording.source_format),
       currentVersionLabel: getCurrentVersionLabel(recording),
+      currentVersionSeq: recording.current_version_seq ?? null,
       hasCanonicalFif: Boolean(recording.fif_path || recording.current_version_id),
       channelEventLabel: formatChannelEvent(recording.n_channels, recording.n_events),
       qaStatus: recording.qa_status || null,
@@ -134,6 +139,8 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     recordingFilesById.value = {}
     recordingFilesLoading.value = {}
     recordingFilesError.value = {}
+    recordingVersionsById.value = {}
+    recordingVersionsLoading.value = {}
     if (!asset || !context) return
 
     isLoadingRecordings.value = true
@@ -160,6 +167,8 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     recordingFilesById.value = {}
     recordingFilesLoading.value = {}
     recordingFilesError.value = {}
+    recordingVersionsById.value = {}
+    recordingVersionsLoading.value = {}
     recordingsError.value = ''
   }
 
@@ -214,12 +223,42 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     }
   }
 
+  // 「调整归类」：改一条采集记录的 BIDS 实体（被试/会话/任务/轮次）。后端会物理重排派生层并排重。
+  async function relabelRecording(recording: DatasetRecordingRow, payload: RecordingRelabelPayload) {
+    const context = recordsStudyContext.value
+    if (!context) throw new Error('缺少研究项上下文，无法调整归类')
+    await recordingApi.relabel(context.studyId, recording.id, payload)
+  }
+
+  // 拉某条记录的「第几次上传」历史；按 version_seq 倒序（最新一次在前）。
+  async function loadRecordingVersions(recording: DatasetRecordingRow, force = false) {
+    const context = recordsStudyContext.value
+    if (!context) return
+    if (!force && recordingVersionsById.value[recording.id]) return
+
+    recordingVersionsLoading.value = { ...recordingVersionsLoading.value, [recording.id]: true }
+    try {
+      const res = await recordingApi.listVersions(context.studyId, recording.id)
+      recordingVersionsById.value = {
+        ...recordingVersionsById.value,
+        [recording.id]: [...res.data.versions].sort((a, b) => b.version_seq - a.version_seq),
+      }
+    } catch {
+      // 版本接口不可用时静默退化：抽屉回退用「当前文件桶」展示一条「已上传」
+      recordingVersionsById.value = { ...recordingVersionsById.value, [recording.id]: [] }
+    } finally {
+      recordingVersionsLoading.value = { ...recordingVersionsLoading.value, [recording.id]: false }
+    }
+  }
+
   return {
     selectedAssetRecordings,
     expandedRecordingIds,
     recordingFilesById,
     recordingFilesLoading,
     recordingFilesError,
+    recordingVersionsById,
+    recordingVersionsLoading,
     isLoadingRecordings,
     recordingsError,
     uploadFormatHint,
@@ -231,5 +270,7 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     isRecordingExpanded,
     toggleRecordingExpanded,
     loadRecordingFiles,
+    loadRecordingVersions,
+    relabelRecording,
   }
 }

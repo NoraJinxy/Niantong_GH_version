@@ -4,7 +4,7 @@
   "title": "Power Spectral Density (PSD)",
   "category": "analysis",
   "phase": "phase1",
-  "description": "对 Epochs（按 condition）或连续数据（整段，静息态频域）做功率谱密度估计（Welch / Multitaper）。",
+  "description": "对 Epochs（按 condition）或连续数据（整段，静息态频域）做功率谱密度估计（Welch / Multitaper / FFT 单段），并随产物给出各频段绝对 + 相对功率（线性积分）。FFT 单段拉满频率分辨率，用于 SSVEP 等盯单个刺激频率的窄带分析。",
   "tags": ["psd", "spectrum", "welch", "frequency", "analysis"],
   "inputs": [
     {"name": "input", "type": "spectral_source", "label": "EEG / Epochs", "required": true, "cardinality": "one_or_many"}
@@ -16,7 +16,13 @@
     {"name": "condition", "label": "Condition", "type": "event_select", "default": "", "required": false, "description": "仅 Epochs 输入时需要：从上游 Epoch 勾选的 condition 里选，每个 condition 单独算一条功率谱。连续数据（静息态等无事件）无需填，整段算一条。"},
     {"name": "fmin", "label": "最低频率", "type": "number", "unit": "Hz", "default": 1, "min": 0, "step": 0.5},
     {"name": "fmax", "label": "最高频率", "type": "number", "unit": "Hz", "default": 40, "min": 1, "step": 1},
-    {"name": "method", "label": "方法", "type": "select", "default": "welch", "advanced": true, "options": [{"value": "welch", "label": "Welch"}, {"value": "multitaper", "label": "Multitaper"}]}
+    {"name": "method", "label": "估计方法", "type": "select", "default": "welch",
+     "options": [
+       {"value": "welch", "label": "Welch（分段平均，宽带平滑，默认）"},
+       {"value": "multitaper", "label": "Multitaper（多窗，低方差）"},
+       {"value": "fft", "label": "FFT 单段（满频率分辨率，SSVEP / 窄带）"}
+     ],
+     "description": "Welch=分段做 FFT 再平均，谱平滑、频率分辨率较低；FFT 单段=整段一次 FFT，频率分辨率拉满（=1/时长），盯单个刺激频率（SSVEP 稳态、窄带峰值）用它；Multitaper=多窗、低方差。"}
   ],
   "backend": {
     "module": "app.engine.analysis.psd",

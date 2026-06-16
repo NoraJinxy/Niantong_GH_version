@@ -1,5 +1,5 @@
 """
-Purpose: 对 Epochs 做功率谱密度(PSD)估计(Welch),生成各频段平均功率。
+Purpose: 对 Epochs / 连续 Raw 做功率谱密度(PSD)估计(Welch / Multitaper / FFT 单段),并算各频段绝对+相对功率。
 Related: app/pipeline/dispatcher.py, app/pipeline/nodes/eeg_analysis_psd.json,
          app/engine/io.py(save_psd_npz / summarize_psd).
 
@@ -78,14 +78,8 @@ def run_psd(data: Any, params: dict[str, Any]) -> dict[str, Any]:
     if fmax <= fmin:
         raise ValueError(f"PSD.fmax({fmax:.3g}) must stay below Nyquist and above fmin({fmin:.3g}).")
 
-    method = str(params.get("method", "welch") or "welch").strip().lower()
-    if method not in ("welch", "multitaper"):
-        method = "welch"
-    psd_kwargs: dict[str, Any] = {"method": method, "fmin": fmin, "fmax": fmax, "verbose": "ERROR"}
-    if method == "welch":
-        n_fft = params.get("n_fft")
-        if n_fft not in (None, ""):
-            psd_kwargs["n_fft"] = int(n_fft)
+    # n_times = 每 epoch 采样点数;method=fft 用它把 Welch 退化成单段整段周期图(满频率分辨率,SSVEP 用)
+    psd_kwargs, reported_method = _psd_kwargs(params, fmin, fmax, int(len(selected.times)))
 
     # EpochsSpectrum.get_data() → (n_epochs, n_channels, n_freqs);跨 epoch 求平均得 (n_channels, n_freqs)
     spectrum = selected.compute_psd(**psd_kwargs)
@@ -101,11 +95,13 @@ def run_psd(data: Any, params: dict[str, Any]) -> dict[str, Any]:
     return {
         "freqs": freqs,
         "psds": mean_psds,
-        "ch_names": list(selected.ch_names),
-        "channel_types": list(selected.info.get_channel_types()),
+        # compute_psd 只对数据通道估谱(丢 stim/EOG);ch_names/types 对齐 spectrum 才与 psds 行一一对应
+        "ch_names": list(spectrum.ch_names),
+        "channel_types": list(selected.get_channel_types(picks=list(spectrum.ch_names))),
         "sfreq": float(selected.info["sfreq"]),
         "n_epochs": n_epochs,
-        "method": method,
+        "method": reported_method,
+        "band_powers": _band_powers(np, freqs, mean_psds),
         "condition": labels[0] if len(labels) == 1 else ",".join(labels),
     }
 
@@ -132,14 +128,8 @@ def _run_psd_continuous(raw: Any, params: dict[str, Any]) -> dict[str, Any]:
     if fmax <= fmin:
         raise ValueError(f"PSD.fmax({fmax:.3g}) must stay below Nyquist and above fmin({fmin:.3g}).")
 
-    method = str(params.get("method", "welch") or "welch").strip().lower()
-    if method not in ("welch", "multitaper"):
-        method = "welch"
-    psd_kwargs: dict[str, Any] = {"method": method, "fmin": fmin, "fmax": fmax, "verbose": "ERROR"}
-    if method == "welch":
-        n_fft = params.get("n_fft")
-        if n_fft not in (None, ""):
-            psd_kwargs["n_fft"] = int(n_fft)
+    # method=fft 用整段点数把 Welch 退化成单段周期图(满频率分辨率)
+    psd_kwargs, reported_method = _psd_kwargs(params, fmin, fmax, int(selected.n_times))
 
     # RawSpectrum.get_data() → (n_channels, n_freqs);连续数据无需跨 epoch 平均。
     spectrum = selected.compute_psd(**psd_kwargs)
@@ -149,10 +139,80 @@ def _run_psd_continuous(raw: Any, params: dict[str, Any]) -> dict[str, Any]:
     return {
         "freqs": freqs,
         "psds": psds,
-        "ch_names": list(selected.ch_names),
-        "channel_types": list(selected.info.get_channel_types()),
+        # compute_psd 只对数据通道估谱(丢 stim/EOG);ch_names/types 对齐 spectrum 才与 psds 行一一对应
+        "ch_names": list(spectrum.ch_names),
+        "channel_types": list(selected.get_channel_types(picks=list(spectrum.ch_names))),
         "sfreq": float(selected.info["sfreq"]),
         "n_epochs": 0,
-        "method": method,
+        "method": reported_method,
+        "band_powers": _band_powers(np, freqs, psds),
         "condition": None,
     }
+
+
+def _psd_kwargs(params: dict[str, Any], fmin: float, fmax: float, n_times: int) -> tuple[dict[str, Any], str]:
+    """构造 compute_psd kwargs,返回 (kwargs, 上报 method 名)。
+
+    method:
+      welch(默认)/ multitaper —— 常规宽带谱。
+      fft —— 单段整段周期图:底层走 Welch 但 n_per_seg=整段、不重叠,频率分辨率拉满(=1/时长),
+             用于 SSVEP / 窄带稳态等"盯单个刺激频率点"的分析(Welch 分段会牺牲频率分辨率)。
+    """
+    method = str(params.get("method", "welch") or "welch").strip().lower()
+    if method not in ("welch", "multitaper", "fft"):
+        method = "welch"
+    if method == "fft":
+        seg = max(1, int(n_times))
+        return (
+            {"method": "welch", "fmin": fmin, "fmax": fmax, "verbose": "ERROR",
+             "n_fft": seg, "n_per_seg": seg, "n_overlap": 0},
+            "fft",
+        )
+    kwargs: dict[str, Any] = {"method": method, "fmin": fmin, "fmax": fmax, "verbose": "ERROR"}
+    if method == "welch":
+        n_fft = params.get("n_fft")
+        if n_fft not in (None, ""):
+            kwargs["n_fft"] = int(n_fft)
+    return kwargs, method
+
+
+# 标准频带(Hz),与 psd_view 显示层一致
+_PSD_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("delta", 1.0, 4.0),
+    ("theta", 4.0, 8.0),
+    ("alpha", 8.0, 13.0),
+    ("beta", 13.0, 30.0),
+    ("gamma", 30.0, 80.0),
+)
+
+
+def _band_powers(np: Any, freqs: Any, psds: Any) -> list[dict[str, Any]]:
+    """线性域积分各频段绝对功率(µV²) + 相对功率(频段/所分析全谱),跨通道取均值进 preview。
+
+    严格用梯形积分(∑PSD·Δf),不是显示层那种"dB 域求平均";相对功率必须在线性域算(dB 不能相除)。
+    相对功率分母 = 当前分析频率范围内的总功率(常规做法,非 0..Nyquist 全频)。
+    完整 per-channel 频段功率(可下游/导出)留给将来的专门 band_power 节点。
+    """
+    freqs = np.asarray(freqs, dtype=float)
+    psds = np.asarray(psds, dtype=float)
+    if psds.ndim == 1:
+        psds = psds[None, :]
+    if freqs.size < 2:
+        return []
+    total = np.trapz(psds, freqs, axis=1)  # (n_channels,) 全谱总功率
+    out: list[dict[str, Any]] = []
+    for name, lo, hi in _PSD_BANDS:
+        mask = (freqs >= lo) & (freqs < hi)
+        if not bool(mask.any()):
+            continue
+        abs_power = np.trapz(psds[:, mask], freqs[mask], axis=1)  # (n_channels,) V²
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel = np.where(total > 0, abs_power / total, 0.0)
+        out.append({
+            "name": name,
+            "fmin": lo,
+            "fmax": hi,
+            "abs_power_uv2": float(np.mean(abs_power) * 1e12),  # 跨通道均值, µV²
+            "rel_power": float(np.mean(rel)),                    # 跨通道均值, 0-1
+        })
+    return out

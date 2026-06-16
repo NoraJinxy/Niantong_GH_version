@@ -15,7 +15,9 @@ import type {
   DatasetMemberListResponse,
   DatasetPublicizationRequestRecord,
   PublicizationRequestBody,
+  Recording,
   RecordingListResponse,
+  RecordingRelabelPayload,
   RecordingVersionListResponse,
   StudyDatasetMount,
   StudyDatasetMountCreateRequest,
@@ -109,5 +111,8 @@ export const recordingApi = {
     dataApi.get<RecordingVersionListResponse>(`/studies/${studyId}/recordings/${recordingId}/versions`),
   listFiles: (studyId: string, recordingId: string) =>
     dataApi.get<DatasetFileListResponse>(`/studies/${studyId}/recordings/${recordingId}/files`),
+  // 「调整归类」：改一条采集记录的 BIDS 实体（被试/会话/任务/轮次），后端会物理重排派生层
+  relabel: (studyId: string, recordingId: string, payload: RecordingRelabelPayload) =>
+    dataApi.patch<Recording>(`/studies/${studyId}/recordings/${recordingId}`, payload),
 }
 

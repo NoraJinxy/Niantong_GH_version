@@ -1,16 +1,27 @@
 <template>
   <div class="pipeline-page" @pointerdown="closePipelineContextMenu">
+      <!-- 拖宽手柄:放在抽屉外、跨在「抽屉↔画布」的缝上,避开抽屉 overflow 裁剪与滚动条争点击 -->
+      <div
+        v-if="libraryVisible"
+        class="drawer-handle drawer-handle--seam-left"
+        :class="{ 'is-dragging': drawerDragging === 'library' }"
+        :style="{ left: libraryWidth + 'px' }"
+        title="拖动调整左侧节点库宽度"
+        @mousedown="startDrawerDrag('library', $event)"
+      ></div>
+      <div
+        v-if="inspectorVisible"
+        class="drawer-handle drawer-handle--seam-right"
+        :class="{ 'is-dragging': drawerDragging === 'inspector' }"
+        :style="{ right: inspectorWidth + 'px' }"
+        title="拖动调整右侧检查器宽度"
+        @mousedown="startDrawerDrag('inspector', $event)"
+      ></div>
       <aside
         class="library"
         :class="{ 'is-hidden': !libraryVisible }"
         :style="{ width: libraryWidth + 'px' }"
       >
-        <div
-          class="drawer-handle drawer-handle--right"
-          :class="{ 'is-dragging': drawerDragging === 'library' }"
-          title="拖动调整宽度"
-          @mousedown="startDrawerDrag('library', $event)"
-        ></div>
         <section class="panel panel--fill">
           <div class="panel__title">
             节点库
@@ -42,7 +53,7 @@
                   @dragstart="handleNodeDragStart(spec, $event)"
                 >
                   <span class="node-template__title">{{ spec.title }}</span>
-                  <span class="node-template__type">{{ spec.type }}</span>
+                  <span class="node-template__desc">{{ spec.description }}</span>
                 </button>
               </div>
             </div>
@@ -102,7 +113,7 @@
                 @input="markDirty"
               />
               <span v-if="dirty" class="badge badge--warn">未保存</span>
-              <span v-else-if="currentPipeline" class="badge">v{{ currentPipeline.version }}</span>
+              <span v-else-if="currentPipeline" class="badge">版本 {{ currentPipeline.version }}</span>
               <span v-if="currentPipeline" class="badge">{{ formatPipelineStatus(currentPipeline.status) }}</span>
             </div>
 
@@ -134,7 +145,6 @@
                   运行 #{{ latestPipelineExecution.execution_seq }}
                 </template>
                 <template v-else>暂无运行</template>
-                <span class="caret">▾</span>
               </button>
               <button class="button button--danger" type="button" :disabled="!selectedNode" @click="deleteSelectedNode">
                 <AppIcon name="trash" :size="14" />
@@ -187,7 +197,6 @@
             </div>
             <div v-if="liteGraphReady" class="canvas-overlay">
               <div class="canvas-overlay__meta">
-                <strong>LiteGraph</strong>
                 <span>{{ definition.graph.nodes.length }} 节点</span>
                 <span>{{ definition.graph.links.length }} 连线</span>
               </div>
@@ -227,7 +236,7 @@
             </span>
             <span>{{ latestPipelineExecution.node_count }} 节点 · {{ latestPipelineExecution.dataset_count }} 数据集</span>
             <span v-if="runPolling">轮询中</span>
-            <span v-if="runArtifacts.length">{{ runArtifacts.length }} artifact</span>
+            <span v-if="runArtifacts.length">{{ runArtifacts.length }} 个产物</span>
             <span v-for="issue in latestPipelineExecutionIssues" :key="issue">{{ issue }}</span>
           </div>
           <div v-if="runPollingError" class="validation">
@@ -557,12 +566,6 @@
         :style="{ width: inspectorWidth + 'px' }"
         @click.stop
       >
-        <div
-          class="drawer-handle drawer-handle--left"
-          :class="{ 'is-dragging': drawerDragging === 'inspector' }"
-          title="拖动调整宽度"
-          @mousedown="startDrawerDrag('inspector', $event)"
-        ></div>
         <div v-if="!selectedNode || !selectedNodeSpec" class="inspector-empty">
           <div class="inspector-empty-icon" aria-hidden="true">
             <IconLine name="clipboard" :size="36" :stroke-width="1.4" />
@@ -1026,14 +1029,7 @@
                 />
               </div>
 
-              <!-- 调试信息（只读元信息） -->
-              <div class="save-settings__meta-title">调试信息</div>
-              <div class="save-settings__meta">
-                <div><span>step_label</span><code>{{ saveSpec.step_label || '—' }}</code></div>
-                <div><span>data_type</span><code>{{ saveSpec.data_type || '—' }}</code></div>
-                <div v-if="saveSpec.split_supported"><span>支持拆分</span><code>condition</code></div>
-                <div v-if="saveSpec.always_per_condition"><span>逐 condition</span><code>是</code></div>
-              </div>
+              <!-- 内部保存元信息（step_label / data_type / split 等）已对临床用户隐藏；排错看 spec JSON 或 API -->
             </div>
           </details>
 
@@ -2142,6 +2138,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   // evoked（ERP）可能是同一节点的多个条件产物 → 一起送时域页按"数据集"对比；
   // 其余按 data_type 路由：TFR=/observe/tfr、PSD=/observe/psd、其余=/observe/waveform。
   const evokeds = saved.filter((item) => item.data_type === 'evoked')
+  const psds = saved.filter((item) => (item.data_type || '').toLowerCase() === 'psd')
   let href: string
   if (evokeds.length) {
     const ids = evokeds.map((e) => e.id).join(',')
@@ -2152,6 +2149,15 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
       type: 'evoked',
     })
     href = `/observe/waveform?${params.toString()}`
+  } else if (psds.length) {
+    // PSD 多条件产物（同 evoked 口径）→ 一起送频域页按"数据集"对比
+    const ids = psds.map((p) => p.id).join(',')
+    const params = new URLSearchParams({
+      studyId,
+      study_output_id: ids,
+      name: psds.length > 1 ? '功率谱（多条件对比）' : psds[0].display_name || '功率谱',
+    })
+    href = `/observe/psd?${params.toString()}`
   } else {
     const target = saved[0]
     const dt = (target.data_type || '').toLowerCase()
@@ -3104,24 +3110,28 @@ function describeError(error: unknown, fallback: string) {
   pointer-events: none;
 }
 
-/* 抽屉拖拽手柄 */
+/* 抽屉拖拽手柄:抽屉外、跨在缝上的兄弟元素,left/right 由模板按抽屉宽度内联绑定。
+   不再是抽屉子元素,故不被抽屉 overflow:auto 裁剪、也不和抽屉滚动条争点击;
+   手柄一半盖在画布上(那侧永远没滚动条),命中区稳定、且加宽到 14px 更好抓。 */
 .drawer-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: 14px;
   cursor: ew-resize;
   background: transparent;
-  z-index: 40;
+  z-index: 45;
   transition: background 0.15s;
 }
 
-.drawer-handle--right {
-  right: -3px;
+.drawer-handle--seam-left {
+  /* 配合 :style="{ left: libraryWidth }" —— 横跨左侧节点库的右缝 */
+  transform: translateX(-50%);
 }
 
-.drawer-handle--left {
-  left: -3px;
+.drawer-handle--seam-right {
+  /* 配合 :style="{ right: inspectorWidth }" —— 横跨右侧检查器的左缝 */
+  transform: translateX(50%);
 }
 
 .drawer-handle::after {
@@ -3531,10 +3541,14 @@ function describeError(error: unknown, fallback: string) {
   color: var(--c-text);
 }
 
-.node-template__type {
-  font-size: 10px;
-  font-family: var(--ff-mono);
+.node-template__desc {
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--c-text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .editor {

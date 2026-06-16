@@ -39,6 +39,8 @@ from app.schemas.dataset import (
     DatasetQaSummary,
     DatasetFileListResponse,
     RecordingListResponse,
+    RecordingRelabelRequest,
+    RecordingResponse,
     RecordingUploadResponse,
     RecordingVersionListResponse,
 )
@@ -63,6 +65,7 @@ from app.routers._dataset_shared import (
 from app.routers.dataset_imports import (
     archive_uploads,
     materialize_recording_import,
+    relabel_recording,
     write_manifest,
     _build_import_context,
 )
@@ -330,6 +333,39 @@ def list_recording_files(
         query = query.filter(DatasetFile.file_role == file_role)
     files = query.order_by(DatasetFile.created_at.desc(), DatasetFile.id.desc()).all()
     return DatasetFileListResponse(files=[dataset_file_to_response(item) for item in files])
+
+
+@recording_router.patch("/{recording_id}", response_model=RecordingResponse)
+def relabel_recording_endpoint(
+    study_id: str,
+    recording_id: uuid.UUID,
+    payload: RecordingRelabelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 「调整归类」：改一条采集记录的 BIDS 实体并物理重排派生层（原始上传不碰）。
+    require_system_permission(current_user, "data:write", "当前用户没有修改采集记录权限")
+    study = require_study_write(db.query(Study).filter(Study.id == study_id).first(), db, current_user)
+    recording = get_recording_for_study(db, study=study, recording_id=recording_id)
+    if recording is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="采集记录不存在")
+    try:
+        relabel_recording(
+            db,
+            study=study,
+            recording=recording,
+            subject=payload.subject,
+            session=payload.session,
+            task=payload.task,
+            run=payload.run,
+            current_user=current_user,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(recording)
+    return recording_to_response(recording)
 
 
 @recording_router.post("/import-task", response_model=AsyncTaskResponse, status_code=status.HTTP_201_CREATED)

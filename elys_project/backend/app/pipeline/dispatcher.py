@@ -13,6 +13,7 @@ from app.engine.analysis.baseline import run_baseline
 from app.engine.analysis.epoching import run_epoch_segment
 from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
 from app.engine.analysis.psd import run_psd
+from app.engine.analysis.reject import run_reject_trials
 from app.engine.analysis.tfr import run_tfr
 from app.engine.io import (
     read_epochs_from_data_info,
@@ -85,6 +86,7 @@ class NodeDispatcher:
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/epoch/segment": self._execute_epoch_segment,
             "eeg/epoch/baseline": self._execute_baseline,
+            "eeg/epoch/reject": self._execute_reject_trials,
             "eeg/analysis/erp": self._execute_erp_average,
             "eeg/analysis/tfr": self._execute_tfr_average,
             "eeg/analysis/psd": self._execute_psd_average,
@@ -518,6 +520,81 @@ class NodeDispatcher:
             errors=errors,
         )
 
+    def _execute_reject_trials(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """Reject Trials 自动试次剔除:epochs → epochs(逐输入剔坏 epoch,复用 epochs 保存路径)。
+
+        与 Baseline 同构(epochs→epochs、保留上游 condition),区别:processor 返回 (cleaned, meta),
+        meta(剔了几个 / 剔除率 / 判据)并进 summary 进 preview 作溯源。
+        """
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Reject Trials node has no upstream epochs data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+
+        for index, data_info in enumerate(input_data_infos):
+            try:
+                epochs = read_epochs_from_data_info(data_info, preload=True)
+                cleaned, reject_meta = run_reject_trials(epochs, context.params)
+                input_condition = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
+                info = self._save_epochs_dataset(
+                    context=context,
+                    data_info=data_info,
+                    epochs=cleaned,
+                    study_output_store=study_output_store,
+                    artifacts=artifacts,
+                    save_descriptor="rej",
+                    index=index,
+                    condition=input_condition,
+                    node_id=node_id,
+                    node_type=node_type,
+                    extra_summary=reject_meta,
+                )
+                output_data_infos.append(info)
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: {exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+
+        emitted_data_infos = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted_data_infos},
+            data_infos=emitted_data_infos,
+            artifacts=artifacts,
+            metadata={
+                "dataset_count": len(output_data_infos),
+                "input_dataset_count": len(input_data_infos),
+                "save_descriptor": "rej",
+            },
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted_data_infos),
+            output_ports=["output"],
+            errors=errors,
+        )
+
     def _execute_erp_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_evoked_output(context, run_erp_average, save_descriptor="erp")
 
@@ -764,13 +841,17 @@ class NodeDispatcher:
         condition: str | None,
         node_id: str,
         node_type: str,
+        extra_summary: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """把一份 (子)epochs 写入磁盘 + 登记 study_output，返回 data_info。
 
         condition 非空时：文件名加 condition 后缀；apply_save_settings 用 split_value
         触发 dynamic_tags_when_split + name_template_default_split；输出 data_info 带 condition 字段。
+        extra_summary 非空时并进 summary（如 Reject Trials 的剔除溯源），同时进 preview 与 mne_summary。
         """
         summary = summarize_epochs(epochs)
+        if extra_summary:
+            summary = {**summary, **extra_summary}
         filename = self._derived_fif_filename(
             data_info, save_descriptor, index, kind="epochs", condition=condition
         )

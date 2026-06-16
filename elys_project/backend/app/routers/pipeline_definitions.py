@@ -392,21 +392,36 @@ def update_pipeline(
     fields_set = payload.model_fields_set
     previous_version = pipeline.version
     previous_status = pipeline.status
+    # 仅在确有实质改动时才升版本 —— 否则"运行前的空保存 / 没改任何参数的重复保存"也会让 version+1,
+    # 与用户「版本号=定义改了几次」的预期不符。version 同时兼任乐观锁计数,但无变更时不升也不影响并发检测。
+    changed = False
 
-    if "name" in fields_set and payload.name is not None:
+    if "name" in fields_set and payload.name is not None and payload.name != pipeline.name:
         pipeline.name = payload.name
-    if "description" in fields_set:
+        changed = True
+    if "description" in fields_set and payload.description != pipeline.description:
         pipeline.description = payload.description
+        changed = True
     if "definition_json" in fields_set and payload.definition_json is not None:
         definition = payload.definition_json.model_dump(mode="json")
         definition["name"] = pipeline.name
         definition["description"] = pipeline.description
-        pipeline.definition_json = definition
-        pipeline.node_count = count_nodes(definition)
-    if "is_template" in fields_set and payload.is_template is not None:
+        if definition != pipeline.definition_json:
+            pipeline.definition_json = definition
+            pipeline.node_count = count_nodes(definition)
+            changed = True
+    if "is_template" in fields_set and payload.is_template is not None and payload.is_template != pipeline.is_template:
         pipeline.is_template = payload.is_template
-    if "status" in fields_set and payload.status is not None:
+        changed = True
+    if "status" in fields_set and payload.status is not None and payload.status != pipeline.status:
         pipeline.status = payload.status
+        changed = True
+
+    if not changed:
+        # 无实质改动:不升版本、不写审计;但仍 commit 以持久化前面可能获取的编辑锁,幂等返回当前状态
+        # (运行前的空保存 / 没改参数的重复保存不再让 version 漂)。
+        db.commit()
+        return pipeline_to_response(pipeline)
 
     pipeline.version += 1
     pipeline.updated_at = datetime.utcnow()

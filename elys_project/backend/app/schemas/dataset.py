@@ -364,6 +364,15 @@ class RecordingUploadResponse(BaseModel):
     recording: RecordingResponse
 
 
+class RecordingRelabelRequest(BaseModel):
+    """重新归类一条采集记录的 BIDS 实体。前缀可带可不带（sub-093 / 093 都行，后端统一规范化）。"""
+
+    subject: str = Field(..., min_length=1, max_length=64)
+    session: Optional[str] = Field(default=None, max_length=64)
+    task: str = Field(..., min_length=1, max_length=64)
+    run: Optional[str] = Field(default=None, max_length=64)
+
+
 class DatasetQaStageItem(BaseModel):
     key: str
     label: str

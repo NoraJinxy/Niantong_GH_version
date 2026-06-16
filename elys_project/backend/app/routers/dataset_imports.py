@@ -699,6 +699,143 @@ def create_dataset_file_records(
     return records
 
 
+# 「调整归类」relabel：派生层（canonical FIF + sidecar）按 BIDS 实体命名，改标签 = 把它们物理重排到
+# 新 BIDS 路径。下表把 dataset_files.file_role 映射到 canonical 文件名后缀，用来重算路径。
+# 原始上传（original_upload / sourcedata）是不可改存档，relabel 一律不碰。
+RELABEL_DERIVED_FILE_ROLE_SUFFIXES = {
+    "fif": "_eeg.fif",
+    "fif_provenance": "_provenance.json",
+    "fif_eeg_json": "_eeg.json",
+    "fif_channels": "_channels.tsv",
+    "fif_events": "_events.tsv",
+}
+
+
+def relabel_recording(
+    db: Session,
+    *,
+    study: Study,
+    recording: Recording,
+    subject: str,
+    session: str | None,
+    task: str,
+    run: str | None,
+    current_user: User,
+) -> Recording:
+    """重新归类一条采集记录：改 BIDS 实体（被试/会话/任务/轮次），并把派生层（canonical FIF + sidecar）
+    物理重排到新 BIDS 路径、同步 recordings / recording_versions / dataset_files 三处路径字段。
+    原始上传（sourcedata）不可改、不碰。同一研究项内四元组冲突（schema uq_recordings_bids_entities）则 409。"""
+    new_subject = normalize_bids_label(subject, prefix="sub-", required=True)
+    new_task = normalize_bids_label(task, prefix="task-", required=True)
+    new_session = normalize_bids_label(session or "", prefix="ses-")
+    new_run = normalize_bids_label(run or "", prefix="run-")
+
+    old_subject = recording.subject.bids_subject_id if recording.subject else None
+    old_session = recording.session
+    old_task = recording.task
+    old_run = recording.run
+
+    if (new_subject, new_session, new_task, new_run) == (old_subject, old_session, old_task, old_run):
+        return recording  # 实体无变化，直接返回
+
+    # 同一研究项内 (subject, session, task, run) 唯一，排除自己；与导入期的存在性判定同口径
+    collision = (
+        db.query(Recording)
+        .join(Subject, Recording.subject_id == Subject.id)
+        .filter(
+            Recording.study_id == study.id,
+            Recording.id != recording.id,
+            Subject.bids_subject_id == new_subject,
+            Recording.session == new_session,
+            Recording.task == new_task,
+            Recording.run == new_run,
+        )
+        .first()
+    )
+    if collision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "RECORDING_LABEL_CONFLICT",
+                "message": (
+                    f"本研究项里已经有 {new_subject} / {new_session or '无会话'} / {new_task} / "
+                    f"{new_run or '无轮次'} 这条记录了，换一个标签再试。"
+                ),
+            },
+        )
+
+    asset_id = recording.dataset_asset_id
+    # 仅当记录已关联数据集（能定位 BIDS 物理路径）时，物理重排派生层；原始上传不碰。
+    if asset_id is not None:
+        old_base = build_canonical_fif_base_path_for_asset(asset_id, old_subject, old_session, old_task, old_run)
+        new_base = build_canonical_fif_base_path_for_asset(asset_id, new_subject, new_session, new_task, new_run)
+        if old_base != new_base:
+            new_base.parent.mkdir(parents=True, exist_ok=True)
+            for suffix in RELABEL_DERIVED_FILE_ROLE_SUFFIXES.values():
+                old_path = old_base.with_name(old_base.name + suffix)
+                new_path = new_base.with_name(new_base.name + suffix)
+                if old_path == new_path or not old_path.exists():
+                    continue
+                if new_path.exists():
+                    new_path.unlink()
+                shutil.move(str(old_path), str(new_path))
+
+        # recordings / recording_versions / dataset_files 路径字段按新 BIDS 实体重算
+        new_fif_path = relative_to_study(study, new_base.with_name(new_base.name + "_eeg.fif"))
+        new_fif_dir = relative_to_study(study, new_base.parent)
+        new_sidecar_paths = {
+            "eeg": relative_to_study(study, new_base.with_name(new_base.name + "_eeg.json")),
+            "channels": relative_to_study(study, new_base.with_name(new_base.name + "_channels.tsv")),
+            "events": relative_to_study(study, new_base.with_name(new_base.name + "_events.tsv")),
+            "provenance": relative_to_study(study, new_base.with_name(new_base.name + "_provenance.json")),
+        }
+        # 仅重排"本就有派生数据"的记录；没生成过 canonical 的（fif_path 为空）不无中生有
+        if recording.fif_path:
+            recording.fif_path = new_fif_path
+        for version in recording.versions:
+            if version.fif_dir:
+                version.fif_dir = new_fif_dir
+            if version.fif_path:
+                version.fif_path = new_fif_path
+            if version.sidecar_paths:
+                version.sidecar_paths = dict(new_sidecar_paths)
+        for dataset_file in recording.files:
+            suffix = RELABEL_DERIVED_FILE_ROLE_SUFFIXES.get(dataset_file.file_role)
+            if suffix is None:
+                continue  # original_upload 等原始档案不动
+            new_rel = relative_to_study(study, new_base.with_name(new_base.name + suffix))
+            dataset_file.relative_path = new_rel
+            dataset_file.storage_uri = new_rel if is_storage_uri(new_rel) else study_storage_uri(study, new_rel)
+            dataset_file.logical_path = (
+                dataset_logical_path_from_storage_uri(dataset_file.storage_uri)
+                or normalize_study_relative_path(new_rel)
+            )
+
+    # 实体本身：找/建目标 Subject（被试变了就重指），再写 session/task/run。
+    # 直接赋关系对象（一并同步 subject_id），让响应里 recording.subject 立即是新值。
+    subject_record = get_or_create_subject(db, study, new_subject)
+    recording.subject = subject_record
+    recording.session = new_session
+    recording.task = new_task
+    recording.run = new_run
+
+    record_audit_event(
+        db,
+        study_id=study.id,
+        action="recording.relabeled",
+        actor_id=current_user.id,
+        resource_kind="recording",
+        resource_id=recording.id,
+        resource_label=f"{new_subject}/{new_session or 'no-session'}/{new_task}/{new_run or 'no-run'}",
+        metadata={
+            "from": {"subject": old_subject, "session": old_session, "task": old_task, "run": old_run},
+            "to": {"subject": new_subject, "session": new_session, "task": new_task, "run": new_run},
+        },
+    )
+    db.flush()
+    return recording
+
+
 def create_dataset_upload_record(
     db: Session,
     *,

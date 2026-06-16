@@ -1,532 +1,1068 @@
 <template>
-  <WorkbenchShell active-key="view-psd" active-top-key="observe">
-    <div v-if="!isLive" class="obs-layout">
-      <aside class="selector-panel">
-        <div class="sel-section">
-          <h4>数据集 <span class="count">3</span></h4>
-          <div class="checkbox-tree">
-            <div class="ck-node"><input type="checkbox" checked /><span class="name" style="font-weight: 500">sub-01_psd_resting</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name text-mono" style="font-size: 11px">eyes-open</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name text-mono" style="font-size: 11px">eyes-closed</span></div>
-            <div class="ck-node"><input type="checkbox" checked /><span class="name" style="font-weight: 500">sub-03_psd_resting</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name text-mono" style="font-size: 11px">resting</span></div>
-            <div class="ck-node"><input type="checkbox" /><span class="name" style="font-weight: 500">sub-05_psd_task</span></div>
+  <div class="ov-page" ref="pageRef">
+    <!-- 顶部信息条（全屏时隐去） -->
+    <header v-show="!isFullscreen" class="ov-head">
+      <div class="ov-id">
+        <span class="ov-badge" :style="{ background: TYPE_COLOR }">PSD</span>
+        <div>
+          <div class="ov-title">{{ displayName }}<span class="ov-region">功率谱 (PSD)</span></div>
+          <div class="ov-sub">
+            <span class="text-mono">{{ shortId(datasetId) }}</span>
+            <span v-if="isMultiOutput" class="ov-dot">·</span>
+            <span v-if="isMultiOutput" class="ov-cond">{{ outputIds.length }} 个数据集对比</span>
           </div>
         </div>
+      </div>
+      <div class="ov-head-right">
+        <button class="ov-btn ov-btn--ghost" @click="load" :disabled="loading">刷新</button>
+      </div>
+    </header>
 
-        <div class="sel-section">
-          <h4>条件 <span class="count">3</span></h4>
-          <div style="display: flex; gap: 5px; flex-wrap: wrap">
-            <span class="cond-pill active s1"><span class="dot"></span>eyes-open</span>
-            <span class="cond-pill active s2"><span class="dot"></span>eyes-closed</span>
-            <span class="cond-pill"><span class="dot"></span>resting</span>
-          </div>
-        </div>
+    <div class="ov-main">
+      <!-- ============ 左栏：选择器 ============ -->
+      <aside v-show="showLeft" class="ov-left">
+        <div class="ov-left-scroll">
+          <!-- 数据集 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('dataset')">
+              数据集
+              <span class="ov-sec-cnt" v-if="isMultiOutput">{{ selectedSegs.size }}/{{ outputIds.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
+            </div>
+            <div v-show="!collapsed.dataset" class="ov-sec-body">
+              <template v-if="isMultiOutput">
+                <div
+                  v-for="(oid, i) in outputIds"
+                  :key="oid"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedSegs.has(i) }"
+                  @click="segSel.onClick(i, $event)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name">{{ segLabel(i) }}</span>
+                </div>
+              </template>
+              <div v-else class="ov-li is-static">
+                <span class="ov-li-dot" :style="{ background: TYPE_COLOR }"></span>
+                <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
+                <span class="ov-li-tag">{{ allChanNames.length }}ch</span>
+              </div>
+            </div>
+          </section>
 
-        <div class="sel-section">
-          <h4>通道 <span class="count">5</span></h4>
-          <div style="display: flex; gap: 5px; flex-wrap: wrap">
-            <span v-for="ch in channels" :key="ch.id" class="ch-tag">{{ ch.label }}</span>
-          </div>
-        </div>
+          <!-- 通道 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('channel')">
+              通道
+              <span class="ov-sec-cnt">{{ selected.size }}/{{ allChanNames.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.channel }">▾</span>
+            </div>
+            <div v-show="!collapsed.channel" class="ov-sec-body">
+              <div class="ov-sec-actions">
+                <button v-if="selected.size < allChanNames.length" type="button" class="ov-link" @click="chanSel.selectAll()">全选</button>
+                <button v-if="selected.size > 0" type="button" class="ov-link" @click="chanSel.selectNone()">清空</button>
+              </div>
+              <div class="ov-chanlist" title="单击单选 · Ctrl 加选 · Shift 连选">
+                <div
+                  v-for="(name, i) in allChanNames"
+                  :key="name"
+                  class="ov-li"
+                  :class="{ 'is-sel': selected.has(name) }"
+                  @click="chanSel.onClick(i, $event)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selected.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name text-mono">{{ name }}</span>
+                  <MiniSparkline class="ov-li-spark" :values="chanValues(name)" :color="chColor(i)" />
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <div class="sel-section">
-          <h4>频段 <span class="count">5</span></h4>
-          <div style="display: flex; gap: 5px; flex-wrap: wrap">
-            <span v-for="band in bands" :key="band.name" class="band-pill" :class="{ active: band.active }">
-              <span class="bdot" :style="{ background: band.color }"></span>{{ band.name }}
-            </span>
-          </div>
-        </div>
 
-        <div class="sel-section">
-          <h4>显示选项</h4>
-          <label class="checkbox-row"><input type="checkbox" checked />频段背景着色</label>
-          <label class="checkbox-row"><input type="checkbox" checked />峰值标记 / IAF</label>
-          <label class="checkbox-row"><input type="checkbox" checked />SEM 包络</label>
-          <label class="checkbox-row"><input type="checkbox" />对数 Y 轴</label>
-          <label class="checkbox-row"><input type="checkbox" checked />地形图侧栏</label>
+          <!-- 统计范围（频率区间） -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('range')">
+              统计范围
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.range }">▾</span>
+            </div>
+            <div v-show="!collapsed.range" class="ov-sec-body">
+              <div class="ov-row">
+                <span class="ov-row-lbl">起始</span>
+                <input v-model="statLoInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" />
+                <span class="ov-sep">~</span>
+                <span class="ov-row-lbl">结束</span>
+                <input v-model="statHiInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" />
+              </div>
+              <div class="ov-row-end">
+                <span class="ov-unit-tag">Hz</span>
+                <button class="ov-link" @click="applyStatsRange">应用</button>
+                <button class="ov-link" @click="resetStatsRange">全频段</button>
+              </div>
+              <p class="ov-sec-hint">在谱图上高亮该频率区间（可在子图横向拖拽改）。</p>
+            </div>
+          </section>
+
+          <!-- 绘图布局 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('layout')">
+              绘图布局
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.layout }">▾</span>
+            </div>
+            <div v-show="!collapsed.layout" class="ov-sec-body">
+              <div class="ov-grid2-lbl">叠加维度</div>
+              <div class="ov-ovpick">
+                <button
+                  v-for="o in overlayOptions"
+                  :key="o.v"
+                  type="button"
+                  class="ov-ovbtn"
+                  :class="{ 'is-on': effectiveOverlay === o.v }"
+                  @click="overlayDim = o.v"
+                >
+                  {{ o.l }}
+                </button>
+              </div>
+              <p class="ov-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图。</p>
+              <div class="ov-grid2-lbl" style="margin-top: 6px">配色</div>
+              <div class="ov-pal">
+                <button type="button" class="ov-pal-cur" :class="{ 'is-open': palOpen }" @click="palOpen = !palOpen">
+                  <span class="ov-pal-sw"><i v-for="(c, i) in currentPalette.colors" :key="i" :style="{ background: c }" /></span>
+                  <span class="ov-pal-name">{{ currentPalette.label }}</span>
+                  <span class="ov-pal-arr">▾</span>
+                </button>
+                <div v-if="palOpen" class="ov-pal-list">
+                  <template v-for="g in paletteGroups" :key="g.label">
+                    <div class="ov-pal-grp">{{ g.label }}</div>
+                    <button
+                      v-for="p in g.items"
+                      :key="p.key"
+                      type="button"
+                      class="ov-pal-opt"
+                      :class="{ 'is-on': paletteKey === p.key }"
+                      @click="selectPalette(p.key)"
+                    >
+                      <span class="ov-pal-sw"><i v-for="(c, i) in p.colors" :key="i" :style="{ background: c }" /></span>
+                      <span class="ov-pal-opt-name">{{ p.label }}</span>
+                      <span v-if="p.tag" class="ov-pal-tag">{{ p.tag }}</span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 显示模块 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('modules')">
+              显示模块
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.modules }">▾</span>
+            </div>
+            <div v-show="!collapsed.modules" class="ov-sec-body">
+              <label class="ov-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（频段功率）</label>
+              <div v-if="showTopo" class="ov-topo-mode">
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'auto' }" @click="topoScaleMode = 'auto'">自动</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'linked' }" @click="topoScaleMode = 'linked'">联动 Y 轴</button>
+              </div>
+              <div v-if="showTopo && presentBands.length" class="ov-row" style="margin-top: 4px">
+                <span class="ov-row-lbl">频段</span>
+                <select v-model="selectedBand" class="ov-csel" style="flex: 1; min-width: 0">
+                  <option v-for="b in presentBands" :key="b.name" :value="b.name">{{ b.label }} {{ b.lo }}–{{ b.hi }}</option>
+                </select>
+              </div>
+              <p v-if="showTopo" class="ov-sec-hint">{{ topoModeHint }}</p>
+            </div>
+          </section>
         </div>
       </aside>
 
-      <main class="obs-main">
-        <ObserveTabs active="psd">
-          <template #meta>
-            <span style="font-size: 11px; color: var(--c-text-3)">3 数据集 · 5 通道 · 5 频段</span>
+      <!-- ============ 中栏：工具条 + 绘图 + 状态条 ============ -->
+      <div class="ov-center">
+        <div class="ov-ctoolbar">
+          <div class="ov-tg ov-tg--lyt">
+            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
+          </div>
+          <div class="ov-tg">
+            <span class="ov-lbl">频窗 (Hz)</span>
+            <input v-model="xLoInput" class="ov-cin" type="number" step="1" :placeholder="autoXLoLabel" title="起始频率(留空=全幅)" @keydown.enter="applyXRange" @change="applyXRange" />
+            <span class="ov-dash">–</span>
+            <input v-model="xHiInput" class="ov-cin" type="number" step="1" :placeholder="autoXHiLabel" title="结束频率(留空=全幅)" @keydown.enter="applyXRange" @change="applyXRange" />
+            <select class="ov-csel" :value="freqWinKey" @change="applyFreqWindow(($event.target as HTMLSelectElement).value)">
+              <option v-for="w in FREQ_WINDOWS" :key="w.key" :value="w.key">{{ w.label }}</option>
+            </select>
+            <button class="ov-ctb" :disabled="!isZoomed" @click="resetZoom">重置</button>
+            <button class="ov-ctb" :class="{ 'is-on': !logX }" @click="logX = false" title="线性频率轴">线性</button>
+            <button class="ov-ctb" :class="{ 'is-on': logX }" @click="logX = true" title="对数频率轴（看 1/f 与低频）">对数</button>
+          </div>
+          <div class="ov-tg">
+            <span class="ov-lbl">Y(dB)</span>
+            <input v-model="yLoInput" class="ov-cin" type="number" step="1" :placeholder="autoYLoLabel" title="下限(留空=自动)" @keydown.enter="applyYRange" @change="applyYRange" />
+            <span class="ov-dash">–</span>
+            <input v-model="yHiInput" class="ov-cin" type="number" step="1" :placeholder="autoYHiLabel" title="上限(留空=自动)" @keydown.enter="applyYRange" @change="applyYRange" />
+            <button class="ov-ctb" :class="{ 'is-on': !isYManual }" @click="resetYRange">自动</button>
+          </div>
+          <div class="ov-tg">
+            <button class="ov-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
+            <button class="ov-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
+          </div>
+          <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+            <span class="ov-help-trigger">🖱 操作提示</span>
+            <div v-if="showHelp" class="ov-help-pop">
+              <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放频率轴</span></div>
+              <div class="ov-help-row"><kbd>拖拽</kbd><span>选频段区间</span></div>
+              <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
+              <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标</span></div>
+              <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
+            </div>
+          </div>
+          <div class="ov-tg ov-tg--lyt ov-tg--end">
+            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+              <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
+              <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
+            </button>
+            <span class="ov-lyt-sep"></span>
+            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
+            </button>
+            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="ov-chart-wrap">
+          <div v-if="loading && !primaryPsd" class="ov-state">正在读取功率谱…</div>
+
+          <div v-else-if="error" class="ov-state ov-state--err">
+            <div class="ov-err-title">无法加载该结果的功率谱</div>
+            <div class="ov-err-msg">{{ error }}</div>
+            <button class="ov-btn" @click="load">重试</button>
+          </div>
+
+          <template v-else-if="primaryPsd">
+            <div v-if="partialNote" class="ov-partial">{{ partialNote }}</div>
+            <div v-if="!selected.size" class="ov-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
+            <div v-else class="ov-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
+              <section v-for="(cell, ci) in cells" :key="cell.key" class="ov-cell" :class="{ 'is-focus': focusChannel && cell.title === focusChannel }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+                <div class="ov-cell-hd">
+                  <span class="ov-cell-tag" :style="{ background: cellAccent(cell) }"></span>
+                  <span class="ov-cell-name">{{ cell.title || '功率谱' }}</span>
+                  <span class="ov-cell-meta text-mono">{{ cell.series.length }} 条曲线 · {{ primaryPsd ? Math.round(primaryPsd.sfreq) : '–' }}Hz</span>
+                  <button class="ov-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title)">⬇</button>
+                </div>
+                <div class="ov-cell-plot">
+                  <TimeCourseCanvas
+                    :data="cell.data"
+                    :series="cell.series"
+                    x-label="频率 (Hz)"
+                    y-label="dB"
+                    :y-domain="effectiveYDomain"
+                    :display-mode="displayMode"
+                    :show-grid="showGrid"
+                    :loading="loading"
+                    :region="region"
+                    :ref-lines="false"
+                    :markers="psdMarkers"
+                    :highlight="focusChannel"
+                    :show-legend="ci === legendCellIndex"
+                    :dense-axes="denseAxes"
+                    :hide-x-labels="cellHideX(ci)"
+                    :hide-y-labels="cellHideY(ci)"
+                    :locked="cursorLocked"
+                    :locked-x="lockedReadout?.x ?? null"
+                    :view-min="viewXMin"
+                    :view-max="viewXMax"
+                    :log-x="logX"
+                    @cursor="onCursor"
+                    @select="onSelect"
+                    @lock="onLock"
+                    @unlock="onUnlock"
+                    @zoom="onZoom"
+                  />
+                </div>
+              </section>
+            </div>
+            <TopoStrip v-if="showTopo && selected.size && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :subtitle="topoSubtitle" unit="dB" :lo-label="topoLoLabel" :hi-label="topoHiLabel" />
           </template>
-        </ObserveTabs>
 
-        <div class="obs-toolbar">
-          <button class="btn btn--sm">‹</button>
-          <span style="font-family: var(--ff-mono); font-size: 12px; min-width: 100px; text-align: center; color: var(--c-text)">0 – 45 Hz</span>
-          <button class="btn btn--sm">›</button>
-          <div class="divider-h"></div>
-          <span class="tool-lbl">频窗</span>
-          <select><option selected>0 – 45 Hz</option><option>0 – 30 Hz</option><option>0 – 100 Hz</option></select>
-          <span class="tool-lbl">Y 轴</span>
-          <select><option>自动</option><option selected>线性</option><option>对数 (dB)</option></select>
-          <div class="divider-h"></div>
-          <label class="checkbox-row" style="font-size: 11px"><input type="checkbox" checked />频段背景</label>
-          <label class="checkbox-row" style="font-size: 11px"><input type="checkbox" checked />峰值标记</label>
-          <label class="checkbox-row" style="font-size: 11px"><input type="checkbox" checked />SEM 包络</label>
+          <div v-else class="ov-state">
+            <div class="ov-err-title">没有可显示的功率谱</div>
+            <div class="ov-err-msg">从结果页（artifact 预览）打开功率谱，URL 需带 studyId 与 study_output_id。</div>
+          </div>
+        </div>
+
+        <!-- 状态条 -->
+        <div class="ov-sbar" v-if="primaryPsd && !error">
+          <span class="ov-sbar-dot"></span>
+          <span>PSD · {{ primaryPsd.method }}</span><span class="ov-sbar-sep">|</span>
+          <span>{{ Math.round(primaryPsd.sfreq) }}Hz</span><span class="ov-sbar-sep">|</span>
+          <span>{{ selected.size }}/{{ primaryPsd.n_channels_total }}ch</span><span class="ov-sbar-sep">|</span>
+          <span>窗 {{ fmtX(winLo) }}~{{ fmtX(winHi) }}Hz</span>
           <div style="flex: 1"></div>
-          <button class="btn btn--sm">+ 添加面板</button>
-          <button class="btn btn--sm">导出</button>
+          <span v-if="isZoomed" class="ov-sbar-zoom" @click="resetZoom" title="复位频率缩放（滚轮缩放）">🔍 {{ zoomLabel }} <span class="ov-sbar-zoom-x">✕</span></span>
+          <span v-if="cursorState !== 'idle'" class="ov-cursor-state" :class="`is-${cursorState}`" :title="cursorStateHint">{{ cursorStateText }}</span>
+          <span v-if="displayReadout" class="ov-readout text-mono">@ {{ fmtX(displayReadout.x) }}Hz</span>
         </div>
+      </div>
 
-        <div class="region-bar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
-          <span class="label">已选频段：α (8 – 13 Hz)</span>
-          <span class="hint">右侧面板显示该频段统计</span>
-          <div style="flex: 1"></div>
-          <button class="btn btn--sm">清除</button>
-        </div>
-
-        <div class="panel-grid psd-panels">
-          <div v-for="ch in channels" :key="ch.id" class="obs-panel">
-            <div class="panel-head">
-              <span class="ch-tag-solid" :style="{ background: ch.color }">{{ ch.label }}</span>
-              <span class="title">{{ ch.subtitle }}<span v-if="ch.star" style="color: var(--c-success)"> · ★ 最大 α</span></span>
-              <span class="stats">α peak {{ ch.amp }} μV² @{{ ch.peak }}Hz</span>
-            </div>
-            <div class="panel-body">
-              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
-                <rect width="400" height="200" fill="#fff" />
-                <rect x="0" y="0" width="32" height="200" fill="#3B82F6" fill-opacity=".12" />
-                <rect x="32" y="0" width="32" height="200" fill="#10B981" fill-opacity=".12" />
-                <rect x="64" y="0" width="40" height="200" fill="#F59E0B" fill-opacity=".12" />
-                <rect x="104" y="0" width="136" height="200" fill="#F97316" fill-opacity=".12" />
-                <rect x="240" y="0" width="160" height="200" fill="#EF4444" fill-opacity=".12" />
-                <rect x="64" y="0" width="40" height="200" fill="rgba(46,107,255,.12)" />
-                <line x1="0" y1="100" x2="400" y2="100" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
-                <line x1="0" y1="50" x2="400" y2="50" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
-                <line x1="0" y1="150" x2="400" y2="150" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
-                <g font-size="8" font-family="monospace" fill="var(--c-text-3)">
-                  <text x="16" y="196" text-anchor="middle">δ</text>
-                  <text x="48" y="196" text-anchor="middle">θ</text>
-                  <text x="84" y="196" text-anchor="middle">α</text>
-                  <text x="172" y="196" text-anchor="middle">β</text>
-                  <text x="320" y="196" text-anchor="middle">γ</text>
-                </g>
-                <path :d="ch.semPath" fill="#2E6BFF" fill-opacity="0.08" stroke="none" />
-                <path :d="ch.curveS1" stroke="#2E6BFF" stroke-width="1.8" fill="none" />
-                <path :d="ch.curveS2" stroke="#10B981" stroke-width="1.8" fill="none" />
-                <path :d="ch.curveS3" stroke="#F59E0B" stroke-width="1.8" fill="none" stroke-dasharray="4 3" />
-                <text x="4" y="14" fill="#5B6B85" font-size="8" font-family="monospace">μV²/Hz</text>
-                <text x="396" y="196" fill="#5B6B85" font-size="8" text-anchor="end" font-family="monospace">Hz</text>
-              </svg>
-            </div>
-          </div>
-
-          <div class="obs-panel">
-            <div class="panel-head">
-              <span class="ch-tag-solid" style="background: #5B6B85">Σ</span>
-              <span class="title">通道叠加</span>
-              <span class="stats">α band 平均</span>
-            </div>
-            <div class="panel-body">
-              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
-                <rect width="400" height="200" fill="#fff" />
-                <rect x="64" y="0" width="40" height="200" fill="rgba(46,107,255,.12)" />
-                <line x1="0" y1="100" x2="400" y2="100" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
-                <path v-for="ch in channels" :key="ch.id" :d="ch.curveS2" :stroke="ch.color" stroke-width="1.2" fill="none" opacity="0.7" />
-              </svg>
-            </div>
+      <!-- ============ 右栏：统计结果 ============ -->
+      <aside v-if="showStats" class="ov-right">
+        <div class="ov-right-head">
+          <strong><span class="ov-right-dot"></span>统计结果</strong>
+          <div class="ov-right-btns">
+            <button class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="焦点：谱图加粗读数通道、压细其余">◎ 焦点</button>
+            <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
+            <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
         </div>
-      </main>
+        <div class="ov-right-scroll">
+          <!-- 游标读数 -->
+          <div class="ov-hover" :class="{ 'is-expanded': hoverExpanded }">
+            <template v-if="displayReadout">
+              <div class="ov-hover-hd">
+                <span v-if="cursorLocked" class="ov-hover-lock">🔒 锁定</span>游标 <span class="text-mono">{{ fmtX(displayReadout.x) }}Hz</span><span v-if="cursorLocked" class="ov-hover-tip">右键解锁</span><span class="ov-hover-unit">dB</span>
+              </div>
+              <div class="ov-hover-list">
+                <div v-for="it in hoverItems" :key="it.name" class="ov-hover-row">
+                  <span class="ov-li-dot" :style="{ background: it.color }"></span>
+                  <span class="ov-hover-name">{{ it.name }}</span>
+                  <span class="ov-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+                </div>
+              </div>
+              <button v-if="displayReadout.items.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${displayReadout.items.length} 条` }}</button>
+            </template>
+            <div v-else class="ov-hover-idle">移动游标查看各通道在该频率的功率 · 双击锁定</div>
+          </div>
 
-      <aside class="stats-panel">
-        <div class="st-section">
-          <h4>频段统计 · Alpha (8–13 Hz)</h4>
-          <div v-for="ch in channels" :key="ch.id" class="st-card">
-            <div class="ttl">
-              <span class="pin" :style="{ background: ch.color }"></span>{{ ch.label }}
-              <span v-if="ch.star" style="margin-left: auto; font-size: 9px; color: var(--c-success)">★ 最大</span>
+          <div v-if="!statsRows.length" class="ov-right-empty">
+            选择通道后，这里显示主频 (IAF)、频段相对功率与常用比值。
+          </div>
+          <template v-else-if="readoutStat">
+            <!-- 主频 IAF 英雄 + 通道选择 -->
+            <div class="ov-focus">
+              <select v-model="readoutKey" class="ov-focus-pick">
+                <option value="">自动 · α 最强通道</option>
+                <option v-for="o in readoutOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
+              </select>
+              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: readoutStat.color }"></span>{{ readoutStat.chan }} · {{ readoutStat.segName }}</div>
+              <div class="ov-focus-main">
+                <div class="ov-focus-cell"><span class="ov-focus-num">{{ iafText }}</span><span class="ov-focus-u">Hz · 主频 / IAF</span></div>
+                <div class="ov-focus-cell"><span class="ov-focus-num2">{{ (readoutStat.bandRel.alpha ?? 0).toFixed(0) }}%</span><span class="ov-focus-u">α 相对功率</span></div>
+              </div>
             </div>
-            <div class="st-grid">
-              <div class="st-cell"><span class="k">均值</span><span class="v">{{ (ch.amp * 0.93).toFixed(1) }} μV²</span></div>
-              <div class="st-cell"><span class="k">峰值</span><span class="v" :style="{ color: ch.star ? 'var(--c-success)' : 'var(--c-primary)' }">{{ ch.amp }} @{{ ch.peak }}Hz</span></div>
-              <div class="st-cell"><span class="k">绝对功率</span><span class="v">{{ (ch.amp * 0.18).toFixed(2) }} μV²</span></div>
-              <div class="st-cell"><span class="k">相对功率</span><span class="v">{{ (ch.amp * 2.4).toFixed(1) }} %</span></div>
+
+            <!-- 频段相对功率 % -->
+            <div class="ov-contrast">
+              <div class="ov-sec-mini">频段相对功率 %（占总功率，跨人可比）</div>
+              <div class="ov-contrast-list">
+                <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
+                  <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
+                  <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
+                  <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: (readoutStat.bandRel[b.name] ?? 0) + '%', background: bandColor(b.name) }"></span></span>
+                  <span class="ov-contrast-val text-mono">{{ (readoutStat.bandRel[b.name] ?? 0).toFixed(0) }}%</span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div class="st-section">
-          <h4>条件对比 · α 频段</h4>
-          <table class="small-tbl">
-            <thead><tr><th>通道</th><th>open</th><th>closed</th><th>Δ</th></tr></thead>
-            <tbody>
-              <tr v-for="ch in channels" :key="ch.id">
-                <td>{{ ch.label }}</td>
-                <td>{{ (ch.amp * 0.7).toFixed(1) }}</td>
-                <td>{{ ch.amp }}</td>
-                <td style="color: var(--c-success); font-weight: 700">+{{ (ch.amp * 0.3).toFixed(1) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+            <!-- 常用比值（描述性，不作诊断）-->
+            <div class="psd-ratios">
+              <div class="ov-sec-mini">常用比值 · 描述性，不作诊断</div>
+              <div class="psd-ratio-cards">
+                <div class="psd-ratio-card"><div class="psd-ratio-k">θ/β (TBR)</div><div class="psd-ratio-v">{{ tbr }}</div></div>
+                <div class="psd-ratio-card"><div class="psd-ratio-k">δ/α (DAR)</div><div class="psd-ratio-v">{{ dar }}</div></div>
+              </div>
+            </div>
 
-        <div class="st-section">
-          <h4>IAF 检测</h4>
-          <div class="iaf-alert">
-            <strong>IAF = 10.2 Hz</strong>
-            <div class="iaf-sub">检测置信度高 · sub-01 eyes-closed</div>
-          </div>
-        </div>
-
-        <div class="st-section">
-          <h4>频段地形图 · α</h4>
-          <div class="topomap" style="height: 120px"></div>
-          <div style="text-align: center; font-size: 11px; color: var(--c-text-2); margin-top: 4px">
-            8–13 Hz 平均功率
-          </div>
-          <select class="select input--sm" style="margin-top: 8px; width: 100%; font-family: var(--ff-mono)">
-            <option>δ 地形图</option>
-            <option>θ 地形图</option>
-            <option selected>α 地形图（当前）</option>
-            <option>β 地形图</option>
-            <option>γ 地形图</option>
-          </select>
-        </div>
-
-        <div class="st-section">
-          <h4>导出</h4>
-          <button class="btn">导出统计 CSV</button>
-          <RouterLink class="btn" to="/figures">发送到作图模块</RouterLink>
-          <RouterLink class="btn" to="/statistics">发送到统计模块</RouterLink>
+            <!-- 明细表（相对功率 %）-->
+            <div class="ov-detail">
+              <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                明细表 · {{ statsRows.length }} 行
+              </button>
+              <table v-if="showDetailTable" class="ov-dtable">
+                <thead>
+                  <tr><th>数据集</th><th>通道</th><th>IAF</th><th>α%</th><th>θ/β</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': focusChannel === r.chan }" @click="focusChan(r.chan)">
+                    <td>{{ r.segName }}</td>
+                    <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
+                    <td>{{ Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '—' }}</td>
+                    <td>{{ (r.bandRel.alpha ?? 0).toFixed(0) }}%</td>
+                    <td>{{ (r.bandRel.beta ?? 0) > 0 ? ((r.bandRel.theta ?? 0) / (r.bandRel.beta ?? 0)).toFixed(2) : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </aside>
     </div>
-
-    <div v-else class="obs-layout obs-layout--live">
-      <main class="obs-main">
-        <ObserveTabs active="psd">
-          <template #meta>
-            <span style="font-size: 11px; color: var(--c-text-3)">{{ liveMeta }}</span>
-          </template>
-        </ObserveTabs>
-
-        <div class="obs-toolbar">
-          <span class="tool-lbl">通道</span>
-          <select :value="selectedChannel" @change="selectChannel(($event.target as HTMLSelectElement).value)">
-            <option v-for="ch in channelOptions" :key="ch" :value="ch">{{ ch }}</option>
-          </select>
-          <div style="flex: 1"></div>
-          <button class="btn btn--sm btn--primary" @click="refresh">▶ 刷新</button>
-        </div>
-
-        <div class="psd-live-card">
-          <div class="psd-live-card__head">
-            <h2>功率谱 · {{ selectedChannel }} · {{ live?.condition || '—' }}</h2>
-            <p>Welch · {{ fmtHz(live?.fmin) }}–{{ fmtHz(live?.fmax) }} Hz · {{ live?.n_channels_total ?? '—' }} 通道</p>
-          </div>
-          <div class="psd-live-plot">
-            <div v-if="liveLoading" class="psd-state">正在加载功率谱…</div>
-            <div v-else-if="liveError" class="psd-state psd-state--err">{{ liveError }}</div>
-            <svg viewBox="0 0 760 320" preserveAspectRatio="xMidYMid meet" class="psd-svg">
-              <rect width="760" height="320" fill="#fff" />
-              <g transform="translate(56, 16)">
-                <line v-for="g in yGrid" :key="`y${g.y}`" x1="0" :y1="g.y" x2="660" :y2="g.y" stroke="#E5E9F2" stroke-width="0.5" stroke-dasharray="3 3" />
-                <text v-for="g in yGrid" :key="`yl${g.y}`" x="-8" :y="g.y + 3" font-size="10" text-anchor="end" fill="#577190" font-family="monospace">{{ g.label }}</text>
-                <line x1="0" y1="0" x2="0" y2="260" stroke="#bbccdd" />
-                <line x1="0" y1="260" x2="660" y2="260" stroke="#bbccdd" />
-                <text v-for="t in xTicks" :key="`x${t.x}`" :x="t.x" y="278" font-size="10" text-anchor="middle" fill="#577190" font-family="monospace">{{ t.label }}</text>
-                <polyline v-if="linePath" :points="linePath" fill="none" stroke="#2563EB" stroke-width="1.8" />
-                <text x="-44" y="130" font-size="11" fill="#5B6B85" transform="rotate(-90 -44 130)">功率 (dB)</text>
-                <text x="330" y="300" font-size="11" fill="#5B6B85">频率 (Hz)</text>
-              </g>
-            </svg>
-          </div>
-        </div>
-      </main>
-
-      <aside class="stats-panel">
-        <div class="st-section">
-          <h4>频带平均功率 (dB)</h4>
-          <div class="stat-grid">
-            <div v-for="b in live?.bands || []" :key="b.name" class="stat-card">
-              <div class="stat-label">{{ b.name }} ({{ b.fmin }}–{{ b.fmax }} Hz)</div>
-              <div class="stat-value">{{ b.value.toFixed(1) }}<span class="unit"> dB</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="st-section">
-          <h4>导出</h4>
-          <RouterLink class="btn" to="/figures">发送到作图模块</RouterLink>
-          <RouterLink class="btn" to="/statistics">发送到统计模块</RouterLink>
-        </div>
-      </aside>
-    </div>
-  </WorkbenchShell>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import ObserveTabs from '@/components/ObserveTabs.vue'
-import { pipelineApi } from '@/api/pipelines'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import type { StudyOutputPsd } from '@/types'
+import { pipelineApi } from '@/api/pipelines'
+import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import MiniSparkline from '@/components/observe/MiniSparkline.vue'
+import TopoStrip from '@/components/observe/TopoStrip.vue'
+import { useMultiSelect } from '@/composables/observe/useMultiSelect'
+import { useCursorState } from '@/composables/observe/useCursorState'
+import { useFacetGrid } from '@/composables/observe/useFacetGrid'
+import { usePalette } from '@/composables/observe/usePalette'
+import '@/components/observe/observePage.css'
 
-// ── 双模式：路由带 study_output_id+studyId → 拉真实功率谱；否则保留静态设计稿 ──
 const route = useRoute()
-const studyId = computed(() => String(route.query.studyId || route.query.study_id || ''))
-const outputId = computed(() => String(route.query.study_output_id || ''))
-const isLive = computed(() => Boolean(studyId.value && outputId.value))
 
-const live = ref<StudyOutputPsd | null>(null)
-const liveLoading = ref(false)
-const liveError = ref('')
-const selectedChannel = ref('')
+// ---------- 常量 ----------
+const MAX_CHANNELS = 64
+const DEFAULT_SELECT = 8
+const INACTIVE_DOT = '#cbd2dc'
+const HOVER_COLLAPSED = 6
+const TYPE_COLOR = '#7B5EA8'
+const PSD_BANDS = [
+  { name: 'delta', label: 'δ', lo: 1, hi: 4 },
+  { name: 'theta', label: 'θ', lo: 4, hi: 8 },
+  { name: 'alpha', label: 'α', lo: 8, hi: 13 },
+  { name: 'beta', label: 'β', lo: 13, hi: 30 },
+  { name: 'gamma', label: 'γ', lo: 30, hi: 80 },
+] as const
+const FREQ_WINDOWS = [
+  { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
+  { key: '0-45', label: '0–45', lo: 0, hi: 45 },
+  { key: '0-30', label: '0–30', lo: 0, hi: 30 },
+  { key: '1-100', label: '1–100', lo: 1, hi: 100 },
+]
 
-async function loadPsd(channel?: string) {
-  if (!isLive.value) return
-  liveLoading.value = true
-  liveError.value = ''
-  try {
-    const res = await pipelineApi.getStudyOutputPsd(studyId.value, outputId.value, channel ? { channel } : {})
-    live.value = res.data
-    selectedChannel.value = res.data.channel
-  } catch (error: unknown) {
-    const detail = (error as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail
-    liveError.value = detail?.message || (error as Error)?.message || '功率谱加载失败'
-  } finally {
-    liveLoading.value = false
+// ---------- 查询参数 ----------
+function qstr(key: string, fallback = ''): string {
+  const raw = route.query[key]
+  if (Array.isArray(raw)) return raw[0] ?? fallback
+  return raw ?? fallback
+}
+const studyId = qstr('studyId') || qstr('study_id')
+const outputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
+const datasetId = outputIds[0] || ''
+const isMultiOutput = outputIds.length > 1
+const nameHint = qstr('name')
+
+// ---------- 状态 ----------
+const psdMap = ref<Map<number, StudyOutputPsd>>(new Map()) // outputIndex -> PSD
+const loading = ref(true)
+const error = ref('')
+const partialNote = ref('')
+const labelCache = reactive<Record<number, string>>({})
+
+const showStats = ref(true)
+const showGrid = ref(true)
+const showLeft = ref(true)
+const showHelp = ref(false)
+const displayMode = ref<'overlay' | 'spread'>('overlay')
+const isFullscreen = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const collapsed = reactive<Record<string, boolean>>({
+  dataset: false, channel: false, band: false, range: false, layout: false, modules: false,
+})
+
+// 配色
+const { paletteKey, palOpen, currentPalette, paletteGroups, selectPalette, colorAt } = usePalette('elys')
+
+// ---------- 段（=数据集/条件输出）与通道选择 ----------
+const segKeys = computed(() => outputIds.map((_, i) => i))
+const segSel = useMultiSelect<number>(() => segKeys.value, isMultiOutput ? outputIds.map((_, i) => i) : [0])
+const selectedSegs = segSel.selected
+const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
+const primary = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
+const primaryPsd = computed<StudyOutputPsd | null>(
+  () => psdMap.value.get(primary.value) ?? psdMap.value.values().next().value ?? null,
+)
+const segCount = computed(() => outputIds.length)
+
+const allChanNames = computed(() => (primaryPsd.value?.channels ?? []).map((c) => c.name))
+const chanSel = useMultiSelect<string>(() => allChanNames.value, [])
+const selected = chanSel.selected
+const orderedSel = computed(() => allChanNames.value.filter((n) => selected.value.has(n)))
+
+// 数据进来后默认选前 N 个通道
+watch(
+  () => allChanNames.value.join(''),
+  (key) => {
+    if (!key) return
+    if (selected.value.size === 0) {
+      chanSel.set(allChanNames.value.slice(0, Math.min(allChanNames.value.length, DEFAULT_SELECT)))
+    }
+  },
+  { immediate: true },
+)
+
+// ---------- 叠加维度 / 颜色 ----------
+const overlayDim = ref<'seg' | 'chan' | 'none'>('chan') // PSD 默认：全通道叠加（经典功率谱）
+const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() => {
+  const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
+  if (segCount.value > 1) opts.push({ v: 'seg', l: '数据集' })
+  opts.push({ v: 'chan', l: '通道' })
+  if (segCount.value > 1 && orderedSel.value.length > 1) opts.push({ v: 'none', l: '矩阵' })
+  return opts
+})
+function chColor(i: number) {
+  return colorAt(i, allChanNames.value.length)
+}
+function segColor(seg: number) {
+  return colorAt(seg, segCount.value)
+}
+function segLabel(seg: number): string {
+  const psd = psdMap.value.get(seg)
+  return psd?.condition || labelCache[seg] || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
+}
+
+// ---------- facet 单元（数据访问注入 useFacetGrid）----------
+function cellAccent(cell: { series: { color: string }[] }): string {
+  return cell.series[0]?.color || 'var(--c-border)'
+}
+const { effectiveOverlay, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
+  segs: () => sortedSegs.value,
+  chans: () => orderedSel.value,
+  segCount: () => segCount.value,
+  overlayDim,
+  segLabel,
+  buildCell: ({ segs, chans, multiSeg, multiChan, segIsGrid }) => {
+    let xs: number[] = []
+    const cols: number[][] = []
+    const series: { name: string; color: string }[] = []
+    for (const seg of segs) {
+      const psd = psdMap.value.get(seg)
+      if (!psd) continue
+      const fx = psd.freqs
+      if (!xs.length) xs = fx
+      if (fx.length !== xs.length) continue // 频率向量长度不一致跳过，避免错位
+      for (const chan of chans) {
+        const ch = psd.channels.find((c) => c.name === chan)
+        if (!ch || ch.power.length !== xs.length) continue
+        cols.push(ch.power)
+        const nm = multiSeg && multiChan ? `${segLabel(seg)}·${chan}` : multiSeg ? segLabel(seg) : chan
+        const color = !segIsGrid && multiSeg ? segColor(seg) : chColor(allChanNames.value.indexOf(chan))
+        series.push({ name: nm, color })
+      }
+    }
+    return { data: [xs, ...cols], series }
+  },
+})
+
+// 全 facet 共享 y 量程（dB，跨所选通道/数据集），传给每张子图保证可比
+const yDomainAll = computed<[number, number] | null>(() => {
+  let lo = Infinity
+  let hi = -Infinity
+  for (const seg of sortedSegs.value) {
+    const psd = psdMap.value.get(seg)
+    if (!psd) continue
+    for (const ch of psd.channels) {
+      if (!selected.value.has(ch.name)) continue
+      if (ch.pmin != null) lo = Math.min(lo, ch.pmin)
+      if (ch.pmax != null) hi = Math.max(hi, ch.pmax)
+    }
   }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
+  const pad = (hi - lo) * 0.06
+  return [lo - pad, hi + pad]
+})
+
+// 手动 Y 量程(dB):上/下限各自可填,留空那侧用自动;两侧都空=完全跟随数据。纯显示缩放,不影响取数。
+const yLoInput = ref<number | string>('')
+const yHiInput = ref<number | string>('')
+const yLoManual = ref<number | null>(null)
+const yHiManual = ref<number | null>(null)
+function applyYRange() {
+  yLoManual.value = toNum(yLoInput.value)
+  yHiManual.value = toNum(yHiInput.value)
+}
+function resetYRange() {
+  yLoInput.value = ''
+  yHiInput.value = ''
+  yLoManual.value = null
+  yHiManual.value = null
+}
+const isYManual = computed(() => yLoManual.value !== null || yHiManual.value !== null)
+// 生效量程:手动值优先,缺的那侧回填自动;组合无效(上≤下/无自动) → 退回自动
+const effectiveYDomain = computed<[number, number] | null>(() => {
+  const auto = yDomainAll.value
+  const lo = yLoManual.value ?? (auto ? auto[0] : null)
+  const hi = yHiManual.value ?? (auto ? auto[1] : null)
+  if (lo === null || hi === null || hi <= lo) return auto
+  return [lo, hi]
+})
+const autoYLoLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomainAll.value[0])) : '自动'))
+const autoYHiLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomainAll.value[1])) : '自动'))
+
+// ---------- 工具 ----------
+function shortId(v?: string | null) {
+  if (!v) return ''
+  return v.length > 10 ? v.slice(0, 8) + '…' : v
+}
+function round(n: number, p: number) {
+  const f = Math.pow(10, p)
+  return Math.round(n * f) / f
+}
+function fmtX(v: number) {
+  return Number(v.toFixed(1))
+}
+function toNum(v: number | string): number | null {
+  if (v === '' || v === null || v === undefined) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+const displayName = computed(() => nameHint || (primaryPsd.value?.condition ? `功率谱 · ${primaryPsd.value.condition}` : '功率谱'))
+function chanValues(name: string): number[] {
+  const ch = primaryPsd.value?.channels.find((c) => c.name === name)
+  return ch ? ch.power : []
+}
+
+// ---------- 频率窗（视觉缩放，纯前端 x 量程）----------
+const viewXMin = ref<number | null>(null)
+const viewXMax = ref<number | null>(null)
+const freqWinKey = ref('all')
+const freqLo = computed(() => primaryPsd.value?.freqs[0] ?? 0)
+const freqHi = computed(() => {
+  const f = primaryPsd.value?.freqs
+  return f && f.length ? f[f.length - 1] : 0
+})
+const winLo = computed(() => viewXMin.value ?? freqLo.value)
+const winHi = computed(() => viewXMax.value ?? freqHi.value)
+const isZoomed = computed(() => viewXMin.value != null || viewXMax.value != null)
+const zoomLabel = computed(() => `${fmtX(winLo.value)}~${fmtX(winHi.value)}Hz`)
+function applyFreqWindow(key: string) {
+  freqWinKey.value = key
+  const w = FREQ_WINDOWS.find((x) => x.key === key)
+  if (!w || w.lo == null || w.hi == null) {
+    viewXMin.value = null
+    viewXMax.value = null
+    return
+  }
+  viewXMin.value = w.lo
+  viewXMax.value = w.hi
+}
+function onZoom(v: { min: number; max: number } | null) {
+  viewXMin.value = v ? v.min : null
+  viewXMax.value = v ? v.max : null
+  freqWinKey.value = v ? 'all' : freqWinKey.value
+}
+function resetZoom() {
+  viewXMin.value = null
+  viewXMax.value = null
+  freqWinKey.value = 'all'
+}
+
+// 手动 X 量程(频率 Hz):上/下限可填,留空那侧用数据全幅;两侧都空=全幅。纯显示裁剪,不重新取数。
+const xLoInput = ref<number | string>('')
+const xHiInput = ref<number | string>('')
+const logX = ref(false) // 频率轴 线性/对数（默认线性）
+function applyXRange() {
+  const lo = toNum(xLoInput.value)
+  const hi = toNum(xHiInput.value)
+  if (lo === null && hi === null) { resetZoom(); return }
+  // TimeCourseCanvas 仅在 viewMin/Max 都非空时裁剪,故留空侧回填数据全幅,凑成具体窗
+  const flo = lo ?? freqLo.value
+  const fhi = hi ?? freqHi.value
+  if (flo >= fhi) return // 上≤下 → 无效忽略
+  viewXMin.value = flo
+  viewXMax.value = fhi
+  freqWinKey.value = 'all'
+}
+const autoXLoLabel = computed(() => (primaryPsd.value ? String(Math.round(freqLo.value)) : '自动'))
+const autoXHiLabel = computed(() => (primaryPsd.value ? String(Math.round(freqHi.value)) : '自动'))
+// 视图被预设/滚轮/拖拽/重置改动 → 回填输入框,显示与实际窗同步
+watch([viewXMin, viewXMax], ([mn, mx]) => {
+  xLoInput.value = mn == null ? '' : round(mn, 1)
+  xHiInput.value = mx == null ? '' : round(mx, 1)
+})
+
+// ---------- 游标 ----------
+type Item = { name: string; color: string; uv: number }
+const { cursorLocked, lockedReadout, displayReadout, cursorState, cursorStateText, cursorStateHint, onCursor, onLock, onUnlock } =
+  useCursorState<Item>({ fmtX, xUnit: () => 'Hz' })
+const hoverExpanded = ref(false)
+const hoverItems = computed(() => {
+  const items = displayReadout.value?.items ?? []
+  return hoverExpanded.value ? items : items.slice(0, HOVER_COLLAPSED)
+})
+
+// ---------- 统计区间（频率）----------
+const region = ref<{ x0: number; x1: number } | null>(null)
+const regionUserSet = ref(false)
+const statLoInput = ref<number | string>('')
+const statHiInput = ref<number | string>('')
+const selectedBand = ref<string>('alpha')
+const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === selectedBand.value)?.label ?? 'α')
+const highlightChan = ref('')
+
+// 数据里真实存在的频段（后端 bands 已跳过范围外的 δ/γ）→ 右栏/地形图只列这些,不硬塞幽灵频段
+const presentBands = computed(() => {
+  const names = new Set((primaryPsd.value?.channels?.[0]?.bands ?? []).map((b) => b.name))
+  return PSD_BANDS.filter((b) => names.has(b.name))
+})
+// selectedBand 始终落在存在的频段上:缺则取 alpha,无 alpha 取首个
+watch(presentBands, (bands) => {
+  if (!bands.length) return
+  if (!bands.some((b) => b.name === selectedBand.value)) {
+    selectedBand.value = bands.some((b) => b.name === 'alpha') ? 'alpha' : bands[0].name
+  }
+}, { immediate: true })
+function fullRange(): { x0: number; x1: number } | null {
+  if (!primaryPsd.value) return null
+  return { x0: freqLo.value, x1: freqHi.value }
+}
+function applyStatsRange() {
+  const lo = toNum(statLoInput.value)
+  const hi = toNum(statHiInput.value)
+  if (lo === null || hi === null) return
+  region.value = { x0: Math.min(lo, hi), x1: Math.max(lo, hi) }
+  regionUserSet.value = true
+}
+function resetStatsRange() {
+  regionUserSet.value = false
+  const fr = fullRange()
+  if (fr) {
+    region.value = fr
+    statLoInput.value = round(fr.x0, 1)
+    statHiInput.value = round(fr.x1, 1)
+  }
+}
+function onSelect(r: { x0: number; x1: number } | null) {
+  if (!r) return
+  region.value = r
+  regionUserSet.value = true
+  statLoInput.value = round(r.x0, 1)
+  statHiInput.value = round(r.x1, 1)
+}
+function focusChan(name: string) {
+  highlightChan.value = highlightChan.value === name ? '' : name
+}
+
+// ---------- 临床读数（逐 数据集×通道：IAF + 频段相对功率）----------
+interface PsdStatRow {
+  seg: number
+  segName: string
+  chan: string
+  color: string
+  iaf: number // α(8–13Hz) 峰频 Hz；无峰为 NaN
+  iafPower: number // IAF 处功率 dB
+  bandRel: Record<string, number> // 各频段相对功率 %（后端 bands.rel）
+  bandAbs: Record<string, number> // 各频段均值 dB
+}
+const statsRows = computed<PsdStatRow[]>(() => {
+  const chans = orderedSel.value
+  const segs = sortedSegs.value
+  if (!chans.length) return []
+  const out: PsdStatRow[] = []
+  for (const seg of segs) {
+    const psd = psdMap.value.get(seg)
+    if (!psd) continue
+    const fx = psd.freqs
+    for (const chan of chans) {
+      const ch = psd.channels.find((c) => c.name === chan)
+      if (!ch) continue
+      // IAF = α 频段(8–13Hz)内功率最大处的频率
+      let iaf = Number.NaN
+      let iafPower = -Infinity
+      for (let i = 0; i < fx.length; i++) {
+        if (fx[i] >= 8 && fx[i] <= 13 && (ch.power[i] ?? -Infinity) > iafPower) {
+          iafPower = ch.power[i]
+          iaf = fx[i]
+        }
+      }
+      const bandRel: Record<string, number> = {}
+      const bandAbs: Record<string, number> = {}
+      for (const b of ch.bands) {
+        bandRel[b.name] = b.rel ?? 0
+        bandAbs[b.name] = b.value
+      }
+      out.push({ seg, segName: segLabel(seg), chan, color: chColor(allChanNames.value.indexOf(chan)), iaf, iafPower, bandRel, bandAbs })
+    }
+  }
+  return out.slice(0, 500)
+})
+
+// 主读数行：选定通道(readoutKey) 或默认 α 相对功率最强（后部 / IAF 源）
+const showDetailTable = ref(false)
+const readoutKey = ref('')
+const readoutOptions = computed(() => statsRows.value.map((r) => ({ key: `${r.seg}::${r.chan}`, label: `${r.chan} · ${r.segName}` })))
+const readoutStat = computed<PsdStatRow | null>(() => {
+  const rows = statsRows.value
+  if (!rows.length) return null
+  if (readoutKey.value) {
+    const hit = rows.find((r) => `${r.seg}::${r.chan}` === readoutKey.value)
+    if (hit) return hit
+  }
+  let pk = rows[0]
+  for (const r of rows) if ((r.bandRel.alpha ?? 0) > (pk.bandRel.alpha ?? 0)) pk = r
+  return pk
+})
+watch(readoutKey, (k) => {
+  if (!k) return
+  const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
+  if (hit) highlightChan.value = hit.chan
+})
+// 焦点（与时域一致，默认关）：开启时谱图加粗「读数通道」、压细其余 + 描边其子图;关时用手动高亮(点明细行)
+const focusEnabled = ref(false)
+const focusChannel = computed(() => (focusEnabled.value && readoutStat.value ? readoutStat.value.chan : highlightChan.value))
+const iafText = computed(() => {
+  const s = readoutStat.value
+  return s && Number.isFinite(s.iaf) ? s.iaf.toFixed(1) : '—'
+})
+// 常用比值（描述性，不作诊断）：相对功率相除（总功率约掉，等于绝对功率比）
+function ratioText(a: string, b: string): string {
+  const s = readoutStat.value
+  if (!s) return '—'
+  const den = s.bandRel[b] ?? 0
+  return den > 0 ? ((s.bandRel[a] ?? 0) / den).toFixed(2) : '—'
+}
+const tbr = computed(() => ratioText('theta', 'beta'))
+const dar = computed(() => ratioText('delta', 'alpha'))
+// 频段配色（与谱线背景 / 地形一致）
+const BAND_COLORS: Record<string, string> = { delta: '#378ADD', theta: '#1D9E75', alpha: '#BA7517', beta: '#D85A30', gamma: '#D4537E' }
+function bandColor(name: string): string {
+  return BAND_COLORS[name] ?? 'var(--c-border)'
+}
+// α 峰 / IAF 标记（取主读数通道）
+const psdMarkers = computed(() => {
+  const s = readoutStat.value
+  return s && Number.isFinite(s.iaf) ? [{ x: s.iaf, label: `IAF ${s.iaf.toFixed(1)}`, color: '#BA7517' }] : []
+})
+
+// ---------- 频段地形图（selectedBand 的逐通道功率 → 头皮投影，复用 TopoStrip）----------
+const showTopo = ref(true)
+const topoScaleMode = ref<'auto' | 'linked'>('auto') // 色阶模式:自动(相对·去均值) / 联动 Y 轴(绝对)
+interface TopoCell {
+  seg: number
+  label: string
+  color: string
+  points: { name: string; x: number; y: number; value: number }[] | null
+}
+const topoCells = computed<TopoCell[]>(() => {
+  if (!showTopo.value) return []
+  const out: TopoCell[] = []
+  for (const seg of sortedSegs.value) {
+    const psd = psdMap.value.get(seg)
+    if (!psd) continue
+    const pos = psd.ch_pos
+    if (!pos) {
+      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
+      continue
+    }
+    // 全部有坐标的通道(密集覆盖更准)。绝对频段功率是大负 dB,绕 0 发散色会全蓝看不出分布;
+    // 故去均值:减跨通道均值 → 显示"比平均强/弱"的相对空间分布(频段功率地形的标准看法)
+    const raw: { name: string; x: number; y: number; v: number }[] = []
+    for (const ch of psd.channels) {
+      const p = pos[ch.name]
+      if (!p) continue
+      const band = ch.bands.find((b) => b.name === selectedBand.value)
+      if (!band) continue
+      raw.push({ name: ch.name, x: p[0], y: p[1], v: band.value })
+    }
+    if (!raw.length) {
+      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
+      continue
+    }
+    // 中心:联动模式用 Y 窗中点(白=窗口中心),否则用本图跨通道均值(白=全脑平均)
+    const yd = effectiveYDomain.value
+    const center = topoScaleMode.value === 'linked' && yd ? (yd[0] + yd[1]) / 2 : raw.reduce((s, r) => s + r.v, 0) / raw.length
+    const points = raw.map((r) => ({ name: r.name, x: r.x, y: r.y, value: r.v - center }))
+    out.push({ seg, label: segLabel(seg), color: segColor(seg), points })
+  }
+  return out
+})
+const topoVmax = computed(() => {
+  let m = 0
+  for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
+  return m
+})
+const topoSubtitle = computed(() =>
+  topoScaleMode.value === 'linked'
+    ? `${selectedBandLabel.value} 功率 (跟随 Y 窗 dB) · 全部通道`
+    : `${selectedBandLabel.value} 相对功率 (Δ均值 dB) · 全部通道`,
+)
+
+// 地形图色阶两档:自动(相对·去均值·按本图最大偏差定标) / 联动(绝对·跟随谱线 Y 窗,半窗宽=色阶)
+const effectiveTopoVmax = computed(() => {
+  if (topoScaleMode.value === 'linked') {
+    const yd = effectiveYDomain.value
+    if (yd) return (yd[1] - yd[0]) / 2
+  }
+  return topoVmax.value
+})
+// colorbar 上下界:联动显示绝对 dB 窗 [下,上];自动留空 → TopoStrip 回退到 ±Δ
+const topoLoLabel = computed(() =>
+  topoScaleMode.value === 'linked' && effectiveYDomain.value ? String(Math.round(effectiveYDomain.value[0])) : undefined,
+)
+const topoHiLabel = computed(() =>
+  topoScaleMode.value === 'linked' && effectiveYDomain.value ? String(Math.round(effectiveYDomain.value[1])) : undefined,
+)
+const topoModeHint = computed(() =>
+  topoScaleMode.value === 'linked'
+    ? '联动：色标=谱线 Y(dB) 窗内的绝对功率；窗越窄越饱和（但会同时裁谱线）。'
+    : '自动：相对全脑均值、按最大偏差定标；红=强、蓝=弱；频段见上方下拉。',
+)
+
+// ---------- 导出 ----------
+function statsMatrix(): string[][] {
+  const head = ['数据集', '通道', 'IAF Hz', 'δ%', 'θ%', 'α%', 'β%', 'γ%']
+  const body = statsRows.value.map((r) => [
+    r.segName, r.chan, Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '',
+    (r.bandRel.delta ?? 0).toFixed(1), (r.bandRel.theta ?? 0).toFixed(1), (r.bandRel.alpha ?? 0).toFixed(1),
+    (r.bandRel.beta ?? 0).toFixed(1), (r.bandRel.gamma ?? 0).toFixed(1),
+  ])
+  return [head, ...body]
+}
+const copied = ref(false)
+function copyStats() {
+  const text = statsMatrix().map((r) => r.join('\t')).join('\n')
+  navigator.clipboard?.writeText(text).then(() => {
+    copied.value = true
+    window.setTimeout(() => (copied.value = false), 1200)
+  }).catch(() => {})
+}
+function exportCsv() {
+  const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'psd_stats.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+function exportCell(e: MouseEvent, title: string) {
+  const cellEl = (e.target as HTMLElement).closest('.ov-cell')
+  const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
+  if (!src || !src.width) return
+  const scale = src.clientWidth ? src.width / src.clientWidth : 2
+  const headH = Math.round(20 * scale)
+  const out = document.createElement('canvas')
+  out.width = src.width
+  out.height = src.height + headH
+  const ctx = out.getContext('2d')
+  if (!ctx) return
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, out.width, out.height)
+  if (title) {
+    ctx.fillStyle = '#1F2733'
+    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.textBaseline = 'middle'
+    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
+  }
+  ctx.drawImage(src, 0, headH)
+  const a = document.createElement('a')
+  a.href = out.toDataURL('image/png')
+  a.download = `psd_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
+  a.click()
+}
+
+// ---------- 取数 ----------
+let loadSeq = 0
+async function load() {
+  if (!studyId || !outputIds.length) {
+    error.value = '缺少参数：需要 studyId 和 study_output_id（结果 ID）。'
+    loading.value = false
+    return
+  }
+  const myId = ++loadSeq
+  loading.value = true
+  error.value = ''
+  try {
+    const settled = await Promise.allSettled(
+      outputIds.map(async (oid, i) => {
+        const res = await pipelineApi.getStudyOutputPsd(studyId, oid, { maxChannels: MAX_CHANNELS })
+        return [i, res.data] as const
+      }),
+    )
+    if (myId !== loadSeq) return
+    const ok = settled.filter(
+      (s): s is PromiseFulfilledResult<readonly [number, StudyOutputPsd]> => s.status === 'fulfilled',
+    )
+    if (!ok.length) {
+      const firstErr = settled.find((s) => s.status === 'rejected') as PromiseRejectedResult | undefined
+      psdMap.value = new Map()
+      error.value = describeError(firstErr?.reason)
+      return
+    }
+    const m = new Map<number, StudyOutputPsd>()
+    for (const s of ok) {
+      m.set(s.value[0], s.value[1])
+      if (s.value[1].condition) labelCache[s.value[0]] = s.value[1].condition
+    }
+    psdMap.value = m
+    const failed = settled.length - ok.length
+    partialNote.value = failed > 0 ? `部分结果未能加载（${failed} 个），仅显示可用的 ${ok.length} 个。` : ''
+    if (!regionUserSet.value) resetStatsRange()
+    document.title = `功率谱 · ${displayName.value} — 念析`
+  } catch (err: unknown) {
+    if (myId !== loadSeq) return
+    psdMap.value = new Map()
+    error.value = describeError(err)
+  } finally {
+    if (myId === loadSeq) loading.value = false
+  }
+}
+function describeError(err: unknown): string {
+  const e = err as { response?: { status?: number; data?: { detail?: { message?: string } | string } } }
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  const serverMsg = typeof detail === 'string' ? detail : detail?.message
+  if (status === 404) return '该结果的文件不存在或已被清理。'
+  if (status === 400) return serverMsg || '该结果不是功率谱(PSD)类型。'
+  if (status === 422) return serverMsg || '功率谱文件缺失或为空。'
+  return serverMsg || '读取功率谱失败，请稍后重试。'
+}
+
+// ---------- 左栏折叠 / 全屏 / 键盘 ----------
+function toggleSec(key: string) {
+  collapsed[key] = !collapsed[key]
+}
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+    const tag = document.activeElement?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    e.preventDefault()
+    if (allChanNames.value.length) chanSel.selectAll()
+  }
+}
+function toggleFullscreen() {
+  const el = pageRef.value
+  if (!el) return
+  if (document.fullscreenElement) void document.exitFullscreen()
+  else void el.requestFullscreen()
+}
+function onFsChange() {
+  isFullscreen.value = !!document.fullscreenElement
 }
 
 onMounted(() => {
-  if (isLive.value) loadPsd()
+  document.title = '功率谱 — 念析'
+  window.addEventListener('keydown', onKeydown)
+  document.addEventListener('fullscreenchange', onFsChange)
+  void load()
 })
-
-function selectChannel(ch: string) {
-  if (!ch) return
-  selectedChannel.value = ch
-  if (isLive.value) loadPsd(ch)
-}
-
-function refresh() {
-  if (isLive.value) loadPsd(selectedChannel.value)
-}
-
-const channelOptions = computed(() => (live.value ? live.value.ch_names_all : []))
-
-const liveMeta = computed(() => {
-  if (!live.value) return ''
-  return `${selectedChannel.value} · ${live.value.condition || '—'} · ${Math.round(live.value.sfreq)} Hz`
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('fullscreenchange', onFsChange)
 })
-
-function fmtHz(value: number | null | undefined) {
-  if (value == null) return '—'
-  return Math.abs(value) >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
-}
-
-// ── 折线 / 坐标：把 freqs/power 映射到 660×260 绘图区 ──
-const PLOT_W = 660
-const PLOT_H = 260
-
-const prange = computed(() => {
-  const p = live.value?.power || []
-  if (!p.length) return { pmin: -1, pmax: 1 }
-  const pmin = live.value?.pmin ?? Math.min(...p)
-  const pmax = live.value?.pmax ?? Math.max(...p)
-  if (pmax <= pmin) return { pmin: pmin - 1, pmax: pmax + 1 }
-  return { pmin, pmax }
-})
-
-const linePath = computed(() => {
-  const freqs = live.value?.freqs || []
-  const power = live.value?.power || []
-  const n = Math.min(freqs.length, power.length)
-  if (n < 2) return ''
-  const fmin = freqs[0]
-  const fspan = freqs[n - 1] - fmin || 1
-  const { pmin, pmax } = prange.value
-  const pspan = pmax - pmin || 1
-  const pts: string[] = []
-  for (let i = 0; i < n; i++) {
-    const x = ((freqs[i] - fmin) / fspan) * PLOT_W
-    const y = PLOT_H - ((power[i] - pmin) / pspan) * PLOT_H
-    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
-  }
-  return pts.join(' ')
-})
-
-const yGrid = computed(() => {
-  const { pmin, pmax } = prange.value
-  return [0, 0.5, 1].map((f) => ({
-    y: PLOT_H - f * PLOT_H,
-    label: String(Math.round(pmin + f * (pmax - pmin))),
-  }))
-})
-
-const xTicks = computed(() => {
-  const freqs = live.value?.freqs || []
-  if (!freqs.length) return [] as Array<{ x: number; label: string }>
-  const fmin = freqs[0]
-  const fmax = freqs[freqs.length - 1]
-  return [0, 0.5, 1].map((f) => ({ x: f * PLOT_W, label: fmtHz(fmin + f * (fmax - fmin)) }))
-})
-
-function pseudoRand(seed: number) {
-  const x = Math.sin(seed * 13.4567) * 43758.5453
-  return x - Math.floor(x)
-}
-
-function genPsdPath(seed: number, alphaPeak: number, alphaAmp: number, deltaScale: number) {
-  let path = ''
-  const n = 200
-  for (let i = 0; i <= n; i++) {
-    const hz = (i / n) * 45
-    let v = 0
-    v += (8 + deltaScale * 3) / (1 + Math.pow(hz / 2, 1.8))
-    v += alphaAmp * Math.exp(-Math.pow((hz - alphaPeak) / 2.5, 2))
-    v += alphaAmp * 0.15 * Math.exp(-Math.pow((hz - alphaPeak * 2) / 3, 2))
-    v += 2 / (1 + Math.pow(hz / 15, 2))
-    v += (pseudoRand(seed + i) - 0.5) * 0.3 * (1 / (1 + hz / 10))
-    v = Math.max(v, 0.1)
-    const x = (i / n) * 400
-    const y = 200 - (v / 25) * 190
-    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' '
-  }
-  return path
-}
-
-function genPsdSem(seed: number, alphaPeak: number, alphaAmp: number, deltaScale: number) {
-  let top = '', bot = ''
-  const n = 200
-  for (let i = 0; i <= n; i++) {
-    const hz = (i / n) * 45
-    let v = 0
-    v += (8 + deltaScale * 3) / (1 + Math.pow(hz / 2, 1.8))
-    v += alphaAmp * Math.exp(-Math.pow((hz - alphaPeak) / 2.5, 2))
-    v += alphaAmp * 0.15 * Math.exp(-Math.pow((hz - alphaPeak * 2) / 3, 2))
-    v += 2 / (1 + Math.pow(hz / 15, 2))
-    const sem = 0.8 + 0.5 * alphaAmp * Math.exp(-Math.pow((hz - alphaPeak) / 3, 2)) * 0.3
-    const x = (i / n) * 400
-    const yTop = 200 - ((v + sem) / 25) * 190
-    const yBot = 200 - ((v - sem) / 25) * 190
-    top += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + yTop.toFixed(1) + ' '
-    bot = 'L' + x.toFixed(1) + ',' + yBot.toFixed(1) + ' ' + bot
-  }
-  return top + bot + 'Z'
-}
-
-const channelDefs = [
-  { id: 'fz', label: 'Fz', color: '#2E6BFF', peak: 10.0, amp: 10.5, delta: 0.8, subtitle: '前额中线 · PSD' },
-  { id: 'cz', label: 'Cz', color: '#10B981', peak: 10.2, amp: 15.7, delta: 1.0, subtitle: '中央 · PSD', star: true },
-  { id: 'pz', label: 'Pz', color: '#8B5CF6', peak: 9.8, amp: 13.2, delta: 0.9, subtitle: '顶中线 · PSD' },
-  { id: 'oz', label: 'Oz', color: '#EF4444', peak: 10.5, amp: 18.3, delta: 0.7, subtitle: '枕区 · PSD' },
-  { id: 'cpz', label: 'CPz', color: '#F59E0B', peak: 10.0, amp: 12.1, delta: 0.85, subtitle: '中央顶 · PSD' },
-]
-
-const channels = channelDefs.map((ch) => ({
-  ...ch,
-  curveS1: genPsdPath(ch.peak * 7, ch.peak, ch.amp * 0.65, ch.delta),
-  curveS2: genPsdPath(ch.peak * 7 + 1, ch.peak, ch.amp, ch.delta),
-  curveS3: genPsdPath(ch.peak * 7 + 2, ch.peak * 1.02, ch.amp * 0.75, ch.delta * 1.1),
-  semPath: genPsdSem(ch.peak * 7, ch.peak, ch.amp * 0.65, ch.delta),
-}))
-
-const bands = [
-  { name: 'δ', color: '#3B82F6', active: false },
-  { name: 'θ', color: '#10B981', active: false },
-  { name: 'α', color: '#F59E0B', active: true },
-  { name: 'β', color: '#F97316', active: false },
-  { name: 'γ', color: '#EF4444', active: false },
-]
 </script>
 
 <style scoped>
-:deep(.page) { padding: 0; }
-.psd-panels {
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 1fr 1fr;
-}
-@media (max-width: 1300px) {
-  .psd-panels { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
-}
-.band-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--c-border);
-  background: var(--c-surface);
-  color: var(--c-text-2);
-  cursor: pointer;
-}
-.band-pill.active {
-  background: rgba(245, 158, 11, .15);
-  border-color: var(--c-warning);
-  color: var(--c-warning);
-  font-weight: 600;
-}
-.band-pill .bdot { width: 8px; height: 8px; border-radius: 50%; }
-
-.topomap {
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 35%, rgba(245, 158, 11, .6), transparent 40%),
-    radial-gradient(circle at 50% 65%, rgba(46, 107, 255, .4), transparent 35%),
-    radial-gradient(circle at 50% 50%, #FEF3D7 0%, #F7F9FC 70%);
-  border: 1.5px solid var(--c-border-strong);
-  margin: 0 auto;
-  width: 120px;
-  height: 120px;
-}
-.iaf-alert {
-  background: rgba(16, 185, 129, .08);
-  border: 1px solid rgba(16, 185, 129, .3);
-  border-radius: var(--r);
-  padding: 8px 10px;
-}
-.iaf-alert strong { color: var(--c-success); }
-.iaf-sub { font-size: 11px; color: var(--c-text-2); margin-top: 2px; }
-
-/* ── live 模式（接真实 PSD 结果）── */
-.psd-live-card {
-  margin: 12px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-.psd-live-card__head {
-  padding: 12px 16px;
-  background: var(--c-bg-soft);
-  border-bottom: 1px solid var(--c-border);
-}
-.psd-live-card__head h2 { margin: 0; font-size: 14px; }
-.psd-live-card__head p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; }
-.psd-live-plot { padding: 12px; position: relative; }
-.psd-svg { width: 100%; max-width: 100%; height: auto; }
-.psd-state {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 14px;
-  font-size: 12px;
-  border-radius: var(--r-pill);
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  color: var(--c-text-2);
-}
-.psd-state--err { color: var(--c-danger, #d43f34); border-color: var(--c-danger, #d43f34); }
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.stat-card {
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-sm);
-  background: var(--c-bg-soft);
-  padding: 8px 10px;
-  text-align: center;
-}
-.stat-label { font-size: 10px; color: var(--c-text-3); }
-.stat-value { font-family: var(--ff-mono); font-size: 15px; font-weight: 600; margin-top: 2px; color: var(--c-text); }
-.stat-value .unit { font-size: 10px; color: var(--c-text-3); margin-left: 2px; }
+.psd-bandpills { display: flex; gap: 4px; flex-wrap: wrap; }
+.psd-bandpill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; border-radius: var(--r-pill); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-family: var(--ff-mono); }
+.psd-bandpill:hover { border-color: var(--c-primary); }
+.psd-bandpill.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
+.psd-bandvals { display: flex; gap: 9px; flex-wrap: wrap; font-size: 11px; color: var(--c-text-3); margin-top: 8px; }
+.psd-bandval b { color: var(--c-text-2); font-weight: 600; font-family: var(--ff-mono); }
+.psd-ratios { padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+.psd-ratio-cards { display: flex; gap: 8px; }
+.psd-ratio-card { flex: 1; background: var(--c-bg-soft); border-radius: var(--r-sm); padding: 6px 10px; }
+.psd-ratio-k { font-size: 11px; color: var(--c-text-3); }
+.psd-ratio-v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 </style>

@@ -1,667 +1,1113 @@
 <template>
-  <WorkbenchShell active-key="view-tfr" active-top-key="observe">
-    <div class="obs-layout">
-      <aside class="selector-panel">
-        <div v-if="!isLive" class="sel-section">
-          <h4>数据集 <span class="count">3</span></h4>
-          <div class="checkbox-tree">
-            <div class="ck-node"><input type="checkbox" checked /><span class="name">stroke-mi-rehab</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name text-mono" style="font-size: 11px">sub-01 · ses-01</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" /><span class="name text-mono" style="font-size: 11px">sub-02 · ses-01</span></div>
-            <div class="ck-node indent-1"><input type="checkbox" checked /><span class="name text-mono" style="font-size: 11px">sub-03 · ses-01</span></div>
+  <div class="ov-page" ref="pageRef">
+    <!-- 顶部信息条（全屏时隐去） -->
+    <header v-show="!isFullscreen" class="ov-head">
+      <div class="ov-id">
+        <span class="ov-badge" :style="{ background: TYPE_COLOR }">TFR</span>
+        <div>
+          <div class="ov-title">{{ displayName }}<span class="ov-region">时频分析 (ERSP)</span></div>
+          <div class="ov-sub">
+            <span class="text-mono">{{ shortId(datasetId) }}</span>
+            <span v-if="selectedSegs.size > 1" class="ov-dot">·</span>
+            <span v-if="selectedSegs.size > 1" class="ov-cond">{{ selectedSegs.size }} 个数据集对比</span>
           </div>
         </div>
-        <div v-else class="sel-section">
-          <h4>结果</h4>
-          <div class="result-meta">
-            <div class="result-meta__row"><span class="k">条件</span><span class="v">{{ live?.condition || '—' }}</span></div>
-            <div class="result-meta__row"><span class="k">试次</span><span class="v">{{ live?.nave ?? '—' }}</span></div>
-            <div class="result-meta__row"><span class="k">通道</span><span class="v">{{ live?.n_channels_total ?? '—' }}</span></div>
-            <div class="result-meta__row"><span class="k">方法</span><span class="v">{{ live?.method || 'morlet' }}</span></div>
-          </div>
-        </div>
+      </div>
+      <div class="ov-head-right">
+        <button class="ov-btn ov-btn--ghost" @click="reload" :disabled="loading">刷新</button>
+      </div>
+    </header>
 
-        <div class="sel-section">
-          <h4>通道</h4>
-          <div style="display: flex; gap: 4px; flex-wrap: wrap">
-            <span
-              v-for="ch in channelChips"
-              :key="ch"
-              class="ch-tag"
-              :class="{ 'is-on': ch === selectedChannel }"
-              @click="selectChannel(ch)"
-            >
-              {{ ch }}
-            </span>
-            <span v-if="isLive && channelOptions.length > channelChips.length" class="ch-more">
-              +{{ channelOptions.length - channelChips.length }}
-            </span>
-          </div>
-        </div>
+    <div class="ov-main">
+      <!-- ============ 左栏：选择器 ============ -->
+      <aside v-show="showLeft" class="ov-left">
+        <div class="ov-left-scroll">
+          <!-- 数据集 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('dataset')">
+              数据集
+              <span class="ov-sec-cnt" v-if="isMultiOutput">{{ selectedSegs.size }}/{{ outputIds.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
+            </div>
+            <div v-show="!collapsed.dataset" class="ov-sec-body">
+              <template v-if="isMultiOutput">
+                <div
+                  v-for="(oid, i) in outputIds"
+                  :key="oid"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedSegs.has(i) }"
+                  @click="segSel.onClick(i, $event)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name">{{ segLabel(i) }}</span>
+                </div>
+              </template>
+              <div v-else class="ov-li is-static">
+                <span class="ov-li-dot" :style="{ background: TYPE_COLOR }"></span>
+                <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
+                <span class="ov-li-tag">{{ allChanNames.length }}ch</span>
+              </div>
+              <p v-if="isMultiOutput" class="ov-sec-hint">勾选多个结果并排对比（同一研究项下的时频产物，如不同条件 / 被试）。</p>
+            </div>
+          </section>
 
-        <div class="sel-section">
-          <h4>色标</h4>
-          <select v-model="cmap" class="select input--sm" style="width: 100%; font-family: var(--ff-mono)">
-            <option value="rdbu">RdBu（ERSP 经典）</option>
-            <option value="viridis">Viridis</option>
-            <option value="hot">Hot</option>
-          </select>
-        </div>
+          <!-- 通道（每选一个 = 一张时频图） -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('channel')">
+              通道
+              <span class="ov-sec-cnt">{{ selectedChans.size }}/{{ allChanNames.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.channel }">▾</span>
+            </div>
+            <div v-show="!collapsed.channel" class="ov-sec-body">
+              <div class="ov-sec-actions">
+                <button v-if="selectedChans.size > 1" type="button" class="ov-link" @click="keepFirstChan">只留 1 个</button>
+              </div>
+              <div class="ov-chanlist" title="单击单选 · Ctrl 加选 · Shift 连选">
+                <div
+                  v-for="(name, i) in allChanNames"
+                  :key="name"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedChans.has(name) }"
+                  @click="chanSel.onClick(i, $event)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedChans.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name text-mono">{{ name }}</span>
+                  <span v-if="defaultChannel === name" class="ov-li-tag">能量最强</span>
+                </div>
+              </div>
+              <p class="ov-sec-hint">每加一个通道就多一张热图。看双侧对称（如 C3/C4）就选两个。</p>
+            </div>
+          </section>
 
-        <div class="sel-section">
-          <h4>归一化</h4>
-          <div v-if="isLive" class="norm-fixed text-mono">{{ baselineDesc(live?.baseline_mode) }}</div>
-          <template v-else>
-            <label class="checkbox-row"><input type="radio" name="norm" checked />dB（相对基线）</label>
-            <label class="checkbox-row"><input type="radio" name="norm" />Z-score</label>
-            <label class="checkbox-row"><input type="radio" name="norm" />% 变化</label>
-          </template>
+          <!-- 频段（高亮某频带的参考线 + 右栏聚焦该带） -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('band')">
+              频段
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.band }">▾</span>
+            </div>
+            <div v-show="!collapsed.band" class="ov-sec-body">
+              <div class="psd-bandpills">
+                <span
+                  v-for="b in TFR_BANDS"
+                  :key="b.name"
+                  class="psd-bandpill"
+                  :class="{ 'is-on': selectedBand === b.name }"
+                  @click="selectedBand = b.name"
+                >
+                  {{ b.label }} {{ b.lo }}–{{ b.hi }}
+                </span>
+              </div>
+              <p class="ov-sec-hint">高亮该频带的参考线；右栏频段功率变化以它为焦点。</p>
+            </div>
+          </section>
+
+          <!-- 色彩映射 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('cmap')">
+              色彩映射
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.cmap }">▾</span>
+            </div>
+            <div v-show="!collapsed.cmap" class="ov-sec-body">
+              <div class="ov-ovpick">
+                <button type="button" class="ov-ovbtn" :class="{ 'is-on': cmap === 'rdbu' }" @click="cmap = 'rdbu'">发散 RdBu</button>
+                <button type="button" class="ov-ovbtn" :class="{ 'is-on': cmap === 'viridis' }" @click="cmap = 'viridis'">顺序 Viridis</button>
+              </div>
+              <p class="ov-sec-hint">
+                {{ cmap === 'rdbu'
+                  ? '红=功率增强(ERS)、蓝=减弱(ERD)、白=无变化。0 居中，适合相对基线的有符号功率。'
+                  : '低→高单调上色，适合绝对功率（无基线校正）；色盲友好。' }}
+              </p>
+            </div>
+          </section>
+
+          <!-- 显示模块 -->
+          <section class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('modules')">
+              显示模块
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.modules }">▾</span>
+            </div>
+            <div v-show="!collapsed.modules" class="ov-sec-body">
+              <label class="ov-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线（频率轴按 δθαβγ 分段）</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showStim" /> 刺激线 (t=0)</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（频段空间分布）</label>
+              <p v-if="showTopo" class="ov-sec-hint">底部头皮图 = 当前频段在时窗内各通道的平均功率（红=ERS 强、蓝=ERD 弱）；框选 ROI 后跟随 ROI。</p>
+            </div>
+          </section>
         </div>
       </aside>
 
-      <main class="obs-main">
-        <ObserveTabs active="tfr">
-          <template #meta>
-            <span class="text-mono" style="font-size: 11px; color: var(--c-text-3)">
-              {{ metaLine }}
-            </span>
-          </template>
-        </ObserveTabs>
-
-        <div class="obs-toolbar">
-          <span class="tool-lbl">色阶 ({{ unitLabel }})</span>
-          <input v-model="zmin" class="input input--sm" style="width: 56px; font-family: var(--ff-mono); text-align: center" />
-          <span style="color: var(--c-text-3)">→</span>
-          <input v-model="zmax" class="input input--sm" style="width: 56px; font-family: var(--ff-mono); text-align: center" />
-          <div class="divider-h"></div>
-          <span class="tool-lbl">方法</span>
-          <select :disabled="isLive"><option>Morlet Wavelet</option><option>STFT</option><option>Hilbert</option></select>
-          <div class="divider-h"></div>
-          <span class="tool-lbl">通道</span>
-          <select :value="selectedChannel" @change="selectChannel(($event.target as HTMLSelectElement).value)">
-            <option v-for="ch in channelOptions" :key="ch" :value="ch">{{ ch }}</option>
-          </select>
-          <div style="flex: 1"></div>
-          <button class="btn btn--sm" @click="resetScale">↻ 重置</button>
-          <button class="btn btn--sm btn--primary" @click="refresh">▶ 刷新</button>
-        </div>
-
-        <div class="tfr-card">
-          <div class="tfr-card__head">
-            <div>
-              <h2>{{ cardTitle }}</h2>
-              <p>{{ cardSubtitle }}</p>
-            </div>
-            <div class="row gap-2">
-              <span class="badge">高密度时频</span>
-              <span class="badge">悬停 / 缩放</span>
+      <!-- ============ 中栏：工具条 + 绘图 + 状态条 ============ -->
+      <div class="ov-center">
+        <div class="ov-ctoolbar">
+          <div class="ov-tg ov-tg--lyt">
+            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
+          </div>
+          <div class="ov-tg">
+            <span class="ov-lbl">时窗 (s)</span>
+            <input v-model="tLoInput" class="ov-cin" type="number" step="0.1" :placeholder="autoTLoLabel" title="起始时间(留空=全幅)" @keydown.enter="applyTRange" @change="applyTRange" />
+            <span class="ov-dash">–</span>
+            <input v-model="tHiInput" class="ov-cin" type="number" step="0.1" :placeholder="autoTHiLabel" title="结束时间(留空=全幅)" @keydown.enter="applyTRange" @change="applyTRange" />
+            <select class="ov-csel" :value="timeWinKey" @change="applyTimeWindow(($event.target as HTMLSelectElement).value)">
+              <option v-for="w in TIME_WINDOWS" :key="w.key" :value="w.key">{{ w.label }}</option>
+            </select>
+            <button class="ov-ctb" :disabled="!isTimeZoomed" @click="resetTRange">重置</button>
+          </div>
+          <div class="ov-tg">
+            <span class="ov-lbl">频窗 (Hz)</span>
+            <input v-model="fLoInput" class="ov-cin" type="number" step="1" :placeholder="autoFLoLabel" title="下限频率(留空=全幅)" @keydown.enter="applyFRange" @change="applyFRange" />
+            <span class="ov-dash">–</span>
+            <input v-model="fHiInput" class="ov-cin" type="number" step="1" :placeholder="autoFHiLabel" title="上限频率(留空=全幅)" @keydown.enter="applyFRange" @change="applyFRange" />
+            <button class="ov-ctb" :disabled="!isFreqZoomed" @click="resetFRange">重置</button>
+          </div>
+          <div class="ov-tg">
+            <span class="ov-lbl">色阶 ±({{ unit }})</span>
+            <input v-model="zmaxInput" class="ov-cin" type="number" step="0.1" :placeholder="String(autoZmax.toFixed(1))" title="对称色阶上界(留空=自动)" @keydown.enter="applyZmax" @change="applyZmax" />
+            <button class="ov-ctb" :class="{ 'is-on': zmaxManual === null }" @click="resetZmax">自动</button>
+          </div>
+          <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+            <span class="ov-help-trigger">🖱 操作提示</span>
+            <div v-if="showHelp" class="ov-help-pop">
+              <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放时间轴</span></div>
+              <div class="ov-help-row"><kbd>拖拽</kbd><span>框选时频 ROI</span></div>
+              <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标 (t,f)</span></div>
+              <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标 / 清 ROI</span></div>
+              <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
             </div>
           </div>
+          <div class="ov-tg ov-tg--lyt ov-tg--end">
+            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+              <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
+              <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
+            </button>
+            <span class="ov-lyt-sep"></span>
+            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
+            </button>
+            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
+          </div>
+        </div>
 
-          <div class="tfr-plot">
-            <div v-if="liveLoading" class="tfr-state">正在加载时频数据…</div>
-            <div v-else-if="liveError" class="tfr-state tfr-state--err">{{ liveError }}</div>
-            <svg viewBox="0 0 760 360" preserveAspectRatio="xMidYMid meet" class="tfr-svg">
-              <rect width="760" height="360" fill="#fff" />
-              <g transform="translate(60, 20)">
-                <g v-for="row in heatmap" :key="row.iF">
-                  <rect
-                    v-for="cell in row.cells"
-                    :key="cell.iT"
-                    :x="cell.x"
-                    :y="cell.y"
-                    :width="cell.w"
-                    :height="cell.h"
-                    :fill="cell.fill"
+        <div class="ov-chart-wrap">
+          <div v-if="loading && !cells.length" class="ov-state">正在读取时频数据…</div>
+
+          <div v-else-if="error" class="ov-state ov-state--err">
+            <div class="ov-err-title">无法加载该结果的时频图</div>
+            <div class="ov-err-msg">{{ error }}</div>
+            <button class="ov-btn" @click="reload">重试</button>
+          </div>
+
+          <template v-else-if="cells.length">
+            <div v-if="partialNote" class="ov-partial">{{ partialNote }}</div>
+            <div class="ov-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
+              <section
+                v-for="cell in cells"
+                :key="cell.key"
+                class="ov-cell"
+                :class="{ 'is-focus': cell.key === focusKey }"
+                :style="{ borderTopColor: cell.accent, borderTopWidth: '2px' }"
+              >
+                <div class="ov-cell-hd" @click="focusKey = cell.key">
+                  <span class="ov-cell-tag" :style="{ background: cell.accent }"></span>
+                  <span class="ov-cell-name">{{ cell.title }}</span>
+                  <span class="ov-cell-meta text-mono">{{ cell.tfr ? `${cell.tfr.nave} trials · ${Math.round(cell.tfr.sfreq)}Hz` : '加载中' }}</span>
+                  <button class="ov-cell-dl" title="导出 PNG" @click.stop="exportCell($event, cell.title)">⬇</button>
+                </div>
+                <div class="ov-cell-plot">
+                  <HeatmapCanvas
+                    v-if="cell.tfr"
+                    :power="cell.tfr.power"
+                    :freqs="cell.tfr.freqs"
+                    :times="cell.tfr.times"
+                    :zmax="effectiveZmax"
+                    :cmap="cmap"
+                    :unit="unit"
+                    :show-grid="showGrid"
+                    :bands="heatmapBands"
+                    :t-zero="showStim"
+                    :dense-axes="denseAxes"
+                    :loading="loading"
+                    :region="region"
+                    :locked="cursorLocked"
+                    :locked-t="lockedTF?.t ?? null"
+                    :locked-f="lockedTF?.f ?? null"
+                    :view-t-min="viewTMin"
+                    :view-t-max="viewTMax"
+                    :view-f-min="viewFMin"
+                    :view-f-max="viewFMax"
+                    @cursor="onCursor"
+                    @select="onSelect"
+                    @lock="onLock"
+                    @unlock="onUnlock"
+                    @zoom="onZoom"
                   />
-                </g>
-                <template v-if="zeroX !== null">
-                  <line :x1="zeroX" y1="0" :x2="zeroX" y2="300" stroke="#d43f34" stroke-width="2" stroke-dasharray="3 3" />
-                  <text :x="zeroX + 4" y="14" fill="#d43f34" font-size="10" font-family="monospace">stimulus 0 s</text>
-                </template>
-                <line
-                  v-for="band in bandLines"
-                  :key="band.name"
-                  x1="0"
-                  :y1="band.y"
-                  x2="600"
-                  :y2="band.y"
-                  stroke="#7c8ea0"
-                  stroke-width="0.6"
-                  stroke-dasharray="3 3"
-                  opacity="0.5"
-                />
-                <text
-                  v-for="band in bandLines"
-                  :key="`l-${band.name}`"
-                  x="608"
-                  :y="band.y + 4"
-                  font-size="10"
-                  fill="#577190"
-                  font-family="monospace"
-                >
-                  {{ band.name }}
-                </text>
-                <line x1="0" y1="0" x2="0" y2="300" stroke="#bbccdd" />
-                <line x1="0" y1="300" x2="600" y2="300" stroke="#bbccdd" />
-                <text
-                  v-for="tick in freqAxis"
-                  :key="`f-${tick.y}`"
-                  x="-8"
-                  :y="tick.y"
-                  font-size="10"
-                  text-anchor="end"
-                  fill="#577190"
-                  font-family="monospace"
-                >
-                  {{ tick.label }}
-                </text>
-                <text x="-32" y="160" font-size="11" fill="#5B6B85" transform="rotate(-90 -32 160)">频率 Hz</text>
-                <text
-                  v-for="tick in timeAxis"
-                  :key="`t-${tick.x}`"
-                  :x="tick.x"
-                  y="320"
-                  font-size="10"
-                  fill="#577190"
-                  font-family="monospace"
-                  :text-anchor="tick.anchor"
-                >
-                  {{ tick.label }}
-                </text>
-                <text x="290" y="340" font-size="11" fill="#5B6B85">时间 (s)</text>
-              </g>
+                  <div v-else class="ov-cell-loading">加载中…</div>
+                </div>
+              </section>
+            </div>
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" :subtitle="topoSubtitle" :unit="unit" />
+          </template>
 
-              <g transform="translate(680, 20)">
-                <defs>
-                  <linearGradient id="cmapGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stop-color="#fff5d6" />
-                    <stop offset="0.5" stop-color="#fac874" />
-                    <stop offset="1" stop-color="#7c1d6f" />
-                  </linearGradient>
-                </defs>
-                <rect width="14" height="300" fill="url(#cmapGrad)" stroke="#bbccdd" />
-                <text x="20" y="6" font-size="10" fill="#5B6B85" font-family="monospace">{{ colorbar.top }}</text>
-                <text x="20" y="158" font-size="10" fill="#5B6B85" font-family="monospace">{{ colorbar.mid }}</text>
-                <text x="20" y="304" font-size="10" fill="#5B6B85" font-family="monospace">{{ colorbar.bottom }}</text>
-              </g>
-            </svg>
-          </div>
-        </div>
-      </main>
-
-      <aside class="stats-panel">
-        <div class="st-section">
-          <h4>频带功率变化</h4>
-          <div class="stat-grid">
-            <div class="stat-card">
-              <div class="stat-label">α (8–12 Hz)</div>
-              <div class="stat-value">{{ bandStats.alpha.toFixed(2) }}<span class="unit"> {{ unitLabel }}</span></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">β (12–30 Hz)</div>
-              <div class="stat-value">{{ bandStats.beta.toFixed(2) }}<span class="unit"> {{ unitLabel }}</span></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">θ (4–8 Hz)</div>
-              <div class="stat-value">{{ bandStats.theta.toFixed(2) }}<span class="unit"> {{ unitLabel }}</span></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">γ (30–50 Hz)</div>
-              <div class="stat-value">{{ bandStats.gamma.toFixed(2) }}<span class="unit"> {{ unitLabel }}</span></div>
-            </div>
-          </div>
-
-          <div class="stat-card" style="text-align: left; padding: 10px 14px; margin-top: 8px">
-            <div class="stat-label">峰值 ERD</div>
-            <div class="stat-value" style="font-size: 14px; margin-top: 2px">
-              {{ bandStats.peak.toFixed(2) }}<span class="unit"> {{ unitLabel }} @ {{ bandStats.peakT }} ms</span>
-            </div>
-          </div>
-
-          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px">
-            <span v-for="b in ['δ 1–4', 'θ 4–8', 'α 8–12', 'β 12–30', 'γ 30–50']" :key="b" class="band-tag-on">{{ b }}</span>
-          </div>
-          <div style="font-size: 10px; color: var(--c-text-3); margin-top: 6px; text-align: center">
-            {{ isLive ? '刺激后窗口均值 (t ≥ 0)' : '基线 [−0.5, 0] s mean' }}
+          <div v-else class="ov-state">
+            <div class="ov-err-title">没有可显示的时频图</div>
+            <div class="ov-err-msg">从结果页（artifact 预览）打开时频分析，URL 需带 studyId 与 study_output_id。</div>
           </div>
         </div>
 
-        <div class="st-section">
-          <h4>导出</h4>
-          <RouterLink class="btn" to="/figures">发送到作图模块</RouterLink>
-          <RouterLink class="btn" to="/statistics">发送到统计模块</RouterLink>
-          <button class="btn">导出 (.npy)</button>
+        <!-- 状态条 -->
+        <div class="ov-sbar" v-if="cells.length && !error">
+          <span class="ov-sbar-dot"></span>
+          <span>TFR · {{ primaryMeta?.method || 'morlet' }}</span><span class="ov-sbar-sep">|</span>
+          <span>{{ baselineDesc }}</span><span class="ov-sbar-sep">|</span>
+          <span>{{ selectedChans.size }}通道 × {{ sortedSegs.length }}数据集</span>
+          <span class="ov-sbar-sep">|</span>
+          <!-- 色阶图例（持久可见，给医生的大白话） -->
+          <span class="tfr-cbar">
+            <span class="tfr-cbar-lo">{{ cmap === 'rdbu' ? '−' + autoFmt(effectiveZmax) + ' 蓝(ERD)' : '0' }}</span>
+            <span class="tfr-cbar-sw" :style="{ background: cbarGradient }"></span>
+            <span class="tfr-cbar-hi">{{ cmap === 'rdbu' ? '+' + autoFmt(effectiveZmax) + ' 红(ERS)' : autoFmt(effectiveZmax) }}</span>
+            <span class="tfr-cbar-u">{{ unit }}</span>
+          </span>
+          <div style="flex: 1"></div>
+          <span v-if="isTimeZoomed" class="ov-sbar-zoom" @click="resetTRange" title="复位时间缩放（滚轮缩放）">🔍 {{ tZoomLabel }} <span class="ov-sbar-zoom-x">✕</span></span>
+          <span v-if="cursorStateText" class="ov-cursor-state" :class="`is-${cursorStateKey}`">{{ cursorStateText }}</span>
+          <span v-if="displayTF" class="ov-readout text-mono">@ {{ fmtTime(displayTF.t) }}s · {{ fmtFreq(displayTF.f) }}Hz</span>
+        </div>
+      </div>
+
+      <!-- ============ 右栏：统计结果 ============ -->
+      <aside v-if="showStats" class="ov-right">
+        <div class="ov-right-head">
+          <strong><span class="ov-right-dot"></span>统计结果</strong>
+          <div class="ov-right-btns">
+            <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
+            <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="ov-right-scroll">
+          <!-- 游标读数：各图在 (t,f) 处的功率 -->
+          <div class="ov-hover" :class="{ 'is-expanded': hoverExpanded }">
+            <template v-if="displayTF">
+              <div class="ov-hover-hd">
+                <span v-if="cursorLocked" class="ov-hover-lock">🔒 锁定</span>游标
+                <span class="text-mono">{{ fmtTime(displayTF.t) }}s · {{ fmtFreq(displayTF.f) }}Hz</span>
+                <span v-if="cursorLocked" class="ov-hover-tip">右键解锁</span><span class="ov-hover-unit">{{ unit }}</span>
+              </div>
+              <div class="ov-hover-list">
+                <div v-for="it in hoverItems" :key="it.key" class="ov-hover-row">
+                  <span class="ov-li-dot" :style="{ background: it.color }"></span>
+                  <span class="ov-hover-name">{{ it.name }}</span>
+                  <span class="ov-hover-val text-mono">{{ Number.isFinite(it.value) ? it.value.toFixed(2) : '—' }}</span>
+                </div>
+              </div>
+              <button v-if="readoutItems.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">
+                {{ hoverExpanded ? '收起' : `展开全部 ${readoutItems.length} 张` }}
+              </button>
+            </template>
+            <div v-else class="ov-hover-idle">在热图上移动查看该 (时间, 频率) 处各图功率 · 双击锁定</div>
+          </div>
+
+          <div v-if="!focusCell" class="ov-right-empty">
+            选择通道后，这里显示峰值 ERD/ERS、频段功率变化与明细。
+          </div>
+          <template v-else-if="focusCell">
+            <!-- 焦点卡：峰值 ERD/ERS 英雄数字 -->
+            <div class="ov-focus">
+              <select v-model="focusKey" class="ov-focus-pick">
+                <option v-for="c in cells" :key="c.key" :value="c.key">{{ c.title }}</option>
+              </select>
+              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: focusCell.accent }"></span>{{ focusCell.title }}</div>
+              <div class="ov-focus-main">
+                <div class="ov-focus-cell">
+                  <span class="ov-focus-num" :style="{ color: focusPeak ? (focusPeak.kind === 'ERD' ? '#265CBA' : '#CE3430') : '#3F5E8F' }">{{ peakText }}</span>
+                  <span class="ov-focus-u">{{ unit }} · 峰值{{ focusPeak ? focusPeak.kind : '' }}</span>
+                </div>
+                <div class="ov-focus-cell" v-if="focusPeak">
+                  <span class="ov-focus-num2">{{ fmtFreq(focusPeak.f) }}</span>
+                  <span class="ov-focus-u">Hz @ {{ fmtTime(focusPeak.t) }}s</span>
+                </div>
+              </div>
+              <div class="ov-focus-sub">峰值取刺激后窗口 (t ≥ 0) 内绝对值最大处；ERD=减弱、ERS=增强。</div>
+            </div>
+
+            <!-- 频段功率变化（刺激后均值，相对基线，有正负） -->
+            <div class="ov-contrast">
+              <div class="ov-sec-mini">频段功率变化 · 刺激后均值（相对基线 {{ unit }}）</div>
+              <div class="ov-contrast-list">
+                <div v-for="b in TFR_BANDS" :key="b.name" class="ov-contrast-row" :class="{ 'is-focus-band': selectedBand === b.name }">
+                  <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
+                  <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
+                  <span class="ov-contrast-bar">
+                    <span
+                      class="ov-contrast-fill"
+                      :style="{ width: bandBarWidth(b.name), background: bandValue(b.name) < 0 ? '#265CBA' : '#CE3430' }"
+                    ></span>
+                  </span>
+                  <span class="ov-contrast-val text-mono">{{ fmtSigned(bandValue(b.name)) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ROI 区间均值（拖拽框选后出现） -->
+            <div v-if="region" class="ov-contrast">
+              <div class="ov-sec-mini">
+                ROI 区间均值 · {{ fmtTime(region.t0) }}–{{ fmtTime(region.t1) }}s × {{ fmtFreq(region.f0) }}–{{ fmtFreq(region.f1) }}Hz
+                <button class="ov-link" style="margin-left: 6px" @click="region = null">清除</button>
+              </div>
+              <div class="ov-contrast-list">
+                <div v-for="r in roiRows" :key="r.key" class="ov-hover-row">
+                  <span class="ov-li-dot" :style="{ background: r.color }"></span>
+                  <span class="ov-hover-name">{{ r.name }}</span>
+                  <span class="ov-hover-val text-mono">{{ Number.isFinite(r.mean) ? fmtSigned(r.mean) : '—' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 明细表 -->
+            <div class="ov-detail">
+              <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                明细表 · {{ statsRows.length }} 行
+              </button>
+              <table v-if="showDetailTable" class="ov-dtable">
+                <thead>
+                  <tr><th>数据集</th><th>通道</th><th>峰值</th><th>@s</th><th>α</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in statsRows" :key="r.key" class="ov-dt-row" :class="{ 'is-focus': focusKey === r.key }" @click="focusKey = r.key">
+                    <td>{{ r.segName }}</td>
+                    <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.channel }}</td>
+                    <td>{{ r.peak != null ? fmtSigned(r.peak.v) : '—' }}</td>
+                    <td>{{ r.peak != null ? fmtTime(r.peak.t) : '—' }}</td>
+                    <td>{{ fmtSigned(r.bands.alpha ?? 0) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </aside>
     </div>
-  </WorkbenchShell>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import ObserveTabs from '@/components/ObserveTabs.vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import type { StudyOutputTfr, StudyOutputTfrTopo } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
-import type { StudyOutputTfr } from '@/types'
+import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
+import TopoStrip from '@/components/observe/TopoStrip.vue'
+import { heatmapCssGradient, type HeatmapCmap } from '@/components/observe/heatmapColor'
+import { useMultiSelect } from '@/composables/observe/useMultiSelect'
+import { usePalette } from '@/composables/observe/usePalette'
+import '@/components/observe/observePage.css'
 
-// ── 双模式：路由带 study_output_id+studyId → 拉真实时频结果；否则保留静态设计稿 ──
 const route = useRoute()
-const studyId = computed(() => String(route.query.studyId || route.query.study_id || ''))
-const outputId = computed(() => String(route.query.study_output_id || ''))
-const isLive = computed(() => Boolean(studyId.value && outputId.value))
 
-const live = ref<StudyOutputTfr | null>(null)
-const liveLoading = ref(false)
-const liveError = ref('')
+// ---------- 常量 ----------
+const INACTIVE_DOT = '#cbd2dc'
+const HOVER_COLLAPSED = 6
+const TYPE_COLOR = '#B0544C'
+const MAX_FREQS = 80
+const MAX_TIMES = 160
+const MAX_CELLS = 16 // 软上限：通道×数据集 同时显示的热图数（防一墙小图 + 海量请求）
+const TFR_BANDS = [
+  { name: 'delta', label: 'δ', lo: 1, hi: 4 },
+  { name: 'theta', label: 'θ', lo: 4, hi: 8 },
+  { name: 'alpha', label: 'α', lo: 8, hi: 13 },
+  { name: 'beta', label: 'β', lo: 13, hi: 30 },
+  { name: 'gamma', label: 'γ', lo: 30, hi: 80 },
+] as const
+const BAND_COLORS: Record<string, string> = { delta: '#378ADD', theta: '#1D9E75', alpha: '#BA7517', beta: '#D85A30', gamma: '#D4537E' }
+const TIME_WINDOWS = [
+  { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
+  { key: 'post', label: '刺激后', lo: 0, hi: null as number | null },
+]
 
-const selectedChannel = ref('Cz')
-const cmap = ref<'rdbu' | 'viridis' | 'hot'>('rdbu')
-const zmin = ref('-3')
-const zmax = ref('+3')
+// ---------- 查询参数 ----------
+function qstr(key: string, fallback = ''): string {
+  const raw = route.query[key]
+  if (Array.isArray(raw)) return raw[0] ?? fallback
+  return raw ?? fallback
+}
+const studyId = qstr('studyId') || qstr('study_id')
+const urlOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
+// 数据集列表：URL 带的在前，挂载后自动发现「同研究项下其它 TFR 产物」追加进来（可勾选并排对比，免手动拼 URL）
+const outputIds = ref<string[]>([...urlOutputIds])
+const datasetId = urlOutputIds[0] || ''
+const nameHint = qstr('name')
+const outputLabels = reactive<Record<string, string>>({}) // 产物 id → 友好名（condition / display_name）
+const isMultiOutput = computed(() => outputIds.value.length > 1)
 
-async function loadTfr(channel?: string) {
-  if (!isLive.value) return
-  liveLoading.value = true
-  liveError.value = ''
-  try {
-    const res = await pipelineApi.getStudyOutputTfr(
-      studyId.value,
-      outputId.value,
-      channel ? { channel } : {},
-    )
-    live.value = res.data
-    selectedChannel.value = res.data.channel
-    const z = Number(res.data.zmax) || 1
-    zmax.value = `+${roundZ(z)}`
-    zmin.value = `-${roundZ(z)}`
-  } catch (error: unknown) {
-    const detail = (error as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail
-    liveError.value = detail?.message || (error as Error)?.message || '时频数据加载失败'
-  } finally {
-    liveLoading.value = false
+// ---------- 状态 ----------
+// key = `${segIndex}::${channel}` → 单通道时频结果
+const tfrMap = ref<Map<string, StudyOutputTfr>>(new Map())
+const primaryMeta = ref<StudyOutputTfr | null>(null)
+const allChanNames = ref<string[]>([])
+const defaultChannel = ref('')
+const loading = ref(true)
+const error = ref('')
+const partialNote = ref('')
+const labelCache = reactive<Record<number, string>>({})
+
+const showStats = ref(true)
+const showGrid = ref(true)
+const showStim = ref(true)
+const showTopo = ref(true)
+const showLeft = ref(true)
+const showHelp = ref(false)
+const isFullscreen = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const cmap = ref<HeatmapCmap>('rdbu')
+const selectedBand = ref<string>('alpha')
+const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, band: false, cmap: false, modules: false })
+
+const { colorAt } = usePalette('elys')
+
+// ---------- 段（数据集/条件）与通道选择 ----------
+const segKeys = computed(() => outputIds.value.map((_, i) => i))
+const segSel = useMultiSelect<number>(() => segKeys.value, urlOutputIds.map((_, i) => i))
+const selectedSegs = segSel.selected
+const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
+
+const chanSel = useMultiSelect<string>(() => allChanNames.value, [])
+const selectedChans = chanSel.selected
+const orderedChans = computed(() => allChanNames.value.filter((n) => selectedChans.value.has(n)))
+
+function chColor(i: number) {
+  return colorAt(i, Math.max(1, allChanNames.value.length))
+}
+function segColor(seg: number) {
+  return colorAt(seg, Math.max(1, outputIds.value.length))
+}
+function segLabel(seg: number): string {
+  const id = outputIds.value[seg]
+  if (id && outputLabels[id]) return outputLabels[id]
+  const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
+  return meta?.condition || labelCache[seg] || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
+}
+function findAnyForSeg(seg: number): StudyOutputTfr | null {
+  for (const ch of orderedChans.value) {
+    const hit = tfrMap.value.get(`${seg}::${ch}`)
+    if (hit) return hit
   }
+  return null
+}
+function keepFirstChan() {
+  const first = orderedChans.value[0]
+  if (first) chanSel.set([first])
+}
+
+const displayName = computed(() => nameHint || (primaryMeta.value?.condition ? `时频 · ${primaryMeta.value.condition}` : '时频分析'))
+const unit = computed(() => primaryMeta.value?.unit || 'dB')
+const baselineDesc = computed(() => {
+  const map: Record<string, string> = {
+    logratio: 'dB（相对基线）', percent: '% 变化（相对基线）', zscore: 'z 分数（相对基线）',
+    zlogratio: 'z-logratio', ratio: '倍数（相对基线）', mean: '差值（减基线）', none: '无基线校正',
+  }
+  return map[String(primaryMeta.value?.baseline_mode || 'none')] || String(primaryMeta.value?.baseline_mode || '')
+})
+
+// ---------- facet 单元（数据集 × 通道，每格一张热图） ----------
+interface Cell {
+  key: string
+  seg: number
+  channel: string
+  title: string
+  accent: string
+  tfr: StudyOutputTfr | null
+}
+const cells = computed<Cell[]>(() => {
+  const out: Cell[] = []
+  const multiSeg = sortedSegs.value.length > 1
+  for (const seg of sortedSegs.value) {
+    for (const ch of orderedChans.value) {
+      const ci = allChanNames.value.indexOf(ch)
+      out.push({
+        key: `${seg}::${ch}`,
+        seg,
+        channel: ch,
+        title: multiSeg ? `${segLabel(seg)} · ${ch}` : ch,
+        accent: multiSeg && orderedChans.value.length === 1 ? segColor(seg) : chColor(ci),
+        tfr: tfrMap.value.get(`${seg}::${ch}`) ?? null,
+      })
+      if (out.length >= MAX_CELLS) return out
+    }
+  }
+  return out
+})
+const facetStyle = computed<Record<string, string>>(() => {
+  const numSegs = sortedSegs.value.length
+  const numChans = orderedChans.value.length
+  if (numSegs > 1 && numChans > 1) {
+    return { gridTemplateColumns: `repeat(${numChans}, 1fr)` }
+  }
+  return { gridTemplateColumns: `repeat(auto-fit, minmax(${cells.value.length > 4 ? '300' : '360'}px, 1fr))` }
+})
+const denseAxes = computed(() => cells.value.length > 1)
+
+// ---------- 焦点格 ----------
+const focusKey = ref('')
+const showDetailTable = ref(false)
+const focusCell = computed<Cell | null>(() => {
+  const list = cells.value.filter((c) => c.tfr)
+  if (!list.length) return null
+  return list.find((c) => c.key === focusKey.value) ?? list[0]
+})
+watch(cells, (list) => {
+  if (!list.some((c) => c.key === focusKey.value)) {
+    const first = list.find((c) => c.tfr) ?? list[0]
+    focusKey.value = first?.key ?? ''
+  }
+})
+
+// ---------- 色阶（共享 zmax；手动优先） ----------
+const autoZmax = computed(() => {
+  let m = 0
+  for (const c of cells.value) if (c.tfr && Number.isFinite(c.tfr.zmax)) m = Math.max(m, c.tfr.zmax)
+  return m > 1e-9 ? m : 1
+})
+const zmaxManual = ref<number | null>(null)
+const zmaxInput = ref<number | string>('')
+const effectiveZmax = computed(() => (zmaxManual.value && zmaxManual.value > 0 ? zmaxManual.value : autoZmax.value))
+function applyZmax() {
+  const n = toNum(zmaxInput.value)
+  zmaxManual.value = n && n > 0 ? n : null
+}
+function resetZmax() {
+  zmaxManual.value = null
+  zmaxInput.value = ''
+}
+const cbarGradient = computed(() => heatmapCssGradient(cmap.value))
+
+// 热图频段参考线
+const heatmapBands = computed(() =>
+  TFR_BANDS.map((b) => ({ lo: b.lo, hi: b.hi, label: b.label, active: selectedBand.value === b.name })),
+)
+
+// ---------- 时间窗 / 频率窗（纯视觉缩放） ----------
+const viewTMin = ref<number | null>(null)
+const viewTMax = ref<number | null>(null)
+const viewFMin = ref<number | null>(null)
+const viewFMax = ref<number | null>(null)
+const tLoInput = ref<number | string>('')
+const tHiInput = ref<number | string>('')
+const fLoInput = ref<number | string>('')
+const fHiInput = ref<number | string>('')
+const timeWinKey = ref('all')
+
+const dataTMin = computed(() => primaryMeta.value?.tmin ?? -0.5)
+const dataTMax = computed(() => primaryMeta.value?.tmax ?? 1.5)
+const dataFMin = computed(() => primaryMeta.value?.fmin ?? 1)
+const dataFMax = computed(() => primaryMeta.value?.fmax ?? 40)
+const isTimeZoomed = computed(() => viewTMin.value != null || viewTMax.value != null)
+const isFreqZoomed = computed(() => viewFMin.value != null || viewFMax.value != null)
+const tZoomLabel = computed(() => `${fmtTime(viewTMin.value ?? dataTMin.value)}~${fmtTime(viewTMax.value ?? dataTMax.value)}s`)
+const autoTLoLabel = computed(() => fmtTime(dataTMin.value))
+const autoTHiLabel = computed(() => fmtTime(dataTMax.value))
+const autoFLoLabel = computed(() => fmtFreq(dataFMin.value))
+const autoFHiLabel = computed(() => fmtFreq(dataFMax.value))
+
+function applyTimeWindow(key: string) {
+  timeWinKey.value = key
+  const w = TIME_WINDOWS.find((x) => x.key === key)
+  viewTMin.value = w && w.lo != null ? w.lo : null
+  viewTMax.value = w && w.hi != null ? w.hi : null
+}
+function applyTRange() {
+  const lo = toNum(tLoInput.value)
+  const hi = toNum(tHiInput.value)
+  if (lo === null && hi === null) { resetTRange(); return }
+  const a = lo ?? dataTMin.value
+  const b = hi ?? dataTMax.value
+  if (a >= b) return
+  viewTMin.value = a
+  viewTMax.value = b
+  timeWinKey.value = 'all'
+}
+function resetTRange() {
+  viewTMin.value = null
+  viewTMax.value = null
+  timeWinKey.value = 'all'
+}
+function applyFRange() {
+  const lo = toNum(fLoInput.value)
+  const hi = toNum(fHiInput.value)
+  if (lo === null && hi === null) { resetFRange(); return }
+  const a = lo ?? dataFMin.value
+  const b = hi ?? dataFMax.value
+  if (a >= b) return
+  viewFMin.value = a
+  viewFMax.value = b
+}
+function resetFRange() {
+  viewFMin.value = null
+  viewFMax.value = null
+}
+function onZoom(v: { min: number; max: number } | null) {
+  viewTMin.value = v ? v.min : null
+  viewTMax.value = v ? v.max : null
+  timeWinKey.value = 'all'
+}
+watch([viewTMin, viewTMax], ([mn, mx]) => {
+  tLoInput.value = mn == null ? '' : round(mn, 2)
+  tHiInput.value = mx == null ? '' : round(mx, 2)
+})
+watch([viewFMin, viewFMax], ([mn, mx]) => {
+  fLoInput.value = mn == null ? '' : round(mn, 1)
+  fHiInput.value = mx == null ? '' : round(mx, 1)
+})
+
+// ---------- 游标三态（2D：t,f） ----------
+type TF = { t: number; f: number }
+const hoveredTF = ref<TF | null>(null)
+const cursorLocked = ref(false)
+const lockedTF = ref<TF | null>(null)
+const displayTF = computed<TF | null>(() => (cursorLocked.value ? lockedTF.value : hoveredTF.value))
+const cursorStateKey = computed(() => (cursorLocked.value ? 'locked' : hoveredTF.value ? 'follow' : 'idle'))
+const cursorStateText = computed(() =>
+  cursorLocked.value ? '游标锁定' : hoveredTF.value ? '游标跟随' : '',
+)
+function onCursor(p: { t: number; f: number; value: number } | null) {
+  hoveredTF.value = p ? { t: p.t, f: p.f } : null
+}
+function onLock(p: { t: number; f: number; value: number }) {
+  cursorLocked.value = true
+  lockedTF.value = { t: p.t, f: p.f }
+}
+function onUnlock() {
+  cursorLocked.value = false
+  lockedTF.value = null
+  hoveredTF.value = null
+  region.value = null
+}
+
+// 各格在 displayTF 处的功率
+const hoverExpanded = ref(false)
+function nearestIdx(arr: number[], v: number): number {
+  if (!arr.length) return -1
+  let best = 0
+  let bd = Infinity
+  for (let i = 0; i < arr.length; i++) {
+    const d = Math.abs(arr[i] - v)
+    if (d < bd) { bd = d; best = i }
+  }
+  return best
+}
+function valueAt(tfr: StudyOutputTfr, t: number, f: number): number {
+  const iT = nearestIdx(tfr.times, t)
+  const iF = nearestIdx(tfr.freqs, f)
+  if (iT < 0 || iF < 0) return NaN
+  return Number(tfr.power[iF]?.[iT] ?? NaN)
+}
+const readoutItems = computed(() => {
+  const tf = displayTF.value
+  if (!tf) return [] as { key: string; name: string; color: string; value: number }[]
+  return cells.value
+    .filter((c) => c.tfr)
+    .map((c) => ({ key: c.key, name: c.title, color: c.accent, value: valueAt(c.tfr as StudyOutputTfr, tf.t, tf.f) }))
+})
+const hoverItems = computed(() => (hoverExpanded.value ? readoutItems.value : readoutItems.value.slice(0, HOVER_COLLAPSED)))
+
+// ---------- ROI 框选 ----------
+interface Roi { t0: number; t1: number; f0: number; f1: number }
+const region = ref<Roi | null>(null)
+function onSelect(r: Roi | null) {
+  region.value = r
+}
+function roiMean(tfr: StudyOutputTfr, r: Roi): number {
+  let sum = 0
+  let n = 0
+  for (let iF = 0; iF < tfr.freqs.length; iF++) {
+    const f = tfr.freqs[iF]
+    if (f < r.f0 || f > r.f1) continue
+    const row = tfr.power[iF] || []
+    for (let iT = 0; iT < tfr.times.length; iT++) {
+      const t = tfr.times[iT]
+      if (t < r.t0 || t > r.t1) continue
+      const v = row[iT]
+      if (Number.isFinite(v)) { sum += v; n++ }
+    }
+  }
+  return n ? sum / n : NaN
+}
+const roiRows = computed(() => {
+  const r = region.value
+  if (!r) return [] as { key: string; name: string; color: string; mean: number }[]
+  return cells.value
+    .filter((c) => c.tfr)
+    .map((c) => ({ key: c.key, name: c.title, color: c.accent, mean: roiMean(c.tfr as StudyOutputTfr, r) }))
+})
+
+// ---------- 临床读数：峰值 ERD/ERS + 频段功率 ----------
+interface Peak { v: number; t: number; f: number; kind: 'ERD' | 'ERS' }
+function peakOf(tfr: StudyOutputTfr): Peak | null {
+  let best: Peak | null = null
+  for (let iF = 0; iF < tfr.freqs.length; iF++) {
+    const row = tfr.power[iF] || []
+    for (let iT = 0; iT < tfr.times.length; iT++) {
+      const t = tfr.times[iT]
+      if (t < 0) continue // 仅刺激后
+      const v = row[iT]
+      if (!Number.isFinite(v)) continue
+      if (!best || Math.abs(v) > Math.abs(best.v)) best = { v, t, f: tfr.freqs[iF], kind: v < 0 ? 'ERD' : 'ERS' }
+    }
+  }
+  return best
+}
+function bandsOf(tfr: StudyOutputTfr): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const b of tfr.bands) out[b.name] = b.value
+  return out
+}
+const focusPeak = computed<Peak | null>(() => (focusCell.value?.tfr ? peakOf(focusCell.value.tfr) : null))
+const peakText = computed(() => (focusPeak.value ? fmtSigned(focusPeak.value.v) : '—'))
+const focusBands = computed<Record<string, number>>(() => (focusCell.value?.tfr ? bandsOf(focusCell.value.tfr) : {}))
+function bandValue(name: string): number {
+  return focusBands.value[name] ?? 0
+}
+const maxBandAbs = computed(() => {
+  let m = 0
+  for (const b of TFR_BANDS) m = Math.max(m, Math.abs(bandValue(b.name)))
+  return m > 1e-9 ? m : 1
+})
+function bandBarWidth(name: string): string {
+  return `${Math.min(100, (Math.abs(bandValue(name)) / maxBandAbs.value) * 100)}%`
+}
+function bandColor(name: string): string {
+  return BAND_COLORS[name] ?? 'var(--c-border)'
+}
+
+interface StatRow {
+  key: string
+  segName: string
+  channel: string
+  color: string
+  peak: Peak | null
+  bands: Record<string, number>
+}
+const statsRows = computed<StatRow[]>(() =>
+  cells.value
+    .filter((c) => c.tfr)
+    .map((c) => ({
+      key: c.key,
+      segName: segLabel(c.seg),
+      channel: c.channel,
+      color: c.accent,
+      peak: peakOf(c.tfr as StudyOutputTfr),
+      bands: bandsOf(c.tfr as StudyOutputTfr),
+    })),
+)
+
+// ---------- 工具 ----------
+function shortId(v?: string | null) {
+  if (!v) return ''
+  return v.length > 10 ? v.slice(0, 8) + '…' : v
+}
+function round(n: number, p: number) {
+  const f = Math.pow(10, p)
+  return Math.round(n * f) / f
+}
+function toNum(v: number | string): number | null {
+  if (v === '' || v === null || v === undefined) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+function fmtTime(v: number) {
+  return Math.abs(v) >= 10 ? String(Math.round(v)) : String(Math.round(v * 100) / 100)
+}
+function fmtFreq(v: number) {
+  return Math.abs(v) >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
+}
+function fmtSigned(v: number) {
+  if (!Number.isFinite(v)) return '—'
+  return (v >= 0 ? '+' : '') + v.toFixed(2)
+}
+function autoFmt(v: number) {
+  return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
+}
+
+// ---------- 频段地形图（全通道在 时窗×频窗 的平均功率 → 头皮投影，复用 TopoStrip）----------
+const topoMap = ref<Map<number, StudyOutputTfrTopo>>(new Map())
+let topoSeq = 0
+// 取数窗口：框选了 ROI → 跟随 ROI；否则 选中频段 × 时窗（默认刺激后 [0,tmax]，跟随时间缩放）
+const topoWindow = computed(() => {
+  if (region.value) {
+    const r = region.value
+    return { tmin: r.t0, tmax: r.t1, fmin: r.f0, fmax: r.f1 }
+  }
+  const band = TFR_BANDS.find((b) => b.name === selectedBand.value) ?? TFR_BANDS[2]
+  const tmin = isTimeZoomed.value ? viewTMin.value ?? dataTMin.value : Math.max(0, dataTMin.value)
+  const tmax = isTimeZoomed.value ? viewTMax.value ?? dataTMax.value : dataTMax.value
+  return { tmin, tmax, fmin: band.lo, fmax: band.hi }
+})
+async function loadTopo() {
+  if (!showTopo.value || !studyId || !primaryMeta.value) return
+  const w = topoWindow.value
+  const segs = sortedSegs.value
+  const myId = ++topoSeq
+  const settled = await Promise.allSettled(
+    segs.map(async (seg) => {
+      const res = await pipelineApi.getStudyOutputTfrTopo(studyId, outputIds.value[seg], w)
+      return [seg, res.data] as const
+    }),
+  )
+  if (myId !== topoSeq) return
+  const m = new Map<number, StudyOutputTfrTopo>()
+  for (const s of settled) if (s.status === 'fulfilled') m.set(s.value[0], s.value[1])
+  topoMap.value = m
+}
+interface TopoPoint {
+  name: string
+  x: number
+  y: number
+  value: number
+}
+const topoCells = computed(() => {
+  const out: { seg: number; label: string; color: string; points: TopoPoint[] | null }[] = []
+  if (!showTopo.value) return out
+  const demean = unit.value === 'power' // 绝对功率单侧 → 去均值才有红蓝；有符号(dB/%/z)天然绕 0，不去
+  for (const seg of sortedSegs.value) {
+    const topo = topoMap.value.get(seg)
+    if (!topo) continue
+    const positioned = topo.channels.filter((c) => c.x != null && c.y != null)
+    if (!positioned.length) {
+      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
+      continue
+    }
+    const center = demean ? positioned.reduce((s, c) => s + c.value, 0) / positioned.length : 0
+    const points = positioned.map((c) => ({ name: c.name, x: c.x as number, y: c.y as number, value: c.value - center }))
+    out.push({ seg, label: segLabel(seg), color: segColor(seg), points })
+  }
+  return out
+})
+const topoVmax = computed(() => {
+  let m = 0
+  for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
+  return m
+})
+const topoSubtitle = computed(() => {
+  const w = topoWindow.value
+  const src = region.value ? 'ROI' : TFR_BANDS.find((b) => b.name === selectedBand.value)?.label ?? ''
+  return `${src} ${fmtFreq(w.fmin)}–${fmtFreq(w.fmax)}Hz · ${fmtTime(w.tmin)}–${fmtTime(w.tmax)}s`
+})
+watch(
+  () => [topoWindow.value, sortedSegs.value.join(','), showTopo.value],
+  () => {
+    if (showTopo.value) void loadTopo()
+  },
+  { deep: true },
+)
+
+// ---------- 导出 ----------
+function statsMatrix(): string[][] {
+  const head = ['数据集', '通道', '峰值', '峰值类型', '峰值时刻 s', '峰值频率 Hz', 'δ', 'θ', 'α', 'β', 'γ']
+  const body = statsRows.value.map((r) => [
+    r.segName, r.channel,
+    r.peak ? r.peak.v.toFixed(3) : '', r.peak ? r.peak.kind : '', r.peak ? r.peak.t.toFixed(3) : '', r.peak ? r.peak.f.toFixed(2) : '',
+    (r.bands.delta ?? 0).toFixed(3), (r.bands.theta ?? 0).toFixed(3), (r.bands.alpha ?? 0).toFixed(3),
+    (r.bands.beta ?? 0).toFixed(3), (r.bands.gamma ?? 0).toFixed(3),
+  ])
+  return [head, ...body]
+}
+const copied = ref(false)
+function copyStats() {
+  const text = statsMatrix().map((r) => r.join('\t')).join('\n')
+  navigator.clipboard?.writeText(text).then(() => {
+    copied.value = true
+    window.setTimeout(() => (copied.value = false), 1200)
+  }).catch(() => {})
+}
+function exportCsv() {
+  const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'tfr_stats.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+function exportCell(e: MouseEvent, title: string) {
+  const cellEl = (e.target as HTMLElement).closest('.ov-cell')
+  const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
+  if (!src || !src.width) return
+  const scale = src.clientWidth ? src.width / src.clientWidth : 2
+  const headH = Math.round(20 * scale)
+  const out = document.createElement('canvas')
+  out.width = src.width
+  out.height = src.height + headH
+  const ctx = out.getContext('2d')
+  if (!ctx) return
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, out.width, out.height)
+  if (title) {
+    ctx.fillStyle = '#1F2733'
+    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.textBaseline = 'middle'
+    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
+  }
+  ctx.drawImage(src, 0, headH)
+  const a = document.createElement('a')
+  a.href = out.toDataURL('image/png')
+  a.download = `tfr_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
+  a.click()
+}
+
+// ---------- 取数 ----------
+let loadSeq = 0
+async function bootstrap() {
+  if (!studyId || !urlOutputIds.length) {
+    error.value = '缺少参数：需要 studyId 和 study_output_id（结果 ID）。'
+    loading.value = false
+    return
+  }
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await pipelineApi.getStudyOutputTfr(studyId, urlOutputIds[0], { maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
+    const d = res.data
+    primaryMeta.value = d
+    allChanNames.value = d.ch_names_all
+    defaultChannel.value = d.channel
+    cmap.value = d.unit === 'power' ? 'viridis' : 'rdbu'
+    const m = new Map<string, StudyOutputTfr>()
+    m.set(`0::${d.channel}`, d)
+    tfrMap.value = m
+    if (d.condition) labelCache[0] = d.condition
+    if (!selectedChans.value.size) chanSel.set([d.channel])
+    document.title = `时频分析 · ${displayName.value} — 念析`
+    void discoverSiblings()
+    await syncLoad()
+    void loadTopo()
+  } catch (err: unknown) {
+    error.value = describeError(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 自动发现同研究项下其它 TFR 产物 → 追加到「数据集」列表供勾选对比（列不出不致命，退化为单数据集）
+async function discoverSiblings() {
+  if (!studyId) return
+  try {
+    const res = await pipelineApi.listStudyOutputs(studyId, { data_types: ['tfr'], limit: 200 })
+    const items = (res.data.study_outputs || []).filter((o) => !o.deleted_at && !o.purged_at)
+    if (!items.length) return
+    const seen = new Set(outputIds.value)
+    const merged = [...outputIds.value]
+    for (const o of items) {
+      const label = o.condition || o.display_name || ''
+      if (label) outputLabels[o.id] = label
+      if (!seen.has(o.id)) {
+        seen.add(o.id)
+        merged.push(o.id)
+      }
+    }
+    if (merged.length !== outputIds.value.length) outputIds.value = merged
+  } catch {
+    /* 列不出兄弟产物不致命 */
+  }
+}
+async function syncLoad() {
+  if (!studyId) return
+  const pairs: [number, string][] = []
+  for (const seg of sortedSegs.value) {
+    for (const ch of orderedChans.value) {
+      if (!tfrMap.value.has(`${seg}::${ch}`)) pairs.push([seg, ch])
+      if (pairs.length + tfrMap.value.size >= MAX_CELLS + 4) break
+    }
+  }
+  if (!pairs.length) return
+  const myId = ++loadSeq
+  loading.value = true
+  try {
+    const settled = await Promise.allSettled(
+      pairs.map(async ([seg, ch]) => {
+        const res = await pipelineApi.getStudyOutputTfr(studyId, outputIds.value[seg], { channel: ch, maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
+        return [seg, ch, res.data] as const
+      }),
+    )
+    if (myId !== loadSeq) return
+    const m = new Map(tfrMap.value)
+    let failed = 0
+    for (const s of settled) {
+      if (s.status === 'fulfilled') {
+        const [seg, ch, data] = s.value
+        m.set(`${seg}::${ch}`, data)
+        if (data.condition && labelCache[seg] === undefined) labelCache[seg] = data.condition
+      } else {
+        failed++
+      }
+    }
+    tfrMap.value = m
+    partialNote.value = failed > 0 ? `部分通道/数据集未能加载（${failed} 个），仅显示可用的。` : ''
+  } finally {
+    if (myId === loadSeq) loading.value = false
+  }
+}
+function reload() {
+  tfrMap.value = new Map()
+  primaryMeta.value = null
+  void bootstrap()
+}
+function describeError(err: unknown): string {
+  const e = err as { response?: { status?: number; data?: { detail?: { message?: string } | string } } }
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  const serverMsg = typeof detail === 'string' ? detail : detail?.message
+  if (status === 404) return '该结果的文件不存在或已被清理。'
+  if (status === 400) return serverMsg || '该结果不是时频(TFR)类型。'
+  if (status === 422) return serverMsg || '时频文件缺失或为空。'
+  return serverMsg || '读取时频数据失败，请稍后重试。'
+}
+
+// 选择变化 → 增量取缺失的 (数据集×通道)
+watch(
+  () => [sortedSegs.value.join(','), orderedChans.value.join(',')],
+  () => {
+    if (primaryMeta.value) void syncLoad()
+  },
+)
+
+// ---------- 左栏折叠 / 全屏 ----------
+function toggleSec(key: string) {
+  collapsed[key] = !collapsed[key]
+}
+function toggleFullscreen() {
+  const el = pageRef.value
+  if (!el) return
+  if (document.fullscreenElement) void document.exitFullscreen()
+  else void el.requestFullscreen()
+}
+function onFsChange() {
+  isFullscreen.value = !!document.fullscreenElement
 }
 
 onMounted(() => {
-  if (isLive.value) loadTfr()
+  document.title = '时频分析 — 念析'
+  document.addEventListener('fullscreenchange', onFsChange)
+  void bootstrap()
 })
-
-function selectChannel(ch: string) {
-  if (!ch) return
-  selectedChannel.value = ch
-  if (isLive.value) loadTfr(ch)
-}
-
-function refresh() {
-  if (isLive.value) loadTfr(selectedChannel.value)
-}
-
-function resetScale() {
-  const z = isLive.value && live.value ? Number(live.value.zmax) || 1 : 3
-  zmax.value = `+${roundZ(z)}`
-  zmin.value = `-${roundZ(z)}`
-}
-
-// ── 通道选项 ──
-const DEMO_CHANNELS = ['Fz', 'Cz', 'Pz', 'Oz']
-const channelOptions = computed(() => (isLive.value && live.value ? live.value.ch_names_all : DEMO_CHANNELS))
-const channelChips = computed(() => channelOptions.value.slice(0, 32))
-
-// ── 色彩映射：把展示值(已含单位)映射到颜色，scale = 当前色阶上界 ──
-function pseudoRand(seed: number) {
-  const x = Math.sin(seed * 13.4567) * 43758.5453
-  return x - Math.floor(x)
-}
-
-function ersfColor(value: number, mode: 'rdbu' | 'viridis' | 'hot', scale: number) {
-  const s = scale || 1
-  const t = Math.max(-s, Math.min(s, value)) / s
-  if (mode === 'rdbu') {
-    if (t < 0) {
-      const k = -t
-      return `rgb(${Math.round(46 + (255 - 46) * (1 - k))}, ${Math.round(107 + (255 - 107) * (1 - k))}, ${Math.round(255)})`
-    }
-    return `rgb(${Math.round(255)}, ${Math.round(255 - 255 * t * 0.7)}, ${Math.round(255 - 255 * t * 0.9)})`
-  }
-  if (mode === 'viridis') {
-    const k = (t + 1) / 2
-    return `rgb(${Math.round(68 + 188 * k)}, ${Math.round(1 + 230 * k)}, ${Math.round(84 + 138 * (1 - k))})`
-  }
-  const k = (t + 1) / 2
-  return `rgb(${Math.round(255 * k)}, ${Math.round(80 * k)}, ${Math.round(40 * (1 - k))})`
-}
-
-// ── 演示用伪时频矩阵(无真实结果时) ──
-const N_T = 60
-const N_F = 40
-const CHANNEL_PROFILES: Record<string, { alpha: number; beta: number; theta: number; gamma: number }> = {
-  Fz: { alpha: 0.2, beta: 0.5, theta: 0.85, gamma: 0.3 },
-  Cz: { alpha: 0.5, beta: 0.9, theta: 0.3, gamma: 0.5 },
-  Pz: { alpha: 0.6, beta: 0.7, theta: 0.5, gamma: 0.4 },
-  Oz: { alpha: 1.3, beta: 0.2, theta: 0.2, gamma: 0.25 },
-}
-
-const erspDemo = computed(() => {
-  const prof = CHANNEL_PROFILES[selectedChannel.value] || CHANNEL_PROFILES.Cz
-  const result: number[][] = []
-  for (let iF = 0; iF < N_F; iF++) {
-    const freq = 1 + (iF / (N_F - 1)) * 49
-    const row: number[] = []
-    for (let iT = 0; iT < N_T; iT++) {
-      const ts = -0.5 + (iT / (N_T - 1)) * 2
-      let v = 0
-      if (freq >= 7 && freq <= 13) {
-        v -= prof.alpha * 2.5 * Math.exp(-Math.pow((ts - 0.45) / 0.28, 2)) * Math.exp(-Math.pow((freq - 10) / 2.5, 2))
-      }
-      if (freq >= 13 && freq <= 30) {
-        v += prof.beta * 2.5 * Math.exp(-Math.pow((ts - 0.28) / 0.2, 2)) * Math.exp(-Math.pow((freq - 20) / 6, 2))
-      }
-      if (freq >= 4 && freq <= 8) {
-        v += prof.theta * 2 * Math.exp(-Math.pow((ts - 0.22) / 0.18, 2))
-      }
-      if (freq >= 30 && freq <= 48) {
-        v += prof.gamma * 1.8 * Math.exp(-Math.pow((ts - 0.16) / 0.09, 2))
-      }
-      if (ts < 0) v = (pseudoRand(iF * 31 + iT * 7) - 0.5) * 0.6
-      v += (pseudoRand(iF * 17 + iT * 13) - 0.5) * 0.4
-      row.push(v)
-    }
-    result.push(row)
-  }
-  return result
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFsChange)
 })
-
-// ersp[iF][iT]，iF 从低频到高频；live.power 同向（freqs 升序）
-const ersp = computed<number[][]>(() => {
-  if (isLive.value) return live.value ? live.value.power : []
-  return erspDemo.value
-})
-
-const colorScale = computed(() => Math.abs(Number(zmax.value)) || 3)
-
-const heatmap = computed(() => {
-  const matrix = ersp.value
-  const rows = matrix.length
-  if (!rows) return [] as Array<{ iF: number; cells: Array<{ iT: number; x: number; y: number; w: number; h: number; fill: string }> }>
-  const cols = matrix[0]?.length || 1
-  const cellW = 600 / cols
-  const cellH = 300 / rows
-  const scale = colorScale.value
-  return matrix.map((row, iF) => ({
-    iF,
-    cells: row.map((v, iT) => ({
-      iT,
-      x: iT * cellW,
-      y: 300 - (iF + 1) * cellH,
-      w: cellW + 0.5,
-      h: cellH + 0.5,
-      fill: ersfColor(v, cmap.value, scale),
-    })),
-  }))
-})
-
-// ── 频率范围 / 时间范围（live 用真实，demo 用 1–50 Hz / −0.5–1.5 s） ──
-const freqRange = computed(() => {
-  if (isLive.value && live.value) return { fmin: live.value.fmin ?? 1, fmax: live.value.fmax ?? 50 }
-  return { fmin: 1, fmax: 50 }
-})
-const timeRange = computed(() => {
-  if (isLive.value && live.value) return { tmin: live.value.tmin ?? -0.5, tmax: live.value.tmax ?? 1.5 }
-  return { tmin: -0.5, tmax: 1.5 }
-})
-
-const zeroX = computed<number | null>(() => {
-  const { tmin, tmax } = timeRange.value
-  if (tmax <= tmin || 0 < tmin || 0 > tmax) return null
-  return ((0 - tmin) / (tmax - tmin)) * 600
-})
-
-const bandLines = computed(() => {
-  const { fmin, fmax } = freqRange.value
-  const span = fmax - fmin || 1
-  const freqToY = (f: number) => 300 - ((f - fmin) / span) * 300
-  return [
-    { name: 'δ', f: 4 },
-    { name: 'θ', f: 8 },
-    { name: 'α', f: 13 },
-    { name: 'β', f: 30 },
-  ]
-    .filter((b) => b.f > fmin && b.f < fmax)
-    .map((b) => ({ name: b.name, y: freqToY(b.f) }))
-})
-
-const freqAxis = computed(() => {
-  const { fmin, fmax } = freqRange.value
-  return [
-    { y: 0, label: fmtFreq(fmax) },
-    { y: 150, label: fmtFreq((fmin + fmax) / 2) },
-    { y: 300, label: fmtFreq(fmin) },
-  ]
-})
-
-const timeAxis = computed(() => {
-  const { tmin, tmax } = timeRange.value
-  return [
-    { x: 0, anchor: 'start', label: fmtTime(tmin) },
-    { x: 300, anchor: 'middle', label: fmtTime((tmin + tmax) / 2) },
-    { x: 600, anchor: 'end', label: fmtTime(tmax) },
-  ]
-})
-
-const colorbar = computed(() => {
-  const z = roundZ(colorScale.value)
-  const u = unitLabel.value
-  return { top: `+${z} ${u}`, mid: '0', bottom: `−${z} ${u}` }
-})
-
-const unitLabel = computed(() => (isLive.value && live.value ? live.value.unit : 'dB'))
-
-const bandStatsDemo = computed(() => {
-  const z = erspDemo.value
-  function mean(lo: number, hi: number) {
-    let sum = 0,
-      count = 0
-    for (let iF = 0; iF < N_F; iF++) {
-      const freq = 1 + (iF / (N_F - 1)) * 49
-      if (freq < lo || freq > hi) continue
-      for (let iT = 0; iT < N_T; iT++) {
-        const ts = -0.5 + (iT / (N_T - 1)) * 2
-        if (ts < 0.1 || ts > 0.8) continue
-        sum += z[iF][iT]
-        count++
-      }
-    }
-    return count ? sum / count : 0
-  }
-  let peak = Infinity,
-    peakT = 0
-  for (let iF = 0; iF < N_F; iF++) {
-    for (let iT = 0; iT < N_T; iT++) {
-      const ts = -0.5 + (iT / (N_T - 1)) * 2
-      if (ts < 0.1 || ts > 0.8) continue
-      if (z[iF][iT] < peak) {
-        peak = z[iF][iT]
-        peakT = ts
-      }
-    }
-  }
-  return {
-    alpha: mean(8, 12),
-    beta: mean(12, 30),
-    theta: mean(4, 8),
-    gamma: mean(30, 50),
-    peak: Number.isFinite(peak) ? peak : 0,
-    peakT: Math.round(peakT * 1000),
-  }
-})
-
-const bandStats = computed(() => {
-  if (!(isLive.value && live.value)) return bandStatsDemo.value
-  const data = live.value
-  const band = (name: string) => data.bands.find((b) => b.name === name)?.value ?? 0
-  let peak = Infinity
-  let peakT = 0
-  let found = false
-  for (let iF = 0; iF < data.power.length; iF++) {
-    const row = data.power[iF]
-    for (let iT = 0; iT < row.length; iT++) {
-      const t = data.times[iT]
-      if (t == null || t < 0) continue
-      if (row[iT] < peak) {
-        peak = row[iT]
-        peakT = t
-        found = true
-      }
-    }
-  }
-  return {
-    alpha: band('alpha'),
-    beta: band('beta'),
-    theta: band('theta'),
-    gamma: band('gamma'),
-    peak: found ? peak : 0,
-    peakT: Math.round(peakT * 1000),
-  }
-})
-
-// ── 标题 / 元信息 ──
-const metaLine = computed(() => {
-  if (isLive.value && live.value) {
-    return `${selectedChannel.value} · ${live.value.condition || '—'} · ${Math.round(live.value.sfreq)} Hz`
-  }
-  return `${selectedChannel.value} · Left MI · 1000 Hz`
-})
-
-const cardTitle = computed(() => {
-  const cond = isLive.value && live.value ? live.value.condition || 'ERSP' : 'ERSP'
-  return `时频分析 · ${selectedChannel.value} · ${cond}`
-})
-
-const cardSubtitle = computed(() => {
-  if (isLive.value && live.value) {
-    const l = live.value
-    return `${l.method || 'morlet'} · ${fmtFreq(l.fmin)}–${fmtFreq(l.fmax)} Hz · ${l.nave} trials · ${baselineDesc(l.baseline_mode)}`
-  }
-  return 'Morlet Wavelet · 1–50 Hz · 基线 [−0.5, 0] s · dB re. baseline'
-})
-
-function baselineDesc(mode?: string | null) {
-  const map: Record<string, string> = {
-    logratio: 'dB re. baseline',
-    percent: '% change re. baseline',
-    zscore: 'z-score re. baseline',
-    ratio: 'ratio re. baseline',
-    mean: 'mean-subtract baseline',
-    none: '无基线校正',
-  }
-  return map[String(mode || '')] || 'dB re. baseline'
-}
-
-function fmtFreq(value: number | null) {
-  if (value == null) return '—'
-  return Math.abs(value) >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
-}
-
-function fmtTime(value: number | null) {
-  if (value == null) return '—'
-  return String(Math.round(value * 100) / 100)
-}
-
-function roundZ(value: number) {
-  return Math.round(value * 100) / 100
-}
 </script>
 
 <style scoped>
-:deep(.page) { padding: 0; }
-.tfr-card {
-  margin: 12px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-  height: calc(100% - 24px);
-  display: flex;
-  flex-direction: column;
-}
-.tfr-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--c-bg-soft);
-  border-bottom: 1px solid var(--c-border);
-}
-.tfr-card__head h2 { margin: 0; font-size: 14px; }
-.tfr-card__head p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; }
-.tfr-plot { flex: 1; padding: 12px; overflow: auto; position: relative; }
-.tfr-svg { width: 100%; max-width: 100%; height: auto; }
-.tfr-state {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2;
-  padding: 6px 14px;
-  font-size: 12px;
-  border-radius: var(--r-pill);
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  color: var(--c-text-2);
-}
-.tfr-state--err { color: var(--c-danger, #d43f34); border-color: var(--c-danger, #d43f34); }
-
-.result-meta { display: flex; flex-direction: column; gap: 4px; }
-.result-meta__row { display: flex; justify-content: space-between; font-size: 12px; }
-.result-meta__row .k { color: var(--c-text-3); }
-.result-meta__row .v { font-family: var(--ff-mono); color: var(--c-text); }
-.norm-fixed { font-size: 11px; color: var(--c-text-2); }
-.ch-more { font-size: 10px; color: var(--c-text-3); align-self: center; }
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.stat-card {
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-sm);
-  background: var(--c-bg-soft);
-  padding: 8px 10px;
-  text-align: center;
-}
-.stat-label {
-  font-size: 10px;
-  color: var(--c-text-3);
-  letter-spacing: .04em;
-}
-.stat-value {
-  font-family: var(--ff-mono);
-  font-size: 16px;
-  font-weight: 600;
-  margin-top: 2px;
-  color: var(--c-text);
-}
-.stat-value .unit { font-size: 10px; color: var(--c-text-3); margin-left: 2px; }
-.band-tag-on {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  font-size: 10px;
-  border-radius: var(--r-pill);
-  background: var(--c-primary-soft);
-  color: var(--c-primary);
-  font-family: var(--ff-mono);
-}
-.ch-tag {
-  cursor: pointer;
-}
-.ch-tag.is-on {
-  background: var(--c-primary);
-  color: #fff;
-  border-color: var(--c-primary);
-}
+.psd-bandpills { display: flex; gap: 4px; flex-wrap: wrap; }
+.psd-bandpill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; border-radius: var(--r-pill); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-family: var(--ff-mono); }
+.psd-bandpill:hover { border-color: var(--c-primary); }
+.psd-bandpill.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
+.ov-cell-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--c-text-3); font-size: 12px; }
+.is-focus-band .ov-contrast-lbl { color: var(--c-text); font-weight: 600; }
+/* 状态条色阶图例 */
+.tfr-cbar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-3); }
+.tfr-cbar-sw { width: 70px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); }
+.tfr-cbar-u { margin-left: 1px; }
 </style>

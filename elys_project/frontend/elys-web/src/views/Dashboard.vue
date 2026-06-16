@@ -329,6 +329,7 @@ const ACTIVITY_COLLAPSE_WINDOW_MS = 5 * 60 * 1000
 interface StudyMetrics {
   pipelineCount: number
   executionCount: number
+  runningExecutionCount: number
   attentionExecutionCount: number
 }
 
@@ -614,6 +615,7 @@ const studyMetricsMap = computed<Record<string, StudyMetrics>>(() => {
       map[study.id] = {
         pipelineCount: study.metrics.pipeline_count,
         executionCount: study.metrics.execution_count,
+        runningExecutionCount: study.metrics.running_execution_count,
         attentionExecutionCount: study.metrics.attention_execution_count,
       }
     })
@@ -621,16 +623,17 @@ const studyMetricsMap = computed<Record<string, StudyMetrics>>(() => {
   }
 
   studies.value.forEach((study) => {
-    map[study.id] = { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
+    map[study.id] = { pipelineCount: 0, executionCount: 0, runningExecutionCount: 0, attentionExecutionCount: 0 }
   })
   pipelineItems.value.forEach((pipeline) => {
-    const metrics = map[pipeline.study_id] || { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
+    const metrics = map[pipeline.study_id] || { pipelineCount: 0, executionCount: 0, runningExecutionCount: 0, attentionExecutionCount: 0 }
     metrics.pipelineCount += 1
     map[pipeline.study_id] = metrics
   })
   recentExecutions.value.forEach((execution) => {
-    const metrics = map[execution.study_id] || { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
+    const metrics = map[execution.study_id] || { pipelineCount: 0, executionCount: 0, runningExecutionCount: 0, attentionExecutionCount: 0 }
     metrics.executionCount += 1
+    if (isActiveExecutionStatus(execution.status) && !isAttentionExecutionStatus(execution.status)) metrics.runningExecutionCount += 1
     if (isAttentionExecutionStatus(execution.status)) metrics.attentionExecutionCount += 1
     map[execution.study_id] = metrics
   })
@@ -816,7 +819,7 @@ function addSummaryWarning() {
 }
 
 function studyMetrics(studyId: string) {
-  return studyMetricsMap.value[studyId] || { pipelineCount: 0, executionCount: 0, attentionExecutionCount: 0 }
+  return studyMetricsMap.value[studyId] || { pipelineCount: 0, executionCount: 0, runningExecutionCount: 0, attentionExecutionCount: 0 }
 }
 
 // 研究阶段收口到 deriveStudyStage（与 StudiesPage、右栏「建议下一步」同一份事实源）。
@@ -827,6 +830,7 @@ function stageResultFor(studyId: string) {
     loaded: true,
     pipelineCount: m.pipelineCount,
     executionCount: m.executionCount,
+    runningExecutionCount: m.runningExecutionCount,
     attentionExecutionCount: m.attentionExecutionCount,
   })
 }

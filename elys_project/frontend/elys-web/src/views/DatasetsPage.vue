@@ -401,7 +401,6 @@ const {
   selectedStudyId,
   mountName,
   uploadSectionRef,
-  uploadPanelRef,
   isBootstrapping,
   bootstrapError,
   bootstrapSuccess,
@@ -418,7 +417,6 @@ const {
   clearBootstrapResult,
   bootstrapDataset,
   mountExistingDatasetAsset,
-  scrollToUploadPanel,
 } = importTarget
 
 // ===== 数据文件管理器（filemanager 视图）：后台 3 类文件角色 → 用户 2 个桶 =====

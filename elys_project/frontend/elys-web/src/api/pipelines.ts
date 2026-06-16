@@ -10,6 +10,8 @@ import type {
   StudyOutputPsdQuery,
   StudyOutputTfr,
   StudyOutputTfrQuery,
+  StudyOutputTfrTopo,
+  StudyOutputTfrTopoQuery,
   StudyOutputTimeseries,
   StudyOutputTimeseriesQuery,
   StudyOutputUpdatePayload,
@@ -149,7 +151,21 @@ export const pipelineApi = {
         max_times: query.maxTimes,
       },
     }),
-  /** 功率谱：单通道 频率→功率(dB) 折线（PsdPage 用） */
+  /** 时频地形图：全通道在 (时窗×频窗) 内平均功率 + 2D 坐标（TfrPage 频段空间分布用） */
+  getStudyOutputTfrTopo: (
+    studyId: string,
+    datasetId: string,
+    query: StudyOutputTfrTopoQuery = {},
+  ) =>
+    api.get<StudyOutputTfrTopo>(`/studies/${studyId}/outputs/${datasetId}/tfr/topo`, {
+      params: {
+        tmin: query.tmin,
+        tmax: query.tmax,
+        fmin: query.fmin,
+        fmax: query.fmax,
+      },
+    }),
+  /** 功率谱：多通道 频率→功率(dB) 折线（PsdPage 用，做叠加/分面/频段地形图） */
   getStudyOutputPsd: (
     studyId: string,
     datasetId: string,
@@ -159,6 +175,7 @@ export const pipelineApi = {
       params: {
         channel: query.channel,
         max_freqs: query.maxFreqs,
+        max_channels: query.maxChannels,
       },
     }),
   downloadStudyOutput: (studyId: string, datasetId: string) =>

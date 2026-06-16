@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .montage_layout import channel_positions_2d
 from .previews import (
     StudyOutputPreviewError,
     resolve_study_output_path,
@@ -140,6 +141,92 @@ def build_tfr_heatmap(
         "zmax": zmax,
         "power": power,
         "bands": bands,
+    }
+
+
+def build_tfr_topomap(
+    study: Any,
+    dataset: Any,
+    *,
+    tmin: float | None = None,
+    tmax: float | None = None,
+    fmin: float | None = None,
+    fmax: float | None = None,
+) -> dict[str, Any]:
+    """全通道在 (时窗 × 频窗) 内的平均功率 + 2D 电极坐标，供时频观察页画频段地形图。
+
+    与单通道热图(build_tfr_heatmap)互补：热图看「一个通道的时频面」，地形图看「某时频窗里所有通道的空间分布」。
+    时窗默认刺激后(t>=0)、频窗默认全频；越界 / 空窗回退到全幅，绝不返回空地形。功率值按基线模式换算成展示单位
+    (dB/%/z…)，**有符号**(负=ERD、正=ERS) → 前端发散色直接绕 0 上色，不必去均值。
+    """
+    mne = _mne()
+    np = _numpy()
+    path = resolve_study_output_path(study, dataset)
+    validate_study_output_file(path, dataset)
+    tfr = _read_first_tfr(mne, path)
+
+    ch_names = [str(name) for name in tfr.ch_names]
+    if not ch_names:
+        raise StudyOutputPreviewError("DERIVED_DATASET_TFR_EMPTY", "TFR 不含任何通道", status_code=422)
+
+    params = getattr(dataset, "produced_by_params", None)
+    baseline_mode = params.get("baseline_mode") if isinstance(params, dict) else None
+    unit, scale = _unit_and_scale(baseline_mode)
+
+    freqs = np.asarray(tfr.freqs, dtype=float)
+    times = np.asarray(tfr.times, dtype=float)
+    data = np.asarray(tfr.data, dtype=float) * scale  # (n_channels, n_freqs, n_times)
+
+    t_lo = float(times[0]) if tmin is None else float(tmin)
+    t_hi = float(times[-1]) if tmax is None else float(tmax)
+    f_lo = float(freqs[0]) if fmin is None else float(fmin)
+    f_hi = float(freqs[-1]) if fmax is None else float(fmax)
+    tmask = (times >= min(t_lo, t_hi)) & (times <= max(t_lo, t_hi))
+    fmask = (freqs >= min(f_lo, f_hi)) & (freqs <= max(f_lo, f_hi))
+    if not bool(tmask.any()):
+        tmask = np.ones_like(times, dtype=bool)
+    if not bool(fmask.any()):
+        fmask = np.ones_like(freqs, dtype=bool)
+
+    block = data[:, fmask, :][:, :, tmask]  # (n_channels, nf, nt)
+    if block.size:
+        with np.errstate(invalid="ignore"):
+            values = np.nanmean(block, axis=(1, 2))
+    else:
+        values = np.zeros(len(ch_names), dtype=float)
+
+    # 真实 montage 优先（h5 带完整 info），缺失时按通道名兜底标准帽
+    ch_pos = channel_positions_2d(tfr.info, ch_names) or {}
+
+    channels: list[dict[str, Any]] = []
+    vmax = 0.0
+    for i, name in enumerate(ch_names):
+        v = float(values[i]) if i < len(values) and np.isfinite(values[i]) else 0.0
+        pos = ch_pos.get(name)
+        channels.append(
+            {
+                "name": name,
+                "value": round(v, 4),
+                "x": round(float(pos[0]), 4) if pos else None,
+                "y": round(float(pos[1]), 4) if pos else None,
+            }
+        )
+        if pos is not None and abs(v) > vmax:
+            vmax = abs(v)
+
+    return {
+        "data_type": "tfr_topo",
+        "study_output_id": str(getattr(dataset, "id", "") or ""),
+        "condition": getattr(dataset, "condition", None),
+        "unit": unit,
+        "tmin": round(min(t_lo, t_hi), 4),
+        "tmax": round(max(t_lo, t_hi), 4),
+        "fmin": round(min(f_lo, f_hi), 3),
+        "fmax": round(max(f_lo, f_hi), 3),
+        "n_channels": len(ch_names),
+        "n_positioned": sum(1 for c in channels if c["x"] is not None),
+        "vmax": round(vmax, 4) if vmax > 1e-9 else 1.0,
+        "channels": channels,
     }
 
 

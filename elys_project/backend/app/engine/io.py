@@ -261,6 +261,7 @@ def summarize_psd(result: dict[str, Any]) -> dict[str, Any]:
         "fmax": float(freqs[-1]) if freqs else None,
         "n_epochs": int(result.get("n_epochs") or 0),
         "method": str(result.get("method", "welch") or "welch"),
+        "band_powers": result.get("band_powers") or [],
         "comment": result.get("condition"),
     }
 

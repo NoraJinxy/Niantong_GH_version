@@ -43,7 +43,7 @@ from app.pipeline.previews import (
 )
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.psd_view import build_psd_lines
-from app.pipeline.tfr_view import build_tfr_heatmap
+from app.pipeline.tfr_view import build_tfr_heatmap, build_tfr_topomap
 from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail
 from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
@@ -659,16 +659,55 @@ def get_study_output_tfr(
         ) from exc
 
 
+@router.get("/studies/{study_id}/outputs/{dataset_id}/tfr/topo")
+def get_study_output_tfr_topo(
+    study_id: str,
+    dataset_id: UUID,
+    tmin: float | None = Query(default=None),
+    tmax: float | None = Query(default=None),
+    fmin: float | None = Query(default=None),
+    fmax: float | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """时频地形图:全通道在 (时窗 × 频窗) 内的平均功率 + 2D 电极坐标。供时频观察页画频段空间分布。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，时频数据不可用。"},
+        )
+    if str(dataset.data_type or "").lower() != "tfr":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "DERIVED_DATASET_NOT_TFR", "message": "该结果不是时频(TFR)类型。"},
+        )
+    try:
+        return build_tfr_topomap(study, dataset, tmin=tmin, tmax=tmax, fmin=fmin, fmax=fmax)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DERIVED_DATASET_TFR_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
 @router.get("/studies/{study_id}/outputs/{dataset_id}/psd")
 def get_study_output_psd(
     study_id: str,
     dataset_id: UUID,
     channel: str | None = Query(default=None),
     max_freqs: int = Query(default=300, ge=8, le=2000),
+    max_channels: int = Query(default=64, ge=1, le=256),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """单通道功率谱(频率 → 功率 dB 折线 + 频带统计)。供功率谱观察页按通道切换拉取。"""
+    """多通道功率谱(频率 → 各通道功率 dB 折线 + 逐通道频带统计)。供功率谱观察页做叠加/分面/频段地形图。"""
     study = get_study_for_read(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
     if dataset.deleted_at is not None:
@@ -682,7 +721,7 @@ def get_study_output_psd(
             detail={"code": "DERIVED_DATASET_NOT_PSD", "message": "该结果不是功率谱(PSD)类型。"},
         )
     try:
-        return build_psd_lines(study, dataset, channel=channel, max_freqs=max_freqs)
+        return build_psd_lines(study, dataset, channel=channel, max_freqs=max_freqs, max_channels=max_channels)
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,

@@ -8,31 +8,6 @@
       <span class="badge badge--primary">{{ uploadStatusBadgeText }}</span>
     </div>
 
-    <div class="bids-target-context" :class="{ 'is-missing': !hasUploadTarget }">
-      <div>
-        <span>数据集</span>
-        <strong>{{ uploadDatasetAssetName }}</strong>
-      </div>
-      <div>
-        <span>研究项</span>
-        <strong>{{ uploadStudyName }}</strong>
-      </div>
-      <div>
-        <span>目标状态</span>
-        <strong>{{ hasUploadTarget ? '已准备好' : '未准备' }}</strong>
-      </div>
-    </div>
-
-    <details class="bids-stages-disclosure">
-      <summary>导入后会自动整理、标准化并建立文件清单 <span class="muted text-sm">（点开了解过程）</span></summary>
-      <div class="bids-stage-strip" aria-label="导入处理过程">
-        <div v-for="stage in importStages" :key="stage.key" class="bids-stage">
-          <span>{{ stage.label }}</span>
-          <small>{{ stage.description }}</small>
-        </div>
-      </div>
-    </details>
-
     <div
       class="bids-dropzone"
       :class="{ 'is-active': isDragging }"
@@ -87,35 +62,6 @@
         @change="handleFolderInput"
       />
     </div>
-
-    <details class="bids-options">
-      <summary>
-        <span>BIDS 实体默认值</span>
-        <span class="muted text-sm">可选</span>
-      </summary>
-      <div class="bids-defaults">
-        <label>
-          <span>默认任务</span>
-          <input v-model.trim="defaultTask" class="input" placeholder="rest" />
-        </label>
-        <label>
-          <span>默认 session</span>
-          <input v-model.trim="defaultSession" class="input" placeholder="可空" />
-        </label>
-        <label>
-          <span>默认 run</span>
-          <input v-model.trim="defaultRun" class="input" placeholder="可空" />
-        </label>
-        <div class="bids-default-actions">
-          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyDefaultEntitiesToReadyGroups">
-            应用到待导入组
-          </button>
-          <button class="btn btn--sm" type="button" :disabled="isUploading || !groups.length" @click="clearGroups">
-            清空
-          </button>
-        </div>
-      </div>
-    </details>
 
     <div v-if="groups.length > 1" class="bids-queue-panel">
       <div class="bids-queue-summary" aria-label="批量导入总进度">
@@ -337,6 +283,44 @@
       <span>还没有选择数据。</span>
     </div>
 
+    <details class="bids-options">
+      <summary>
+        <span>高级选项</span>
+        <span class="muted text-sm">可选</span>
+      </summary>
+      <div class="bids-advanced-section">
+        <span class="bids-advanced-label">导入后会自动整理、标准化并建立文件清单</span>
+        <div class="bids-stage-strip" aria-label="导入处理过程">
+          <div v-for="stage in importStages" :key="stage.key" class="bids-stage">
+            <span>{{ stage.label }}</span>
+            <small>{{ stage.description }}</small>
+          </div>
+        </div>
+      </div>
+      <div class="bids-defaults">
+        <label>
+          <span>默认任务</span>
+          <input v-model.trim="defaultTask" class="input" placeholder="rest" />
+        </label>
+        <label>
+          <span>默认 session</span>
+          <input v-model.trim="defaultSession" class="input" placeholder="可空" />
+        </label>
+        <label>
+          <span>默认 run</span>
+          <input v-model.trim="defaultRun" class="input" placeholder="可空" />
+        </label>
+        <div class="bids-default-actions">
+          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyDefaultEntitiesToReadyGroups">
+            应用到待导入组
+          </button>
+          <button class="btn btn--sm" type="button" :disabled="isUploading || !groups.length" @click="clearGroups">
+            清空
+          </button>
+        </div>
+      </div>
+    </details>
+
     <div class="bids-uploader__footer">
       <div>
         <div v-if="summaryText" class="muted text-sm">{{ summaryText }}</div>
@@ -360,10 +344,10 @@
         <form class="bids-confirm-card" @submit.prevent="confirmReplacement">
           <div class="card__header">
             <div>
-              <h3 class="card__title">这条记录已存在，保存为新版本？</h3>
+              <h3 class="card__title">「{{ replaceCandidate.subject }} · {{ replaceCandidate.task }}」已经有数据了</h3>
               <div class="card__sub">
-                {{ replaceCandidate.subject }} / {{ replaceCandidate.session || '无 session' }} /
-                {{ replaceCandidate.task }} / {{ replaceCandidate.run || '无 run' }}
+                被试 {{ replaceCandidate.subject }} / {{ replaceCandidate.session ? '会话 ' + replaceCandidate.session : '无会话' }} /
+                任务 {{ replaceCandidate.task }} / {{ replaceCandidate.run ? '轮次 ' + replaceCandidate.run : '无轮次' }}
               </div>
             </div>
             <button class="icon-btn" type="button" title="关闭" :disabled="isReplacing" @click="closeReplaceConfirm">×</button>
@@ -372,32 +356,32 @@
           <div class="alert alert--warning">
             <AppIcon name="database" :size="18" />
             <div class="alert__body">
-              这条记录已经存在。确认后会把这次上传保存为新版本，整理与标准化成功后切换为当前版本；万一失败，仍然保留原来的版本。
+              这次上传会作为这条记录的「新一次数据」。之前那次会留作历史、随时可查；整理好后，分析会自动改用这次的新数据（万一这次没成功，仍用原来的）。
             </div>
           </div>
 
           <div class="bids-replace-summary">
             <div>
-              <span>已有记录</span>
-              <strong>{{ replaceDetail?.dataset_id || '已存在' }}</strong>
+              <span>之前</span>
+              <strong>已上传 {{ replaceDetail?.current_upload_seq || 1 }} 次</strong>
             </div>
             <div>
-              <span>当前版本</span>
-              <strong>{{ replaceDetail?.current_upload_seq ? `upload-${String(replaceDetail.current_upload_seq).padStart(3, '0')}` : '当前版本' }}</strong>
+              <span>这次</span>
+              <strong>作为新一次数据</strong>
             </div>
             <div>
-              <span>本次操作</span>
-              <strong>保存为新版本并设为当前</strong>
+              <span>之前的数据</span>
+              <strong>留作历史</strong>
             </div>
           </div>
 
           <div v-if="replaceError" class="inline-error">{{ replaceError }}</div>
 
           <div class="row row--end gap-2">
-            <button class="btn" type="button" :disabled="isReplacing" @click="closeReplaceConfirm">取消</button>
+            <button class="btn" type="button" :disabled="isReplacing" @click="closeReplaceConfirm">取消（去改标签）</button>
             <button class="btn btn--primary" type="submit" :disabled="isReplacing">
               <span v-if="isReplacing" class="spinner"></span>
-              {{ isReplacing ? '正在导入...' : '确认上传新版本' }}
+              {{ isReplacing ? '正在导入...' : '作为新一次数据上传' }}
             </button>
           </div>
         </form>
@@ -553,13 +537,6 @@ const queueStats = computed(() => {
 })
 const filteredGroups = computed(() => groups.value.filter((group) => matchesQueueFilter(group, queueFilter.value)))
 const uploadStudyId = computed(() => props.uploadContext?.studyId || props.studyId)
-const uploadStudyName = computed(() =>
-  formatStudyName(
-    props.uploadContext?.studyName
-    || props.studyName
-    || (uploadStudyId.value ? '已准备研究项' : '未准备研究项'),
-  ),
-)
 const uploadDatasetAssetId = computed(() => props.uploadContext?.datasetAssetId || props.datasetAssetId || '')
 const uploadDatasetAssetName = computed(() =>
   props.uploadContext?.datasetAssetName
@@ -630,10 +607,6 @@ const filteredQueueEmptyText = computed(() => {
 })
 
 let uploadGroupSequence = 0
-
-function formatStudyName(value: string) {
-  return value.replace(/\s*Study$/i, ' 研究项')
-}
 
 watch(hasUploadTarget, (ready) => {
   if (ready && globalError.value.includes('缺少导入目标')) {

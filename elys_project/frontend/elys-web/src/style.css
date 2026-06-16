@@ -2142,34 +2142,6 @@ code, kbd {
   font-size: 11px;
   font-weight: 700;
 }
-.bids-target-context {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-2);
-}
-.bids-target-context div {
-  min-width: 0;
-  padding: var(--s-3);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  background: var(--c-bg);
-}
-.bids-target-context.is-missing div {
-  border-color: rgba(220, 38, 38, .35);
-  background: rgba(220, 38, 38, .04);
-}
-.bids-target-context span {
-  display: block;
-  color: var(--c-text-3);
-  font-size: 11px;
-}
-.bids-target-context strong {
-  display: block;
-  margin-top: 2px;
-  overflow-wrap: anywhere;
-  color: var(--c-text);
-  font-size: 12px;
-}
 .bids-stage-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2256,6 +2228,16 @@ code, kbd {
 }
 .bids-options[open] summary {
   border-bottom: 1px solid var(--c-border);
+}
+.bids-advanced-section {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--c-border);
+}
+.bids-advanced-label {
+  color: var(--c-text-2);
+  font-size: 12px;
 }
 .bids-defaults {
   display: grid;
@@ -2617,7 +2599,6 @@ code, kbd {
   }
 }
 @media (max-width: 720px) {
-  .bids-target-context,
   .bids-stage-strip,
   .bids-queue-summary,
   .bids-import-result {

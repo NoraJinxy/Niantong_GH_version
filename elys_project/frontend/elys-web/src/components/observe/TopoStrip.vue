@@ -1,32 +1,18 @@
 <template>
   <div class="topo-strip">
-    <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span></div>
+    <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
+      <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
+        <span>{{ loLabel ?? ('−' + fmtScale(vmax)) }}</span>
+        <span style="width: 88px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); background: linear-gradient(to right, rgb(38,92,186), rgb(245,247,250), rgb(206,52,48));"></span>
+        <span>{{ hiLabel ?? ('+' + fmtScale(vmax)) }}</span>
+        <span style="margin-left: 2px;">{{ unit }}</span>
+      </span>
+    </div>
     <div class="topo-cards">
       <div v-for="c in cells" :key="c.seg" class="topo-card" :style="{ borderTopColor: c.color }">
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
-        <!-- 色面（薄板样条插值）走 canvas（putImageData，无 PNG 编码）；头罩 + 电极标记叠一层透明 SVG（保留 hover 真值） -->
-        <div v-if="c.points && c.points.length" class="topo-plot">
-          <canvas :ref="(el) => setCanvas(c.seg, el)" class="topo-cv"></canvas>
-          <svg viewBox="-1.28 -1.34 2.56 2.62" class="topo-ov">
-            <circle cx="0" cy="0" r="1" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-            <path d="M -0.13 -0.99 Q 0 -1.24 0.13 -0.99" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-            <path d="M -1 -0.2 Q -1.13 0 -1 0.2" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-            <path d="M 1 -0.2 Q 1.13 0 1 0.2" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-            <!-- 中性电极标记：白底 + 深描边，红/蓝/近白底色上都看得见；真值走 hover title（对标 EEGLAB/MNE 不按值填点） -->
-            <circle
-              v-for="p in c.points"
-              :key="p.name"
-              :cx="p.x"
-              :cy="-p.y"
-              r="0.026"
-              fill="rgba(255, 255, 255, 0.9)"
-              stroke="rgba(38, 50, 72, 0.6)"
-              stroke-width="0.012"
-            >
-              <title>{{ p.name }}: {{ p.value.toFixed(2) }} µV</title>
-            </circle>
-          </svg>
-        </div>
+        <!-- 单层 canvas：色面 + 头罩 + 鼻耳 + 电极点同一坐标变换绘制（杜绝分层错位）；hover 真值走动态 title -->
+        <canvas v-if="c.points && c.points.length" :ref="(el) => setCanvas(c.seg, el)" class="topo-cv"></canvas>
         <div v-else class="topo-empty">无电极坐标<br />(该结果未带 montage)</div>
       </div>
     </div>
@@ -37,13 +23,20 @@
 // 真实地形图条：电极 2D 坐标 → 薄板样条插值出色面（头罩圆内），中性电极标记叠在面上。
 // 性能（Step 2 / 2b）：曲面是数值的线性函数 ⇒ 每个 montage 预算一次插值矩阵 M（见 topoKernel.ts），
 // 之后每帧只做 surface = M·v（纯乘加、零 log）+ 查 LUT 配色 + putImageData（无 toDataURL）。
-// 建矩阵那笔重活默认派给 Web Worker（topoKernel.worker），首次进页/切通道组主线程不卡；worker 不可用时同步兜底。
+// 建矩阵那笔重活默认派给 Web Worker（topoKernel.worker），首屏/切组主线程不卡；worker 不可用时同步兜底。
+// 绘制：色面 + 头罩圈 + 鼻耳 + 电极点全部画在**同一张 canvas、同一套坐标变换**里——
+// 旧版「canvas 色面 + SVG 头罩」两层叠放会在真机上对不齐，单层从根上消除该问题。
 import { onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { TOPO_RES as RES, buildTopoKernel } from './topoKernel'
 
 interface TopoPoint { name: string; x: number; y: number; value: number }
 interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null }
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; subtitle?: string }>(), { subtitle: '区间均值 µV · 全部通道' })
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV' })
+
+// 色标数字格式:大值取整、小值留 1 位
+function fmtScale(v: number): string {
+  return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
+}
 
 // ── 配色 LUT：发散色（负→蓝、零→近白、正→红），按归一化 t∈[-1,1] 预烤；vmax 只用于把数值映成 t，不进 LUT ──
 const LUT_N = 512
@@ -135,21 +128,43 @@ function ensureOffscreen() {
   return off
 }
 
-// 本格可见 canvas（按 seg 收集）
+// 本格可见 canvas + 电极命中表（CSS 像素，供 hover 读数）
 const canvasMap = new Map<number, HTMLCanvasElement>()
+const hitMap = new Map<number, { name: string; value: number; x: number; y: number }[]>()
 function setCanvas(seg: number, el: unknown) {
-  if (el instanceof HTMLCanvasElement) canvasMap.set(seg, el)
-  else canvasMap.delete(seg)
+  if (el instanceof HTMLCanvasElement) {
+    canvasMap.set(seg, el)
+    el.onmousemove = (ev) => onHover(seg, el, ev) // 动态 title：悬停最近电极 → 原生 tooltip 显名+值
+    el.onmouseleave = () => { el.title = '' }
+  } else {
+    canvasMap.delete(seg)
+    hitMap.delete(seg)
+  }
+}
+function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent) {
+  const hits = hitMap.get(seg)
+  if (!hits) return
+  const rect = el.getBoundingClientRect()
+  const mx = ev.clientX - rect.left
+  const my = ev.clientY - rect.top
+  let best: { name: string; value: number } | null = null
+  let bestD = 12 // 命中半径（CSS px）
+  for (const h of hits) {
+    const d = Math.hypot(h.x - mx, h.y - my)
+    if (d < bestD) { bestD = d; best = h }
+  }
+  el.title = best ? `${best.name}: ${best.value.toFixed(2)} µV` : ''
 }
 
-// 每帧：surface = M·v → 查 LUT 写 ImageData → putImageData 到离屏 → drawImage 贴到本格 canvas 的 [-1,1]² 区域
-function drawSurface(canvas: HTMLCanvasElement, kernel: ReadyKernel, v: Float32Array, vmax: number) {
+// 一格全绘：色面（M·v→LUT→putImageData）+ 头罩圈 + 鼻耳 + 电极点，同一坐标变换 mapX/mapY，物理对齐
+function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], vmax: number, seg: number) {
+  // 1) 色面算进离屏 RES×RES
   const o = ensureOffscreen()
   const data = o.img.data
   const { inside, M, N } = kernel
-  const P = inside.length
+  const v = valueVector(points, kernel.names)
   const invVmax = vmax > 0 ? 1 / vmax : 1
-  for (let p = 0; p < P; p++) {
+  for (let p = 0; p < inside.length; p++) {
     let s = 0
     const base = p * N
     for (let j = 0; j < N; j++) s += M[base + j] * v[j]
@@ -165,32 +180,63 @@ function drawSurface(canvas: HTMLCanvasElement, kernel: ReadyKernel, v: Float32A
     data[di + 3] = 255
   }
   o.ctx.putImageData(o.img, 0, 0)
-  // 本格 canvas 后备分辨率：按显示尺寸 × dpr，只在首次（width=0）设一次（卡片尺寸固定）
-  if (canvas.width === 0 || canvas.height === 0) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    canvas.width = Math.max(1, Math.round((canvas.clientWidth || 132) * dpr))
-    canvas.height = Math.max(1, Math.round((canvas.clientHeight || 96) * dpr))
-  }
+
+  // 2) 后备分辨率：必须让 backing 宽高比 == 显示框宽高比，否则浏览器非等比拉伸 → 正圆被拉成椭圆。
+  //    注意 canvas.width 默认 300、height 默认 150（绝不为 0）；旧的「===0 才设」等于从不设，正是椭圆元凶。
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const wantW = Math.max(1, Math.round((canvas.clientWidth || 132) * dpr))
+  const wantH = Math.max(1, Math.round((canvas.clientHeight || 96) * dpr))
+  if (canvas.width !== wantW) canvas.width = wantW
+  if (canvas.height !== wantH) canvas.height = wantH
   const W = canvas.width
   const H = canvas.height
   const ctx = canvas.getContext('2d')!
   ctx.clearRect(0, 0, W, H)
   ctx.imageSmoothingEnabled = true
-  // 关键：必须和上层 SVG overlay 用**同一个** viewBox→viewport 映射，否则两层错位、色面捅出头罩。
-  // SVG 默认 preserveAspectRatio="xMidYMid meet"（等比缩放 + 居中），这里如法炮制：
-  // 等比 scale ⇒ 色面 [-1,1]² 落成正方形 ⇒ 内切圆仍是正圆，与头罩 <circle r=1> 完全重合。
+
+  // 3) 统一坐标变换（viewBox -1.28 -1.34 2.56 2.62，等比居中）：所有几何都过 mapX/mapY ⇒ 天然对齐
   const vbMinX = -1.28, vbMinY = -1.34, vbW = 2.56, vbH = 2.62
   const scale = Math.min(W / vbW, H / vbH)
   const ox = (W - vbW * scale) / 2
   const oy = (H - vbH * scale) / 2
-  const cx = ox + (0 - vbMinX) * scale
-  const cy = oy + (0 - vbMinY) * scale
+  const mapX = (vx: number) => ox + (vx - vbMinX) * scale
+  const mapY = (vy: number) => oy + (vy - vbMinY) * scale
+  const cx = mapX(0)
+  const cy = mapY(0)
+
+  // 4) 色面贴 [-1,1]²，裁到头罩圆
   ctx.save()
   ctx.beginPath()
-  ctx.arc(cx, cy, scale, 0, Math.PI * 2) // 头罩圆（r=1 → 半径=scale）裁剪兜底，杜绝任何越界像素
+  ctx.arc(cx, cy, scale, 0, Math.PI * 2)
   ctx.clip()
-  ctx.drawImage(o.canvas, ox + (-1 - vbMinX) * scale, oy + (-1 - vbMinY) * scale, 2 * scale, 2 * scale)
+  ctx.drawImage(o.canvas, mapX(-1), mapY(-1), 2 * scale, 2 * scale)
   ctx.restore()
+
+  // 5) 头罩圈 + 鼻子 + 双耳（与色面同变换、同圆心同半径）
+  ctx.strokeStyle = '#C4CCD8'
+  ctx.lineWidth = 0.02 * scale
+  ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(-0.13), mapY(-0.99)); ctx.quadraticCurveTo(mapX(0), mapY(-1.24), mapX(0.13), mapY(-0.99)); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(-1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(-1.13), mapY(0), mapX(-1), mapY(0.2)); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(1.13), mapY(0), mapX(1), mapY(0.2)); ctx.stroke()
+
+  // 6) 电极点（白底深描边，不按值填色）+ 记命中表（CSS px）
+  const rx = (canvas.clientWidth || W) / W
+  const ry = (canvas.clientHeight || H) / H
+  const hits: { name: string; value: number; x: number; y: number }[] = []
+  ctx.lineWidth = 0.012 * scale
+  for (const p of points) {
+    const ex = mapX(p.x)
+    const ey = mapY(-p.y) // 与旧 SVG cy=-p.y 一致；该处色面正是该电极的值
+    ctx.beginPath()
+    ctx.arc(ex, ey, 0.026 * scale, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(38, 50, 72, 0.6)'
+    ctx.stroke()
+    hits.push({ name: p.name, value: p.value, x: ex * rx, y: ey * ry })
+  }
+  hitMap.set(seg, hits)
 }
 
 function renderAll() {
@@ -200,8 +246,8 @@ function renderAll() {
     const canvas = canvasMap.get(c.seg)
     if (!canvas) continue
     const kernel = getKernel(sigOf(c.points), c.points)
-    if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 只留头罩+标记
-    drawSurface(canvas, kernel, valueVector(c.points, kernel.names), vmax)
+    if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 本格留空（无 montage 提示走 v-else）
+    drawCell(canvas, kernel, c.points, vmax, c.seg)
   }
 }
 
@@ -211,18 +257,15 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 </script>
 
 <style scoped>
-.topo-strip { flex-shrink: 0; display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }
+.topo-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 /* 固定宽度：游标 ms 位数变化（5 / 315 / 1000）不再改变本列宽度，右侧地形图卡不再左右抖动 */
-.topo-cap { display: flex; flex-direction: column; justify-content: center; width: 92px; flex-shrink: 0; font-size: 10px; color: var(--c-text-3); padding-right: 4px; border-right: 1px solid var(--c-border); }
-.topo-cap-sub { font-size: 8px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
+.topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; }
 .topo-card { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--c-border); border-top-width: 2px; border-radius: var(--r-sm); background: var(--c-surface); padding: 4px 4px 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .topo-hd { font-size: 9px; font-weight: 600; color: var(--c-text-2); display: flex; align-items: center; gap: 4px; max-width: 100%; }
 .topo-hd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
-/* 色面 canvas 在下、头罩/电极 SVG 在上，同尺寸叠放 */
-.topo-plot { position: relative; width: 100%; height: 96px; }
-.topo-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.topo-ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.topo-cv { width: 100%; height: 96px; display: block; }
 .topo-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: var(--c-text-3); line-height: 1.4; padding: 12px 4px; }
 </style>

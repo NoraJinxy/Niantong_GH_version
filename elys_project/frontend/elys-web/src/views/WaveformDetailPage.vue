@@ -335,7 +335,7 @@
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" :subtitle="topoSubtitle" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="yMaxValue" :subtitle="topoSubtitle" />
           </template>
 
           <div v-else class="wf-state">该数据没有可绘制的通道曲线。</div>
@@ -407,15 +407,18 @@
               <div class="wf-focus-sub">谷 {{ focusStat.trough.toFixed(1) }} · 均 {{ focusStat.mean.toFixed(1) }} µV · 区间 {{ fmtX(region!.x0) }}–{{ fmtX(region!.x1) }} {{ xUnit }}</div>
             </div>
 
-            <!-- ② 条件对比（≥2 段）：每条件一行，峰值条形可扫读 -->
+            <!-- ② 条件对比（≥2 段）：每条件一行，峰值条形可扫读；多了折叠 + 限高滚动（同上方游标读数） -->
             <div v-if="condCards.length" class="wf-contrast">
               <div class="wf-sec-mini">条件对比 · 峰值 µV</div>
-              <div v-for="c in condCards" :key="c.seg" class="wf-contrast-row" @click="focusChan(c.peakChan)">
-                <span class="wf-li-dot" :style="{ background: c.color }"></span>
-                <span class="wf-contrast-lbl">{{ c.label }}</span>
-                <span class="wf-contrast-bar"><span class="wf-contrast-fill" :style="{ width: barPct(c.peak) + '%', background: c.color }"></span></span>
-                <span class="wf-contrast-val text-mono">{{ c.peak.toFixed(1) }}</span>
+              <div class="wf-contrast-list">
+                <div v-for="c in visibleCondCards" :key="c.seg" class="wf-contrast-row" @click="focusChan(c.peakChan)">
+                  <span class="wf-li-dot" :style="{ background: c.color }"></span>
+                  <span class="wf-contrast-lbl">{{ c.label }}</span>
+                  <span class="wf-contrast-bar"><span class="wf-contrast-fill" :style="{ width: barPct(c.peak) + '%', background: c.color }"></span></span>
+                  <span class="wf-contrast-val text-mono">{{ c.peak.toFixed(1) }}</span>
+                </div>
               </div>
+              <button v-if="condCards.length > CONTRAST_COLLAPSED" class="wf-hover-toggle" type="button" @click="contrastExpanded = !contrastExpanded">{{ contrastExpanded ? '收起' : `展开全部 ${condCards.length} 条` }}</button>
             </div>
 
             <!-- ③ 明细表：默认折叠，导出 / 逐通道核对再展开 -->
@@ -516,9 +519,9 @@ const segAnchor = ref<number | null>(null) // shift 连选锚点（段/Epoch）
 // 默认沿用已验证的观感：单产物=单格全通道叠加（行列都—）；多产物=每通道一子图、数据集格内叠加（行=通道）
 // 叠加维度（#6）：数据集/条件/Epoch(=seg) 或 通道(chan) 三选一在子图内叠加；其余维度自动拆成子图(行/列)。
 // 默认叠加 seg，按通道分面——避免单格几十条叠成意大利面。
-const overlayDim = ref<'seg' | 'chan'>('seg')
+const overlayDim = ref<'seg' | 'chan' | 'none'>('seg')
 // seg 只 1 个值时叠加维度强制落到通道（否则没东西可叠）
-const effectiveOverlay = computed<'seg' | 'chan'>(() => (overlayDim.value === 'seg' && segCount.value <= 1 ? 'chan' : overlayDim.value))
+const effectiveOverlay = computed<'seg' | 'chan' | 'none'>(() => (overlayDim.value === 'seg' && segCount.value <= 1 ? 'chan' : overlayDim.value))
 // 当前可分面的维度（值>1、且不是叠加维度）：1 个→画廊；2 个→行×列矩阵；0 个→单格
 const facetDims = computed<Factor[]>(() => {
   const ov = effectiveOverlay.value
@@ -674,10 +677,11 @@ const segOptions = computed(() =>
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
 
 // 叠加维度可选项（label 随段类型变化）：seg 只 1 个值时不列出
-const overlayOptions = computed<{ v: 'seg' | 'chan'; l: string }[]>(() => {
-  const opts: { v: 'seg' | 'chan'; l: string }[] = []
+const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() => {
+  const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
   if (segCount.value > 1) opts.push({ v: 'seg', l: segKindLabel.value })
   opts.push({ v: 'chan', l: '通道' })
+  if (segCount.value > 1 && orderedSel.value.length > 1) opts.push({ v: 'none', l: '矩阵' })
   return opts
 })
 
@@ -1016,6 +1020,13 @@ watch(focusKey, (k) => {
   const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
   if (hit) highlightChan.value = hit.chan
 })
+// 关掉焦点开关：连带清掉曲线高亮 + 下拉选择（否则曲线一直加粗，与「焦点已关」矛盾）
+watch(focusEnabled, (on) => {
+  if (!on) {
+    focusKey.value = ''
+    highlightChan.value = ''
+  }
+})
 // ② 条件对比的峰值条形：按各条件峰值绝对值归一
 const maxCondPeak = computed(() => {
   let m = 0
@@ -1025,6 +1036,12 @@ const maxCondPeak = computed(() => {
 function barPct(peak: number): number {
   return Math.round((Math.abs(peak) / maxCondPeak.value) * 100)
 }
+// 条件对比卡：默认折叠只列前 N 张，多了给「展开全部」+ 限高滚动（与上方游标读数同款，不无限撑高右栏）
+const CONTRAST_COLLAPSED = 6
+const contrastExpanded = ref(false)
+const visibleCondCards = computed(() =>
+  contrastExpanded.value ? condCards.value : condCards.value.slice(0, CONTRAST_COLLAPSED),
+)
 
 // ---------- 地形图（区间均值 → 电极点着色，需后端 ch_pos）----------
 interface TopoCell {
@@ -1080,16 +1097,15 @@ const topoCells = computed<TopoCell[]>(() => {
   }
   return out
 })
-const topoVmax = computed(() => {
-  let m = 0
-  for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
-  return m
+const topoSubtitle = computed(() => {
+  if (topoMode.value === 'live') {
+    // 跟随游标：有游标→报时刻；无游标→提示移动鼠标（暂以区间均值垫场，免得地形图整块消失）
+    return cursorX.value != null
+      ? `游标 ${fmtX(cursorX.value)}${xUnit.value} · 全部通道`
+      : '跟随游标 · 移动鼠标定位 · 全部通道'
+  }
+  return '区间均值 µV · 全部通道'
 })
-const topoSubtitle = computed(() =>
-  topoMode.value === 'live' && cursorX.value != null
-    ? `游标 ${fmtX(cursorX.value)}${xUnit.value} · 全部通道`
-    : '区间均值 µV · 全部通道',
-)
 
 const filterDesc = computed(() => {
   if (!filterOn.value) return '滤波 关'
@@ -1628,6 +1644,7 @@ onUnmounted(() => {
 .wf-focus-sub { font-size: 12px; color: var(--c-text-3); margin-top: 7px; }
 /* ② 条件对比：峰值横向条形，可扫读 */
 .wf-contrast { padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+.wf-contrast-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
 .wf-sec-mini { font-size: 11px; color: var(--c-text-3); margin-bottom: 5px; }
 .wf-contrast-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; font-size: 12px; }
 .wf-contrast-lbl { width: 64px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }

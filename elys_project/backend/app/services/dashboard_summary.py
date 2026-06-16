@@ -43,6 +43,7 @@ DASHBOARD_ACTIVITY_LIMIT = 8
 DASHBOARD_ACTIVITY_QUERY_LIMIT = 40
 DASHBOARD_EXECUTION_STATUSES = ("waiting_user_input", "failed", "running", "queued", "pending")
 DASHBOARD_ATTENTION_EXECUTION_STATUSES = ("waiting_user_input", "failed")
+DASHBOARD_RUNNING_EXECUTION_STATUSES = ("running", "queued", "pending")
 DASHBOARD_DATASET_ERROR_STATUSES = {"error", "failed", "quarantined"}
 DASHBOARD_EXECUTION_STATUS_PRIORITY = {
     "waiting_user_input": 0,
@@ -73,6 +74,13 @@ def build_dashboard_summary(db: Session, *, current_user: User) -> DashboardSumm
         study_ids,
         PipelineExecution.status.in_(DASHBOARD_ATTENTION_EXECUTION_STATUSES),
     )
+    running_execution_counts = grouped_count(
+        db,
+        PipelineExecution.study_id,
+        PipelineExecution.id,
+        study_ids,
+        PipelineExecution.status.in_(DASHBOARD_RUNNING_EXECUTION_STATUSES),
+    )
     mount_counts = grouped_count(
         db,
         StudyDatasetMount.study_id,
@@ -99,6 +107,7 @@ def build_dashboard_summary(db: Session, *, current_user: User) -> DashboardSumm
                 dataset_count=mount_counts.get(study.id, 0),
                 pipeline_count=pipeline_counts.get(study.id, 0),
                 execution_count=execution_counts.get(study.id, 0),
+                running_execution_count=running_execution_counts.get(study.id, 0),
                 attention_execution_count=attention_execution_counts.get(study.id, 0),
             ),
         )
