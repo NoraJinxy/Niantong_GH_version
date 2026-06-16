@@ -1938,8 +1938,7 @@ function initLiteGraphCanvas() {
   canvas.default_connection_color_byType = pipelinePortColors()
   canvas.default_connection_color_byTypeOff = pipelinePortColors(0.45)
   liteGraphCanvas.onDrawBackground = drawPipelineCanvasBackground
-  liteGraphCanvas.show_info = true
-  canvas.renderInfo = renderPipelineCanvasInfo
+  liteGraphCanvas.show_info = false // 关掉画布左下角 T/I/N/V/FPS 调试浮层（LiteGraph 默认 true，须显式关）
   canvas.showNodePanel = () => false
   liteGraphCanvas.onShowNodePanel = () => false
   canvas.processContextMenu = (node: LGraphNode | null, event: LiteGraphContextEvent) =>
@@ -2109,49 +2108,6 @@ function drawCanvasAxis(ctx: CanvasRenderingContext2D, left: number, top: number
     ctx.lineTo(right, 0)
   }
   ctx.stroke()
-}
-
-function renderPipelineCanvasInfo(ctx: CanvasRenderingContext2D) {
-  const canvas = liteGraphCanvas
-  const graph = canvas?.graph
-  if (!canvas || !graph) return
-  const nodes = liteGraphNodes(graph)
-  const version = (graph as unknown as LooseLiteGraph)._version ?? 0
-
-  const ratio = Math.max(1, liteGraphPixelRatio || 1)
-  const fontSize = 12.5 * ratio
-  const lineHeight = 17 * ratio
-  const paddingX = 8 * ratio
-  const paddingY = 7 * ratio
-  const left = 12 * ratio
-  const bottom = 12 * ratio
-  const lines = [
-    `T: ${graph.globaltime.toFixed(2)}s · I: ${graph.iteration} · N: ${nodes.length}[${canvas.visible_nodes.length}]`,
-    `V: ${version} · FPS: ${canvas.fps.toFixed(1)}`,
-  ]
-
-  ctx.save()
-  ctx.font = `500 ${fontSize}px "Segoe UI", Arial, sans-serif`
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
-
-  const boxWidth = Math.ceil(Math.max(...lines.map((line) => ctx.measureText(line).width)) + paddingX * 2)
-  const boxHeight = Math.ceil(lineHeight * lines.length + paddingY * 2)
-  const top = Math.max(10 * ratio, (ctx.canvas.height || canvas.canvas.height) - bottom - boxHeight)
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.82)'
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)'
-  ctx.lineWidth = 1 * ratio
-  ctx.beginPath()
-  ctx.roundRect(left, top, boxWidth, boxHeight, [7 * ratio])
-  ctx.fill()
-  ctx.stroke()
-
-  ctx.fillStyle = '#536273'
-  lines.forEach((line, index) => {
-    ctx.fillText(line, left + paddingX, top + paddingY + (index + 0.78) * lineHeight)
-  })
-  ctx.restore()
 }
 
 // litegraph 图遍历 liteGraphNodes / liteGraphReachableFromLoadData → composables/pipeline/litegraphUtils
