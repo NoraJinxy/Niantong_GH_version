@@ -183,7 +183,7 @@
             <div v-if="partialNote" class="ov-partial">{{ partialNote }}</div>
             <div class="ov-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
               <section
-                v-for="cell in cells"
+                v-for="(cell, ci) in cells"
                 :key="cell.key"
                 class="ov-cell"
                 :class="{ 'is-focus': cell.key === focusKey }"
@@ -207,6 +207,8 @@
                     :show-grid="showGrid"
                     :t-zero="showStim"
                     :dense-axes="denseAxes"
+                    :hide-x-labels="cellHideX(ci)"
+                    :hide-y-labels="cellHideY(ci)"
                     :loading="loading"
                     :region="region"
                     :locked="cursorLocked"
@@ -518,6 +520,18 @@ const facetStyle = computed<Record<string, string>>(() => {
   return { gridTemplateColumns: `repeat(auto-fit, minmax(${cells.value.length > 4 ? '300' : '360'}px, 1fr))` }
 })
 const denseAxes = computed(() => cells.value.length > 1)
+// 严格矩阵（数据集×通道 都>1，cells 按 seg 外层·chan 内层排 → 行=数据集、列=通道）：
+// 共享坐标轴——频率轴只画最左列、时间轴只画最底行（专业小图矩阵风，边对边对齐）
+const isMatrix = computed(() => sortedSegs.value.length > 1 && orderedChans.value.length > 1)
+function cellHideY(ci: number): boolean {
+  return isMatrix.value && ci % orderedChans.value.length !== 0
+}
+function cellHideX(ci: number): boolean {
+  if (!isMatrix.value) return false
+  const cols = orderedChans.value.length
+  const lastRow = Math.ceil(cells.value.length / cols) - 1
+  return Math.floor(ci / cols) !== lastRow
+}
 
 // ---------- 焦点格 ----------
 const focusKey = ref('')

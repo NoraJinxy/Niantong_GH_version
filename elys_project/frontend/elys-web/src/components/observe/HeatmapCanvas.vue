@@ -149,8 +149,9 @@ function computeGeom(): Geom | null {
   if (W <= 0 || H <= 0) return null
   const dpr = PX_RATIO
   const dense = props.denseAxes
-  const left = (props.hideYLabels ? (dense ? 18 : 24) : dense ? 38 : 50) * dpr
-  const bottom = (props.hideXLabels ? (dense ? 16 : 20) : dense ? 26 : 34) * dpr
+  // 始终留刻度区宽度（隐藏标签的格只是不画字/刻度，几何不变）→ 矩阵里各列/行严格对齐
+  const left = (dense ? 38 : 50) * dpr
+  const bottom = (dense ? 26 : 34) * dpr
   const top = 8 * dpr
   const right = 12 * dpr
   const pw = Math.max(1, W - left - right)
@@ -321,13 +322,13 @@ function drawTimeAxis(ctx: CanvasRenderingContext2D, g: Geom) {
       ctx.lineTo(x, g.top + g.ph)
       ctx.stroke()
     }
-    // 朝外短刻度线（对标 matplotlib 'out'，不贯穿数据）
-    ctx.strokeStyle = TICK
-    ctx.beginPath()
-    ctx.moveTo(x, g.top + g.ph)
-    ctx.lineTo(x, g.top + g.ph + tick)
-    ctx.stroke()
+    // 朝外短刻度线 + 标签（对标 matplotlib 'out'）：矩阵里只底行显示时间轴
     if (!props.hideXLabels) {
+      ctx.strokeStyle = TICK
+      ctx.beginPath()
+      ctx.moveTo(x, g.top + g.ph)
+      ctx.lineTo(x, g.top + g.ph + tick)
+      ctx.stroke()
       ctx.fillStyle = AXIS
       ctx.fillText(fmtTime(t), x, g.top + g.ph + tick + 3 * dpr)
     }
@@ -353,12 +354,13 @@ function drawFreqAxis(ctx: CanvasRenderingContext2D, g: Geom) {
       ctx.lineTo(g.left + g.pw, y)
       ctx.stroke()
     }
-    ctx.strokeStyle = TICK
-    ctx.beginPath()
-    ctx.moveTo(g.left - tick, y)
-    ctx.lineTo(g.left, y)
-    ctx.stroke()
+    // 矩阵里只最左列显示频率轴
     if (!props.hideYLabels) {
+      ctx.strokeStyle = TICK
+      ctx.beginPath()
+      ctx.moveTo(g.left - tick, y)
+      ctx.lineTo(g.left, y)
+      ctx.stroke()
       ctx.fillStyle = AXIS
       ctx.fillText(fmtFreq(f), g.left - tick - 3 * dpr, y)
     }
