@@ -32,6 +32,7 @@ from app.engine.io import (
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
+from app.engine.preprocess.bad_channels import run_bad_channels
 from app.engine.preprocess.channel_location import run_channel_location
 from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
@@ -79,6 +80,7 @@ class NodeDispatcher:
             "eeg/preproc/resample": self._execute_resample,
             "eeg/preproc/rereference": self._execute_rereference,
             "eeg/preproc/channel_location": self._execute_channel_location,
+            "eeg/preproc/bad_channels": self._execute_bad_channels,
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/epoch/segment": self._execute_epoch_segment,
@@ -228,6 +230,13 @@ class NodeDispatcher:
 
     def _execute_channel_location(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_raw_preprocess(context, run_channel_location, save_descriptor="chanloc")
+
+    def _execute_bad_channels(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        # 仅标记 vs 插值修复用不同存储后缀（影响派生文件名）
+        params = context.params if isinstance(context.params, dict) else {}
+        action = str(params.get("action") or "interpolate").strip().lower()
+        save_descriptor = "interp" if action == "interpolate" else "badchan"
+        return self._execute_raw_preprocess(context, run_bad_channels, save_descriptor=save_descriptor)
 
     def _execute_ica_compute(self, context: NodeExecutionContext) -> NodeDispatchResult:
         node_id = str(context.node.get("id") or "")
@@ -549,9 +558,16 @@ class NodeDispatcher:
             try:
                 raw = read_raw_from_data_info(data_info, preload=True)
                 processed = processor(raw, context.params)
+                # 预处理引擎可返回 (raw, extra_meta)：extra_meta 记录如坏道检测明细之类的溯源信息
+                processor_meta: dict[str, Any] = {}
+                if isinstance(processed, tuple):
+                    processed, processor_meta = processed
                 # processor 内部已经 raw.copy() 出新对象，原 raw 不再用，立刻释放避免重复 ~500MB
                 raw = None
                 summary = summarize_raw(processed)
+                if processor_meta:
+                    # 并入 summary，使溯源同时进 preview 与 mne_summary
+                    summary = {**summary, **processor_meta}
                 filename = self._derived_raw_filename(data_info, save_descriptor, index)
                 upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                 save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
@@ -1157,6 +1173,63 @@ class NodeDispatcher:
             if outer_break:
                 break
 
+            # 连续数据(Raw)输入:无 condition,整段算一条 PSD(静息态频域)。一进一出,不展开 condition。
+            if not self._data_info_is_epochs(data_info):
+                raw = None
+                spectrum = None
+                try:
+                    raw = read_raw_from_data_info(data_info, preload=True)
+                    spectrum = run_psd(raw, context.params)
+                    summary = summarize_psd(spectrum)
+                    filename = self._derived_psd_filename(data_info, save_descriptor, index, condition=None)
+                    upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
+                    save_meta = self._save_settings_metadata(context, data_info=data_info, index=index, split_value=None)
+                    artifact = study_output_store.save_file_from_writer(
+                        filename,
+                        lambda path, spec=spectrum: save_psd_npz(spec, path),
+                        kind="analysis_result",
+                        data_type=save_meta.get("data_type") or "psd",
+                        metadata={
+                            "node_id": node_id,
+                            "node_type": node_type,
+                            "params": context.params,
+                            "input_data_info": self._compact_input_data_info(data_info),
+                            "mne_summary": summary,
+                            "upstream_dataset_ids": upstream_dataset_ids,
+                            "upstream_recording_ids": upstream_recording_ids,
+                            "condition": None,
+                            **save_meta,
+                        },
+                        preview=summary,
+                        source_dataset_id=self._source_dataset_id(data_info),
+                        node_id=node_id,
+                    )
+                    artifacts.append(artifact)
+                    output_data_infos.append(
+                        self._derived_data_info(
+                            context=context,
+                            input_data_info=data_info,
+                            artifact=artifact,
+                            summary=summary,
+                        )
+                    )
+                except Exception as exc:
+                    errors.append(
+                        self._issue(
+                            code="PIPELINE_NODE_DATASET_FAILED",
+                            message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: {exc}",
+                            node_id=node_id,
+                            node_type=node_type,
+                        )
+                    )
+                    break
+                finally:
+                    raw = None  # noqa: F841 — 显式断引用让 GC 回收(连续 raw 可达 ~500MB)
+                    spectrum = None
+                    import gc  # noqa: PLC0415
+                    gc.collect()
+                continue
+
             input_condition_raw = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
             input_condition = input_condition_raw.strip() if input_condition_raw else None
             if input_condition:
@@ -1283,6 +1356,26 @@ class NodeDispatcher:
     def _input_data_infos(context: NodeExecutionContext, port: str) -> list[dict[str, Any]]:
         node_input = context.inputs.get(port)
         return list(node_input.data_infos) if node_input else []
+
+    @staticmethod
+    def _data_info_is_epochs(data_info: dict[str, Any]) -> bool:
+        """判断一份 data_info 指向 Epochs 还是连续 Raw(供 PSD 等同时接受两种输入的节点分流)。
+
+        判定优先级:
+          - data_type == "epochs" → Epochs
+          - data_type ∈ {raw, filtered_raw, ica_cleaned} → Raw
+          - 兜底看文件名后缀(-epo.fif = Epochs),否则按连续 Raw 处理。
+        """
+        data_type = str(data_info.get("data_type") or "").strip().lower()
+        if data_type == "epochs":
+            return True
+        if data_type in {"raw", "filtered_raw", "ica_cleaned"}:
+            return False
+        for key in ("fif_path", "storage_path", "artifact_storage_path", "source_path"):
+            value = data_info.get(key)
+            if value and str(value).lower().endswith(("-epo.fif", "-epo.fif.gz")):
+                return True
+        return False
 
     @staticmethod
     def _lineage_for_input(*data_infos: dict[str, Any]) -> tuple[list[str], list[str]]:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.pipeline.study_output_store import StudyOutputStore
+from app.pipeline.study_output_store import StudyOutputStore, record_execution_output_link
 from app.pipeline.contracts import NodeOutput
 from app.services.storage import StorageService, StorageUriError
 
@@ -130,6 +130,18 @@ class PipelineCache:
         """
         copied: list[dict[str, Any]] = []
         for source in source_artifacts:
+            # 缓存命中复用旧行：本次执行/job 记一条 execution_outputs.reused 边，
+            # 运行面板才能把缓存命中的产物算进「本次执行产物」（否则同样显示 0）。
+            source_id = getattr(source, "id", None)
+            if source_id is not None:
+                record_execution_output_link(
+                    self.db,
+                    study_id=getattr(self.study, "id", None),
+                    execution_id=getattr(self.execution, "id", None),
+                    study_output_id=source_id,
+                    job=self.job,
+                    relation="reused",
+                )
             logical_path = str(getattr(source, "logical_path", "") or getattr(source, "storage_path", "") or "")
             storage_uri = getattr(source, "storage_uri", None) or f"study://{getattr(self.study, 'id', '')}/{logical_path}"
             sha256 = getattr(source, "sha256", None) or getattr(source, "checksum", None)

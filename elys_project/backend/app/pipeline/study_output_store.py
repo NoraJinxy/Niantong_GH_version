@@ -22,6 +22,58 @@ from app.config import get_settings
 from .contracts import StudyOutputSummary
 
 
+def record_execution_output_link(
+    db: Any,
+    *,
+    study_id: Any,
+    execution_id: Any,
+    study_output_id: Any,
+    job: Any | None = None,
+    job_id: Any | None = None,
+    node_id: Any | None = None,
+    node_type: Any | None = None,
+    relation: str = "created",
+) -> Any | None:
+    """登记一条 execution↔output 关联边（execution_outputs）。
+
+    每当一次执行的某个 job「产出（created）/ 复用（reused）」一条 study_output，就记一条边。
+    运行面板/执行详情据此统计「本次执行的产物」，绕开 content-addressed 去重导致的
+    produced_by_execution_id 永远指向首产者的问题。get-or-create，幂等可重复调用。
+    """
+    if execution_id is None or study_output_id is None:
+        return None
+    from app.models import ExecutionOutput  # noqa: PLC0415 — 延迟导入避免模块级循环
+
+    resolved_job_id = job_id if job_id is not None else getattr(job, "id", None)
+    resolved_node_id = node_id if node_id is not None else getattr(job, "node_id", None)
+    resolved_node_type = node_type if node_type is not None else getattr(job, "node_type", None)
+
+    query = db.query(ExecutionOutput).filter(
+        ExecutionOutput.execution_id == execution_id,
+        ExecutionOutput.study_output_id == study_output_id,
+    )
+    if resolved_job_id is None:
+        query = query.filter(ExecutionOutput.job_id.is_(None))
+    else:
+        query = query.filter(ExecutionOutput.job_id == resolved_job_id)
+    existing = query.first()
+    if existing is not None:
+        return existing
+
+    link = ExecutionOutput(
+        study_id=str(study_id) if study_id is not None else None,
+        execution_id=execution_id,
+        job_id=resolved_job_id,
+        study_output_id=study_output_id,
+        node_id=str(resolved_node_id) if resolved_node_id else None,
+        node_type=str(resolved_node_type) if resolved_node_type else None,
+        relation=relation,
+    )
+    db.add(link)
+    db.flush()
+    return link
+
+
 class StudyOutputStore:
     def __init__(
         self,
@@ -343,7 +395,9 @@ class StudyOutputStore:
                     existing.retention_expires_at = retention_expires_at
                     existing.updated_at = datetime.utcnow()
                     self.db.flush()
-                # 复用旧行（produced_by_* 保留旧 execution；新 execution 的消费记录走 job.output_json）
+                # 复用旧行：produced_by_* 保留旧 execution（canonical 首产者）；本次执行另记一条
+                # execution_outputs.reused 边，运行面板据此把它算进「本次执行产物」。
+                self._link_output(getattr(existing, "id", None), "reused")
                 return self._derived_summary_from_row(existing)
 
         node_id = self._safe_str(getattr(self.job, "node_id", None))
@@ -400,6 +454,8 @@ class StudyOutputStore:
         )
         self.db.add(derived)
         self.db.flush()
+        # 首次产出：记一条 execution_outputs.created 边（本执行=canonical 首产者）。
+        self._link_output(getattr(derived, "id", None), "created")
 
         return StudyOutputSummary(
             study_output_id=self._stringify(getattr(derived, "id", None)),
@@ -435,6 +491,17 @@ class StudyOutputStore:
     # -------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------
+
+    def _link_output(self, study_output_id: Any, relation: str) -> None:
+        """为当前 (execution, job) 与该 study_output 记一条 execution_outputs 边。"""
+        record_execution_output_link(
+            self.db,
+            study_id=self.study_id,
+            execution_id=self.execution_id,
+            study_output_id=study_output_id,
+            job=self.job,
+            relation=relation,
+        )
 
     def _derived_summary_from_row(self, row: Any) -> StudyOutputSummary:
         """把已存在的 StudyOutput ORM 行包装成 StudyOutputSummary，

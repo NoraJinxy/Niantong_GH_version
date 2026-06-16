@@ -8,12 +8,13 @@ converter (used by both Pipelines-CRUD and Executions), and the StudyOutput resp
 (used by both the execution-detail area and the study-outputs area).
 """
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import PipelineDefinition, Study, StudyOutput, User
+from app.models import ExecutionOutput, PipelineDefinition, Study, StudyOutput, User
 from app.schemas.pipeline import PipelineResponse
 from app.schemas.study_output import StudyOutputResponse
 from app.services.study_access import require_study_read, require_study_run, require_study_write
@@ -80,12 +81,28 @@ def _to_str_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def study_output_to_response(dataset: StudyOutput) -> StudyOutputResponse:
+def study_output_to_response(
+    dataset: StudyOutput,
+    *,
+    attribution: tuple[str | None, str | None] | None = None,
+) -> StudyOutputResponse:
+    """把 StudyOutput 行序列化成响应。
+
+    attribution 非空时，用 (execution_id, job_id) 覆盖 produced_by_execution_id / produced_by_job_id —
+    用于「某次执行视角」的列表（运行面板/执行详情）：一条因 content-addressed 去重 / 缓存命中而被复用
+    的输出，其 study_outputs.produced_by_* 指向 canonical 首产者，但在本次执行视角下应归属本次执行的
+    job，运行面板才能正确按 job 统计与分组。attribution 为 None 时保持行自身的 canonical 血缘。
+    """
+    if attribution is not None:
+        produced_by_execution_id, produced_by_job_id = attribution
+    else:
+        produced_by_execution_id = str(dataset.produced_by_execution_id) if dataset.produced_by_execution_id else None
+        produced_by_job_id = str(dataset.produced_by_job_id) if dataset.produced_by_job_id else None
     return StudyOutputResponse(
         id=str(dataset.id),
         study_id=dataset.study_id,
-        produced_by_execution_id=str(dataset.produced_by_execution_id) if dataset.produced_by_execution_id else None,
-        produced_by_job_id=str(dataset.produced_by_job_id) if dataset.produced_by_job_id else None,
+        produced_by_execution_id=produced_by_execution_id,
+        produced_by_job_id=produced_by_job_id,
         produced_by_node_id=dataset.produced_by_node_id,
         produced_by_node_type=dataset.produced_by_node_type,
         produced_by_params=dataset.produced_by_params or {},
@@ -116,3 +133,43 @@ def study_output_to_response(dataset: StudyOutput) -> StudyOutputResponse:
         updated_at=dataset.updated_at,
         deleted_at=dataset.deleted_at,
     )
+
+
+def execution_scoped_outputs(
+    db: Session,
+    *,
+    study_id: str,
+    execution_id: Any,
+    include_deleted: bool = False,
+) -> list[tuple[StudyOutput, str | None]]:
+    """列出「某次执行产出或复用」的 study_outputs（经 execution_outputs 关联表）。
+
+    返回 [(StudyOutput, job_id_str | None)]，每条 output 去重保留一条边（优先 created，
+    即首产者那条），job_id 为该边对应的 job —— 供「某次执行视角」按 job 统计/分组。
+
+    与按 produced_by_execution_id 直查的区别：去重命中 / 缓存命中而被复用的输出，其
+    produced_by_execution_id 指向首产执行，本表却为本次执行也记了 reused 边，故这里能查到。
+    """
+    rows = (
+        db.query(StudyOutput, ExecutionOutput.job_id, ExecutionOutput.relation)
+        .join(ExecutionOutput, ExecutionOutput.study_output_id == StudyOutput.id)
+        .filter(
+            ExecutionOutput.execution_id == execution_id,
+            StudyOutput.study_id == study_id,
+        )
+    )
+    if not include_deleted:
+        rows = rows.filter(StudyOutput.deleted_at.is_(None))
+    # relation 升序让 'created' 排在 'reused' 前，去重时优先保留首产者那条边的 job 归属
+    rows = rows.order_by(ExecutionOutput.relation.asc(), ExecutionOutput.created_at.asc()).all()
+
+    seen: set[Any] = set()
+    picked: list[tuple[StudyOutput, str | None]] = []
+    for output, job_id, _relation in rows:
+        if output.id in seen:
+            continue
+        seen.add(output.id)
+        picked.append((output, str(job_id) if job_id else None))
+    # 展示顺序按 output 产出时间，稳定可读
+    picked.sort(key=lambda pair: (pair[0].created_at or datetime.min, str(pair[0].id)))
+    return picked

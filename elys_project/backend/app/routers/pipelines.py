@@ -91,6 +91,7 @@ from app.services.task_events import record_task_event, task_status_for_pipeline
 from app.tasks.pipeline_tasks import run_pipeline_task
 from app.routers._pipeline_shared import (
     count_nodes,
+    execution_scoped_outputs,
     get_pipeline_or_404,
     get_study_for_read,
     get_study_for_run,
@@ -1698,16 +1699,9 @@ def get_pipeline_execution(
         .order_by(PipelineJob.topo_index.asc(), PipelineJob.node_id.asc())
         .all()
     )
-    study_outputs = (
-        db.query(StudyOutput)
-        .filter(
-            StudyOutput.study_id == study.id,
-            StudyOutput.produced_by_execution_id == execution.id,
-            StudyOutput.deleted_at.is_(None),
-        )
-        .order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc())
-        .all()
-    )
+    # 经 execution_outputs 关联表取「本次执行产出/复用」的输出（含去重/缓存命中复用行），
+    # 并带本次执行对应的 job 归属，与运行面板口径一致。
+    output_rows = execution_scoped_outputs(db, study_id=study.id, execution_id=execution.id)
     dependencies = (
         db.query(PipelineExecutionDependency)
         .filter(PipelineExecutionDependency.study_id == study.id, PipelineExecutionDependency.execution_id == execution.id)
@@ -1747,7 +1741,10 @@ def get_pipeline_execution(
         dependencies=[pipeline_execution_dependency_to_response(item) for item in dependencies],
         tasks=[async_task_to_response(task, task_events_by_task_id.get(task.id, [])) for task in tasks],
         jobs=[pipeline_job_to_response(item) for item in jobs],
-        study_outputs=[study_output_to_response(item) for item in study_outputs],
+        study_outputs=[
+            study_output_to_response(output, attribution=(str(execution.id), job_id))
+            for output, job_id in output_rows
+        ],
     )
 
 
@@ -2159,19 +2156,22 @@ def list_pipeline_execution_study_outputs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """列出某次执行（Execution）产出的所有 study_outputs。"""
+    """列出某次执行（Execution）产出或复用的所有 study_outputs。
+
+    经 execution_outputs 关联表取：去重命中 / 缓存命中而被复用的输出（其 produced_by_execution_id
+    指向首产执行）也会归到本次执行名下，并带上本次执行对应的 job —— 运行面板才能正确统计/分组。
+    """
     study = get_study_for_read(study_id, db, current_user)
     execution = get_pipeline_execution_or_404(db, study.id, execution_id)
-    query = db.query(StudyOutput).filter(
-        StudyOutput.study_id == study.id,
-        StudyOutput.produced_by_execution_id == execution.id,
+    rows = execution_scoped_outputs(
+        db, study_id=study.id, execution_id=execution.id, include_deleted=include_deleted
     )
-    if not include_deleted:
-        query = query.filter(StudyOutput.deleted_at.is_(None))
-    datasets = query.order_by(StudyOutput.created_at.asc(), StudyOutput.id.asc()).all()
     return StudyOutputListResponse(
-        study_outputs=[study_output_to_response(item) for item in datasets],
-        total=len(datasets),
+        study_outputs=[
+            study_output_to_response(output, attribution=(str(execution.id), job_id))
+            for output, job_id in rows
+        ],
+        total=len(rows),
     )
 
 

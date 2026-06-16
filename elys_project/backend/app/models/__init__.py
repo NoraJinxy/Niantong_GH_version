@@ -32,7 +32,7 @@ from .study import (
     Subject,
     TaskEvent,
 )
-from .study_output import StudyOutput
+from .study_output import ExecutionOutput, StudyOutput
 
 __all__ = [
     "User",
@@ -66,4 +66,5 @@ __all__ = [
     "Recording",
     "RecordingVersion",
     "StudyOutput",
+    "ExecutionOutput",
 ]

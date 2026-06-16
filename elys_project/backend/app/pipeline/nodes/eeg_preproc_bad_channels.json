@@ -1,0 +1,59 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/bad_channels",
+  "title": "Bad Channels",
+  "category": "preprocessing",
+  "phase": "phase1",
+  "description": "自动坏道处理：用 LOF（MNE 内置，温和）或 RANSAC（PREP 流程，更激进）自动找出坏电极，再用球面样条插值（周围好电极重建坏电极）修复。也可只标记不改数据。输出写入 derivatives，不改写 fifdata。插值（及 RANSAC 检测）需电极坐标，请在本节点前接 Ch Loc Assign。",
+  "tags": ["bad", "channel", "interpolate", "lof", "preprocess", "repair"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Repaired EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "action", "label": "处理方式", "type": "select", "default": "interpolate", "required": true,
+     "options": [
+       {"value": "interpolate", "label": "检测并插值修复（默认）"},
+       {"value": "mark", "label": "仅标记坏道（不改数据）"}
+     ],
+     "description": "插值=自动找坏道后用周围电极球面样条重建，数据被修复；仅标记=只把坏道写进 info['bads']、数据不动，留给下游或人工复核。"},
+    {"name": "method", "label": "检测算法", "type": "select", "default": "lof", "required": true,
+     "options": [
+       {"value": "lof", "label": "LOF 局部离群因子（MNE 内置，温和）"},
+       {"value": "ransac", "label": "RANSAC（PREP 流程，更激进，需电极坐标 + pyprep）"}
+     ],
+     "description": "LOF（MNE 1.7 内置，看每个电极相对邻近电极有多'离群'判坏，温和，Kumaravel 2022）；RANSAC（pyprep / PREP 流程，随机抽好电极按位置互相预测、预测不合判坏，更激进，需先接 Ch Loc 给坐标）。"},
+    {"name": "threshold", "label": "LOF 判定阈值", "type": "number", "default": 1.5, "min": 1, "advanced": true,
+     "visible_when": {"method": ["lof"]},
+     "description": "LOF 分数高于此值判为坏道：越小越敏感（标更多）、越大越保守。MNE 默认 1.5，常用 1.0–2.0。"},
+    {"name": "n_neighbors", "label": "LOF 近邻电极数", "type": "integer", "default": 20, "min": 2, "max": 100, "advanced": true,
+     "visible_when": {"method": ["lof"]},
+     "description": "LOF 估计局部密度时参考的邻近电极个数；通道数少于此值时会自动下调。MNE 默认 20。"},
+    {"name": "corr_thresh", "label": "RANSAC 相关阈值", "type": "number", "default": 0.75, "min": 0, "max": 1, "advanced": true,
+     "visible_when": {"method": ["ransac"]},
+     "description": "RANSAC：通道与'按电极位置预测出的样子'相关性低于此值判坏；越大越严（标更多）。pyprep 默认 0.75。"},
+    {"name": "reset_bads", "label": "插值后清除坏道标记", "type": "boolean", "default": true, "advanced": true,
+     "visible_when": {"action": ["interpolate"]},
+     "description": "插值后把这些通道恢复为正常通道（MNE 默认行为，下游照常使用）；关掉则保留坏道标记，下游可继续排除它们。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.bad_channels",
+    "function": "run_bad_channels",
+    "save_descriptor": "interp",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "bad-channels",
+    "auto_tags": ["step:bad-channels", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "moderate",
+  "output_footprint": "medium",
+  "ui": {"color": "#00A5A8", "default_size": [200, 110], "preview_type": "time_series"}
+}

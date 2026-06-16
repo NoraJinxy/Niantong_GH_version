@@ -74,6 +74,33 @@ COMMENT ON TABLE study_outputs IS
     '用户视角通过 display_name + tags 命名分类；keep 控制是否保留、cache_eligible 控制是否缓存。';
 
 -- ============================================
+-- 执行 ↔ 输出 关联（多对多：哪次执行的哪个 job 产出/复用了哪条输出）
+-- ============================================
+-- 为什么需要：study_outputs 按 (study_id, sha256) content-addressed 去重，一条物理结果只有一行，
+-- produced_by_execution_id / produced_by_job_id 永远指向"最早产出它的那次执行"。重跑（结果字节相同→
+-- 去重命中）或缓存命中时，新执行不再新建行 —— 运行面板若按 produced_by_execution_id 统计，新执行的
+-- 产物会显示为 0（即便分析其实成功了）。本表为每次"执行产出/复用"记一条边：运行面板改从这里统计，
+-- 既修显示又保留血缘（study_outputs.produced_by_* 仍指 canonical 首产者，不动）。
+
+CREATE TABLE IF NOT EXISTS execution_outputs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id            CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    execution_id        UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    job_id              UUID REFERENCES pipeline_jobs(id) ON DELETE SET NULL,
+    study_output_id     UUID NOT NULL REFERENCES study_outputs(id) ON DELETE CASCADE,
+    node_id             VARCHAR(128),
+    node_type           VARCHAR(128),
+    -- created = 本次执行新建了该 study_output 行；reused = 本次执行去重/缓存命中复用了已存在的行
+    relation            VARCHAR(16) NOT NULL DEFAULT 'created'
+                        CHECK (relation IN ('created', 'reused')),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE execution_outputs IS
+    '执行↔输出多对多关联。每次执行产出/复用一条 study_output 记一条边，使运行面板能正确统计'
+    '"本次执行的产物"，同时 study_outputs.produced_by_* 保留 canonical 首产者血缘。';
+
+-- ============================================
 -- 数据集文件派生关系
 -- ============================================
 
@@ -168,6 +195,13 @@ CREATE INDEX IF NOT EXISTS idx_study_output_purge_candidate ON study_outputs (de
 -- Phase 1 (3-25): 结果生命周期索引（支持跨 Study 列出可引用的 published 结果）
 CREATE INDEX IF NOT EXISTS idx_study_output_lifecycle ON study_outputs (lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_study_output_shared_published ON study_outputs (lifecycle_state, visibility) WHERE lifecycle_state = 'published' AND visibility = 'shared';
+
+-- 执行↔输出关联：按执行/按 job 列出本次产物、按输出回查涉及的执行；唯一索引去重一条边
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_execution ON execution_outputs (execution_id);
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_job ON execution_outputs (job_id);
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_output ON execution_outputs (study_output_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_outputs_unique ON execution_outputs (execution_id, job_id, study_output_id);
+
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_source ON dataset_file_derivations(source_file_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_derived ON dataset_file_derivations(derived_file_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_execution ON dataset_file_derivations(execution_id);

@@ -23,6 +23,8 @@ def port_types_compatible(source_type: str | None, target_type: str | None) -> b
     compatible_targets = {
         "analysis_result": {"analysis_result", "evoked", "epochs", "psd", "tfr", "connectivity", "microstate", "source_estimate"},
         "eeg_data": {"eeg_data", "raw", "dataset_collection"},
+        # 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs,故既收 eeg_data 也收 epochs。
+        "spectral_source": {"spectral_source", "eeg_data", "raw", "dataset_collection", "epochs"},
     }
     return bool(source_type and target_type and source_type in compatible_targets.get(target_type, set()))
 
@@ -429,6 +431,52 @@ def validate_definition(
                     message=f"{spec['title']} 未连入主链路（从 LoadData 不可达），运行时会跳过",
                     node_id=node_id,
                     node_type=node_types.get(node_id),
+                )
+            )
+
+    # P4: Bad Channels 用插值 / RANSAC 需电极坐标 —— 上游若没有 Ch Loc Assign 给一条软提示
+    # （warning 不阻断：部分数据导入时已自带 montage 坐标）。仅检查主链路可达的节点。
+    upstream_adj: dict[str, list[str]] = {nid: [] for nid in node_ids}
+    for link in links:
+        src_node = (link.get("from") or {}).get("node")
+        dst_node = (link.get("to") or {}).get("node")
+        if src_node in node_ids and dst_node in node_ids:
+            upstream_adj[dst_node].append(src_node)
+
+    def _has_upstream_node_type(start: str, wanted_type: str) -> bool:
+        seen: set[str] = set()
+        stack = list(upstream_adj.get(start, []))
+        while stack:
+            cur = stack.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            if node_types.get(cur) == wanted_type:
+                return True
+            stack.extend(upstream_adj.get(cur, []))
+        return False
+
+    for node in nodes:
+        order_node_id = str(node.get("id") or "")
+        if node_types.get(order_node_id) != "eeg/preproc/bad_channels" or order_node_id not in reachable:
+            continue
+        bad_params = node.get("params") if isinstance(node.get("params"), dict) else {}
+        action = str(bad_params.get("action") or "interpolate").strip().lower()
+        method = str(bad_params.get("method") or "lof").strip().lower()
+        needs_coords = action == "interpolate" or method == "ransac"
+        if needs_coords and not _has_upstream_node_type(order_node_id, "eeg/preproc/channel_location"):
+            order_spec = node_specs.get(order_node_id) or {}
+            issues.append(
+                PipelineValidationIssue(
+                    code="NODE_ORDER_HINT",
+                    severity="warning",
+                    message=(
+                        f"{order_spec.get('title') or 'Bad Channels'} 用了插值 / RANSAC（需要电极坐标），"
+                        "但上游没有 Ch Loc Assign 节点，运行时可能因缺坐标失败。"
+                        "建议在它前面接一个 Ch Loc Assign。"
+                    ),
+                    node_id=order_node_id,
+                    node_type="eeg/preproc/bad_channels",
                 )
             )
 

@@ -183,3 +183,65 @@ class StudyOutput(Base):
     )
     subject = relationship("Subject", foreign_keys=[subject_id])
     creator = relationship("User", foreign_keys=[created_by])
+
+
+class ExecutionOutput(Base):
+    """execution ↔ study_output 多对多关联边。
+
+    一条 study_output 按 (study_id, sha256) content-addressed 去重，全 study 只有一行，
+    produced_by_execution_id / produced_by_job_id 永远指向"最早产出它的那次执行"。重跑（结果
+    字节相同→去重命中）或缓存命中时，新执行不会新建 study_output 行，于是按
+    produced_by_execution_id 统计"本次执行产物"会漏掉这些复用行（运行面板显示 0）。
+
+    本表为每次"某执行的某 job 产出/复用某 study_output"记一条边：
+    - relation='created'：本次执行 INSERT 了该行（首产者）。
+    - relation='reused'：本次执行去重 / 缓存命中复用了已存在的行。
+
+    运行面板/执行详情改从这里统计，既修显示又不动 study_outputs 的 canonical 血缘。
+    """
+
+    __tablename__ = "execution_outputs"
+    __table_args__ = (
+        Index("idx_execution_outputs_execution", "execution_id"),
+        Index("idx_execution_outputs_job", "job_id"),
+        Index("idx_execution_outputs_output", "study_output_id"),
+        Index(
+            "idx_execution_outputs_unique",
+            "execution_id",
+            "job_id",
+            "study_output_id",
+            unique=True,
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    study_id = Column(
+        String(12),
+        ForeignKey("studies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execution_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pipeline_executions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pipeline_jobs.id", ondelete="SET NULL"),
+    )
+    study_output_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("study_outputs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_id = Column(String(128))
+    node_type = Column(String(128))
+    # created = 本次执行新建该行；reused = 本次执行去重/缓存命中复用已存在行
+    relation = Column(String(16), nullable=False, default="created")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    study_output = relationship("StudyOutput", foreign_keys=[study_output_id])

@@ -18,11 +18,16 @@ from typing import Any
 from .erp import _normalize_event_labels
 
 
-def run_psd(epochs: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """按 condition 选 Epochs → Welch PSD → 跨 epoch 平均 → 返回数组 dict。
+def run_psd(data: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """对 Epochs(按 condition)或连续 Raw(整段)估功率谱,返回数组 dict。
+
+    输入二选一:
+      - Epochs:按 condition 选 → Welch PSD → 跨 epoch 平均(原口径,需 condition)。
+      - Raw(连续):无事件/无 condition,直接对整段连续数据估 PSD(静息态频域常用)。
+        以 `hasattr(data, "event_id")` 区分:只有 Epochs 有 event_id 属性。
 
     params:
-      condition:   要分析的事件分组名(必填,与 ERP/TFR 同口径;dispatcher 按 condition 逐个展开)。
+      condition:   事件分组名(仅 Epochs 输入必填;与 ERP/TFR 同口径,dispatcher 按 condition 展开)。
       fmin / fmax: 频率范围下/上限 Hz(默认 1 / 40)。fmax 会被自动夹到奈奎斯特频率以下。
       method:      "welch"(默认)或 "multitaper"。
       n_fft:       仅 Welch;每段 FFT 点数,留空用 MNE 默认。
@@ -30,6 +35,11 @@ def run_psd(epochs: Any, params: dict[str, Any]) -> dict[str, Any]:
     """
     import numpy as np  # noqa: PLC0415
 
+    # 连续数据(Raw)分支:无 condition,整段算一条 PSD。Raw 没有 event_id 属性,以此与 Epochs 区分。
+    if not hasattr(data, "event_id"):
+        return _run_psd_continuous(data, params)
+
+    epochs = data
     labels = _normalize_event_labels(params.get("condition"))
     if not labels:
         raise ValueError("PSD.condition is required.")
@@ -97,4 +107,52 @@ def run_psd(epochs: Any, params: dict[str, Any]) -> dict[str, Any]:
         "n_epochs": n_epochs,
         "method": method,
         "condition": labels[0] if len(labels) == 1 else ",".join(labels),
+    }
+
+
+def _run_psd_continuous(raw: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """连续 Raw 整段估 PSD(无 condition / 无 epoch 平均),用于静息态等无事件数据。"""
+    import numpy as np  # noqa: PLC0415
+
+    channels = params.get("channels")
+    selected = raw
+    if isinstance(channels, list) and channels:
+        normalized = [str(channel) for channel in channels if str(channel).strip()]
+        missing_channels = [channel for channel in normalized if channel not in raw.ch_names]
+        if missing_channels:
+            raise ValueError(f"PSD channels not found: {', '.join(missing_channels)}")
+        selected = raw.copy().pick(normalized)
+
+    fmin = float(params.get("fmin", 1.0))
+    fmax = float(params.get("fmax", 40.0))
+    if fmax <= fmin:
+        raise ValueError("PSD.fmax must be greater than fmin.")
+    nyquist = float(selected.info["sfreq"]) / 2.0
+    fmax = min(fmax, nyquist - 1e-6)
+    if fmax <= fmin:
+        raise ValueError(f"PSD.fmax({fmax:.3g}) must stay below Nyquist and above fmin({fmin:.3g}).")
+
+    method = str(params.get("method", "welch") or "welch").strip().lower()
+    if method not in ("welch", "multitaper"):
+        method = "welch"
+    psd_kwargs: dict[str, Any] = {"method": method, "fmin": fmin, "fmax": fmax, "verbose": "ERROR"}
+    if method == "welch":
+        n_fft = params.get("n_fft")
+        if n_fft not in (None, ""):
+            psd_kwargs["n_fft"] = int(n_fft)
+
+    # RawSpectrum.get_data() → (n_channels, n_freqs);连续数据无需跨 epoch 平均。
+    spectrum = selected.compute_psd(**psd_kwargs)
+    psds = np.asarray(spectrum.get_data(), dtype=float)
+    freqs = np.asarray(spectrum.freqs, dtype=float)
+
+    return {
+        "freqs": freqs,
+        "psds": psds,
+        "ch_names": list(selected.ch_names),
+        "channel_types": list(selected.info.get_channel_types()),
+        "sfreq": float(selected.info["sfreq"]),
+        "n_epochs": 0,
+        "method": method,
+        "condition": None,
     }
