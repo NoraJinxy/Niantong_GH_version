@@ -379,7 +379,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import type { StudyOutputTfr, StudyOutputTfrTopo } from '@/types'
+import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
@@ -811,19 +811,12 @@ function autoFmt(v: number) {
   return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
 }
 
-// ---------- 地形图（全通道在 时窗×频窗 / 游标点 的平均功率 → 头皮投影，复用 TopoStrip）----------
+// ---------- 地形图（全通道立方体一次取回前端 → 本地算 topo，跟随游标零往返；复用 TopoStrip）----------
 const topoMode = ref<'window' | 'cursor'>('window') // 区间 / 跟随游标
-const topoMap = ref<Map<number, StudyOutputTfrTopo>>(new Map())
-let topoSeq = 0
-// 取数窗口：跟随游标→游标 (t,f) 附近小窗；否则 区间（框选 ROI / 当前频窗×刺激后时窗）。cursor 模式无游标 → null（不取数、留上次图）
-const topoWindow = computed<{ tmin: number; tmax: number; fmin: number; fmax: number } | null>(() => {
-  if (topoMode.value === 'cursor') {
-    const tf = displayTF.value
-    if (!tf) return null
-    const dt = (dataTMax.value - dataTMin.value) / 60 || 0.03
-    const df = (dataFMax.value - dataFMin.value) / 40 || 0.5
-    return { tmin: tf.t - dt, tmax: tf.t + dt, fmin: tf.f - df, fmax: tf.f + df }
-  }
+const cubeMap = ref<Map<number, StudyOutputTfrCube>>(new Map()) // segIndex → 全通道时频立方体（含坐标）
+let cubeSeq = 0
+// 区间窗口（区间模式 + 跟随游标空闲时回退用）：框选 ROI / 当前频窗×刺激后时窗
+const windowRange = computed(() => {
   if (region.value) {
     const r = region.value
     return { tmin: r.t0, tmax: r.t1, fmin: r.f0, fmax: r.f1 }
@@ -834,36 +827,22 @@ const topoWindow = computed<{ tmin: number; tmax: number; fmin: number; fmax: nu
   const fmax = viewFMax.value ?? dataFMax.value
   return { tmin, tmax, fmin, fmax }
 })
-let lastTopoKey = ''
-async function loadTopo() {
+// 一次性取回所选数据集的全通道立方体（缺哪个取哪个，已取的不重复）→ 之后切模式/移游标全本地算
+async function loadCubes() {
   if (!showTopo.value || !studyId || !primaryMeta.value) return
-  const w = topoWindow.value
-  if (!w) return // 跟随游标但无游标 → 留上次图
-  const segs = sortedSegs.value
-  const key = `${segs.join(',')}|${w.tmin.toFixed(3)},${w.tmax.toFixed(3)},${w.fmin.toFixed(2)},${w.fmax.toFixed(2)}`
-  if (key === lastTopoKey) return // 同窗同段 → 不重复取
-  lastTopoKey = key
-  const myId = ++topoSeq
+  const need = sortedSegs.value.filter((seg) => !cubeMap.value.has(seg))
+  if (!need.length) return
+  const myId = ++cubeSeq
   const settled = await Promise.allSettled(
-    segs.map(async (seg) => {
-      const res = await pipelineApi.getStudyOutputTfrTopo(studyId, outputIds.value[seg], w)
+    need.map(async (seg) => {
+      const res = await pipelineApi.getStudyOutputTfrCube(studyId, outputIds.value[seg], { maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
       return [seg, res.data] as const
     }),
   )
-  if (myId !== topoSeq) return
-  const m = new Map<number, StudyOutputTfrTopo>()
+  if (myId !== cubeSeq) return
+  const m = new Map(cubeMap.value)
   for (const s of settled) if (s.status === 'fulfilled') m.set(s.value[0], s.value[1])
-  topoMap.value = m
-}
-// 防抖调度：跟随游标移动频繁（每跨一 bin）、后端要读 h5 切片 → 防抖 180ms + 去重；区间模式即时取
-let topoTimer: number | null = null
-function scheduleTopo() {
-  if (!showTopo.value) return
-  if (topoTimer) clearTimeout(topoTimer)
-  topoTimer = window.setTimeout(() => {
-    topoTimer = null
-    void loadTopo()
-  }, topoMode.value === 'cursor' ? 180 : 0)
+  cubeMap.value = m
 }
 interface TopoPoint {
   name: string
@@ -871,20 +850,49 @@ interface TopoPoint {
   y: number
   value: number
 }
+// 从立方体本地算某通道的值：跟随游标且有游标→最近 bin；否则（区间 / 游标空闲）→ 区间均值
+function cubeChannelValue(cube: StudyOutputTfrCube, ch: StudyOutputTfrCube['channels'][number]): number {
+  const tf = displayTF.value
+  if (topoMode.value === 'cursor' && tf) {
+    const iF = nearestIdx(cube.freqs, tf.f)
+    const iT = nearestIdx(cube.times, tf.t)
+    return Number(ch.data[iF]?.[iT] ?? NaN)
+  }
+  const w = windowRange.value
+  let sum = 0
+  let n = 0
+  for (let iF = 0; iF < cube.freqs.length; iF++) {
+    const f = cube.freqs[iF]
+    if (f < w.fmin || f > w.fmax) continue
+    const row = ch.data[iF] || []
+    for (let iT = 0; iT < cube.times.length; iT++) {
+      const t = cube.times[iT]
+      if (t < w.tmin || t > w.tmax) continue
+      const v = row[iT]
+      if (Number.isFinite(v)) {
+        sum += v
+        n++
+      }
+    }
+  }
+  return n ? sum / n : NaN
+}
 const topoCells = computed(() => {
   const out: { seg: number; label: string; color: string; points: TopoPoint[] | null }[] = []
   if (!showTopo.value) return out
   const demean = unit.value === 'power' // 绝对功率单侧 → 去均值才有红蓝；有符号(dB/%/z)天然绕 0，不去
   for (const seg of sortedSegs.value) {
-    const topo = topoMap.value.get(seg)
-    if (!topo) continue
-    const positioned = topo.channels.filter((c) => c.x != null && c.y != null)
+    const cube = cubeMap.value.get(seg)
+    if (!cube) continue
+    const positioned = cube.channels.filter((c) => c.x != null && c.y != null)
     if (!positioned.length) {
       out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
       continue
     }
-    const center = demean ? positioned.reduce((s, c) => s + c.value, 0) / positioned.length : 0
-    const points = positioned.map((c) => ({ name: c.name, x: c.x as number, y: c.y as number, value: c.value - center }))
+    const raw = positioned.map((c) => ({ name: c.name, x: c.x as number, y: c.y as number, value: cubeChannelValue(cube, c) }))
+    const finite = raw.filter((r) => Number.isFinite(r.value))
+    const center = demean && finite.length ? finite.reduce((s, r) => s + r.value, 0) / finite.length : 0
+    const points = raw.map((r) => ({ name: r.name, x: r.x, y: r.y, value: Number.isFinite(r.value) ? r.value - center : 0 }))
     out.push({ seg, label: segLabel(seg), color: segColor(seg), points })
   }
   return out
@@ -897,22 +905,23 @@ const topoVmax = computed(() => {
 const topoSubtitle = computed(() => {
   if (topoMode.value === 'cursor') {
     const tf = displayTF.value
-    return tf ? `游标 @ ${fmtTime(tf.t)}s · ${fmtFreq(tf.f)}Hz` : '移动游标到热图上看该点全脑分布'
+    return tf ? `游标 @ ${fmtTime(tf.t)}s · ${fmtFreq(tf.f)}Hz` : '移动游标到热图上看该点全脑分布（空闲时显示区间）'
   }
-  const w = topoWindow.value
-  if (!w) return ''
+  const w = windowRange.value
   const src = region.value ? 'ROI' : '刺激后'
   return `${src} ${fmtFreq(w.fmin)}–${fmtFreq(w.fmax)}Hz · ${fmtTime(w.tmin)}–${fmtTime(w.tmax)}s`
 })
 const topoModeHint = computed(() =>
   topoMode.value === 'cursor'
-    ? '地形图跟随游标所在 (时间,频率) 点的全脑分布，随鼠标实时更新；双击锁定后冻结在该点。'
+    ? '地形图跟随游标所在 (时间,频率) 点的全脑分布，移动鼠标即时更新（前端本地算·零延迟）；双击锁定后冻结，游标空闲时显示区间。'
     : '地形图 = 当前频窗 × 时窗内各通道平均功率；框选 ROI 后跟随 ROI。',
 )
+// 取数集变化 / 开关地形图 → 取回缺失的立方体（一次性，之后切模式/移游标都本地算、不再回后端）
 watch(
-  () => [topoWindow.value, sortedSegs.value.join(','), showTopo.value, topoMode.value],
-  () => scheduleTopo(),
-  { deep: true },
+  () => [sortedSegs.value.join(','), showTopo.value],
+  () => {
+    if (showTopo.value) void loadCubes()
+  },
 )
 
 // ---------- 导出 ----------
@@ -995,7 +1004,7 @@ async function bootstrap() {
     document.title = `时频分析 · ${displayName.value} — 念析`
     void discoverSiblings()
     await syncLoad()
-    void loadTopo()
+    void loadCubes()
   } catch (err: unknown) {
     error.value = describeError(err)
   } finally {

@@ -1084,6 +1084,31 @@ export interface StudyOutputTfrTopoQuery {
   fmax?: number
 }
 
+export interface StudyOutputTfrCubeChannel {
+  name: string
+  x: number | null
+  y: number | null
+  /** 该通道的降采样 freq×time 面（与 cube.freqs / cube.times 对齐），已按展示单位缩放、有符号。 */
+  data: number[][]
+}
+
+export interface StudyOutputTfrCube {
+  data_type: string
+  study_output_id: string
+  condition: string | null
+  unit: string
+  freqs: number[]
+  times: number[]
+  n_channels: number
+  n_positioned: number
+  channels: StudyOutputTfrCubeChannel[]
+}
+
+export interface StudyOutputTfrCubeQuery {
+  maxFreqs?: number
+  maxTimes?: number
+}
+
 export interface StudyOutputPsdChannel {
   name: string
   power: number[]

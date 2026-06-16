@@ -12,6 +12,8 @@ import type {
   StudyOutputTfrQuery,
   StudyOutputTfrTopo,
   StudyOutputTfrTopoQuery,
+  StudyOutputTfrCube,
+  StudyOutputTfrCubeQuery,
   StudyOutputTimeseries,
   StudyOutputTimeseriesQuery,
   StudyOutputUpdatePayload,
@@ -163,6 +165,18 @@ export const pipelineApi = {
         tmax: query.tmax,
         fmin: query.fmin,
         fmax: query.fmax,
+      },
+    }),
+  /** 时频立方体：全通道降采样 freq×time 面 + 2D 坐标，一次取回前端本地算地形图（跟随游标零往返） */
+  getStudyOutputTfrCube: (
+    studyId: string,
+    datasetId: string,
+    query: StudyOutputTfrCubeQuery = {},
+  ) =>
+    api.get<StudyOutputTfrCube>(`/studies/${studyId}/outputs/${datasetId}/tfr/cube`, {
+      params: {
+        max_freqs: query.maxFreqs,
+        max_times: query.maxTimes,
       },
     }),
   /** 功率谱：多通道 频率→功率(dB) 折线（PsdPage 用，做叠加/分面/频段地形图） */

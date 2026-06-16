@@ -230,6 +230,70 @@ def build_tfr_topomap(
     }
 
 
+def build_tfr_cube(
+    study: Any,
+    dataset: Any,
+    *,
+    max_freqs: int = DEFAULT_MAX_FREQS,
+    max_times: int = DEFAULT_MAX_TIMES,
+) -> dict[str, Any]:
+    """全通道降采样时频立方体（每通道一张 freq×time 面）+ 2D 电极坐标，供前端**本地**算地形图。
+
+    一次性把所有通道取回前端 → 跟随游标 / 区间地形图全在前端本地算（最近 bin / 窗口均值），
+    跟随期间**零后端往返**、即时响应（对标 PSD：多通道数据在前端、topo 本地算）。
+    值已按基线模式换算成展示单位、有符号（负=ERD、正=ERS）。这一次读 h5 替代了原来每移一下游标读一次。
+    """
+    mne = _mne()
+    np = _numpy()
+    path = resolve_study_output_path(study, dataset)
+    validate_study_output_file(path, dataset)
+    tfr = _read_first_tfr(mne, path)
+
+    ch_names = [str(name) for name in tfr.ch_names]
+    if not ch_names:
+        raise StudyOutputPreviewError("DERIVED_DATASET_TFR_EMPTY", "TFR 不含任何通道", status_code=422)
+
+    params = getattr(dataset, "produced_by_params", None)
+    baseline_mode = params.get("baseline_mode") if isinstance(params, dict) else None
+    unit, scale = _unit_and_scale(baseline_mode)
+
+    freqs = np.asarray(tfr.freqs, dtype=float)
+    times = np.asarray(tfr.times, dtype=float)
+    data = np.asarray(tfr.data, dtype=float)  # (n_channels, n_freqs, n_times)
+
+    f_idx = _downsample_indices(np, len(freqs), max_freqs)
+    t_idx = _downsample_indices(np, len(times), max_times)
+    out_freqs = [round(float(freqs[i]), 3) for i in f_idx]
+    out_times = [round(float(times[i]), 4) for i in t_idx]
+
+    sub = data[:, f_idx, :][:, :, t_idx] * scale  # (n_channels, nf, nt)
+    ch_pos = channel_positions_2d(tfr.info, ch_names) or {}
+
+    channels: list[dict[str, Any]] = []
+    for i, name in enumerate(ch_names):
+        pos = ch_pos.get(name)
+        channels.append(
+            {
+                "name": name,
+                "x": round(float(pos[0]), 4) if pos else None,
+                "y": round(float(pos[1]), 4) if pos else None,
+                "data": [[round(float(v), 4) for v in row] for row in sub[i].tolist()],
+            }
+        )
+
+    return {
+        "data_type": "tfr_cube",
+        "study_output_id": str(getattr(dataset, "id", "") or ""),
+        "condition": getattr(dataset, "condition", None),
+        "unit": unit,
+        "freqs": out_freqs,
+        "times": out_times,
+        "n_channels": len(ch_names),
+        "n_positioned": sum(1 for c in channels if c["x"] is not None),
+        "channels": channels,
+    }
+
+
 def _resolve_channel_index(np, ch_names: list[str], data, times, channel: str | None) -> int:
     if channel:
         wanted = str(channel).strip()

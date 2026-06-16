@@ -43,7 +43,7 @@ from app.pipeline.previews import (
 )
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.psd_view import build_psd_lines
-from app.pipeline.tfr_view import build_tfr_heatmap, build_tfr_topomap
+from app.pipeline.tfr_view import build_tfr_cube, build_tfr_heatmap, build_tfr_topomap
 from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail
 from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
@@ -685,6 +685,42 @@ def get_study_output_tfr_topo(
         )
     try:
         return build_tfr_topomap(study, dataset, tmin=tmin, tmax=tmax, fmin=fmin, fmax=fmax)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DERIVED_DATASET_TFR_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/tfr/cube")
+def get_study_output_tfr_cube(
+    study_id: str,
+    dataset_id: UUID,
+    max_freqs: int = Query(default=60, ge=4, le=200),
+    max_times: int = Query(default=120, ge=8, le=400),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """时频立方体：全通道降采样 freq×time 面 + 2D 坐标，一次取回前端本地算地形图（跟随游标零往返）。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，时频数据不可用。"},
+        )
+    if str(dataset.data_type or "").lower() != "tfr":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "DERIVED_DATASET_NOT_TFR", "message": "该结果不是时频(TFR)类型。"},
+        )
+    try:
+        return build_tfr_cube(study, dataset, max_freqs=max_freqs, max_times=max_times)
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,
