@@ -145,7 +145,8 @@
 .ov-err-title { font-size: 15px; font-weight: 600; }
 .ov-err-msg { color: var(--c-text-2); font-size: 13px; max-width: 480px; }
 
-.ov-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: 320px; gap: 10px; overflow: auto; align-content: start; }
+/* grid-auto-rows 用 minmax(240px,1fr)：行少时 1fr 撑满容器高度（地形图开关时热图自适应补白），行多时回落 240px 最小高并滚动 */
+.ov-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: minmax(240px, 1fr); gap: 10px; overflow: auto; align-content: stretch; }
 .ov-facet.is-few { display: flex; }
 .ov-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .ov-facet.is-few .ov-cell { flex: 1; min-width: 0; }
