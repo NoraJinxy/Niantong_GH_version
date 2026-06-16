@@ -36,7 +36,7 @@ DATA_DIR = HERE / "data"            # econ .bdf 放这里
 
 def main():
     ui.section("准备数据：建库 + 上传")
-    c = ElysClient(gconfig.BASE_URL, gconfig.USERNAME, gconfig.PASSWORD)
+    c = ElysClient(gconfig.BASE_URL, gconfig.USERNAME, gconfig.PASSWORD, data_base_url=gconfig.DATA_BASE_URL)
     c.login()
     ui.ok(f"登录成功 ({gconfig.USERNAME}) @ {gconfig.BASE_URL}")
 
@@ -44,16 +44,6 @@ def main():
     recording_id = _upload(c, study_id=study_id, ds_id=ds_id)
     _writeback_config(study_id=study_id, ds_id=ds_id, mount_id=mount_id, recording_id=recording_id)
     _resolve_meta(c, study_id=study_id, recording_id=recording_id)
-
-
-def _study_exists(c: ElysClient, study_id: str) -> bool:
-    """STUDY_ID 是否还指向一个真实存在的 study（测试服被重置后旧 id 会失效）。"""
-    if not study_id:
-        return False
-    try:
-        return any(s.get("id") == study_id for s in c.list_studies())
-    except (ElysAPIError, requests.RequestException):
-        return False
 
 
 def _ensure_dataset(c: ElysClient) -> tuple[str, str, str]:
@@ -68,13 +58,15 @@ def _ensure_dataset(c: ElysClient) -> tuple[str, str, str]:
             sys.exit(1)
         return ds_id, study_id, ""
 
-    target_study = lconfig.STUDY_ID.strip()
-    if target_study and _study_exists(c, target_study):
-        ui.info(f"新建 dataset, 挂到已有 study (id={target_study})")
-        kwargs = dict(study_mode="existing", study_id=target_study)
+    # 认领「本用例自己的」study 用 STUDY_CODE（稳定标识），不用数字 STUDY_ID：测试服每次重部署
+    # 清库、study id 从 2026..01 顺序重发，stale 的数字 id 会指到「别的测试用例」刚建的同号 study，
+    # 把第二个同名 mount（primary）往人家身上挂 → 409。按 code 认领则各用例天然隔离、可反复重置重跑。
+    own_study = c.find_study_by_code(lconfig.STUDY_CODE)
+    if own_study is not None:
+        study_id = own_study.get("id", "")
+        ui.info(f"新建 dataset, 挂到本用例已有 study (code={lconfig.STUDY_CODE}, id={study_id})")
+        kwargs = dict(study_mode="existing", study_id=study_id)
     else:
-        if target_study:
-            ui.info(f"STUDY_ID={target_study} 已不存在（服务器可能被重置），改为新建 study")
         ui.info(f"新建 dataset + 新建 study (code={lconfig.STUDY_CODE})")
         kwargs = dict(
             study_mode="create",

@@ -1,6 +1,10 @@
 """
-01_erp_basic：建 ERP pipeline 跑通。
+01_erp_basic：建 ERP pipeline 跑通（含自动去坏道 / 坏试次清洗）。
 
+pipeline：LoadData → Bandpass(0.5-30 IIR) → Notch(50Hz) → Ch Loc → Bad Channels(坏道检测+插值)
+          → Re-reference → Epoch → Reject Trials(峰峰值剔坏试次) → ERP Average。
+  · Ch Loc 给标准电极坐标，坏道插值（球面样条）必须有它在上游，否则运行时缺坐标会失败。
+  · Bad Channels / Reject Trials 的算法与阈值在 config_local.py 调（MONTAGE / BAD_CHAN_* / REJECT_PEAK_TO_PEAK）。
 流程：login → 建 pipeline → validate → trigger run → wait → 打印每节点状态 → 下载 evoked。
 前置：先跑 setup.py 建库 + 上传，并按它打印把 STUDY_ID / DATASET_IDS / REF_CHANNELS / EVENT_LABELS 回填到 config_local.py。
 """
@@ -46,13 +50,26 @@ def build_definition() -> dict:
                     "params": {"filter_type": "notch", "notch_freq": 50.0, "notch_harmonics": 3},
                 },
                 {
-                    "id": "rr", "type": "eeg/preproc/rereference", "title": "Re-reference",
+                    "id": "cl", "type": "eeg/preproc/channel_location", "title": "Ch Loc Assign",
                     "position": [1040, 80],
+                    # 指派标准电极位置（按通道数自动选 10-20 / 10-05 帽），供下游坏道插值 / 地形图用。
+                    "params": {"montage": lconfig.MONTAGE, "rename": True},
+                },
+                {
+                    "id": "bc", "type": "eeg/preproc/bad_channels", "title": "Bad Channels",
+                    "position": [1360, 80],
+                    # 自动找坏电极 → 球面样条插值修复（需上游 Ch Loc 给坐标）。放在重参考前，免得坏道污染参考。
+                    # 算法 / 处理方式在 config 调：BAD_CHAN_METHOD(lof/ransac) / BAD_CHAN_ACTION(interpolate/mark)。
+                    "params": {"method": lconfig.BAD_CHAN_METHOD, "action": lconfig.BAD_CHAN_ACTION},
+                },
+                {
+                    "id": "rr", "type": "eeg/preproc/rereference", "title": "Re-reference",
+                    "position": [1680, 80],
                     "params": {"ref_channels": lconfig.REF_CHANNELS},
                 },
                 {
                     "id": "ep", "type": "eeg/epoch/segment", "title": "Epoch",
-                    "position": [1360, 80],
+                    "position": [2000, 80],
                     "params": {
                         # conditions 统一模型：每个勾选项 = 一个 condition。这里把每个事件标签
                         # 当作一条 exact 规则（name=pattern=原始标签），下游 ERP 按这些 name 求平均。
@@ -64,17 +81,27 @@ def build_definition() -> dict:
                     },
                 },
                 {
+                    "id": "rj", "type": "eeg/epoch/reject", "title": "Reject Trials",
+                    "position": [2320, 80],
+                    # 峰峰值阈值剔坏试次（ERP 经典做法，Luck 2014）：任一通道该 epoch 内峰峰值超阈 → 整段剔。
+                    # 阈值单位 µV，在 config 调 REJECT_PEAK_TO_PEAK；剔光全部会报错，太严就调大。
+                    "params": {"method": "threshold", "reject_peak_to_peak": lconfig.REJECT_PEAK_TO_PEAK},
+                },
+                {
                     "id": "erp", "type": "eeg/analysis/erp", "title": "ERP Average",
-                    "position": [1680, 80],
+                    "position": [2640, 80],
                     "params": {"condition": lconfig.EVENT_LABELS},
                 },
             ],
             "links": [
                 {"id": "l1", "from": {"node": "ld",  "port": "output"}, "to": {"node": "bw",  "port": "input"}},
                 {"id": "l2", "from": {"node": "bw",  "port": "output"}, "to": {"node": "nf",  "port": "input"}},
-                {"id": "l3", "from": {"node": "nf",  "port": "output"}, "to": {"node": "rr",  "port": "input"}},
-                {"id": "l4", "from": {"node": "rr",  "port": "output"}, "to": {"node": "ep",  "port": "input"}},
-                {"id": "l5", "from": {"node": "ep",  "port": "output"}, "to": {"node": "erp", "port": "input"}},
+                {"id": "l3", "from": {"node": "nf",  "port": "output"}, "to": {"node": "cl",  "port": "input"}},
+                {"id": "l4", "from": {"node": "cl",  "port": "output"}, "to": {"node": "bc",  "port": "input"}},
+                {"id": "l5", "from": {"node": "bc",  "port": "output"}, "to": {"node": "rr",  "port": "input"}},
+                {"id": "l6", "from": {"node": "rr",  "port": "output"}, "to": {"node": "ep",  "port": "input"}},
+                {"id": "l7", "from": {"node": "ep",  "port": "output"}, "to": {"node": "rj",  "port": "input"}},
+                {"id": "l8", "from": {"node": "rj",  "port": "output"}, "to": {"node": "erp", "port": "input"}},
             ],
         },
     }
@@ -86,7 +113,7 @@ def main():
         ui.fail("先在 config_local.py 里填 DATASET_IDS（跑 setup.py 后看它打印的 recording id）")
         return
 
-    c = ElysClient(gconfig.BASE_URL, gconfig.USERNAME, gconfig.PASSWORD)
+    c = ElysClient(gconfig.BASE_URL, gconfig.USERNAME, gconfig.PASSWORD, data_base_url=gconfig.DATA_BASE_URL)
     c.login()
     ui.ok(f"登录成功 ({gconfig.USERNAME})")
 
