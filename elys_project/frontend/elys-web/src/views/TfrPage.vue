@@ -79,28 +79,6 @@
             </div>
           </section>
 
-          <!-- 频段（高亮某频带的参考线 + 右栏聚焦该带） -->
-          <section class="ov-sec">
-            <div class="ov-sec-head" @click="toggleSec('band')">
-              频段
-              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.band }">▾</span>
-            </div>
-            <div v-show="!collapsed.band" class="ov-sec-body">
-              <div class="psd-bandpills">
-                <span
-                  v-for="b in TFR_BANDS"
-                  :key="b.name"
-                  class="psd-bandpill"
-                  :class="{ 'is-on': selectedBand === b.name }"
-                  @click="selectedBand = b.name"
-                >
-                  {{ b.label }} {{ b.lo }}–{{ b.hi }}
-                </span>
-              </div>
-              <p class="ov-sec-hint">高亮该频带的参考线；右栏频段功率变化以它为焦点。</p>
-            </div>
-          </section>
-
           <!-- 色彩映射 -->
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('cmap')">
@@ -128,10 +106,10 @@
             </div>
             <div v-show="!collapsed.modules" class="ov-sec-body">
               <label class="ov-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
-              <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线（频率轴按 δθαβγ 分段）</label>
+              <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线（淡，默认关·对标专业软件）</label>
               <label class="ov-chk"><input type="checkbox" v-model="showStim" /> 刺激线 (t=0)</label>
-              <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（频段空间分布）</label>
-              <p v-if="showTopo" class="ov-sec-hint">底部头皮图 = 当前频段在时窗内各通道的平均功率（红=ERS 强、蓝=ERD 弱）；框选 ROI 后跟随 ROI。</p>
+              <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（空间分布）</label>
+              <p v-if="showTopo" class="ov-sec-hint">底部头皮图 = 当前频窗 × 时窗内各通道的平均功率（红=ERS、蓝=ERD）；想看某频段用上方「频窗」缩范围或框选 ROI。</p>
             </div>
           </section>
         </div>
@@ -227,7 +205,6 @@
                     :cmap="cmap"
                     :unit="unit"
                     :show-grid="showGrid"
-                    :bands="heatmapBands"
                     :t-zero="showStim"
                     :dense-axes="denseAxes"
                     :loading="loading"
@@ -334,21 +311,19 @@
               <div class="ov-focus-sub">峰值取刺激后窗口 (t ≥ 0) 内绝对值最大处；ERD=减弱、ERS=增强。</div>
             </div>
 
-            <!-- 频段功率变化（刺激后均值，相对基线，有正负） -->
+            <!-- 频段功率变化（刺激后均值，相对基线，有正负；只列数据实际覆盖的频段） -->
             <div class="ov-contrast">
               <div class="ov-sec-mini">频段功率变化 · 刺激后均值（相对基线 {{ unit }}）</div>
               <div class="ov-contrast-list">
-                <div v-for="b in TFR_BANDS" :key="b.name" class="ov-contrast-row" :class="{ 'is-focus-band': selectedBand === b.name }">
-                  <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
-                  <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
+                <div v-for="b in focusBandRows" :key="b.name" class="ov-contrast-row">
+                  <span class="ov-li-dot" :style="{ background: b.color }"></span>
+                  <span class="ov-contrast-lbl">{{ b.label }}</span>
                   <span class="ov-contrast-bar">
-                    <span
-                      class="ov-contrast-fill"
-                      :style="{ width: bandBarWidth(b.name), background: bandValue(b.name) < 0 ? '#265CBA' : '#CE3430' }"
-                    ></span>
+                    <span class="ov-contrast-fill" :style="{ width: b.width, background: b.value < 0 ? '#265CBA' : '#CE3430' }"></span>
                   </span>
-                  <span class="ov-contrast-val text-mono">{{ fmtSigned(bandValue(b.name)) }}</span>
+                  <span class="ov-contrast-val text-mono">{{ fmtSigned(b.value) }}</span>
                 </div>
+                <div v-if="!focusBandRows.length" class="ov-right-empty" style="padding: 6px 0">该结果无频段统计</div>
               </div>
             </div>
 
@@ -383,7 +358,7 @@
                     <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.channel }}</td>
                     <td>{{ r.peak != null ? fmtSigned(r.peak.v) : '—' }}</td>
                     <td>{{ r.peak != null ? fmtTime(r.peak.t) : '—' }}</td>
-                    <td>{{ fmtSigned(r.bands.alpha ?? 0) }}</td>
+                    <td>{{ r.bands.alpha != null ? fmtSigned(r.bands.alpha) : '—' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -416,14 +391,8 @@ const TYPE_COLOR = '#B0544C'
 const MAX_FREQS = 80
 const MAX_TIMES = 160
 const MAX_CELLS = 16 // 软上限：通道×数据集 同时显示的热图数（防一墙小图 + 海量请求）
-const TFR_BANDS = [
-  { name: 'delta', label: 'δ', lo: 1, hi: 4 },
-  { name: 'theta', label: 'θ', lo: 4, hi: 8 },
-  { name: 'alpha', label: 'α', lo: 8, hi: 13 },
-  { name: 'beta', label: 'β', lo: 13, hi: 30 },
-  { name: 'gamma', label: 'γ', lo: 30, hi: 80 },
-] as const
 const BAND_COLORS: Record<string, string> = { delta: '#378ADD', theta: '#1D9E75', alpha: '#BA7517', beta: '#D85A30', gamma: '#D4537E' }
+const BAND_LABEL: Record<string, string> = { delta: 'δ', theta: 'θ', alpha: 'α', beta: 'β', gamma: 'γ' }
 const TIME_WINDOWS = [
   { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
   { key: 'post', label: '刺激后', lo: 0, hi: null as number | null },
@@ -456,7 +425,7 @@ const partialNote = ref('')
 const labelCache = reactive<Record<number, string>>({})
 
 const showStats = ref(true)
-const showGrid = ref(true)
+const showGrid = ref(false)
 const showStim = ref(true)
 const showTopo = ref(true)
 const showLeft = ref(true)
@@ -464,8 +433,7 @@ const showHelp = ref(false)
 const isFullscreen = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const cmap = ref<HeatmapCmap>('rdbu')
-const selectedBand = ref<string>('alpha')
-const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, band: false, cmap: false, modules: false })
+const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, cmap: false, modules: false })
 
 const { colorAt } = usePalette('elys')
 
@@ -584,11 +552,6 @@ function resetZmax() {
   zmaxInput.value = ''
 }
 const cbarGradient = computed(() => heatmapCssGradient(cmap.value))
-
-// 热图频段参考线
-const heatmapBands = computed(() =>
-  TFR_BANDS.map((b) => ({ lo: b.lo, hi: b.hi, label: b.label, active: selectedBand.value === b.name })),
-)
 
 // ---------- 时间窗 / 频率窗（纯视觉缩放） ----------
 const viewTMin = ref<number | null>(null)
@@ -767,21 +730,19 @@ function bandsOf(tfr: StudyOutputTfr): Record<string, number> {
 }
 const focusPeak = computed<Peak | null>(() => (focusCell.value?.tfr ? peakOf(focusCell.value.tfr) : null))
 const peakText = computed(() => (focusPeak.value ? fmtSigned(focusPeak.value.v) : '—'))
-const focusBands = computed<Record<string, number>>(() => (focusCell.value?.tfr ? bandsOf(focusCell.value.tfr) : {}))
-function bandValue(name: string): number {
-  return focusBands.value[name] ?? 0
-}
-const maxBandAbs = computed(() => {
-  let m = 0
-  for (const b of TFR_BANDS) m = Math.max(m, Math.abs(bandValue(b.name)))
-  return m > 1e-9 ? m : 1
+// 右栏频段功率条：只列数据实际覆盖的频段（后端 tfr.bands 已跳过窗外频段，故 alpha/beta-only 数据就只显示这两个）
+const focusBandRows = computed(() => {
+  const tfr = focusCell.value?.tfr
+  if (!tfr || !tfr.bands.length) return [] as { name: string; label: string; color: string; value: number; width: string }[]
+  const maxAbs = Math.max(1e-9, ...tfr.bands.map((b) => Math.abs(b.value)))
+  return tfr.bands.map((b) => ({
+    name: b.name,
+    label: `${BAND_LABEL[b.name] ?? b.name} ${fmtFreq(b.fmin)}–${fmtFreq(b.fmax)}`,
+    color: BAND_COLORS[b.name] ?? 'var(--c-border)',
+    value: b.value,
+    width: `${Math.min(100, (Math.abs(b.value) / maxAbs) * 100)}%`,
+  }))
 })
-function bandBarWidth(name: string): string {
-  return `${Math.min(100, (Math.abs(bandValue(name)) / maxBandAbs.value) * 100)}%`
-}
-function bandColor(name: string): string {
-  return BAND_COLORS[name] ?? 'var(--c-border)'
-}
 
 interface StatRow {
   key: string
@@ -835,16 +796,17 @@ function autoFmt(v: number) {
 // ---------- 频段地形图（全通道在 时窗×频窗 的平均功率 → 头皮投影，复用 TopoStrip）----------
 const topoMap = ref<Map<number, StudyOutputTfrTopo>>(new Map())
 let topoSeq = 0
-// 取数窗口：框选了 ROI → 跟随 ROI；否则 选中频段 × 时窗（默认刺激后 [0,tmax]，跟随时间缩放）
+// 取数窗口：框选了 ROI → 跟随 ROI；否则 当前频窗 × 刺激后时窗（不绑固定频段，想看某频段用频窗输入框或框选）
 const topoWindow = computed(() => {
   if (region.value) {
     const r = region.value
     return { tmin: r.t0, tmax: r.t1, fmin: r.f0, fmax: r.f1 }
   }
-  const band = TFR_BANDS.find((b) => b.name === selectedBand.value) ?? TFR_BANDS[2]
   const tmin = isTimeZoomed.value ? viewTMin.value ?? dataTMin.value : Math.max(0, dataTMin.value)
   const tmax = isTimeZoomed.value ? viewTMax.value ?? dataTMax.value : dataTMax.value
-  return { tmin, tmax, fmin: band.lo, fmax: band.hi }
+  const fmin = viewFMin.value ?? dataFMin.value
+  const fmax = viewFMax.value ?? dataFMax.value
+  return { tmin, tmax, fmin, fmax }
 })
 async function loadTopo() {
   if (!showTopo.value || !studyId || !primaryMeta.value) return
@@ -893,7 +855,7 @@ const topoVmax = computed(() => {
 })
 const topoSubtitle = computed(() => {
   const w = topoWindow.value
-  const src = region.value ? 'ROI' : TFR_BANDS.find((b) => b.name === selectedBand.value)?.label ?? ''
+  const src = region.value ? 'ROI' : '刺激后'
   return `${src} ${fmtFreq(w.fmin)}–${fmtFreq(w.fmax)}Hz · ${fmtTime(w.tmin)}–${fmtTime(w.tmax)}s`
 })
 watch(
@@ -910,8 +872,8 @@ function statsMatrix(): string[][] {
   const body = statsRows.value.map((r) => [
     r.segName, r.channel,
     r.peak ? r.peak.v.toFixed(3) : '', r.peak ? r.peak.kind : '', r.peak ? r.peak.t.toFixed(3) : '', r.peak ? r.peak.f.toFixed(2) : '',
-    (r.bands.delta ?? 0).toFixed(3), (r.bands.theta ?? 0).toFixed(3), (r.bands.alpha ?? 0).toFixed(3),
-    (r.bands.beta ?? 0).toFixed(3), (r.bands.gamma ?? 0).toFixed(3),
+    r.bands.delta != null ? r.bands.delta.toFixed(3) : '', r.bands.theta != null ? r.bands.theta.toFixed(3) : '', r.bands.alpha != null ? r.bands.alpha.toFixed(3) : '',
+    r.bands.beta != null ? r.bands.beta.toFixed(3) : '', r.bands.gamma != null ? r.bands.gamma.toFixed(3) : '',
   ])
   return [head, ...body]
 }
@@ -1105,7 +1067,6 @@ onUnmounted(() => {
 .psd-bandpill:hover { border-color: var(--c-primary); }
 .psd-bandpill.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
 .ov-cell-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--c-text-3); font-size: 12px; }
-.is-focus-band .ov-contrast-lbl { color: var(--c-text); font-weight: 600; }
 /* 状态条色阶图例 */
 .tfr-cbar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-3); }
 .tfr-cbar-sw { width: 70px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); }

@@ -14,12 +14,6 @@
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { buildHeatmapLut, HEATMAP_LUT_N, type HeatmapCmap } from './heatmapColor'
 
-interface BandRef {
-  lo: number
-  hi: number
-  label?: string
-  active?: boolean
-}
 interface Roi {
   t0: number
   t1: number
@@ -40,8 +34,6 @@ const props = withDefaults(
     cmap?: HeatmapCmap
     unit?: string
     showGrid?: boolean
-    /** 频段定义 [{lo,hi,label,active}]（δθαβγ）：频率轴刻度/网格按频段边界打 + 频段名；active=当前选中频段，加琥珀高亮。 */
-    bands?: BandRef[]
     /** 刺激线：t=0 处画红色竖线（事件相关时频用）。 */
     tZero?: boolean
     denseAxes?: boolean
@@ -65,7 +57,6 @@ const props = withDefaults(
     cmap: 'rdbu',
     unit: 'dB',
     showGrid: true,
-    bands: () => [],
     tZero: true,
     denseAxes: false,
     hideXLabels: false,
@@ -95,7 +86,8 @@ const hostRef = ref<HTMLDivElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 const AXIS = '#51607A'
-const GRID = '#D3DAE6'
+const TICK = '#AEB7C6' // 刻度线 + 边框（克制，对标 matplotlib spine/tick）
+const GRID_SOFT = 'rgba(120, 140, 170, 0.14)' // 可选淡网格（开「网格线」才画，默认关）
 const LOCK_LINE = '#D9822B'
 const STIM_LINE = '#D43F34' // 刺激线 t=0：红
 const REGION_FILL = 'rgba(63, 94, 143, 0.10)'
@@ -283,11 +275,11 @@ function rebuildBase() {
   }
 
   drawTimeAxis(ctx, g)
-  drawFreqAxisBands(ctx, g)
+  drawFreqAxis(ctx, g)
   if (props.tZero) drawStim(ctx, g)
 
-  // 绘图区外框
-  ctx.strokeStyle = GRID
+  // 绘图区外框（细，对标 matplotlib box spine）
+  ctx.strokeStyle = TICK
   ctx.lineWidth = PX_RATIO
   ctx.strokeRect(g.left + 0.5, g.top + 0.5, g.pw - 1, g.ph - 1)
 }
@@ -314,128 +306,61 @@ function fmtFreq(v: number): string {
 function drawTimeAxis(ctx: CanvasRenderingContext2D, g: Geom) {
   const dpr = PX_RATIO
   const fontPx = (props.denseAxes ? 10 : 12) * dpr
+  const tick = 4 * dpr
   ctx.font = `${fontPx}px monospace`
-  ctx.fillStyle = AXIS
-  ctx.strokeStyle = GRID
-  ctx.lineWidth = dpr
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
+  ctx.lineWidth = dpr
   for (const t of niceTicks(g.t0, g.t1, props.denseAxes ? 4 : 6)) {
     const x = tToX(g, t)
     if (x < g.left - 0.5 || x > g.left + g.pw + 0.5) continue
     if (props.showGrid) {
+      ctx.strokeStyle = GRID_SOFT
       ctx.beginPath()
       ctx.moveTo(x, g.top)
       ctx.lineTo(x, g.top + g.ph)
       ctx.stroke()
     }
-    if (!props.hideXLabels) ctx.fillText(fmtTime(t), x, g.top + g.ph + 4 * dpr)
+    // 朝外短刻度线（对标 matplotlib 'out'，不贯穿数据）
+    ctx.strokeStyle = TICK
+    ctx.beginPath()
+    ctx.moveTo(x, g.top + g.ph)
+    ctx.lineTo(x, g.top + g.ph + tick)
+    ctx.stroke()
+    if (!props.hideXLabels) {
+      ctx.fillStyle = AXIS
+      ctx.fillText(fmtTime(t), x, g.top + g.ph + tick + 3 * dpr)
+    }
   }
 }
 
-// 频率轴 = 频段边界（δθαβγ 的 1/4/8/13/30/80）当主刻度兼横网格（合并原「网格线」+「频段参考线」两套）；
-// 相邻边界像素间距过大 → 中间补 niceTicks 细刻度（坐标稀就加位置）；
-// 选中频段 active → 左缘琥珀竖条标范围 + 上下边界琥珀加粗 + 频段名放大变琥珀（点不同频段有明显移动反馈）。
-function drawFreqAxisBands(ctx: CanvasRenderingContext2D, g: Geom) {
+// 频率轴：均匀 niceTicks 刻度 + 朝外短刻度线（对标 matplotlib/MNE，默认不画贯穿网格）。
+function drawFreqAxis(ctx: CanvasRenderingContext2D, g: Geom) {
   const dpr = PX_RATIO
   const fontPx = (props.denseAxes ? 10 : 12) * dpr
-  const bands = props.bands || []
-  const boundSet = new Set<number>()
-  for (const b of bands) {
-    boundSet.add(b.lo)
-    boundSet.add(b.hi)
-  }
-  const majors = [...boundSet].filter((f) => f > g.f0 + 1e-6 && f < g.f1 - 1e-6).sort((a, b) => a - b)
-  // 补细刻度：主刻度（含窗端点）相邻像素间距 > 阈值时中间插值
-  const minorPx = (props.denseAxes ? 64 : 92) * dpr
-  const anchors = [g.f0, ...majors, g.f1]
-  const minors: number[] = []
-  for (let i = 0; i < anchors.length - 1; i++) {
-    const a = anchors[i]
-    const c = anchors[i + 1]
-    const gapPx = Math.abs(fToY(g, a) - fToY(g, c))
-    if (gapPx > minorPx) {
-      const n = Math.max(1, Math.floor(gapPx / minorPx))
-      for (const t of niceTicks(a, c, n + 1)) {
-        if (t > a + 1e-6 && t < c - 1e-6 && !boundSet.has(t)) minors.push(t)
-      }
-    }
-  }
+  const tick = 4 * dpr
   ctx.font = `${fontPx}px monospace`
   ctx.textAlign = 'right'
   ctx.textBaseline = 'middle'
-  // 细刻度（淡）
-  for (const f of minors) {
+  ctx.lineWidth = dpr
+  for (const f of niceTicks(g.f0, g.f1, props.denseAxes ? 4 : 6)) {
     const y = fToY(g, f)
+    if (y < g.top - 0.5 || y > g.top + g.ph + 0.5) continue
     if (props.showGrid) {
-      ctx.strokeStyle = GRID
-      ctx.globalAlpha = 0.5
-      ctx.lineWidth = dpr
-      ctx.beginPath()
-      ctx.moveTo(g.left, y)
-      ctx.lineTo(g.left + g.pw, y)
-      ctx.stroke()
-      ctx.globalAlpha = 1
-    }
-    if (!props.hideYLabels) {
-      ctx.fillStyle = '#9AA6B8'
-      ctx.fillText(fmtFreq(f), g.left - 5 * dpr, y)
-    }
-  }
-  // 主刻度（频段边界，较实）
-  for (const f of majors) {
-    const y = fToY(g, f)
-    if (props.showGrid) {
-      ctx.strokeStyle = GRID
-      ctx.lineWidth = dpr
+      ctx.strokeStyle = GRID_SOFT
       ctx.beginPath()
       ctx.moveTo(g.left, y)
       ctx.lineTo(g.left + g.pw, y)
       ctx.stroke()
     }
+    ctx.strokeStyle = TICK
+    ctx.beginPath()
+    ctx.moveTo(g.left - tick, y)
+    ctx.lineTo(g.left, y)
+    ctx.stroke()
     if (!props.hideYLabels) {
       ctx.fillStyle = AXIS
-      ctx.fillText(fmtFreq(f), g.left - 5 * dpr, y)
-    }
-  }
-  // 窗端点数字（顶/底），避免边缘无刻度
-  if (!props.hideYLabels) {
-    ctx.fillStyle = AXIS
-    ctx.textBaseline = 'top'
-    ctx.fillText(fmtFreq(g.f1), g.left - 5 * dpr, g.top + 1 * dpr)
-    ctx.textBaseline = 'bottom'
-    ctx.fillText(fmtFreq(g.f0), g.left - 5 * dpr, g.top + g.ph - 1 * dpr)
-    ctx.textBaseline = 'middle'
-  }
-  // 频段名 + 选中高亮
-  for (const b of bands) {
-    const lo = Math.max(b.lo, g.f0)
-    const hi = Math.min(b.hi, g.f1)
-    if (hi <= lo) continue
-    const yHi = fToY(g, hi) // 高频端（小 y）
-    const yLo = fToY(g, lo) // 低频端（大 y）
-    if (b.active) {
-      ctx.fillStyle = LOCK_LINE
-      ctx.fillRect(g.left - 4 * dpr, yHi, 3 * dpr, Math.max(1, yLo - yHi)) // 左缘竖条（数据区外）
-      ctx.strokeStyle = LOCK_LINE
-      ctx.lineWidth = 1.6 * dpr
-      ctx.globalAlpha = 0.9
-      for (const yy of [yHi, yLo]) {
-        if (yy > g.top + 0.5 && yy < g.top + g.ph - 0.5) {
-          ctx.beginPath()
-          ctx.moveTo(g.left, yy)
-          ctx.lineTo(g.left + g.pw, yy)
-          ctx.stroke()
-        }
-      }
-      ctx.globalAlpha = 1
-    }
-    if (b.label) {
-      ctx.font = `${(b.active ? (props.denseAxes ? 12 : 14) : props.denseAxes ? 9 : 11) * dpr}px monospace`
-      ctx.fillStyle = b.active ? LOCK_LINE : '#8593A8'
-      ctx.textAlign = 'right'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(b.label, g.left + g.pw - 5 * dpr, fToY(g, (lo + hi) / 2))
+      ctx.fillText(fmtFreq(f), g.left - tick - 3 * dpr, y)
     }
   }
 }
@@ -703,7 +628,6 @@ watch(
     props.viewFMin,
     props.viewFMax,
     props.showGrid,
-    props.bands,
     props.tZero,
     props.denseAxes,
     props.hideXLabels,
