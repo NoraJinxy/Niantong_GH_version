@@ -8,6 +8,8 @@ Related: app/routers/study_outputs.py, app/pipeline/previews.py(复用路径解�
 
 from __future__ import annotations
 
+import functools
+import os
 from typing import Any
 
 from .montage_layout import channel_positions_2d
@@ -68,15 +70,32 @@ def _unit_and_scale(baseline_mode: str | None) -> tuple[str, float]:
     return "power", 1.0
 
 
-def _read_first_tfr(mne, path):
-    out = mne.time_frequency.read_tfrs(path)
+@functools.lru_cache(maxsize=6)
+def _read_tfrs_cached(path_str: str, _mtime: float):
+    """解析 -tfr.h5 → 首个 AverageTFR，按 (路径, mtime) LRU 缓存（默认 6 个）。
+
+    关键：避免「选 N 个通道 = N 次 /tfr = N 次整读同一份 h5」，再叠 /tfr/cube、/tfr/topo 又各读一次的重复磁盘读。
+    缓存对象在各视图里只读取（np.asarray 复制 data、info 只读）、绝不就地改 → 多请求共享安全。
+    文件被重处理 → mtime 变 → 缓存键变 → 自动重读；旧条目按 LRU 淘汰。
+    """
+    mne = _mne()
+    out = mne.time_frequency.read_tfrs(path_str)
     if isinstance(out, (list, tuple)):
-        if not out:
-            raise StudyOutputPreviewError(
-                "DERIVED_DATASET_TFR_EMPTY", "TFR 文件不含任何时频数据", status_code=422
-            )
-        return out[0]
+        return out[0] if out else None
     return out
+
+
+def _read_first_tfr(path) -> Any:
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0.0
+    tfr = _read_tfrs_cached(str(path), mtime)
+    if tfr is None:
+        raise StudyOutputPreviewError(
+            "DERIVED_DATASET_TFR_EMPTY", "TFR 文件不含任何时频数据", status_code=422
+        )
+    return tfr
 
 
 def build_tfr_heatmap(
@@ -87,11 +106,10 @@ def build_tfr_heatmap(
     max_freqs: int = DEFAULT_MAX_FREQS,
     max_times: int = DEFAULT_MAX_TIMES,
 ) -> dict[str, Any]:
-    mne = _mne()
     np = _numpy()
     path = resolve_study_output_path(study, dataset)
     validate_study_output_file(path, dataset)
-    tfr = _read_first_tfr(mne, path)
+    tfr = _read_first_tfr(path)
 
     ch_names = [str(name) for name in tfr.ch_names]
     if not ch_names:
@@ -159,11 +177,10 @@ def build_tfr_topomap(
     时窗默认刺激后(t>=0)、频窗默认全频；越界 / 空窗回退到全幅，绝不返回空地形。功率值按基线模式换算成展示单位
     (dB/%/z…)，**有符号**(负=ERD、正=ERS) → 前端发散色直接绕 0 上色，不必去均值。
     """
-    mne = _mne()
     np = _numpy()
     path = resolve_study_output_path(study, dataset)
     validate_study_output_file(path, dataset)
-    tfr = _read_first_tfr(mne, path)
+    tfr = _read_first_tfr(path)
 
     ch_names = [str(name) for name in tfr.ch_names]
     if not ch_names:
@@ -243,11 +260,10 @@ def build_tfr_cube(
     跟随期间**零后端往返**、即时响应（对标 PSD：多通道数据在前端、topo 本地算）。
     值已按基线模式换算成展示单位、有符号（负=ERD、正=ERS）。这一次读 h5 替代了原来每移一下游标读一次。
     """
-    mne = _mne()
     np = _numpy()
     path = resolve_study_output_path(study, dataset)
     validate_study_output_file(path, dataset)
-    tfr = _read_first_tfr(mne, path)
+    tfr = _read_first_tfr(path)
 
     ch_names = [str(name) for name in tfr.ch_names]
     if not ch_names:
