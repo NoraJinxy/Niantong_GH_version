@@ -1,7 +1,7 @@
 <template>
-  <div class="wf-page">
-    <!-- 顶部信息条 -->
-    <header class="wf-head">
+  <div class="wf-page" ref="pageRef">
+    <!-- 顶部信息条（全屏时隐去，让绘图区吃满；退出全屏的按钮在工具条上仍可见） -->
+    <header v-show="!isFullscreen" class="wf-head">
       <div class="wf-id">
         <span class="wf-badge" :style="{ background: typeColor }">{{ typeShort }}</span>
         <div class="wf-id-text">
@@ -14,18 +14,6 @@
         </div>
       </div>
       <div class="wf-head-right">
-        <div class="wf-layout-btns">
-          <button class="wf-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
-            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
-          </button>
-          <button class="wf-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
-            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
-          </button>
-          <button class="wf-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
-            <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
-          </button>
-        </div>
-        <span class="wf-source is-real">真实时域数据</span>
         <button class="wf-btn wf-btn--ghost" @click="load" :disabled="loading">刷新</button>
       </div>
     </header>
@@ -48,7 +36,7 @@
                   :key="oid"
                   class="wf-li"
                   :class="{ 'is-sel': selectedSegs.has(i) }"
-                  @click="toggleSeg(i)"
+                  @click="onSegClick(i, $event)"
                 >
                   <span class="wf-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="wf-li-name">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
@@ -56,71 +44,76 @@
               </template>
               <div v-else class="wf-li is-static">
                 <span class="wf-li-dot" :style="{ background: typeColor }"></span>
-                <span class="wf-li-name text-mono">{{ shortId(datasetId) }}</span>
+                <span class="wf-li-name" :title="displayName">{{ displayName }}</span>
                 <span class="wf-li-tag">{{ ts?.n_channels_total ?? '–' }}ch</span>
               </div>
             </div>
           </section>
 
-          <!-- 条件 / 段（单产物多段时） -->
-          <section v-if="!isMultiOutput && segCount > 1" class="wf-sec">
-            <div class="wf-sec-head" @click="toggleSec('segment')">
-              {{ segKindLabel }}
-              <span class="wf-sec-cnt">{{ selectedSegs.size }}/{{ segCount }}</span>
-              <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.segment }">▾</span>
-            </div>
-            <div v-show="!collapsed.segment" class="wf-sec-body">
-              <div
-                v-for="i in segCheckboxes"
-                :key="i"
-                class="wf-li"
-                :class="{ 'is-sel': selectedSegs.has(i) }"
-                @click="toggleSeg(i)"
-              >
-                <span class="wf-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
-                <span class="wf-li-name">{{ segOptions?.[i] ?? ('#' + (i + 1)) }}</span>
+          <!-- 段(Epoch) 与 通道：两个 listbox 并排，各自限高滚动；单击单选 · Ctrl 加选 · Shift 连选 -->
+          <div class="wf-sec-row">
+            <!-- 条件 / 段（单产物多段时） -->
+            <section v-if="!isMultiOutput && segCount > 1" class="wf-sec wf-sec--half">
+              <div class="wf-sec-head" @click="toggleSec('segment')">
+                {{ segKindLabel }}
+                <span class="wf-sec-cnt">{{ selectedSegs.size }}/{{ segCount }}</span>
+                <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.segment }">▾</span>
               </div>
-              <div v-if="segCount > segCheckboxes.length" class="wf-sec-hint">
-                仅列前 {{ segCheckboxes.length }} / {{ segCount }} 段（上一/下一切换主段）
-                <div class="wf-seg-stepper">
-                  <button class="wf-step" :disabled="loading || primarySeg <= 0" @click="stepSeg(-1)">‹</button>
-                  <span class="wf-seg-idx text-mono">{{ primarySeg + 1 }} / {{ segCount }}</span>
-                  <button class="wf-step" :disabled="loading || primarySeg >= segCount - 1" @click="stepSeg(1)">›</button>
+              <div v-show="!collapsed.segment" class="wf-sec-body">
+                <div class="wf-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
+                  <div
+                    v-for="i in segCheckboxes"
+                    :key="i"
+                    class="wf-li"
+                    :class="{ 'is-sel': selectedSegs.has(i) }"
+                    @click="onSegClick(i, $event)"
+                  >
+                    <span class="wf-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
+                    <span class="wf-li-name">{{ segOptions?.[i] ?? ('#' + (i + 1)) }}</span>
+                  </div>
+                </div>
+                <div v-if="segCount > segCheckboxes.length" class="wf-sec-hint">
+                  仅列前 {{ segCheckboxes.length }} / {{ segCount }} 段
+                  <div class="wf-seg-stepper">
+                    <button class="wf-step" :disabled="loading || primarySeg <= 0" @click="stepSeg(-1)">‹</button>
+                    <span class="wf-seg-idx text-mono">{{ primarySeg + 1 }} / {{ segCount }}</span>
+                    <button class="wf-step" :disabled="loading || primarySeg >= segCount - 1" @click="stepSeg(1)">›</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <!-- 通道 -->
-          <section class="wf-sec">
-            <div class="wf-sec-head" @click="toggleSec('channel')">
-              通道
-              <span class="wf-sec-cnt">{{ selected.size }}/{{ allChanNames.length }}</span>
-              <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.channel }">▾</span>
-            </div>
-            <div v-show="!collapsed.channel" class="wf-sec-body">
-              <div class="wf-sec-actions">
-                <button v-if="selected.size < allChanNames.length" type="button" class="wf-link" @click="selectAll">全选</button>
-                <button v-if="selected.size > 0" type="button" class="wf-link" @click="selectNone">清空</button>
+            <!-- 通道 -->
+            <section class="wf-sec wf-sec--half">
+              <div class="wf-sec-head" @click="toggleSec('channel')">
+                通道
+                <span class="wf-sec-cnt">{{ selected.size }}/{{ allChanNames.length }}</span>
+                <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.channel }">▾</span>
               </div>
-              <div class="wf-chanlist">
-                <div
-                  v-for="(name, i) in allChanNames"
-                  :key="name"
-                  class="wf-li"
-                  :class="{ 'is-sel': selected.has(name) }"
-                  @click="toggleChannel(name)"
-                >
-                  <span class="wf-li-dot" :style="{ background: selected.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
-                  <span class="wf-li-name text-mono">{{ name }}</span>
-                  <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="chColor(i)" />
+              <div v-show="!collapsed.channel" class="wf-sec-body">
+                <div class="wf-sec-actions">
+                  <button v-if="selected.size < allChanNames.length" type="button" class="wf-link" @click="selectAll">全选</button>
+                  <button v-if="selected.size > 0" type="button" class="wf-link" @click="selectNone">清空</button>
                 </div>
+                <div class="wf-chanlist" title="单击单选 · Ctrl 加选 · Shift 连选">
+                  <div
+                    v-for="(name, i) in allChanNames"
+                    :key="name"
+                    class="wf-li"
+                    :class="{ 'is-sel': selected.has(name) }"
+                    @click="onChanClick(i, $event)"
+                  >
+                    <span class="wf-li-dot" :style="{ background: selected.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
+                    <span class="wf-li-name text-mono">{{ name }}</span>
+                    <MiniSparkline class="wf-li-spark" :values="chanValues(name)" :color="chColor(i)" />
+                  </div>
+                </div>
+                <p v-if="ts && ts.n_channels_total > allChanNames.length" class="wf-sec-hint">
+                  仅列出前 {{ allChanNames.length }} / {{ ts.n_channels_total }} 通道
+                </p>
               </div>
-              <p v-if="ts && ts.n_channels_total > allChanNames.length" class="wf-sec-hint">
-                仅列出前 {{ allChanNames.length }} / {{ ts.n_channels_total }} 通道
-              </p>
-            </div>
-          </section>
+            </section>
+          </div>
 
           <!-- 统计范围 -->
           <section class="wf-sec">
@@ -170,27 +163,50 @@
               <span class="wf-sec-arr" :class="{ 'is-collapsed': collapsed.layout }">▾</span>
             </div>
             <div v-show="!collapsed.layout" class="wf-sec-body">
-              <div class="wf-grid2">
-                <div>
-                  <div class="wf-grid2-lbl">行</div>
-                  <select class="wf-inp" :value="rowFactor" @change="onRowFactor">
-                    <option v-for="o in factorOptions" :key="o.v" :value="o.v">{{ o.l }}</option>
-                  </select>
-                </div>
-                <div>
-                  <div class="wf-grid2-lbl">列</div>
-                  <select class="wf-inp" :value="colFactor" @change="onColFactor">
-                    <option v-for="o in factorOptions" :key="o.v" :value="o.v">{{ o.l }}</option>
-                  </select>
+              <div class="wf-grid2-lbl">叠加维度</div>
+              <div class="wf-ovpick">
+                <button
+                  v-for="o in overlayOptions"
+                  :key="o.v"
+                  type="button"
+                  class="wf-ovbtn"
+                  :class="{ 'is-on': effectiveOverlay === o.v }"
+                  @click="overlayDim = o.v"
+                >
+                  {{ o.l }}
+                </button>
+              </div>
+              <p class="wf-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图（按行 / 列）。</p>
+              <div class="wf-grid2-lbl" style="margin-top: 6px">配色</div>
+              <div class="wf-pal">
+                <!-- 当前色板：名字 + 色卡条，点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
+                <button type="button" class="wf-pal-cur" :class="{ 'is-open': palOpen }" @click="palOpen = !palOpen">
+                  <span class="wf-pal-sw">
+                    <i v-for="(c, i) in currentPalette.colors" :key="i" :style="{ background: c }" />
+                  </span>
+                  <span class="wf-pal-name">{{ currentPalette.label }}</span>
+                  <span class="wf-pal-arr">▾</span>
+                </button>
+                <div v-if="palOpen" class="wf-pal-list">
+                  <template v-for="g in paletteGroups" :key="g.label">
+                    <div class="wf-pal-grp">{{ g.label }}</div>
+                    <button
+                      v-for="p in g.items"
+                      :key="p.key"
+                      type="button"
+                      class="wf-pal-opt"
+                      :class="{ 'is-on': paletteKey === p.key }"
+                      @click="selectPalette(p.key)"
+                    >
+                      <span class="wf-pal-sw">
+                        <i v-for="(c, i) in p.colors" :key="i" :style="{ background: c }" />
+                      </span>
+                      <span class="wf-pal-opt-name">{{ p.label }}</span>
+                      <span v-if="p.tag" class="wf-pal-tag">{{ p.tag }}</span>
+                    </button>
+                  </template>
                 </div>
               </div>
-              <p class="wf-sec-hint">行/列留「—」的因素将在每张子图内叠加显示。</p>
-              <div class="wf-grid2-lbl" style="margin-top: 6px">配色</div>
-              <select class="wf-inp" v-model="paletteKey">
-                <option value="elys">elys 烙印</option>
-                <option value="npg">NPG（期刊感）</option>
-                <option value="wong">Wong（色盲安全）</option>
-              </select>
             </div>
           </section>
 
@@ -216,6 +232,11 @@
       <!-- ============ 中栏：工具条 + 绘图 + 状态条 ============ -->
       <div class="wf-center">
         <div class="wf-ctoolbar">
+          <div class="wf-tg wf-tg--lyt">
+            <button class="wf-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
+          </div>
           <div class="wf-tg">
             <span class="wf-lbl">时间窗 ({{ xUnit }})</span>
             <button v-if="isContinuous" class="wf-step" :disabled="loading || !ts || ts.tmin <= ts.available_tmin + 1e-9" @click="pageWindow(-1)" title="上一段">«</button>
@@ -236,8 +257,29 @@
             <button class="wf-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             <button class="wf-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
           </div>
-          <div class="wf-tg wf-tg--hint">
-            <span class="wf-lbl">每张子图右上 ⬇ 可导出 PNG</span>
+          <div class="wf-tg wf-tg--hint wf-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+            <span class="wf-help-trigger">🖱 操作提示</span>
+            <div v-if="showHelp" class="wf-help-pop">
+              <div class="wf-help-row"><kbd>滚轮</kbd><span>缩放时间轴</span></div>
+              <div class="wf-help-row"><kbd>Ctrl</kbd><span class="wf-help-plus">+</span><kbd>滚轮</kbd><span>调幅度</span></div>
+              <div class="wf-help-row"><kbd>拖拽</kbd><span>选统计区间</span></div>
+              <div class="wf-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
+              <div class="wf-help-row"><kbd>右键</kbd><span>解锁游标</span></div>
+              <div class="wf-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
+            </div>
+          </div>
+          <div class="wf-tg wf-tg--lyt wf-tg--end">
+            <button class="wf-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+              <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
+              <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
+            </button>
+            <span class="wf-lyt-sep"></span>
+            <button class="wf-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
+            </button>
+            <button class="wf-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+              <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
+            </button>
           </div>
         </div>
 
@@ -253,12 +295,12 @@
           <template v-else-if="hasCurves">
             <div v-if="partialNote" class="wf-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="wf-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
-            <div v-else class="wf-facet" :class="{ 'is-single': cells.length <= 1 }" :style="facetStyle">
+            <div v-else class="wf-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
               <section v-for="(cell, ci) in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': highlightChan && cell.title === highlightChan }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="wf-cell-hd">
                   <span class="wf-cell-tag" :style="{ background: cellAccent(cell) }"></span>
                   <span class="wf-cell-name">{{ cell.title || (dataType === 'evoked' ? 'ERP' : '波形') }}</span>
-                  <span class="wf-cell-meta text-mono">{{ cell.series.length }}线 · {{ ts ? ts.sfreq.toFixed(0) : '–' }}Hz</span>
+                  <span class="wf-cell-meta text-mono">{{ cell.series.length }} 条曲线 · {{ ts ? ts.sfreq.toFixed(0) : '–' }}Hz</span>
                   <button class="wf-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title)">⬇</button>
                 </div>
                 <div class="wf-cell-plot">
@@ -278,8 +320,17 @@
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
                     :hide-y-labels="cellHideY(ci)"
+                    :locked="cursorLocked"
+                    :locked-x="lockedReadout?.x ?? null"
+                    :view-min="viewXMin"
+                    :view-max="viewXMax"
+                    :amp-scale="ampScale"
                     @cursor="onCursor"
                     @select="onSelect"
+                    @lock="onLock"
+                    @unlock="onUnlock"
+                    @zoom="onZoom"
+                    @amp="onAmp"
                   />
                 </div>
               </section>
@@ -300,12 +351,9 @@
           <span class="wf-sbar-sep">|</span>
           <span :class="{ 'wf-sbar-filter': filterOn }">{{ filterDesc }}</span>
           <div style="flex: 1"></div>
-          <span v-if="cursorReadout" class="wf-readout">
-            <span class="text-mono">{{ fmtX(cursorReadout.x) }}{{ xUnit }}</span>
-            <span v-for="it in cursorReadout.items.slice(0, 5)" :key="it.name" class="wf-readout-v" :style="{ color: it.color }">{{ it.name }} {{ it.uv.toFixed(2) }}</span>
-            <span v-if="cursorReadout.items.length > 5" class="wf-readout-more">+{{ cursorReadout.items.length - 5 }}</span>
-            <span class="wf-readout-unit">μV</span>
-          </span>
+          <span v-if="isZoomed" class="wf-sbar-zoom" @click="resetZoom" title="复位缩放（滚轮缩放 / Ctrl+滚轮调幅）">🔍 {{ zoomLabel }} <span class="wf-sbar-zoom-x">✕</span></span>
+          <span v-if="cursorState !== 'idle'" class="wf-cursor-state" :class="`is-${cursorState}`" :title="cursorStateHint">{{ cursorStateText }}</span>
+          <span v-if="displayReadout" class="wf-readout text-mono">@ {{ fmtX(displayReadout.x) }}{{ xUnit }}</span>
         </div>
       </div>
 
@@ -314,21 +362,29 @@
         <div class="wf-right-head">
           <strong><span class="wf-right-dot"></span>统计结果</strong>
           <div class="wf-right-btns">
+            <button class="wf-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="焦点：突出某一根曲线的峰值 / 潜伏">◎ 焦点</button>
             <button class="wf-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="wf-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
         </div>
         <div class="wf-right-scroll">
-          <!-- 游标读数：悬停曲线时把当前时刻各序列瞬时值带进右栏 -->
-          <div v-if="cursorReadout" class="wf-hover">
-            <div class="wf-hover-hd">游标 <span class="text-mono">{{ fmtX(cursorReadout.x) }}{{ xUnit }}</span></div>
-            <div class="wf-hover-list">
-              <div v-for="it in cursorReadout.items.slice(0, 16)" :key="it.name" class="wf-hover-row">
-                <span class="wf-li-dot" :style="{ background: it.color }"></span>
-                <span class="wf-hover-name">{{ it.name }}</span>
-                <span class="wf-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+          <!-- 游标读数：悬停曲线时把当前时刻各序列瞬时值带进右栏。
+               固定高度常驻（空闲显示提示），避免随游标出现/消失把下方区间统计顶得上下跳。 -->
+          <div class="wf-hover" :class="{ 'is-expanded': hoverExpanded }">
+            <template v-if="displayReadout">
+              <div class="wf-hover-hd">
+                <span v-if="cursorLocked" class="wf-hover-lock">🔒 锁定</span>游标 <span class="text-mono">{{ fmtX(displayReadout.x) }}{{ xUnit }}</span><span v-if="cursorLocked" class="wf-hover-tip">右键解锁</span><span class="wf-hover-unit">µV</span>
               </div>
-            </div>
+              <div class="wf-hover-list">
+                <div v-for="it in hoverItems" :key="it.name" class="wf-hover-row">
+                  <span class="wf-li-dot" :style="{ background: it.color }"></span>
+                  <span class="wf-hover-name">{{ it.name }}</span>
+                  <span class="wf-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+                </div>
+              </div>
+              <button v-if="displayReadout.items.length > HOVER_COLLAPSED" class="wf-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${displayReadout.items.length} 条` }}</button>
+            </template>
+            <div v-else class="wf-hover-idle">移动游标查看各序列瞬时值 · 双击锁定</div>
           </div>
           <div v-if="!statsRows.length" class="wf-right-empty">
             <template v-if="regionUserSet && region && hasCurves">
@@ -337,40 +393,54 @@
             <template v-else>设定统计范围或框选区间后，这里显示峰/谷/均值与潜伏期。</template>
           </div>
           <template v-else>
-            <div class="wf-hl-row">
-              <div class="wf-hl-card hc-peak"><div class="wf-hl-val">{{ highlightStats!.peak.toFixed(2) }}</div><div class="wf-hl-lbl">峰值 µV</div><div class="wf-hl-sub">{{ highlightStats!.peakAt }}</div></div>
-              <div class="wf-hl-card hc-trough"><div class="wf-hl-val">{{ highlightStats!.trough.toFixed(2) }}</div><div class="wf-hl-lbl">谷值 µV</div><div class="wf-hl-sub">{{ highlightStats!.troughAt }}</div></div>
-              <div class="wf-hl-card hc-mean"><div class="wf-hl-val">{{ highlightStats!.mean.toFixed(2) }}</div><div class="wf-hl-lbl">均值 µV</div><div class="wf-hl-sub">{{ highlightStats!.count }} 序列</div></div>
-              <div class="wf-hl-card hc-lat"><div class="wf-hl-val">{{ fmtX(highlightStats!.peakLat) }}</div><div class="wf-hl-lbl">峰潜伏 {{ xUnit }}</div><div class="wf-hl-sub">{{ highlightStats!.peakAt }}</div></div>
+            <!-- ① 焦点：当前关注通道·条件的峰值(英雄数字)+峰潜伏；谷/均/区间降为次级小字 -->
+            <div v-if="focusEnabled && focusStat" class="wf-focus">
+              <select v-model="focusKey" class="wf-focus-pick">
+                <option value="">自动 · 峰值最大</option>
+                <option v-for="o in focusOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
+              </select>
+              <div class="wf-focus-lbl"><span class="wf-li-dot" :style="{ background: focusStat.color }"></span>焦点 · {{ focusStat.chan }} · {{ focusStat.segName }}</div>
+              <div class="wf-focus-main">
+                <div class="wf-focus-cell"><span class="wf-focus-num">{{ focusStat.peak.toFixed(2) }}</span><span class="wf-focus-u">µV 峰值</span></div>
+                <div class="wf-focus-cell"><span class="wf-focus-num2">{{ fmtX(focusStat.peakLat) }}</span><span class="wf-focus-u">{{ xUnit }} 峰潜伏</span></div>
+              </div>
+              <div class="wf-focus-sub">谷 {{ focusStat.trough.toFixed(1) }} · 均 {{ focusStat.mean.toFixed(1) }} µV · 区间 {{ fmtX(region!.x0) }}–{{ fmtX(region!.x1) }} {{ xUnit }}</div>
             </div>
-            <div class="wf-stats-range text-mono">区间 {{ fmtX(region!.x0) }}–{{ fmtX(region!.x1) }} {{ xUnit }}</div>
-            <div v-if="condCards.length" class="wf-cond-cards">
-              <div v-for="c in condCards" :key="c.seg" class="wf-cond-card" :style="{ borderLeftColor: c.color }">
-                <div class="wf-cond-hd"><span class="wf-li-dot" :style="{ background: c.color }"></span>{{ c.label }}</div>
-                <div class="wf-cond-grid">
-                  <div><div class="wf-cond-v wf-dt-peak">{{ c.peak.toFixed(2) }}</div><div class="wf-cond-l">峰 {{ c.peakChan }}</div></div>
-                  <div><div class="wf-cond-v wf-dt-trough">{{ c.trough.toFixed(2) }}</div><div class="wf-cond-l">谷 {{ c.troughChan }}</div></div>
-                  <div><div class="wf-cond-v">{{ c.mean.toFixed(2) }}</div><div class="wf-cond-l">均值</div></div>
-                  <div><div class="wf-cond-v wf-dt-lat">{{ fmtX(c.peakLat) }}</div><div class="wf-cond-l">峰潜伏</div></div>
-                </div>
+
+            <!-- ② 条件对比（≥2 段）：每条件一行，峰值条形可扫读 -->
+            <div v-if="condCards.length" class="wf-contrast">
+              <div class="wf-sec-mini">条件对比 · 峰值 µV</div>
+              <div v-for="c in condCards" :key="c.seg" class="wf-contrast-row" @click="focusChan(c.peakChan)">
+                <span class="wf-li-dot" :style="{ background: c.color }"></span>
+                <span class="wf-contrast-lbl">{{ c.label }}</span>
+                <span class="wf-contrast-bar"><span class="wf-contrast-fill" :style="{ width: barPct(c.peak) + '%', background: c.color }"></span></span>
+                <span class="wf-contrast-val text-mono">{{ c.peak.toFixed(1) }}</span>
               </div>
             </div>
-            <table class="wf-dtable">
-              <thead>
-                <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': highlightChan === r.chan }" @click="focusChan(r.chan)">
-                  <td class="wf-dt-seg">{{ r.segName }}</td>
-                  <td class="wf-dt-ch"><span class="wf-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
-                  <td class="wf-dt-peak">{{ r.peak.toFixed(2) }}</td>
-                  <td class="wf-dt-trough">{{ r.trough.toFixed(2) }}</td>
-                  <td>{{ r.mean.toFixed(2) }}</td>
-                  <td class="wf-dt-lat">{{ fmtX(r.peakLat) }}</td>
-                  <td class="wf-dt-lat">{{ fmtX(r.troughLat) }}</td>
-                </tr>
-              </tbody>
-            </table>
+
+            <!-- ③ 明细表：默认折叠，导出 / 逐通道核对再展开 -->
+            <div class="wf-detail">
+              <button class="wf-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                <span class="wf-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                明细表 · {{ statsRows.length }} 行
+              </button>
+              <table v-if="showDetailTable" class="wf-dtable">
+                <thead>
+                  <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': highlightChan === r.chan }" @click="focusChan(r.chan)">
+                    <td class="wf-dt-seg">{{ r.segName }}</td>
+                    <td class="wf-dt-ch"><span class="wf-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
+                    <td class="wf-dt-peak">{{ r.peak.toFixed(2) }}</td>
+                    <td class="wf-dt-trough">{{ r.trough.toFixed(2) }}</td>
+                    <td>{{ r.mean.toFixed(2) }}</td>
+                    <td class="wf-dt-lat">{{ fmtX(r.peakLat) }}</td>
+                    <td class="wf-dt-lat">{{ fmtX(r.troughLat) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </template>
         </div>
       </aside>
@@ -388,7 +458,7 @@ import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import { channelColor, PALETTES } from '@/composables/observe/channelColor'
+import { channelColor, PALETTE_DEFS } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
 
 const route = useRoute()
@@ -397,7 +467,7 @@ const route = useRoute()
 const MAX_CHANNELS = 64
 const MAX_POINTS = 2000 // uPlot Canvas 比 SVG 可承载更多点；仍由后端按窗下采样（上限 8000）
 const CONTINUOUS = ['raw', 'filtered_raw', 'ica_cleaned']
-const MAX_SEG_BOXES = 40 // 段勾选框最多列这么多（epochs 可能上百，超出用翻页切主段）
+const MAX_SEG_BOXES = 2000 // 段列表全列出、靠 .wf-seglist 滚动容器承载（仅极端超量时才退回步进器）
 const Y_SCALES = [
   { label: '自动', max: 0 },
   { label: '±5', max: 5 },
@@ -441,10 +511,28 @@ const loading = ref(true)
 const error = ref('')
 // 多产物模式：默认全选 + 把"数据集"摆到列维度（一进来同屏看到各条件叠加）
 const selectedSegs = ref<Set<number>>(new Set(isMultiOutput ? outputIds.map((_, i) => i) : [0]))
+const segAnchor = ref<number | null>(null) // shift 连选锚点（段/Epoch）
 // 绘图布局：行/列因素分配；未分配（none）的因素在格内叠加
 // 默认沿用已验证的观感：单产物=单格全通道叠加（行列都—）；多产物=每通道一子图、数据集格内叠加（行=通道）
-const rowFactor = ref<Factor>(isMultiOutput ? 'chan' : 'none')
-const colFactor = ref<Factor>('none')
+// 叠加维度（#6）：数据集/条件/Epoch(=seg) 或 通道(chan) 三选一在子图内叠加；其余维度自动拆成子图(行/列)。
+// 默认叠加 seg，按通道分面——避免单格几十条叠成意大利面。
+const overlayDim = ref<'seg' | 'chan'>('seg')
+// seg 只 1 个值时叠加维度强制落到通道（否则没东西可叠）
+const effectiveOverlay = computed<'seg' | 'chan'>(() => (overlayDim.value === 'seg' && segCount.value <= 1 ? 'chan' : overlayDim.value))
+// 当前可分面的维度（值>1、且不是叠加维度）：1 个→画廊；2 个→行×列矩阵；0 个→单格
+const facetDims = computed<Factor[]>(() => {
+  const ov = effectiveOverlay.value
+  const dims: Factor[] = []
+  if (segCount.value > 1 && ov !== 'seg') dims.push('seg')
+  if (orderedSel.value.length > 1 && ov !== 'chan') dims.push('chan')
+  return dims
+})
+// rowFactor/colFactor 由叠加维度派生（只读）：cells / facetStyle / gridCols 等下游沿用不改
+const rowFactor = computed<Factor>(() => (facetDims.value.length >= 2 ? facetDims.value[0] : 'none'))
+const colFactor = computed<Factor>(() => {
+  const d = facetDims.value
+  return d.length >= 2 ? d[1] : d.length === 1 ? d[0] : 'none'
+})
 const reqTmin = ref<number | null>(null) // 秒
 const reqTmax = ref<number | null>(null)
 // view-only 瞬时滤波（仅观察、不存储、不影响 pipeline）
@@ -459,18 +547,85 @@ const yScaleIdx = ref(0)
 const showGrid = ref(true)
 const showStats = ref(true)
 const showTopo = ref(true)
-const topoMode = ref<'mean' | 'live'>('mean') // 地形图取值：区间均值 / 跟随游标时刻
+const topoMode = ref<'mean' | 'live'>('live') // 地形图取值：区间均值 / 跟随游标时刻（默认跟随游标）
 const showLeft = ref(true) // 左栏（选择器）折叠
-const paletteKey = ref<'elys' | 'npg' | 'wong'>('elys')
-const palette = computed(() => PALETTES[paletteKey.value])
+const pageRef = ref<HTMLElement | null>(null) // 全屏目标（整页）
+const isFullscreen = ref(false)
+const paletteKey = ref<string>('elys')
+const palOpen = ref(false) // 配色下拉是否展开
+const currentPalette = computed(() => PALETTE_DEFS.find((d) => d.key === paletteKey.value) ?? PALETTE_DEFS[0])
+const palette = computed(() => currentPalette.value.colors)
+const paletteContinuous = computed(() => currentPalette.value.continuous === true)
+// 下拉按组分隔：品牌 / 期刊 / 色盲安全 / 通用
+const paletteGroups = (['品牌', '期刊配色', '色盲安全', '通用'] as const).map((label) => ({
+  label,
+  items: PALETTE_DEFS.filter((d) => d.group === label),
+}))
+function selectPalette(k: string) {
+  paletteKey.value = k
+  palOpen.value = false
+}
 // 统一过配色下拉的取色器：所有曲线/圆点/sparkline 都走它，切换色板即全站生效
 function chColor(i: number) {
-  return channelColor(i, palette.value)
+  // 按通道总数取色：连续色板（viridis/parula）铺满渐变、离散色板超长循环复用，全选 63 通道也都吃到色板
+  return channelColor(i, palette.value, { count: allChanNames.value.length, continuous: paletteContinuous.value })
 }
 const displayMode = ref<'overlay' | 'spread'>('overlay')
+const showHelp = ref(false) // 工具条「操作提示」悬浮片
+
+// 绘图手势缩放（受控、由父层广播给所有子图，保证 facet 各格同窗 + 共享轴一致）：
+// viewX* = 可见时间视窗（显示单位，null=全幅）；ampScale = 幅度系数（1=基准）。纯前端视觉缩放，不回后端取数。
+const viewXMin = ref<number | null>(null)
+const viewXMax = ref<number | null>(null)
+const ampScale = ref(1)
+const isZoomed = computed(() => viewXMin.value != null || Math.abs(ampScale.value - 1) > 1e-3)
+const zoomLabel = computed(() => {
+  const parts: string[] = []
+  if (viewXMin.value != null && viewXMax.value != null) parts.push(`${fmtX(viewXMin.value)}~${fmtX(viewXMax.value)}${xUnit.value}`)
+  if (Math.abs(ampScale.value - 1) > 1e-3) parts.push(`${ampScale.value.toFixed(1)}×`)
+  return parts.join(' · ')
+})
+function onZoom(v: { min: number; max: number } | null) {
+  viewXMin.value = v ? v.min : null
+  viewXMax.value = v ? v.max : null
+}
+function onAmp(s: number) { ampScale.value = s }
+function resetZoom() {
+  viewXMin.value = null
+  viewXMax.value = null
+  ampScale.value = 1
+}
 const selected = ref<Set<string>>(new Set())
+const chanAnchor = ref<number | null>(null) // shift 连选锚点（通道）
 const cursorReadout = ref<{ x: number; items: { name: string; color: string; uv: number }[] } | null>(null)
 const cursorX = ref<number | null>(null) // 当前游标时刻（显示单位），驱动实时地形图
+
+// 游标三态：idle 空闲 / follow 跟随鼠标 / locked 锁定（双击锁定、右键解锁）
+type CursorReadout = { x: number; items: { name: string; color: string; uv: number }[] }
+const cursorLocked = ref(false)
+const lockedReadout = ref<CursorReadout | null>(null)
+// 显示用读数：锁定时取锁定值（冻结），否则取实时悬停值
+const displayReadout = computed<CursorReadout | null>(() => (cursorLocked.value ? lockedReadout.value : cursorReadout.value))
+// 游标读数：默认只列前 HOVER_COLLAPSED 条，多了给「展开全部」按钮 + 内部滚动（不无限撑高右栏）
+const HOVER_COLLAPSED = 6
+const hoverExpanded = ref(false)
+const hoverItems = computed(() => {
+  const items = displayReadout.value?.items ?? []
+  return hoverExpanded.value ? items : items.slice(0, HOVER_COLLAPSED)
+})
+const cursorState = computed<'idle' | 'follow' | 'locked'>(() =>
+  cursorLocked.value ? 'locked' : cursorReadout.value ? 'follow' : 'idle',
+)
+const cursorStateText = computed(() =>
+  cursorState.value === 'locked' ? '游标锁定' : cursorState.value === 'follow' ? '游标跟随' : '游标空闲',
+)
+const cursorStateHint = computed(() =>
+  cursorState.value === 'locked'
+    ? `锁定 @ ${fmtX(lockedReadout.value?.x ?? 0)}${xUnit.value} · 右键解锁`
+    : cursorState.value === 'follow'
+      ? '双击锁定游标'
+      : '悬停曲线查看瞬时值，双击锁定',
+)
 const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
@@ -518,12 +673,13 @@ const segOptions = computed(() =>
 )
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
 
-// 行/列因素下拉项（label 随段类型变化）
-const factorOptions = computed<{ v: Factor; l: string }[]>(() => [
-  { v: 'chan', l: '通道' },
-  { v: 'seg', l: segKindLabel.value },
-  { v: 'none', l: '—' },
-])
+// 叠加维度可选项（label 随段类型变化）：seg 只 1 个值时不列出
+const overlayOptions = computed<{ v: 'seg' | 'chan'; l: string }[]>(() => {
+  const opts: { v: 'seg' | 'chan'; l: string }[] = []
+  if (segCount.value > 1) opts.push({ v: 'seg', l: segKindLabel.value })
+  opts.push({ v: 'chan', l: '通道' })
+  return opts
+})
 
 // ---------- 工具 ----------
 function shortId(value?: string | null) {
@@ -546,14 +702,16 @@ function clampInt(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v
 }
 function segLabel(seg: number) {
+  // epochs：用序号 #N 标识（同条件的多 epoch 才分得清；图例 / 卡片 / 表 / 地形图统一）
+  if (!isMultiOutput && ts.value?.segment_kind === 'epoch') return `#${seg + 1}`
   const t = tsMap.value.get(seg)
   if (t?.segment_label) return t.segment_label
   if (isMultiOutput) return `数据集 ${seg + 1}`
   return ts.value?.segment_options?.[seg] ?? `#${seg + 1}`
 }
 function segColor(seg: number) {
-  // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色
-  return chColor(seg)
+  // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色；连续色板按段数铺满渐变
+  return channelColor(seg, palette.value, { count: segCount.value, continuous: paletteContinuous.value })
 }
 
 // ---------- 单位缩放（V → µV，逐产物判定）----------
@@ -671,7 +829,9 @@ const cells = computed<Cell[]>(() => {
   return out
 })
 
-// facet 网格列模板：行列都指派→严格矩阵（列数=列因素值个数）；只指派一个或都不指派→自适应铺排（画廊式换行）
+// facet 网格列模板（叠加模型 #6）：
+// - 两个分面维度（行×列，三要素全用上）→ 严格矩阵，列数 = 列因素值个数
+// - 单个 / 零分面维度 → 画廊式自适应换行（auto 按行列铺排）
 const facetStyle = computed(() => {
   const rf = rowFactor.value
   const cf = colFactor.value
@@ -679,7 +839,7 @@ const facetStyle = computed(() => {
     const n = (cf === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
     return { gridTemplateColumns: `repeat(${n}, minmax(220px, 1fr))` }
   }
-  return { gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }
+  return { gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }
 })
 
 // 图例去重：只在一张子图画（矩阵→右上角；画廊/单因素→第一格），各格内容相同无需重复
@@ -831,6 +991,40 @@ const condCards = computed<CondCard[]>(() => {
   }
   return out
 })
+
+// ---------- 右栏重设计：① 焦点 / ② 对比条形 / ③ 折叠明细表 ----------
+const showDetailTable = ref(false)
+// ① 焦点：可开关（默认关）；开后可在下拉选某一根重叠曲线，未选则自动取峰值最大
+const focusEnabled = ref(false)
+const focusKey = ref('') // `${seg}::${chan}` 选中的曲线；'' = 自动（峰值最大）
+const focusOptions = computed(() => statsRows.value.map((r) => ({ key: `${r.seg}::${r.chan}`, label: `${r.chan} · ${r.segName}` })))
+const focusStat = computed<StatRow | null>(() => {
+  if (!focusEnabled.value) return null
+  const rows = statsRows.value
+  if (!rows.length) return null
+  if (focusKey.value) {
+    const hit = rows.find((r) => `${r.seg}::${r.chan}` === focusKey.value)
+    if (hit) return hit
+  }
+  let pk = rows[0]
+  for (const r of rows) if (r.peak > pk.peak) pk = r
+  return pk
+})
+// 选了具体曲线 → 顺带在图里高亮它的通道
+watch(focusKey, (k) => {
+  if (!k) return
+  const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
+  if (hit) highlightChan.value = hit.chan
+})
+// ② 条件对比的峰值条形：按各条件峰值绝对值归一
+const maxCondPeak = computed(() => {
+  let m = 0
+  for (const c of condCards.value) m = Math.max(m, Math.abs(c.peak))
+  return m || 1
+})
+function barPct(peak: number): number {
+  return Math.round((Math.abs(peak) / maxCondPeak.value) * 100)
+}
 
 // ---------- 地形图（区间均值 → 电极点着色，需后端 ch_pos）----------
 interface TopoCell {
@@ -1028,6 +1222,7 @@ function applyWindow() {
 function resetWindow() {
   reqTmin.value = null
   reqTmax.value = null
+  resetZoom() // 「重置」也清掉视觉缩放（reqTmin/max 本就 null 时 watch 不触发，这里显式清）
 }
 function pageWindow(dir: number) {
   const t = ts.value
@@ -1056,12 +1251,27 @@ function stepSeg(d: number) {
   const next = clampInt(primarySeg.value + d, 0, segCount.value - 1)
   if (next !== primarySeg.value) setSeg(next)
 }
-function toggleSeg(i: number) {
-  const s = new Set(selectedSegs.value)
-  if (s.has(i)) s.delete(i)
-  else s.add(i)
-  if (!s.size) s.add(i) // 至少留一个
-  selectedSegs.value = s
+// 段(Epoch)点选：单击单选 · Ctrl/⌘ 加选切换 · Shift 连选 [锚点..当前]
+function onSegClick(i: number, e: MouseEvent) {
+  if (e.shiftKey && segAnchor.value != null) {
+    const lo = Math.min(segAnchor.value, i)
+    const hi = Math.max(segAnchor.value, i)
+    const s = new Set<number>()
+    for (let k = lo; k <= hi; k++) s.add(k)
+    selectedSegs.value = s
+    return
+  }
+  if (e.ctrlKey || e.metaKey) {
+    const s = new Set(selectedSegs.value)
+    if (s.has(i)) s.delete(i)
+    else s.add(i)
+    if (!s.size) s.add(i) // 至少留一个
+    selectedSegs.value = s
+    segAnchor.value = i
+    return
+  }
+  selectedSegs.value = new Set([i])
+  segAnchor.value = i
 }
 function applyFilter() {
   reqFilter.value = filterOn.value
@@ -1070,20 +1280,9 @@ function applyFilter() {
 }
 watch(filterOn, applyFilter) // 开关切换立即生效；改输入框走「应用滤波」/回车
 
-// 行/列因素互斥（同一因素不能同时占行与列）
-function onRowFactor(e: Event) {
-  const v = (e.target as HTMLSelectElement).value as Factor
-  rowFactor.value = v
-  if (v !== 'none' && colFactor.value === v) colFactor.value = 'none'
-  maybeAddSecondSeg()
-}
-function onColFactor(e: Event) {
-  const v = (e.target as HTMLSelectElement).value as Factor
-  colFactor.value = v
-  if (v !== 'none' && rowFactor.value === v) rowFactor.value = 'none'
-  maybeAddSecondSeg()
-}
-// 把段指派到行/列且只选了 1 段时，自动补第 2 段方便直接看对比
+// 叠加维度变化（→ facetDims 变）时，若把 seg 推成分面而只选了 1 段，自动补第 2 段方便对比
+watch(() => facetDims.value.join(','), () => maybeAddSecondSeg())
+// 把段推成分面且只选了 1 段时，自动补第 2 段方便直接看对比
 function maybeAddSecondSeg() {
   const segUsed = rowFactor.value === 'seg' || colFactor.value === 'seg'
   if (segUsed && selectedSegs.value.size < 2 && segCount.value >= 2) {
@@ -1116,15 +1315,39 @@ function resetStatsRange() {
 
 // 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配是客户端过滤，不触发）
 watch([() => sortedSegs.value.join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
+  resetZoom() // 取新窗口的数据 = 新视图，清掉旧的视觉缩放
   void load()
 })
+// 改 Y 档 = 重设幅度基准、切叠加/排列 = 幅度语义变 → 复位幅度系数（保留时间缩放）
+watch([yScaleIdx, displayMode], () => { ampScale.value = 1 })
 
 // ---------- 通道选择 ----------
-function toggleChannel(name: string) {
-  const s = new Set(selected.value)
-  if (s.has(name)) s.delete(name)
-  else s.add(name)
-  selected.value = s
+// 通道点选：单击单选 · Ctrl/⌘ 加选切换 · Shift 连选 [锚点..当前]
+function onChanClick(i: number, e: MouseEvent) {
+  const names = allChanNames.value
+  const name = names[i]
+  if (!name) return
+  if (e.shiftKey && chanAnchor.value != null) {
+    const lo = Math.min(chanAnchor.value, i)
+    const hi = Math.max(chanAnchor.value, i)
+    const s = new Set<string>()
+    for (let k = lo; k <= hi; k++) {
+      const n = names[k]
+      if (n) s.add(n)
+    }
+    selected.value = s
+    return
+  }
+  if (e.ctrlKey || e.metaKey) {
+    const s = new Set(selected.value)
+    if (s.has(name)) s.delete(name)
+    else s.add(name)
+    selected.value = s
+    chanAnchor.value = i
+    return
+  }
+  selected.value = new Set([name])
+  chanAnchor.value = i
 }
 function selectAll() {
   selected.value = new Set(allChanNames.value)
@@ -1147,8 +1370,22 @@ watch(
 
 // ---------- 游标 / 选区（来自 TimeCourseCanvas）----------
 function onCursor(payload: { x: number; items: { name: string; color: string; uv: number }[] } | null) {
+  if (cursorLocked.value) return // 锁定态：忽略鼠标悬停，读数冻结在锁定时刻
   cursorReadout.value = payload
   cursorX.value = payload ? payload.x : null
+}
+// 双击子图：锁定游标到该时刻（读数冻结、各子图画常驻标记线）
+function onLock(payload: { x: number; items: { name: string; color: string; uv: number }[] }) {
+  cursorLocked.value = true
+  lockedReadout.value = payload
+  cursorX.value = payload.x // 地形图「跟随游标」锁定到该时刻
+}
+// 右键子图：解锁，读数回到实时（未悬停则归空闲）
+function onUnlock() {
+  cursorLocked.value = false
+  lockedReadout.value = null
+  cursorReadout.value = null
+  cursorX.value = null
 }
 function onSelect(r: { x0: number; x1: number } | null) {
   if (!r) return
@@ -1177,13 +1414,26 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// ---------- 全屏 ----------
+function toggleFullscreen() {
+  const el = pageRef.value
+  if (!el) return
+  if (document.fullscreenElement) void document.exitFullscreen()
+  else void el.requestFullscreen()
+}
+function onFsChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
 onMounted(() => {
   document.title = '时域 — 念析'
   window.addEventListener('keydown', onKeydown)
+  document.addEventListener('fullscreenchange', onFsChange)
   void load()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('fullscreenchange', onFsChange)
 })
 </script>
 
@@ -1191,6 +1441,15 @@ onUnmounted(() => {
 .wf-page { display: flex; flex-direction: column; height: 100vh; background: var(--c-bg-soft); color: var(--c-text); font-family: var(--ff-sans); }
 .text-mono { font-family: var(--ff-mono); }
 .wf-tg--hint { border-right: none; opacity: .85; }
+/* 操作提示：工具条上一个悬浮帮助片，hover 展开手势清单 */
+.wf-help { position: relative; cursor: help; }
+.wf-help-trigger { font-size: 11px; color: var(--c-text-3); user-select: none; }
+.wf-help:hover .wf-help-trigger { color: var(--c-primary); }
+.wf-help-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; background: var(--c-surface); border: 1px solid var(--c-border-2); border-radius: var(--r-sm); box-shadow: 0 6px 20px rgba(0, 0, 0, .12); white-space: nowrap; }
+.wf-help-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-text-2); }
+.wf-help-row kbd { font-family: var(--ff-mono); font-size: 10px; line-height: 1; padding: 2px 5px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-bottom-width: 2px; border-radius: 4px; color: var(--c-text); }
+.wf-help-plus { color: var(--c-text-3); }
+.wf-help-row span:last-child { margin-left: 2px; }
 
 /* ===== 顶部信息条 ===== */
 .wf-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
@@ -1202,13 +1461,10 @@ onUnmounted(() => {
 .wf-dot { color: var(--c-text-3); }
 .wf-cond { display: inline-flex; align-items: center; gap: 4px; background: var(--c-bg-tint); padding: 1px 7px; border-radius: var(--r-pill); }
 .wf-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.wf-layout-btns { display: flex; gap: 2px; padding-right: 6px; border-right: 1px solid var(--c-border); }
 .wf-lyt { width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-3); cursor: pointer; padding: 0; }
 .wf-lyt svg { width: 16px; height: 16px; }
 .wf-lyt:hover { background: var(--c-bg-tint); color: var(--c-text-2); }
 .wf-lyt.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); }
-.wf-source { font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill); }
-.wf-source.is-real { color: var(--c-success); background: var(--c-success-soft); border: 1px solid rgba(16, 185, 129, .3); }
 .wf-btn { height: 28px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; }
 .wf-btn:hover { background: var(--c-bg-tint); }
 .wf-btn:disabled { opacity: .5; cursor: default; }
@@ -1218,7 +1474,7 @@ onUnmounted(() => {
 .wf-main { flex: 1; display: flex; min-height: 0; }
 
 /* ===== 左栏：选择器 ===== */
-.wf-left { width: 232px; min-width: 232px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--c-surface); border-right: 1px solid var(--c-border); overflow: hidden; }
+.wf-left { width: 280px; min-width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--c-surface); border-right: 1px solid var(--c-border); overflow: hidden; }
 .wf-left-scroll { flex: 1; overflow-y: auto; }
 .wf-sec { border-left: 3px solid transparent; padding: 7px 11px 8px 13px; }
 .wf-sec:nth-child(7n+1) { border-left-color: #3F5E8F; }
@@ -1229,49 +1485,78 @@ onUnmounted(() => {
 .wf-sec:nth-child(7n+6) { border-left-color: #5E7BA8; }
 .wf-sec:nth-child(7n+7) { border-left-color: #2F8A86; }
 .wf-sec + .wf-sec { border-top: 1px solid var(--c-border); }
-.wf-sec-head { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--c-text-3); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-.wf-sec-cnt { font-weight: 400; font-size: 9px; background: var(--c-bg-tint); padding: 1px 5px; border-radius: 8px; color: var(--c-text-2); }
-.wf-sec-arr { margin-left: auto; font-size: 8px; transition: transform .2s; }
+.wf-sec-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--c-text-3); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.wf-sec-cnt { font-weight: 400; font-size: 11px; background: var(--c-bg-tint); padding: 1px 5px; border-radius: 8px; color: var(--c-text-2); }
+.wf-sec-arr { margin-left: auto; font-size: 10px; transition: transform .2s; }
 .wf-sec-arr.is-collapsed { transform: rotate(-90deg); }
 .wf-sec-body { display: flex; flex-direction: column; gap: 2px; }
 .wf-sec-actions { display: flex; gap: 8px; margin-bottom: 2px; }
-.wf-sec-hint { margin: 4px 0 0; font-size: 9.5px; color: var(--c-text-3); line-height: 1.4; }
-.wf-link { background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 11px; padding: 0; }
+.wf-sec-hint { margin: 4px 0 0; font-size: 11px; color: var(--c-text-3); line-height: 1.4; }
+.wf-link { background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 12px; padding: 0; }
 .wf-link:hover { text-decoration: underline; }
 
-.wf-li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 3px; font-size: 11px; color: var(--c-text-2); cursor: pointer; user-select: none; transition: background .1s, color .1s; }
+.wf-li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 3px; font-size: 12px; color: var(--c-text-2); cursor: pointer; user-select: none; transition: background .1s, color .1s; }
 .wf-li:hover { background: var(--c-bg-tint); }
 .wf-li.is-sel { background: var(--c-primary-soft); color: var(--c-primary); font-weight: 500; }
 .wf-li.is-static, .wf-li.is-static:hover { cursor: default; background: none; }
 .wf-li-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .wf-li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-li-tag { margin-left: auto; font-size: 8px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
+.wf-li-tag { margin-left: auto; font-size: 10px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
 .wf-chanlist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+/* 段(Epoch) 与 通道 两个 listbox 并排：各自限高滚动，避免一长列把下方控件顶下去 */
+.wf-seglist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.wf-sec-row { display: flex; align-items: flex-start; }
+.wf-sec--half { flex: 1 1 0; min-width: 0; }
+.wf-sec--half + .wf-sec--half { border-left: 1px solid var(--c-border); }
+/* 叠加维度单选（#6）：选中维度在子图内叠加，其余自动分面 */
+.wf-ovpick { display: flex; gap: 4px; }
+.wf-ovbtn { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 12px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; white-space: nowrap; }
+.wf-ovbtn:hover { border-color: var(--c-primary); }
+.wf-ovbtn.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
 .wf-li-spark { margin-left: auto; flex-shrink: 0; }
 .wf-seg-stepper { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
 
 .wf-row { display: flex; align-items: center; gap: 4px; }
-.wf-row-lbl { font-size: 9px; color: var(--c-text-3); flex-shrink: 0; }
+.wf-row-lbl { font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
 .wf-row-end { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.wf-unit-tag { font-size: 9px; color: var(--c-text-3); }
-.wf-sep { color: var(--c-text-3); font-size: 10px; }
-.wf-inp { width: 100%; min-width: 0; height: 24px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); font-size: 11px; outline: none; font-family: var(--ff-mono); }
+.wf-unit-tag { font-size: 11px; color: var(--c-text-3); }
+.wf-sep { color: var(--c-text-3); font-size: 11px; }
+.wf-inp { width: 100%; min-width: 0; height: 24px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); font-size: 12px; outline: none; font-family: var(--ff-mono); }
 .wf-inp:focus { border-color: var(--c-primary); background: var(--c-surface); }
 .wf-inp:disabled { opacity: .5; }
 .wf-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 4px; }
 .wf-grid2.is-off { opacity: .55; }
-.wf-grid2-lbl { font-size: 9px; color: var(--c-text-3); margin-bottom: 1px; }
-.wf-chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--c-text-2); cursor: pointer; padding: 2px 0; }
+.wf-grid2-lbl { font-size: 11px; color: var(--c-text-3); margin-bottom: 1px; }
+/* 配色选择器：当前条 + 内联展开的点选行，每行直接画色卡条预览 */
+.wf-pal { position: relative; }
+.wf-pal-cur { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); cursor: pointer; }
+.wf-pal-cur:hover { border-color: var(--c-primary); }
+.wf-pal-cur.is-open { border-color: var(--c-primary); background: var(--c-surface); }
+.wf-pal-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-pal-arr { font-size: 11px; color: var(--c-text-3); transition: transform .15s; }
+.wf-pal-cur.is-open .wf-pal-arr { transform: rotate(180deg); }
+.wf-pal-sw { display: inline-flex; flex-shrink: 0; border-radius: 2px; overflow: hidden; box-shadow: 0 0 0 1px var(--c-border) inset; }
+.wf-pal-sw i { width: 8px; height: 14px; }
+.wf-pal-list { margin-top: 4px; display: flex; flex-direction: column; gap: 1px; padding: 4px; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, .06); }
+.wf-pal-grp { font-size: 10px; color: var(--c-text-3); padding: 3px 4px 2px; letter-spacing: .04em; }
+.wf-pal-grp:not(:first-child) { margin-top: 2px; padding-top: 5px; border-top: 1px dashed var(--c-border); }
+.wf-pal-opt { display: flex; align-items: center; gap: 7px; width: 100%; padding: 4px 5px; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--c-text-2); cursor: pointer; }
+.wf-pal-opt:hover { background: var(--c-bg-soft); }
+.wf-pal-opt.is-on { background: var(--c-bg-soft); border-color: var(--c-primary); color: var(--c-text); }
+.wf-pal-opt .wf-pal-sw i { width: 12px; height: 16px; }
+.wf-pal-opt-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-pal-tag { flex-shrink: 0; font-size: 10px; padding: 1px 5px; border-radius: 999px; background: var(--c-primary); color: #fff; }
+.wf-chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-2); cursor: pointer; padding: 2px 0; }
 .wf-chk input { accent-color: var(--c-primary); width: 12px; height: 12px; }
 .wf-chk.is-disabled { color: var(--c-text-3); cursor: default; }
 .wf-topo-mode { display: flex; gap: 4px; margin: 3px 0 0 18px; }
-.wf-mini2 { flex: 1; padding: 2px 4px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 9.5px; color: var(--c-text-2); cursor: pointer; }
+.wf-mini2 { flex: 1; padding: 2px 4px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
 .wf-mini2:hover { background: var(--c-bg-tint); }
 .wf-mini2.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
-.wf-apply { width: 100%; padding: 5px 0; margin-top: 5px; border: none; border-radius: 3px; background: var(--c-primary); color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.wf-apply { width: 100%; padding: 5px 0; margin-top: 5px; border: none; border-radius: 3px; background: var(--c-primary); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .wf-apply:hover:not(:disabled) { opacity: .9; }
 .wf-apply:disabled { opacity: .45; cursor: default; }
-.wf-view-tag { font-size: 8px; color: var(--c-warning); background: var(--c-warning-soft); border-radius: 6px; padding: 0 4px; margin-left: 4px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.wf-view-tag { font-size: 10px; color: var(--c-warning); background: var(--c-warning-soft); border-radius: 6px; padding: 0 4px; margin-left: 4px; font-weight: 600; letter-spacing: 0; text-transform: none; }
 
 /* ===== 中栏 ===== */
 .wf-center { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
@@ -1279,7 +1564,10 @@ onUnmounted(() => {
 .wf-tg { display: flex; align-items: center; gap: 4px; padding: 0 8px; border-right: 1px solid var(--c-border); }
 .wf-tg:last-child { border-right: none; }
 .wf-tg:first-child { padding-left: 0; }
-.wf-lbl { font-size: 10px; color: var(--c-text-3); }
+.wf-tg--lyt { gap: 2px; }
+.wf-tg--end { margin-left: auto; padding-right: 0; }
+.wf-lyt-sep { width: 1px; height: 16px; background: var(--c-border-2); margin: 0 2px; flex-shrink: 0; }
+.wf-lbl { font-size: 11px; color: var(--c-text-3); }
 .wf-cin { width: 58px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; font-family: var(--ff-mono); text-align: center; }
 .wf-cin:focus { border-color: var(--c-primary); outline: none; }
 .wf-csel { height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; }
@@ -1287,8 +1575,8 @@ onUnmounted(() => {
 .wf-step { width: 24px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-size: 13px; padding: 0; }
 .wf-step:hover:not(:disabled) { background: var(--c-bg-tint); color: var(--c-text); }
 .wf-step:disabled { opacity: .4; cursor: default; }
-.wf-seg-idx { font-size: 11px; color: var(--c-text-2); min-width: 48px; text-align: center; }
-.wf-ctb { height: 26px; padding: 0 9px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); font-size: 11px; cursor: pointer; }
+.wf-seg-idx { font-size: 12px; color: var(--c-text-2); min-width: 48px; text-align: center; }
+.wf-ctb { height: 26px; padding: 0 9px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); font-size: 12px; cursor: pointer; }
 .wf-ctb:hover:not(:disabled) { background: var(--c-bg-tint); color: var(--c-text); }
 .wf-ctb.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
 .wf-ctb.is-disabled, .wf-ctb:disabled { opacity: .5; cursor: default; }
@@ -1296,32 +1584,61 @@ onUnmounted(() => {
 .wf-chart-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 12px; background: var(--c-bg-soft); }
 .wf-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--c-text-2); font-size: 13px; text-align: center; }
 .wf-state--err { color: var(--c-danger); }
-.wf-partial { margin-bottom: 8px; padding: 5px 10px; font-size: 11px; color: var(--c-warning); background: var(--c-warning-soft); border: 1px solid rgba(176, 127, 51, .3); border-radius: var(--r-sm); flex-shrink: 0; }
+.wf-partial { margin-bottom: 8px; padding: 5px 10px; font-size: 12px; color: var(--c-warning); background: var(--c-warning-soft); border: 1px solid rgba(176, 127, 51, .3); border-radius: var(--r-sm); flex-shrink: 0; }
 .wf-err-title { font-size: 15px; font-weight: 600; }
 .wf-err-msg { color: var(--c-text-2); font-size: 13px; max-width: 480px; }
 
 .wf-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: 320px; gap: 10px; overflow: auto; align-content: start; }
-.wf-facet.is-single { display: flex; }
+.wf-facet.is-few { display: flex; }
 .wf-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
-.wf-facet.is-single .wf-cell { flex: 1; }
+.wf-facet.is-few .wf-cell { flex: 1; min-width: 0; }
 .wf-cell-hd { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 8px; border-bottom: 1px solid var(--c-border); background: var(--c-bg-soft); }
 .wf-cell-tag { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
-.wf-cell-name { font-size: 11px; font-weight: 600; color: var(--c-text-2); font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-cell-meta { margin-left: auto; font-size: 9px; color: var(--c-text-3); flex-shrink: 0; }
+.wf-cell-name { font-size: 12px; font-weight: 600; color: var(--c-text-2); font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-cell-meta { margin-left: auto; font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
 .wf-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
 .wf-cell-dl:hover { color: var(--c-primary); }
 .wf-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
 .wf-cell.is-focus { box-shadow: 0 0 0 2px var(--c-primary); position: relative; z-index: 1; }
 
 /* ===== 状态条 ===== */
-.wf-sbar { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--c-surface); border-top: 1px solid var(--c-border); font-size: 10.5px; color: var(--c-text-3); flex-shrink: 0; overflow: hidden; }
+.wf-sbar { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--c-surface); border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text-3); flex-shrink: 0; overflow: hidden; }
 .wf-sbar-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-success); flex-shrink: 0; }
 .wf-sbar-sep { color: var(--c-border-2); }
 .wf-sbar-filter { color: var(--c-warning); font-weight: 600; }
-.wf-readout { display: inline-flex; align-items: center; gap: 7px; flex-wrap: nowrap; overflow: hidden; }
-.wf-readout-v { font-family: var(--ff-mono); font-weight: 600; }
-.wf-readout-more { font-family: var(--ff-mono); }
-.wf-readout-unit { color: var(--c-text-3); }
+.wf-readout { display: inline-flex; align-items: center; gap: 7px; flex-wrap: nowrap; overflow: hidden; color: var(--c-text-2); }
+.wf-cursor-state { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+.wf-cursor-state.is-idle { background: var(--c-bg-soft); color: var(--c-text-3); }
+.wf-cursor-state.is-follow { background: rgba(63, 94, 143, .1); color: #3F5E8F; }
+.wf-cursor-state.is-locked { background: rgba(217, 130, 43, .14); color: #B66A1E; }
+/* 缩放指示：仅缩放时出现，点一下回全幅 */
+.wf-sbar-zoom { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(63, 94, 143, .1); color: #3F5E8F; white-space: nowrap; flex-shrink: 0; cursor: pointer; font-family: var(--ff-mono); }
+.wf-sbar-zoom:hover { background: rgba(63, 94, 143, .18); }
+.wf-sbar-zoom-x { font-family: var(--ff-sans); opacity: .7; }
+.wf-hover-lock { color: #B66A1E; font-weight: 600; margin-right: 4px; }
+.wf-hover-tip { color: var(--c-text-3); margin-left: 6px; }
+/* 右栏重设计：① 焦点卡（一个英雄峰值 + 峰潜伏，谷/均降级） */
+.wf-focus { padding: 10px 12px; border-bottom: 1px solid var(--c-border); }
+.wf-focus-lbl { font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 5px; margin-bottom: 6px; }
+.wf-focus-main { display: flex; gap: 18px; align-items: baseline; }
+.wf-focus-cell { display: flex; flex-direction: column; }
+.wf-focus-num { font-size: 28px; font-weight: 700; line-height: 1; color: #3F5E8F; }
+.wf-focus-num2 { font-size: 20px; font-weight: 600; line-height: 1; color: var(--c-text); }
+.wf-focus-u { font-size: 11px; color: var(--c-text-3); margin-top: 3px; }
+.wf-focus-sub { font-size: 12px; color: var(--c-text-3); margin-top: 7px; }
+/* ② 条件对比：峰值横向条形，可扫读 */
+.wf-contrast { padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+.wf-sec-mini { font-size: 11px; color: var(--c-text-3); margin-bottom: 5px; }
+.wf-contrast-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; font-size: 12px; }
+.wf-contrast-lbl { width: 64px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }
+.wf-contrast-bar { flex: 1; height: 8px; background: var(--c-bg-soft); border-radius: 4px; overflow: hidden; }
+.wf-contrast-fill { display: block; height: 100%; border-radius: 4px; }
+.wf-contrast-val { width: 50px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+/* ③ 明细表折叠 */
+.wf-detail { padding: 8px 12px; }
+.wf-detail-toggle { width: 100%; text-align: left; background: none; border: none; cursor: pointer; font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.wf-detail-arr { display: inline-block; transition: transform .15s; }
+.wf-detail-arr.is-open { transform: rotate(90deg); }
 
 /* ===== 右栏：统计 ===== */
 .wf-right { width: 296px; min-width: 296px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--c-surface); border-left: 1px solid var(--c-border); overflow: hidden; }
@@ -1329,48 +1646,33 @@ onUnmounted(() => {
 .wf-right-head strong { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .wf-right-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); }
 .wf-right-btns { display: flex; gap: 4px; }
-.wf-rbtn { padding: 3px 8px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 10px; color: var(--c-text-2); cursor: pointer; }
+.wf-rbtn { padding: 3px 8px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
 .wf-rbtn:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.wf-rbtn.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+.wf-focus-pick { width: 100%; margin-bottom: 8px; padding: 3px 6px; font-size: 12px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); }
 .wf-right-scroll { flex: 1; overflow-y: auto; padding: 8px; }
-.wf-right-empty { color: var(--c-text-3); font-size: 11px; line-height: 1.6; padding: 12px 4px; text-align: center; }
+.wf-right-empty { color: var(--c-text-3); font-size: 12px; line-height: 1.6; padding: 12px 4px; text-align: center; }
 
-.wf-hl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px; }
-.wf-hl-card { background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 7px 8px; text-align: center; position: relative; overflow: hidden; }
-.wf-hl-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
-.wf-hl-card.hc-peak::before { background: #3F5E8F; }
-.wf-hl-card.hc-trough::before { background: #B0544C; }
-.wf-hl-card.hc-mean::before { background: #4F8A6B; }
-.wf-hl-card.hc-lat::before { background: #B07F33; }
-.wf-hl-val { font-size: 17px; font-weight: 800; font-family: var(--ff-mono); line-height: 1.1; }
-.wf-hl-card.hc-peak .wf-hl-val { color: #3F5E8F; }
-.wf-hl-card.hc-trough .wf-hl-val { color: #B0544C; }
-.wf-hl-card.hc-mean .wf-hl-val { color: #4F8A6B; }
-.wf-hl-card.hc-lat .wf-hl-val { color: #B07F33; }
-.wf-hl-lbl { font-size: 8px; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
-.wf-hl-sub { font-size: 8.5px; color: var(--c-text-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-stats-range { font-size: 10px; color: var(--c-text-3); margin: 0 2px 4px; }
-.wf-cond-cards { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
-.wf-cond-card { border: 1px solid var(--c-border); border-left-width: 3px; border-radius: var(--r-sm); overflow: hidden; }
-.wf-cond-hd { display: flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 10px; font-weight: 600; color: var(--c-text-2); background: var(--c-bg-soft); border-bottom: 1px solid var(--c-border); }
-.wf-cond-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; padding: 5px 4px; gap: 2px; }
-.wf-cond-grid > div { text-align: center; min-width: 0; }
-.wf-cond-v { font-size: 13px; font-weight: 700; font-family: var(--ff-mono); line-height: 1.15; }
-.wf-cond-l { font-size: 7.5px; color: var(--c-text-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.wf-dtable { width: 100%; border-collapse: collapse; font-size: 10px; }
-.wf-dtable th { position: sticky; top: 0; background: var(--c-bg-soft); color: var(--c-text-3); font-weight: 600; text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--c-border); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.3px; }
+.wf-dtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wf-dtable th { position: sticky; top: 0; background: var(--c-bg-soft); color: var(--c-text-3); font-weight: 600; text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--c-border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
 .wf-dtable th:first-child, .wf-dtable th:nth-child(2) { text-align: left; }
 .wf-dtable td { padding: 3px 5px; text-align: right; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
 .wf-dtable td:first-child, .wf-dtable td:nth-child(2) { text-align: left; }
 .wf-dtable tr:hover td { background: var(--c-bg-tint); }
 .wf-dt-row { cursor: pointer; }
 .wf-dtable tr.is-focus td { background: var(--c-primary-soft); }
-.wf-hover { margin-bottom: 8px; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-bg-soft); }
-.wf-hover-hd { font-size: 10px; color: var(--c-text-3); margin-bottom: 4px; }
-.wf-hover-list { display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; }
-.wf-hover-row { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 0; }
-.wf-hover-name { color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-hover-val { margin-left: auto; font-weight: 600; color: var(--c-text); }
+/* 最小高度常驻：idle 与少量读数同高（游标进出不跳）；展开时才长高 + 列表内部滚动，不无限撑高右栏 */
+.wf-hover { min-height: 104px; box-sizing: border-box; margin-bottom: 8px; padding: 7px 9px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-bg-soft); display: flex; flex-direction: column; }
+.wf-hover-hd { display: flex; align-items: center; font-size: 12px; color: var(--c-text-3); margin-bottom: 5px; flex-shrink: 0; }
+.wf-hover-unit { margin-left: auto; font-size: 11px; color: var(--c-text-3); }
+.wf-hover-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+.wf-hover.is-expanded .wf-hover-list { max-height: 240px; overflow-y: auto; }
+.wf-hover-idle { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-3); text-align: center; }
+.wf-hover-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.wf-hover-name { font-size: 13px; color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-hover-val { margin-left: auto; font-size: 16px; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.wf-hover-toggle { margin-top: 5px; align-self: flex-start; flex-shrink: 0; background: none; border: none; padding: 2px 0; font-size: 11px; color: var(--c-primary); cursor: pointer; }
+.wf-hover-toggle:hover { text-decoration: underline; }
 .wf-dt-seg { color: var(--c-text-2); }
 .wf-dt-ch { display: flex; align-items: center; gap: 4px; }
 .wf-dt-peak { color: #3F5E8F; font-weight: 600; }
