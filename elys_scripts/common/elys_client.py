@@ -161,12 +161,21 @@ def _encode_multipart_stream(
 
 
 class ElysClient:
-    def __init__(self, base_url: str, username: str, password: str, timeout: int = 60):
+    def __init__(self, base_url: str, username: str, password: str, timeout: int = 60, data_base_url: str | None = None):
         self.base_url = base_url.rstrip("/")
+        # 大数据端点（文件上传 / 下载）直连计算服 data_base_url；不传则跟随 base_url（行为不变）。
+        # 入口服出网带宽低、16MB 经它中转固定 ~38s，故文件不走入口服；轻 API（登录/建库/轮询）仍走 base_url。
+        self.data_base_url = (data_base_url or base_url).rstrip("/")
         self.username = username
         self.password = password
         self.timeout = timeout
         self._session = requests.Session()
+        # 直连，不吃任何代理：requests 默认 trust_env=True 会读系统代理 / HTTP(S)_PROXY 环境变量，
+        # 于是上传被 Clash 等本地代理（曾见 127.0.0.1:7897）截走绕去（可能境外）节点中转 → 慢/超时。
+        # ELYS 是公网 IP、直达即可（浏览器对国内 IP 本就直连，故浏览器快）。trust_env=False 同时
+        # 屏蔽环境变量代理 + Windows 系统代理；显式清 proxies 双保险。
+        self._session.trust_env = False
+        self._session.proxies = {}
         self._token: str | None = None
 
     # ---------- auth ----------
@@ -191,6 +200,17 @@ class ElysClient:
         r = self._session.get(f"{self.base_url}/studies", timeout=self.timeout)
         _raise_for_status(r)
         return r.json().get("studies", [])
+
+    def find_study_by_code(self, code: str) -> dict | None:
+        """按 code 查已存在的 Study；没有返回 None。
+        各调试用例靠它「认领自己的 study」做幂等：数字 study id 在测试服重置后会被回收、
+        可能指到别的用例刚建的同号 study，按稳定的 code 认领才不会串台。"""
+        if not code:
+            return None
+        for study in self.list_studies():
+            if study.get("code") == code:
+                return study
+        return None
 
     # ---------- datasets ----------
     def list_datasets(self, study_id: str) -> list[dict]:
@@ -320,7 +340,7 @@ class ElysClient:
         )
         try:
             r = self._session.post(
-                f"{self.base_url}/studies/{study_id}/recordings/import",
+                f"{self.data_base_url}/studies/{study_id}/recordings/import",
                 data=body,
                 headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
                 timeout=timeout,
@@ -513,7 +533,7 @@ class ElysClient:
         )
         try:
             r = self._session.post(
-                f"{self.base_url}/studies/{study_id}/recordings/import-async",
+                f"{self.data_base_url}/studies/{study_id}/recordings/import-async",
                 data=body,
                 headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
                 timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
@@ -698,7 +718,7 @@ class ElysClient:
     def download_derived(self, study_id: str, dataset_id: str, out_path: str | Path) -> Path:
         self._ensure_login()
         r = self._session.get(
-            f"{self.base_url}/studies/{study_id}/outputs/{dataset_id}/download",
+            f"{self.data_base_url}/studies/{study_id}/outputs/{dataset_id}/download",
             stream=True,
             timeout=600,
         )
