@@ -108,6 +108,9 @@ CREATE TABLE study_outputs (
 
 **LoadData 不写 study_outputs 行**。所以一条结果的 `upstream_dataset_ids` 在"第一个处理节点"时是空数组，`upstream_recording_ids` 直接指向 `recordings.id`。详见 [4-40 §3](4-40-数据选择器与文件索引.md)。
 
+!!! note "`produced_by_*` 是 canonical 首产者，不是「本次执行」——统计本次产物看 `execution_outputs`"
+    一条结果按 `(study_id, sha256)` 内容寻址去重，全 study 只一行，`produced_by_execution_id` / `produced_by_job_id` 永远记**最早产出它的那次执行**。确定性节点重跑（同输入→同字节→去重命中）或缓存命中时，新执行复用旧行、不改这两个字段——若运行面板按 `produced_by_execution_id` 统计「本次执行的产物」就会显示成 0（即便分析成功）。故另设 `execution_outputs` 关联表，每次「某执行的某 job 产出（created）/ 复用（reused）一条 study_output」记一条边；运行面板与执行详情按它统计，`produced_by_*` 专留作血缘溯源。见 [3-00 §5 输出产物](3-00-数据库设计总览.md) 与 9-02（2026-06-15）。
+
 ### 3.2 数据语义
 
 | 字段 | 说明 |
