@@ -41,7 +41,7 @@
     "split_supported": false,
     "data_type": "psd"
   },
-  "compute_cost": "low",
+  "compute_cost": "cheap",
   "output_footprint": "small",
   "ui": {"color": "#2563EB", "default_size": [200, 110], "preview_type": "psd"}
 }

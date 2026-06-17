@@ -5,11 +5,14 @@ Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nod
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 import hashlib
 import json
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 
@@ -668,9 +671,13 @@ class PipelineExecutor:
         node_spec: dict[str, Any],
         node_digest: str,
     ):
-        from app.pipeline.cache_policy import is_cache_eligible
+        from app.pipeline.cache_policy import should_lookup_cache
 
-        if not is_cache_eligible(node_spec):
+        if not should_lookup_cache(node_spec):
+            logger.debug(
+                "cache skip node=%s type=%s: should_lookup_cache=False (interactive/source/explosive)",
+                str(node.get("id") or "?"), str(node.get("type") or "?"),
+            )
             return None
         return PipelineCache(
             self.db, study, execution, job, topology=dict(self._topology)

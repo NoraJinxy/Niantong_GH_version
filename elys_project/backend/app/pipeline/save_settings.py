@@ -27,7 +27,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.pipeline.cache_policy import is_cache_eligible
+from app.pipeline.cache_policy import is_cache_eligible, should_lookup_cache
 from app.pipeline.topology import ROLE_INTERMEDIATE
 
 
@@ -294,15 +294,17 @@ def apply_save_settings(
     #    keep：用户 override（params.keep）> 拓扑默认（leaf=True / intermediate=False）
     #    cache_eligible：系统按 P4 存储优先评分自动判定（与 keep 独立）
     #    retention_expires_at：仅 keep=False 的行需要 TTL
-    #      - keep=False 且值得缓存 → now+7d（临时存盘供 cache/续跑复用）
-    #      - keep=False 且不值得缓存 → now（登记即过期，交给 GC 清）
+    #      - keep=False 且该节点可能被查缓存（should_lookup_cache）→ now+7d（保留供复用）
+    #      - keep=False 且无需缓存（source/interactive/explosive）→ now（立即过期，GC 清）
+    #    注意：should_lookup_cache 比 is_cache_eligible 更宽松：只要不是 source/interactive/explosive
+    #    节点，产物就保留 7 天，确保「无变化重跑」时文件还在、缓存命中能实际生效。
     keep_override = _normalise_keep_param(params.get("keep"))
     keep = keep_override if keep_override is not None else default_keep_for_role(role)
     cache_eligible = is_cache_eligible(node_spec or {})
     retention_expires_at: datetime | None
     if keep:
         retention_expires_at = None
-    elif cache_eligible:
+    elif should_lookup_cache(node_spec or {}):
         retention_expires_at = datetime.utcnow() + timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS)
     else:
         retention_expires_at = datetime.utcnow()

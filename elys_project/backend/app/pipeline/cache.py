@@ -5,6 +5,7 @@ Related: app/routers/pipelines.py, app/tasks/pipeline_tasks.py, app/pipeline/nod
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ from typing import Any
 from app.pipeline.study_output_store import StudyOutputStore, record_execution_output_link
 from app.pipeline.contracts import NodeOutput
 from app.services.storage import StorageService, StorageUriError
+
+logger = logging.getLogger(__name__)
 
 
 CACHEABLE_NODE_STATUSES = ("success", "cached")
@@ -52,12 +55,21 @@ class PipelineCache:
     def restore_node_output(self, *, node_hash: str, node: dict[str, Any]) -> CacheLookupResult | None:
         if not node_hash:
             return None
-        for candidate in self._candidate_jobs(node_hash):
+        candidates = self._candidate_jobs(node_hash)
+        node_id = str(node.get("id") or node.get("type") or "?")
+        logger.info(
+            "cache lookup node=%s hash=%s candidates=%d",
+            node_id, node_hash[:12], len(candidates),
+        )
+        for candidate in candidates:
             source_artifacts = self._artifacts_for_job(candidate)
             if not source_artifacts:
+                logger.info("cache miss node=%s candidate_job=%s: no artifacts", node_id, str(getattr(candidate, "id", "?"))[:8])
                 continue
             if not self._artifacts_are_valid(source_artifacts):
+                logger.info("cache miss node=%s candidate_job=%s: artifacts invalid (file missing or size mismatch)", node_id, str(getattr(candidate, "id", "?"))[:8])
                 continue
+            logger.info("cache HIT node=%s source_job=%s", node_id, str(getattr(candidate, "id", "?"))[:8])
             copied_artifacts = self._register_artifact_references(source_artifacts)
             output_json = getattr(candidate, "output_json", None) or {}
             output = self._restore_output(
@@ -88,14 +100,28 @@ class PipelineCache:
 
     def _artifacts_for_job(self, job: Any) -> list[Any]:
         model = self._get_artifact_model()
-        # 必须排除已被 cleanup/用户删除的输出：删除只置 deleted_at、物理文件可能仍在，
-        # 所以"文件在 + sha256 对"仍成立，但这些行用户视角是已删除的，不能当作缓存命中
-        # 复用（否则下游会引用一条已删除行）。与 study_output_store 的 content-addressed
-        # dedup 过滤口径保持一致。
-        return (
+        job_id = getattr(job, "id", None)
+        # 直接查：首产节点（最快路径，无需 JOIN）
+        direct = (
             self.db.query(model)
             .filter(
-                model.produced_by_job_id == getattr(job, "id", None),
+                model.produced_by_job_id == job_id,
+                model.deleted_at.is_(None),
+            )
+            .order_by(model.created_at.asc(), model.id.asc())
+            .all()
+        )
+        if direct:
+            return direct
+        # 回退：content-addressed dedup 或缓存命中时，produced_by_job_id 保持指向原始首产 job，
+        # 但 execution_outputs 表里有一条 "reused" 边指向当前 job。
+        # 通过 JOIN 直接找回产物，避免 _candidate_jobs 候选链 O(n) 迭代。
+        from app.models import ExecutionOutput  # noqa: PLC0415
+        return (
+            self.db.query(model)
+            .join(ExecutionOutput, ExecutionOutput.study_output_id == model.id)
+            .filter(
+                ExecutionOutput.job_id == job_id,
                 model.deleted_at.is_(None),
             )
             .order_by(model.created_at.asc(), model.id.asc())
@@ -107,16 +133,37 @@ class PipelineCache:
             path = self._artifact_path(artifact)
             if not path.exists():
                 return False
-            expected_checksum = getattr(artifact, "sha256", None) or getattr(artifact, "checksum", None) or getattr(artifact, "content_hash", None)
-            if not expected_checksum:
-                return False
             if path.is_dir():
-                actual_checksum = StudyOutputStore.sha256_directory(path)
+                # 目录产物（ICA 等）：仍用 SHA256 验证内容完整性。
+                expected_checksum = (
+                    getattr(artifact, "sha256", None)
+                    or getattr(artifact, "checksum", None)
+                    or getattr(artifact, "content_hash", None)
+                )
+                if not expected_checksum:
+                    return False
+                if StudyOutputStore.sha256_directory(path) != expected_checksum:
+                    return False
             elif path.is_file():
-                actual_checksum = StudyOutputStore.sha256_file(path)
+                # 文件产物：优先用 file_size 快速校验（stat 几乎无 I/O），
+                # 避免对数百 MB FIF 重算 SHA256 导致缓存命中仍卡顿。
+                # SHA256 在写入时已校验，正常运行中文件不会在 DB 记录后被静默篡改。
+                expected_size = getattr(artifact, "file_size", None)
+                if expected_size is not None:
+                    if path.stat().st_size != int(expected_size):
+                        return False
+                else:
+                    # 旧行无 file_size（理论上不存在）：降级 SHA256。
+                    expected_checksum = (
+                        getattr(artifact, "sha256", None)
+                        or getattr(artifact, "checksum", None)
+                        or getattr(artifact, "content_hash", None)
+                    )
+                    if not expected_checksum:
+                        return False
+                    if StudyOutputStore.sha256_file(path) != expected_checksum:
+                        return False
             else:
-                return False
-            if actual_checksum != expected_checksum:
                 return False
         return True
 
