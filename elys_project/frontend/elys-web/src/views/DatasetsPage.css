@@ -1415,6 +1415,8 @@
   border-color: var(--c-warning);
 }
 .dmt-body {
+  /* 顶栏之外、表格上方那一摞（页头 + 标签 + 工具栏）的估高；三栏 max-height 共用，调一处即可 */
+  --dmt-chrome: 264px;
   display: flex;
   gap: var(--s-3);
   align-items: flex-start;
@@ -1482,7 +1484,11 @@
   min-width: 0;
   border: 1px solid var(--c-border);
   border-radius: var(--r);
-  overflow: hidden;
+  /* 记录多时表格自己内部滚动，封顶到视口高度（绑 100vh 而非写死像素 → 大屏自动更长），
+     不再把整页撑长；高度上限三栏共用 --dmt-chrome（定义在 .dmt-body），调一处即可。
+     记录少时不出滚动条、表格缩到内容高。 */
+  max-height: calc(100vh - var(--header-h) - var(--dmt-chrome));
+  overflow: auto;
   background: var(--c-surface);
 }
 .dmt-table {
@@ -1491,17 +1497,27 @@
   font-size: 13px;
 }
 .dmt-table thead th {
+  /* 中间栏内部滚动后，列头钉在顶部，滚到第 80 行也不丢「会话/任务/轮次/状态」 */
+  position: sticky;
+  top: 0;
+  z-index: 2;
   text-align: left;
   font-size: 11px;
   font-weight: 500;
   color: var(--c-text-3);
   padding: 6px 10px;
+  background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
 }
 .dmt-table__status {
   width: 130px;
 }
 .dmt-group td {
+  /* 分组小标题二级钉头：贴在表头（≈30px 高）下方，滚某被试时其名字常驻；
+     z-index 低于表头，两者相遇时被表头盖住。top 与表头高度联动，调表头内边距/字号时一起调 */
+  position: sticky;
+  top: 29px;
+  z-index: 1;
   padding: 5px 10px;
   background: var(--c-bg-soft);
   font-size: 12px;
