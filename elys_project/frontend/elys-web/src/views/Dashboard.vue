@@ -5,7 +5,8 @@
       <div>
         <h1 class="page__title">{{ greeting }}，{{ user?.full_name || user?.username || 'PI' }}</h1>
         <p class="dashboard-date">{{ todayLabel }}</p>
-        <p class="dashboard-status" :class="dashboardStatusTone">
+        <!-- 「需要处理」交给下方警示横幅独占；状态药丸只在无待办、无错误时报环境状态，避免同一句话出现两遍 -->
+        <p v-if="!errorMessage && !attentionBanner" class="dashboard-status" :class="dashboardStatusTone">
           <span class="dashboard-status__dot"></span>
           {{ dashboardStatusText }}
         </p>
@@ -14,17 +15,6 @@
         <button class="btn btn--icon" type="button" :disabled="loading" title="刷新" aria-label="刷新" @click="loadDashboard()">
           <span v-if="loading" class="spinner spinner--dark"></span>
           <AppIcon v-else name="refresh" :size="16" />
-        </button>
-        <button
-          v-if="errorMessage"
-          class="btn btn--primary dashboard-primary-action"
-          type="button"
-          :disabled="loading"
-          @click="loadDashboard()"
-        >
-          <span v-if="loading" class="spinner"></span>
-          <AppIcon v-else name="refresh" :size="16" />
-          重新加载
         </button>
       </div>
     </div>
@@ -90,10 +80,12 @@
             正在加载工作台...
           </div>
 
-          <div v-else-if="!recentStudies.length" class="empty dashboard-empty">
-            <div class="empty__icon"><AppIcon :name="studyEmptyState.icon" :size="26" /></div>
-            <strong>{{ studyEmptyState.title }}</strong>
-            <p>{{ studyEmptyState.description }}</p>
+          <EmptyState
+            v-else-if="!recentStudies.length"
+            :icon="studyEmptyState.icon"
+            :title="studyEmptyState.title"
+            :description="studyEmptyState.description"
+          >
             <RouterLink
               v-if="studyEmptyState.action"
               class="btn btn--primary btn--sm"
@@ -102,7 +94,7 @@
               <AppIcon :name="studyEmptyState.action.icon" :size="14" />
               {{ studyEmptyState.action.label }}
             </RouterLink>
-          </div>
+          </EmptyState>
 
           <div v-else class="study-list">
             <RouterLink
@@ -126,7 +118,12 @@
                 </div>
               </div>
               <div class="study-row__meta">
-                <span class="state-badge" :class="`is-${study.status}`">{{ studyStatusLabel(study.status) }}</span>
+                <!-- 活跃列表里「活跃」几乎条条都有=噪音；只在非活跃(归档/回收站等)时显示状态药丸，活跃靠圆点+阶段已足够 -->
+                <StatusPill
+                  v-if="study.status !== 'active'"
+                  :tone="studyStatusTone(study.status)"
+                  :label="studyStatusLabel(study.status)"
+                />
                 <span>{{ formatShortDate(study.updated_at || study.created_at) }}</span>
               </div>
             </RouterLink>
@@ -160,19 +157,19 @@
             </div>
 
             <div v-if="activeExecutionsExpanded" class="run-list">
-              <div v-if="loading && !dashboardExecutions.length" class="run-empty">
+              <div v-if="loading && !dashboardExecutions.length" class="empty">
                 <span class="spinner spinner--dark"></span>
                 正在读取运行记录...
               </div>
 
-              <div
+              <EmptyState
                 v-else-if="!executionQueueItems.length"
-                class="run-empty dashboard-empty dashboard-empty--compact dashboard-empty--quiet"
-              >
-                <div class="run-empty__icon"><AppIcon :name="executionEmptyState.icon" :size="22" /></div>
-                <strong>{{ executionEmptyState.title }}</strong>
-                <p>{{ executionEmptyState.description }}</p>
-              </div>
+                :icon="executionEmptyState.icon"
+                :title="executionEmptyState.title"
+                :description="executionEmptyState.description"
+                compact
+                quiet
+              />
 
               <RouterLink
                 v-for="execution in executionQueueItems"
@@ -209,11 +206,13 @@
                 <p>数据、研究和分析的最新变化。</p>
               </div>
             </div>
-            <div v-if="!activityItems.length" class="empty dashboard-empty dashboard-empty--quiet">
-              <div class="empty__icon"><AppIcon name="clock" :size="26" /></div>
-              <strong>暂无最近活动</strong>
-              <p>导入、创建或运行后会显示在这里。</p>
-            </div>
+            <EmptyState
+              v-if="!activityItems.length"
+              icon="clock"
+              title="暂无最近活动"
+              description="导入、创建或运行后会显示在这里。"
+              quiet
+            />
             <div v-else class="activity-timeline">
               <RouterLink
                 v-for="item in activityItems"
@@ -258,11 +257,13 @@ import { studyApi } from '@/api/studies'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { getFeatureBlueprint } from '@/data/featureBlueprints'
 import { formatAbsoluteTime, formatRelativeTime, formatShortDate, timestamp } from '@/composables/common/formatters'
 import { formatExecutionMode, formatPipelineExecutionStatus } from '@/composables/pipeline/pipelineFormatters'
 import { deriveStudyStage } from '@/composables/studies/studyStage'
-import { studyStatusLabel } from '@/composables/studies/studyFormatters'
+import { studyStatusLabel, studyStatusTone } from '@/composables/studies/studyFormatters'
 import { useAuthStore } from '@/stores/auth'
 import type {
   DashboardActiveExecution,
@@ -476,12 +477,6 @@ const dashboardStatusText = computed(() => {
   if (loading.value && !dashboardSummary.value && !studies.value.length && !datasetAssetsLoaded.value) {
     return '正在读取工作台状态'
   }
-  if (attentionExecutionCount.value) {
-    if (waitingUserInputExecutionCount.value) {
-      return `${waitingUserInputExecutionCount.value} 条运行等待确认`
-    }
-    return `${failedExecutionCount.value} 条运行失败需要查看`
-  }
   if (runningExecutionCount.value || queuedExecutionCount.value) {
     return `${runningExecutionCount.value} 个运行中 · ${queuedExecutionCount.value} 个排队中`
   }
@@ -503,8 +498,6 @@ const dashboardStatusText = computed(() => {
   return '工作台状态正常'
 })
 const dashboardStatusTone = computed(() => {
-  if (waitingUserInputExecutionCount.value) return 'is-attention'
-  if (failedExecutionCount.value) return 'is-danger'
   if (runningExecutionCount.value || queuedExecutionCount.value) return 'is-running'
   if (
     hasNoDatasetAssets.value ||
@@ -998,26 +991,6 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, .14);
 }
 
-.dashboard-status.is-attention {
-  color: var(--c-warning);
-  background: var(--c-warning-soft);
-  border-color: transparent;
-}
-
-.dashboard-status.is-attention .dashboard-status__dot {
-  background: var(--c-warning);
-}
-
-.dashboard-status.is-danger {
-  color: var(--c-danger);
-  background: var(--c-danger-soft);
-  border-color: transparent;
-}
-
-.dashboard-status.is-danger .dashboard-status__dot {
-  background: var(--c-danger);
-}
-
 .dashboard-status.is-muted .dashboard-status__dot {
   background: var(--c-text-3);
 }
@@ -1105,10 +1078,6 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: var(--s-2);
   flex-shrink: 0;
-}
-
-.dashboard-primary-action {
-  min-width: 136px;
 }
 
 /* 顶部「开始新分析」主 CTA：原右上角小按钮改成一条横向 panel（满宽、加号 + 标题 + 三步副标题） */
@@ -1282,47 +1251,6 @@ onUnmounted(() => {
   line-height: 1.65;
 }
 
-.dashboard-empty {
-  gap: 9px;
-  min-height: 210px;
-  padding: var(--s-6) var(--s-5);
-}
-
-.dashboard-empty strong {
-  color: var(--c-text);
-  font-size: 15px;
-  font-weight: 800;
-}
-
-.dashboard-empty p {
-  max-width: 280px;
-  margin: 0;
-  color: var(--c-text-3);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.dashboard-empty .btn {
-  margin-top: var(--s-1);
-}
-
-.dashboard-empty--compact {
-  display: flex;
-  flex-direction: column;
-  min-height: 174px;
-}
-
-.dashboard-empty--quiet {
-  color: var(--c-text-3);
-  background: var(--c-bg-soft);
-}
-
-.dashboard-empty--quiet .empty__icon,
-.dashboard-empty--quiet .run-empty__icon {
-  color: var(--c-text-3);
-  background: var(--c-bg);
-}
-
 .study-list {
   display: grid;
   gap: var(--s-3);
@@ -1439,29 +1367,6 @@ onUnmounted(() => {
   max-width: 100%;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.state-badge {
-  padding: 3px 8px;
-  color: var(--c-text-3);
-  font-family: var(--ff-sans);
-  font-size: 11px;
-  font-weight: 700;
-  background: var(--c-bg);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-pill);
-}
-
-.state-badge.is-active {
-  color: var(--c-success);
-  background: var(--c-success-soft);
-  border-color: transparent;
-}
-
-.state-badge.is-archived {
-  color: var(--c-warning);
-  background: var(--c-warning-soft);
-  border-color: transparent;
 }
 
 .status-dot {
@@ -1663,54 +1568,6 @@ onUnmounted(() => {
     opacity: 0.55;
     animation: none;
   }
-}
-
-.run-empty {
-  display: grid;
-  place-items: center;
-  min-height: 174px;
-  padding: var(--s-5);
-  color: var(--c-text-3);
-  font-size: 13px;
-  line-height: 1.7;
-  text-align: center;
-  background: var(--c-bg-soft);
-  border: 1px dashed var(--c-border);
-  border-radius: var(--r);
-}
-
-.run-empty__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: var(--s-2);
-  color: var(--c-info);
-  background: var(--c-info-soft);
-  border-radius: var(--r-pill);
-}
-
-.run-empty.dashboard-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.run-empty.dashboard-empty strong {
-  color: var(--c-text);
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.run-empty.dashboard-empty p {
-  margin: 0;
-  color: var(--c-text-3);
-}
-
-.run-empty.dashboard-empty--quiet .run-empty__icon {
-  color: var(--c-text-3);
-  background: var(--c-bg);
 }
 
 .activity-panel {
@@ -1962,10 +1819,6 @@ onUnmounted(() => {
   .dashboard-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .dashboard-primary-action {
-    min-width: 0;
   }
 
   .dashboard-panel {

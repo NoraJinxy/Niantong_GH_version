@@ -1,14 +1,11 @@
 <template>
   <!-- 版心对齐主页 .hero__inner(1200)：与 Dashboard 同款覆盖，--content-w=1200 + --page-pad-x=0，内容与主页齐边。仅本页生效。 -->
   <WorkbenchShell active-key="datasets" active-top-key="datasets" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
-    <div class="page__header dataset-page__header">
-      <div>
-        <h1 class="page__title">数据集管理</h1>
-        <p class="page__subtitle">
-          上传并管理你的 EEG 数据，按被试查看每条记录的状态，再进入后续分析。
-        </p>
-      </div>
-      <div class="dataset-page__actions">
+    <PageHeader
+      title="数据集管理"
+      subtitle="上传并管理你的 EEG 数据，按被试查看每条记录的状态，再进入后续分析。"
+    >
+      <template #actions>
         <!-- Phase 3 (docs_v2/3-25): 管理员审核入口 -->
         <RouterLink
           v-if="isAdmin && pendingWithdrawals > 0"
@@ -32,8 +29,8 @@
           <AppIcon name="plus" :size="15" />
           新建数据集
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- #15：页面级成功提示（在详情面板之外，删除后选中清空、面板卸载仍可见） -->
     <div v-if="pageNotice" class="inline-success" role="status" style="margin-bottom: 16px;">{{ pageNotice }}</div>
@@ -279,6 +276,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import DatasetLifecycleModals from '@/components/datasets/DatasetLifecycleModals.vue'
 import DatasetImportTab from '@/components/datasets/DatasetImportTab.vue'
 import DatasetMaintenanceTab from '@/components/datasets/DatasetMaintenanceTab.vue'

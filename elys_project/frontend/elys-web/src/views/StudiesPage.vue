@@ -2,14 +2,12 @@
   <!-- 版心对齐主页 .hero__inner(1200)：与 Dashboard/Datasets 同款，--content-w=1200 + --page-pad-x=0。仅本页生效。 -->
   <WorkbenchShell active-key="studies" active-top-key="studies" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
     <div class="studies-page">
-      <div class="page__header studies-page__header">
-        <div>
-          <h1 class="page__title">研究项</h1>
-          <p class="page__subtitle">
-            把数据、分析流程和结果按项目集中管理，并一眼看出每个项目下一步能做什么。
-          </p>
-        </div>
-        <div class="studies-page__actions">
+      <PageHeader
+        flush
+        title="研究项"
+        subtitle="把数据、分析流程和结果按项目集中管理，并一眼看出每个项目下一步能做什么。"
+      >
+        <template #actions>
           <button class="btn btn--ghost" type="button" :disabled="loading" @click="loadStudies">
             <AppIcon name="refresh" :size="16" />
             刷新
@@ -18,17 +16,20 @@
             <AppIcon name="plus" :size="16" />
             新建研究项
           </button>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
-      <div v-if="error" class="alert alert--error">
-        {{ error }}
+      <div v-if="error" class="alert alert--danger">
+        <AppIcon class="alert__icon" name="alert" :size="18" />
+        <div class="alert__body">{{ error }}</div>
       </div>
       <div v-if="summaryWarnings.length" class="alert alert--warning">
-        {{ summaryWarnings.join('；') }}
+        <AppIcon class="alert__icon" name="alert" :size="18" />
+        <div class="alert__body">{{ summaryWarnings.join('；') }}</div>
       </div>
       <div v-if="successMessage" class="alert alert--success">
-        {{ successMessage }}
+        <AppIcon class="alert__icon" name="check" :size="18" />
+        <div class="alert__body">{{ successMessage }}</div>
       </div>
 
       <section class="study-workbench">
@@ -77,7 +78,12 @@
                   <strong>{{ study.name }}</strong>
                   <small v-if="study.code">{{ study.code }}</small>
                 </span>
-                <StatusPill :tone="studyStatusTone(study.status)" :label="studyStatusLabel(study.status)" />
+                <!-- 列表里「活跃」条条都有=噪音；仅非活跃(归档/回收站)显示状态药丸，与 Dashboard 一致 -->
+                <StatusPill
+                  v-if="study.status !== 'active'"
+                  :tone="studyStatusTone(study.status)"
+                  :label="studyStatusLabel(study.status)"
+                />
               </span>
               <span class="study-row__desc">{{ study.description || '暂无描述' }}</span>
               <span class="study-row__meta">
@@ -234,6 +240,7 @@ import AppIcon from '../components/AppIcon.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/common/Modal.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import StudyOverviewTab from './study/StudyOverviewTab.vue'
 import WorkbenchShell from '../components/WorkbenchShell.vue'
 import { datasetApi } from '../api/datasets'
@@ -414,7 +421,9 @@ async function loadStudies() {
     trashedStudies.value = trashRes?.data.studies ?? []
     Object.keys(summaries).forEach((key) => delete summaries[key])
     ensureSelectedStudy()
-    await loadVisibleSummaries()
+    // 各研究项概况后台异步加载，不阻塞列表渲染：列表拿到名称即显示，每行 stage 药丸先「同步中…」再回填。
+    // （此前 await 在这里，整张列表要等所有 study 的 datasets/pipelines/executions 拉完才出来，故卡几秒。）
+    void loadVisibleSummaries()
   } catch (err) {
     error.value = friendlyError(err, '研究项列表加载失败')
   } finally {
@@ -449,7 +458,7 @@ async function loadVisibleSummaries() {
   const targets = visibleStudies.value.slice(0, SUMMARY_LIMIT)
   summaryWarnings.value = []
   if (visibleStudies.value.length > SUMMARY_LIMIT) {
-    summaryWarnings.value.push(`当前仅同步前 ${SUMMARY_LIMIT} 个 Study 的处理摘要，可通过搜索快速定位。`)
+    summaryWarnings.value.push('研究项较多，已优先加载靠前项目的概况；用上方搜索可快速定位其余。')
   }
   await Promise.all(targets.map((study) => loadStudySummary(study)))
 }
@@ -672,12 +681,6 @@ async function handleStudyAction() {
   color: var(--c-text);
 }
 
-/* 页头复用全局 .page__header/.page__title/.page__subtitle,这里只抵消 margin-bottom
-   避免和 .studies-page 的 flex gap 叠加 */
-.studies-page__header {
-  margin-bottom: 0;
-}
-
 .study-list-panel__head h2 {
   margin: 0;
   color: var(--c-text);
@@ -691,35 +694,10 @@ async function handleStudyAction() {
   letter-spacing: 0;
 }
 
-.studies-page__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
 
-.alert {
-  border-radius: 8px;
-  padding: 12px 14px;
-  font-size: 14px;
-}
-
-.alert--error {
-  border: 1px solid var(--c-danger-soft);
-  background: var(--c-danger-soft);
-  color: var(--c-danger);
-}
-
-.alert--warning {
-  border: 1px solid var(--c-warning-soft);
-  background: var(--c-warning-soft);
-  color: var(--c-warning);
-}
-
-.alert--success {
-  border: 1px solid var(--c-success-soft);
-  background: var(--c-success-soft);
-  color: var(--c-success);
+/* 告警条用全局 .alert/.alert__icon/.alert__body；此处仅抵消全局 margin-bottom，避免与 .studies-page 的 flex gap 叠加 */
+.studies-page .alert {
+  margin-bottom: 0;
 }
 
 .study-workbench {
@@ -967,42 +945,7 @@ async function handleStudyAction() {
 }
 
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 36px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 0 14px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.btn--primary {
-  background: var(--c-primary);
-  color: #fff;
-  box-shadow: 0 10px 20px rgb(47 109 246 / 18%);
-}
-
-.btn--ghost {
-  border-color: var(--c-border);
-  background: #fff;
-  color: var(--c-text-2);
-}
-
-.btn--danger {
-  background: var(--c-danger);
-  color: #fff;
-}
-
+/* 按钮全部用全局 .btn/.btn--primary/--ghost/--danger（删本地重定义，消除与全局漂移） */
 .danger-text {
   color: var(--c-danger);
 }
@@ -1130,21 +1073,8 @@ async function handleStudyAction() {
     padding: 16px;
   }
 
-  .studies-page__header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .form-grid {
     grid-template-columns: 1fr;
-  }
-
-  .studies-page__actions {
-    width: 100%;
-  }
-
-  .studies-page__actions .btn {
-    flex: 1;
   }
 }
 </style>
