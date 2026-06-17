@@ -274,6 +274,111 @@ def ensure_psd_npz_path(path: str | Path) -> Path:
     return target.with_name(f"{target.name}_psd.npz")
 
 
+def load_psd_npz(path: str | Path) -> dict[str, Any]:
+    """读单被试 PSD .npz → {freqs, psds, ch_names, sfreq}。"""
+    import numpy as np  # noqa: PLC0415
+
+    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
+    return {
+        "freqs": data["freqs"],
+        "psds": data["psds"],
+        "ch_names": list(data["ch_names"]),
+        "sfreq": float(data["sfreq"]),
+    }
+
+
+def save_group_psd_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
+    """保存 group PSD 张量 (n_subjects × n_channels × n_freqs) 为 .npz。"""
+    import numpy as np  # noqa: PLC0415
+
+    target = ensure_psd_npz_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        str(target),
+        group_psds=np.asarray(result["group_psds"], dtype=float),
+        freqs=np.asarray(result["freqs"], dtype=float),
+        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
+        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
+        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
+        subjects=np.asarray(list(result.get("subjects") or []), dtype="U256"),
+    )
+    return target
+
+
+def load_group_psd_npz(path: str | Path) -> dict[str, Any]:
+    """读 group PSD .npz → {group_psds, freqs, ch_names, sfreq, label, subjects, n_subjects}。"""
+    import numpy as np  # noqa: PLC0415
+
+    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
+    return {
+        "group_psds": data["group_psds"],  # (n_subjects, n_channels, n_freqs)
+        "freqs": data["freqs"],
+        "ch_names": list(data["ch_names"]),
+        "sfreq": float(data["sfreq"]),
+        "label": str(data["label"]),
+        "subjects": list(data["subjects"]),
+        "n_subjects": int(data["group_psds"].shape[0]),
+    }
+
+
+def save_psd_grandavg_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
+    """保存 grand average PSD（mean ± SEM）为 .npz；格式类似单被试 PSD，额外含 psds_sem。"""
+    import numpy as np  # noqa: PLC0415
+
+    target = ensure_psd_npz_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        str(target),
+        freqs=np.asarray(result.get("freqs"), dtype=float),
+        psds=np.asarray(result.get("psds"), dtype=float),
+        psds_sem=np.asarray(result.get("psds_sem"), dtype=float),
+        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
+        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
+        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
+        n_subjects=np.asarray(int(result.get("n_subjects") or 0), dtype=int),
+    )
+    return target
+
+
+def summarize_group_psd(result: dict[str, Any]) -> dict[str, Any]:
+    """group PSD 张量的轻量摘要（不含大数组）。"""
+    freqs_attr = result.get("freqs")
+    freqs = list(freqs_attr) if freqs_attr is not None else []
+    ch_names = list(result.get("ch_names") or [])
+    group_psds = result.get("group_psds")
+    n_subjects = int(
+        result.get("n_subjects") or (group_psds.shape[0] if group_psds is not None else 0)
+    )
+    return {
+        "data_type": "group_psd",
+        "n_subjects": n_subjects,
+        "n_channels": len(ch_names),
+        "ch_names": ch_names,
+        "n_freqs": len(freqs),
+        "fmin": float(freqs[0]) if freqs else None,
+        "fmax": float(freqs[-1]) if freqs else None,
+        "label": str(result.get("label") or ""),
+        "subjects": list(result.get("subjects") or []),
+    }
+
+
+def summarize_psd_grandavg(result: dict[str, Any]) -> dict[str, Any]:
+    """grand average PSD 的轻量摘要。"""
+    freqs_attr = result.get("freqs")
+    freqs = list(freqs_attr) if freqs_attr is not None else []
+    ch_names = list(result.get("ch_names") or [])
+    return {
+        "data_type": "psd_grandavg",
+        "n_subjects": int(result.get("n_subjects") or 0),
+        "n_channels": len(ch_names),
+        "ch_names": ch_names,
+        "n_freqs": len(freqs),
+        "fmin": float(freqs[0]) if freqs else None,
+        "fmax": float(freqs[-1]) if freqs else None,
+        "label": str(result.get("label") or ""),
+    }
+
+
 def _get_reference_value(reference: Any, key: str) -> Any:
     if isinstance(reference, dict):
         return reference.get(key)

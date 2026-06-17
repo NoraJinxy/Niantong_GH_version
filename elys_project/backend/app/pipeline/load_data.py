@@ -551,10 +551,10 @@ def _load_filter_datasets(
     matched = [
         dataset
         for dataset in datasets
-        if _matches(filters["subjects"], dataset.subject.bids_subject_id if dataset.subject else None)
-        and _matches(filters["sessions"], dataset.session)
-        and _matches(filters["tasks"], dataset.task)
-        and _matches(filters["runs"], dataset.run)
+        if _matches_bids(filters["subjects"], dataset.subject.bids_subject_id if dataset.subject else None)
+        and _matches_bids(filters["sessions"], dataset.session)
+        and _matches_bids(filters["tasks"], dataset.task)
+        and _matches_bids(filters["runs"], dataset.run)
         and _matches(filters["qa_status"], dataset.qa_status)
         and _matches(filters["dataset_asset_ids"], str(dataset.dataset_asset_id) if dataset.dataset_asset_id else None)
     ]
@@ -778,6 +778,28 @@ def _matches(filter_value: list[Any] | str, actual: Any) -> bool:
         return True
     normalized_actual = str(actual) if actual not in ("", None) else None
     return any((str(item) if item not in ("", None) else None) == normalized_actual for item in filter_value)
+
+
+def _strip_bids_prefix(value: str) -> str:
+    """去掉 BIDS 实体的 entity- 前缀：task-eo→eo、sub-01→01、裸值原样返回。
+    只剥「全字母 + 连字符」开头的前缀，UUID（含数字，如 ab68-…）不受影响。"""
+    head, sep, tail = value.partition("-")
+    if sep and head.isalpha():
+        return tail
+    return value
+
+
+def _matches_bids(filter_value: list[Any] | str, actual: Any) -> bool:
+    """BIDS 实体（subject/session/task/run）专用匹配：**前缀无关**。
+    存储是带前缀的规范形（task-eo），但调用方常自然地传裸值（eo）；两侧都剥前缀再比，
+    让 "eo" 与 "task-eo" 互相匹配，避免「传裸值→零结果且零 warning」的隐形坑。"""
+    if filter_value == "all":
+        return True
+    actual_norm = _strip_bids_prefix(str(actual)) if actual not in ("", None) else None
+    return any(
+        (_strip_bids_prefix(str(item)) if item not in ("", None) else None) == actual_norm
+        for item in filter_value
+    )
 
 
 def _blocked_by_status(dataset: Recording) -> bool:

@@ -1,0 +1,52 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/group/merge",
+  "title": "Group Merge",
+  "category": "group",
+  "phase": "phase2",
+  "description": "将上游批量 PSD（N 个被试）堆叠成组级张量 (n_subjects × n_channels × n_freqs)，供 Group Average / Contrast / Statistics 节点使用。典型用法：接在 PSD 节点之后，自动收集同一批次所有被试的功率谱结果。",
+  "tags": ["group", "merge", "psd", "grand-average"],
+  "inputs": [
+    {
+      "name": "input",
+      "type": "psd",
+      "label": "PSD（多被试）",
+      "required": true,
+      "cardinality": "one_or_many"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "type": "group_psd",
+      "label": "Group PSD",
+      "cardinality": "one"
+    }
+  ],
+  "properties": [
+    {
+      "name": "label",
+      "label": "Group 标签",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "用于区分不同条件的组（如 \"EO\"、\"EC\"）；会写入产物文件名与 preview。"
+    }
+  ],
+  "backend": {
+    "module": "app.engine.group.merge",
+    "function": "run_group_merge_psd",
+    "save_descriptor": "group_psd",
+    "output_kind": "npz",
+    "supports_batch": false,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "group_psd",
+    "auto_tags": ["step:group_merge", "type:group_psd"],
+    "data_type": "group_psd"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
+  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "group_psd"}
+}

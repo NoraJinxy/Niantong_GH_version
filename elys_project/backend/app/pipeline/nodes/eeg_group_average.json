@@ -1,0 +1,43 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/group/average",
+  "title": "Grand Average PSD",
+  "category": "group",
+  "phase": "phase2",
+  "description": "对组级 PSD 张量沿被试轴求均值与 SEM，输出 Grand Average 功率谱（可直接在观察页渲染 ±SEM 带）。",
+  "tags": ["group", "average", "psd", "grand-average", "sem"],
+  "inputs": [
+    {
+      "name": "input",
+      "type": "group_psd",
+      "label": "Group PSD",
+      "required": true,
+      "cardinality": "one"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "type": "psd_grandavg",
+      "label": "Grand Average PSD",
+      "cardinality": "one"
+    }
+  ],
+  "properties": [],
+  "backend": {
+    "module": "app.engine.group.average",
+    "function": "run_group_average_psd",
+    "save_descriptor": "grandavg",
+    "output_kind": "npz",
+    "supports_batch": false,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "psd_grandavg",
+    "auto_tags": ["step:grand_average", "type:psd_grandavg"],
+    "data_type": "psd_grandavg"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "small",
+  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "psd_grandavg"}
+}

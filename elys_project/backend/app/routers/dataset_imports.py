@@ -21,6 +21,7 @@ from typing import Any
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
@@ -56,18 +57,36 @@ settings = get_settings()
 
 
 def get_or_create_subject(db: Session, study: Study, bids_subject_id: str) -> Subject:
-    subject = (
-        db.query(Subject)
-        .filter(Subject.study_id == study.id, Subject.bids_subject_id == bids_subject_id)
-        .first()
-    )
+    """找/建被试，**并发安全**：批量导入时同一被试的多条 recording（如 eo+ec）会被
+    不同 Celery worker 同时处理，朴素的 SELECT→INSERT 会双双 SELECT 到空、双双 INSERT，
+    第二个撞 (study_id, bids_subject_id) 唯一键炸库并污染整条事务。
+
+    解法：INSERT 包在 SAVEPOINT(begin_nested) 里——撞键时只回滚这个 savepoint，外层事务
+    存活；随后重查拿到竞争对手刚提交的那行（READ COMMITTED 下可见）。
+    """
+    def _query() -> Subject | None:
+        return (
+            db.query(Subject)
+            .filter(Subject.study_id == study.id, Subject.bids_subject_id == bids_subject_id)
+            .first()
+        )
+
+    subject = _query()
     if subject:
         return subject
 
-    subject = Subject(study_id=study.id, bids_subject_id=bids_subject_id, extra={})
-    db.add(subject)
-    db.flush()
-    return subject
+    try:
+        with db.begin_nested():
+            subject = Subject(study_id=study.id, bids_subject_id=bids_subject_id, extra={})
+            db.add(subject)
+            db.flush()
+        return subject
+    except IntegrityError:
+        # 输给了并发的兄弟任务——它已建好该被试，重查复用即可。
+        existing = _query()
+        if existing is None:
+            raise
+        return existing
 
 
 def safe_upload_relative_path(filename: str | None) -> Path:
@@ -1425,6 +1444,20 @@ def materialize_recording_import(
     )
     write_manifest(job_dir, manifest)
     return dataset
+
+
+def parse_bids_entities_from_filename(filename: str) -> dict[str, str]:
+    """从 BIDS 文件名提取实体标签：sub-、task-、ses-、run-。
+    例：sub-ADMU001_task-eo_eeg.edf → {"sub": "ADMU001", "task": "eo"}
+    未找到的实体不在返回 dict 里，调用方自行判断必填项。
+    """
+    import re
+    entities: dict[str, str] = {}
+    for entity in ("sub", "task", "ses", "run"):
+        m = re.search(rf"(?:^|_){entity}-([^_\.]+)", filename)
+        if m:
+            entities[entity] = m.group(1)
+    return entities
 
 
 def _build_import_context(

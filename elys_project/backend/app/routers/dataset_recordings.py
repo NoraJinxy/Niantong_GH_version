@@ -15,7 +15,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -65,6 +65,7 @@ from app.routers._dataset_shared import (
 from app.routers.dataset_imports import (
     archive_uploads,
     materialize_recording_import,
+    parse_bids_entities_from_filename,
     relabel_recording,
     write_manifest,
     _build_import_context,
@@ -588,6 +589,114 @@ async def import_recording_async(
         payload_json=payload_json,
         current_user=current_user,
     )
+
+
+class _BatchImportItem(BaseModel):
+    filename: str
+    task_id: str | None = None
+    status: str      # "submitted" | "skipped" | "error"
+    message: str = ""
+
+
+class _BatchImportResponse(BaseModel):
+    results: list[_BatchImportItem]
+    n_submitted: int
+    n_skipped: int
+    n_error: int
+
+
+@recording_router.post("/import-batch-async", response_model=_BatchImportResponse, status_code=status.HTTP_201_CREATED)
+async def import_recordings_batch_async(
+    study_id: str,
+    files: list[UploadFile] = File(...),
+    dataset_asset_id: uuid.UUID | None = Form(None),
+    mount_name: str | None = Form(None),
+    session: str | None = Form(None),
+    run: str | None = Form(None),
+    replace_existing: bool = Form(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量异步导入：多个文件一次请求，从文件名自动解析 BIDS 元信息（sub-/task-）。
+
+    文件名须符合 BIDS 命名：sub-{subject}_task-{task}_eeg.edf
+    每个文件独立创建一个 Celery 任务；已存在文件（409）标记为 skipped 而不报错。
+    返回 {results, n_submitted, n_skipped, n_error}，客户端按 task_id 轮询各自进度。
+    """
+    results: list[_BatchImportItem] = []
+
+    for file in files:
+        fname = file.filename or ""
+        entities = parse_bids_entities_from_filename(fname)
+        subject = entities.get("sub", "")
+        task_label = entities.get("task", "")
+
+        if not subject or not task_label:
+            results.append(_BatchImportItem(
+                filename=fname,
+                status="error",
+                message=f"无法从文件名解析 sub/task 实体，跳过（期望格式：sub-XXX_task-YYY_eeg.edf）",
+            ))
+            continue
+
+        try:
+            ctx = _build_import_context(
+                db,
+                study_id=study_id,
+                current_user=current_user,
+                subject=subject,
+                task=task_label,
+                session=session,
+                run=run,
+                replace_existing=replace_existing,
+                dataset_asset_id=dataset_asset_id,
+                mount_name=mount_name,
+                files=[file],
+            )
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                results.append(_BatchImportItem(filename=fname, status="skipped", message="已存在（幂等跳过）"))
+                continue
+            results.append(_BatchImportItem(filename=fname, status="error", message=str(exc.detail)))
+            continue
+
+        job_dir = ctx["job_dir"]
+        archived = await archive_uploads(ctx["items_by_extension"], job_dir, files_subdir=None)
+
+        payload_json = {
+            "mode": "async_dataset_import",
+            "study_id": ctx["study"].id,
+            "importer_user_id": str(current_user.id),
+            "dataset_asset_id": str(ctx["target_asset"].id),
+            "dataset_version_id": str(ctx["target_version"].id),
+            "duplicate_recording_id": str(ctx["duplicate"].id) if ctx["duplicate"] else None,
+            "subject_record_id": str(ctx["subject_record"].id) if ctx["subject_record"] else None,
+            "bids_subject_id": ctx["bids_subject_id"],
+            "session_label": ctx["session_label"],
+            "task_label": ctx["task_label"],
+            "run_label": ctx["run_label"],
+            "upload_kind": ctx["upload_kind"],
+            "upload_seq": ctx["upload_seq"],
+            "job_id": ctx["job_id"],
+            "job_dir": str(job_dir),
+            "archived": {ext: str(path) for ext, path in archived.items()},
+            "replace_existing": replace_existing,
+        }
+        task_resp = create_and_dispatch_file_task(
+            db,
+            task_type="dataset_import",
+            study_id=ctx["study"].id,
+            resource_kind="dataset_asset",
+            resource_id=ctx["target_asset"].id,
+            payload_json=payload_json,
+            current_user=current_user,
+        )
+        results.append(_BatchImportItem(filename=fname, task_id=task_resp.id, status="submitted"))
+
+    n_submitted = sum(1 for r in results if r.status == "submitted")
+    n_skipped   = sum(1 for r in results if r.status == "skipped")
+    n_error     = sum(1 for r in results if r.status == "error")
+    return _BatchImportResponse(results=results, n_submitted=n_submitted, n_skipped=n_skipped, n_error=n_error)
 
 
 @recording_router.post("/import", response_model=RecordingUploadResponse, status_code=status.HTTP_201_CREATED)

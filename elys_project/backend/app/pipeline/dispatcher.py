@@ -15,19 +15,25 @@ from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
 from app.engine.analysis.psd import run_psd
 from app.engine.analysis.reject import run_reject_trials
 from app.engine.analysis.tfr import run_tfr
+from app.engine.group.average import run_group_average_psd
+from app.engine.group.merge import run_group_merge_psd
 from app.engine.io import (
     read_epochs_from_data_info,
     read_ica_from_data_info,
     read_raw_from_data_info,
     save_epochs_fif,
     save_evoked_fif,
+    save_group_psd_npz,
     save_ica_fif,
+    save_psd_grandavg_npz,
     save_psd_npz,
     save_raw_fif,
     save_tfr_h5,
     summarize_epochs,
     summarize_evoked,
+    summarize_group_psd,
     summarize_psd,
+    summarize_psd_grandavg,
     summarize_raw,
     summarize_tfr,
 )
@@ -90,6 +96,8 @@ class NodeDispatcher:
             "eeg/analysis/erp": self._execute_erp_average,
             "eeg/analysis/tfr": self._execute_tfr_average,
             "eeg/analysis/psd": self._execute_psd_average,
+            "eeg/group/merge": self._execute_group_merge_psd,
+            "eeg/group/average": self._execute_group_average_psd,
         }
 
     def supported_node_types(self) -> set[str]:
@@ -603,6 +611,213 @@ class NodeDispatcher:
 
     def _execute_psd_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_psd_output(context, run_psd, save_descriptor="psd")
+
+    def _execute_group_merge_psd(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """N-to-1: 收集所有上游 PSD data_info，堆叠成 group 张量，输出一个 group_psd artifact。"""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Group Merge 节点没有收到上游 PSD data_infos（input 端口为空）。",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(
+            context.db, context.study, context.execution, context.job
+        )
+        params = context.params if isinstance(context.params, dict) else {}
+        label = str(params.get("label") or "")
+
+        try:
+            result = run_group_merge_psd(input_data_infos, params)
+            summary = summarize_group_psd(result)
+
+            safe_label = "".join(
+                c if c.isalnum() or c in {"-", "_"} else "_" for c in label
+            ).strip("_") or "group"
+            filename = f"{safe_label}_psd_group.npz"
+
+            upstream_ids = [
+                str(di.get("artifact_id") or di.get("study_output_id") or "")
+                for di in input_data_infos
+                if di.get("artifact_id") or di.get("study_output_id")
+            ]
+
+            artifact = study_output_store.save_file_from_writer(
+                filename,
+                lambda path, r=result: save_group_psd_npz(r, path),
+                kind="analysis_result",
+                data_type="group_psd",
+                metadata={
+                    "node_id": node_id,
+                    "node_type": node_type,
+                    "params": params,
+                    "mne_summary": summary,
+                    "upstream_dataset_ids": upstream_ids,
+                    "upstream_recording_ids": [],
+                    "n_subjects": result["n_subjects"],
+                    "subjects": result["subjects"],
+                    "label": label,
+                },
+                preview=summary,
+                source_dataset_id=None,
+                node_id=node_id,
+            )
+
+            storage_path = str(artifact.get("storage_path") or "")
+            artifact_path = self._artifact_path(context.study, artifact)
+            fif_abs_path = str(artifact_path) if artifact_path else None
+
+            group_data_info: dict[str, Any] = {
+                "data_type": "group_psd",
+                "file_role": "pipeline_artifact",
+                "artifact_id": artifact.get("artifact_id"),
+                "study_output_id": artifact.get("study_output_id"),
+                "study_id": str(getattr(context.study, "id", "")),
+                "study_root": str(
+                    getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
+                ),
+                "storage_path": storage_path,
+                "storage_uri": artifact.get("storage_uri"),
+                "logical_path": storage_path,
+                "artifact_storage_path": storage_path,
+                "artifact_storage_uri": artifact.get("storage_uri"),
+                "fif_path": storage_path,
+                "fif_abs_path": fif_abs_path,
+                "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
+                "pipeline_execution_id": str(getattr(context.execution, "id", "")),
+                "job_id": str(getattr(context.job, "id", "")),
+                "file_size": artifact.get("file_size"),
+                "checksum": artifact.get("checksum"),
+                "sha256": artifact.get("sha256") or artifact.get("checksum"),
+                "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
+                "label": label,
+                "n_subjects": result["n_subjects"],
+                "subjects": result["subjects"],
+                **summary,
+            }
+
+            output = NodeOutput(
+                node_id=node_id,
+                node_type=node_type,
+                outputs={"output": [group_data_info]},
+                data_infos=[group_data_info],
+                artifacts=[artifact],
+                metadata={"dataset_count": 1, "n_subjects": result["n_subjects"], "label": label},
+            )
+            return NodeDispatchResult(
+                output=output,
+                status="success",
+                dataset_count=1,
+                output_ports=["output"],
+            )
+        except Exception as exc:
+            error = self._issue(
+                code="PIPELINE_NODE_DATASET_FAILED",
+                message=f"Group Merge PSD 失败：{exc}",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[error], output_ports=["output"])
+
+    def _execute_group_average_psd(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """1-to-1: 从 group_psd artifact 读取张量，计算 grand average ± SEM，输出 psd_grandavg。"""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Grand Average 节点没有收到上游 group_psd data_infos（input 端口为空）。",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(
+            context.db, context.study, context.execution, context.job
+        )
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+
+        for index, data_info in enumerate(input_data_infos):
+            try:
+                result = run_group_average_psd(data_info, context.params)
+                summary = summarize_psd_grandavg(result)
+
+                label = str(result.get("label") or data_info.get("label") or "")
+                safe_label = "".join(
+                    c if c.isalnum() or c in {"-", "_"} else "_" for c in label
+                ).strip("_") or "grandavg"
+                filename = f"{safe_label}_grandavg_psd.npz"
+
+                upstream_ids = [str(data_info.get("artifact_id") or data_info.get("study_output_id") or "")]
+
+                artifact = study_output_store.save_file_from_writer(
+                    filename,
+                    lambda path, r=result: save_psd_grandavg_npz(r, path),
+                    kind="analysis_result",
+                    data_type="psd_grandavg",
+                    metadata={
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "params": context.params,
+                        "mne_summary": summary,
+                        "upstream_dataset_ids": upstream_ids,
+                        "upstream_recording_ids": [],
+                        "label": label,
+                        "n_subjects": result.get("n_subjects"),
+                    },
+                    preview=summary,
+                    source_dataset_id=None,
+                    node_id=node_id,
+                )
+                artifacts.append(artifact)
+                output_data_infos.append(
+                    self._derived_data_info(
+                        context=context,
+                        input_data_info=data_info,
+                        artifact=artifact,
+                        summary=summary,
+                    )
+                )
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Grand Average PSD [{index}] 失败：{exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+
+        emitted = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted},
+            data_infos=emitted,
+            artifacts=artifacts,
+            metadata={"dataset_count": len(output_data_infos)},
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted),
+            output_ports=["output"],
+            errors=errors,
+        )
 
     def _execute_raw_preprocess(
         self,

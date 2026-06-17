@@ -490,6 +490,57 @@ class ElysClient:
             return errors[0].get("message", "")
         return ""
 
+    def import_recordings_batch_async(
+        self,
+        study_id: str,
+        file_paths: list["Path"],
+        *,
+        dataset_asset_id: str | None = None,
+        mount_name: str | None = None,
+        session: str = "",
+        run: str = "",
+        replace_existing: bool = False,
+        show_progress: bool = True,
+    ) -> dict:
+        """批量上传：一次请求传所有 EDF，从文件名解析 BIDS，返回每文件的 task_id。
+
+        POST /recordings/import-batch-async
+        返回 {results: [{filename, task_id, status, message}], n_submitted, n_skipped, n_error}
+        调用方再对每个 task_id 调 wait_import_task() 等转换完成。
+        """
+        self._ensure_login()
+        fields: list[tuple[str, str]] = []
+        if dataset_asset_id:
+            fields.append(("dataset_asset_id", dataset_asset_id))
+        if mount_name:
+            fields.append(("mount_name", mount_name))
+        if session:
+            fields.append(("session", session))
+        if run:
+            fields.append(("run", run))
+        fields.append(("replace_existing", str(replace_existing).lower()))
+
+        text_fields = dict(fields)
+        file_specs = [("files", Path(p)) for p in file_paths]
+
+        total_bytes = sum(Path(p).stat().st_size for p in file_paths)
+        if show_progress:
+            print(f"  ↑ 批量上传 {len(file_paths)} 个文件  共 {total_bytes / 1024 / 1024:.1f} MB")
+
+        on_progress, finish_upload = self._make_upload_bar(show_progress)
+        body, content_type, _ = _encode_multipart_stream(text_fields, file_specs, on_progress=on_progress)
+        try:
+            r = self._session.post(
+                f"{self.data_base_url}/studies/{study_id}/recordings/import-batch-async",
+                data=body,
+                headers={"Content-Type": content_type},
+                timeout=self.timeout,
+            )
+        finally:
+            finish_upload()
+        _raise_for_status(r)
+        return r.json()
+
     def import_recording_async(
         self,
         study_id: str,
@@ -503,15 +554,15 @@ class ElysClient:
         run: str = "",
         replace_existing: bool = True,
         show_progress: bool = False,
+        wait: bool = True,
         poll_interval: float = 2.0,
         poll_timeout: float = 1800,
     ) -> dict:
-        """异步导入：流式上传文件 → **秒拿 task_id** → 轮询任务状态直到 succeeded/failed。
-        POST /studies/{study_id}/recordings/import-async（只把文件送达就返回，转 FIF 的重活在
-        服务端后台 Celery worker 跑），随后轮询 GET /studies/{study_id}/tasks/{task_id} 看真实进度。
+        """异步导入：流式上传文件 → **秒拿 task_id** → 视 wait 决定是否轮询。
 
-        与同步 import_recording 的区别：上传不再阻塞等转换；进度分两段——上传条 + 轮询出的服务端阶段。
-        返回最终的任务详情 dict（AsyncTaskResponse）；成功时 result_json.recording 里是 recording 元信息。
+        wait=True（默认）：轮询至 succeeded/failed，行为与旧版完全一致。
+        wait=False：上传完立刻返回 {"id": task_id, "status": "pending"}，由调用方自行调
+                    wait_import_task() 批量等完成——适合「批量提交 → 集中等待」场景。
         """
         self._ensure_login()
         text_fields = {
@@ -535,21 +586,48 @@ class ElysClient:
             r = self._session.post(
                 f"{self.data_base_url}/studies/{study_id}/recordings/import-async",
                 data=body,
-                headers={"Content-Type": content_type},   # Content-Length 由 _StreamingBody.__len__ 推出
-                timeout=self.timeout,   # 异步端点秒回，不必像同步那样留 600s
+                headers={"Content-Type": content_type},
+                timeout=self.timeout,
             )
         finally:
-            finish_upload()         # 停掉「等待服务器接收」计时线程（无论成功或抛错）
-        _raise_for_status(r)        # 409（重复）/422（坏文件）在这同步抛出
+            finish_upload()
+        _raise_for_status(r)
         task_resp = r.json()
         task_id = task_resp.get("id")
         if not task_id:
             raise ElysAPIError(r)
+
+        if not wait:
+            if show_progress:
+                print(f"  ⏳ 已入队 task={task_id[:8]}…（fire-and-forget）")
+            return {"id": task_id, "status": "pending"}
+
         if show_progress:
             print(f"  ⏳ 已入队 task={task_id[:8]}…，服务器转换中（轮询进度）")
+        return self.wait_import_task(
+            study_id, task_id,
+            show_progress=show_progress,
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
+        )
 
-        deadline = time.time() + poll_timeout
+    def wait_import_task(
+        self,
+        study_id: str,
+        task_id: str,
+        *,
+        show_progress: bool = False,
+        poll_interval: float = 2.0,
+        poll_timeout: float = 1800,
+    ) -> dict:
+        """轮询单个导入任务直到 succeeded/failed/canceled。
+        配合 import_recording_async(wait=False) 用于「批量提交 → 集中等待」场景。
+        """
+        start_poll = time.time()
+        deadline = start_poll + poll_timeout
         last_line = ""
+        last_print_time = start_poll
+        HEARTBEAT_SEC = 10
         while True:
             s = self._session.get(
                 f"{self.base_url}/studies/{study_id}/tasks/{task_id}",
@@ -558,17 +636,32 @@ class ElysClient:
             _raise_for_status(s)
             t = s.json()
             status = t.get("status")
+            now = time.time()
             if show_progress:
                 progress = float(t.get("progress") or 0)
                 line = f"  ⏳ [{status}] {progress:5.1f}%  {self._latest_task_message(t)}"
                 if line != last_line:
                     print(line)
                     last_line = line
+                    last_print_time = now
+                elif now - last_print_time >= HEARTBEAT_SEC:
+                    elapsed = now - start_poll
+                    print(f"  ⏳ [{status}] 等待中… {elapsed:.0f}s")
+                    last_print_time = now
             if status in ("succeeded", "failed", "canceled"):
                 return t
-            if time.time() > deadline:
+            if now > deadline:
                 raise TimeoutError(f"导入任务 {task_id} 未在 {poll_timeout}s 内完成（最后状态 {status}）")
             time.sleep(poll_interval)
+
+    # ---------- node specs ----------
+    def list_node_types(self) -> set[str]:
+        """返回后端当前已注册的全部节点类型字符串集合。
+        用于在构建 pipeline 之前预检某个节点是否已部署，避免 validation 硬崩。"""
+        self._ensure_login()
+        r = self._session.get(f"{self.base_url}/pipeline/nodes", timeout=self.timeout)
+        _raise_for_status(r)
+        return {node.get("type", "") for node in r.json().get("nodes", [])}
 
     # ---------- pipelines ----------
     def list_pipelines(self, study_id: str) -> list[dict]:
