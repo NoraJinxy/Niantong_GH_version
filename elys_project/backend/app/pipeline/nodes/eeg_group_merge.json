@@ -43,6 +43,7 @@
   },
   "save": {
     "step_label": "group_psd",
+    "name_template_default": "Group PSD · {condition}",
     "auto_tags": ["step:group_merge", "type:group_psd"],
     "data_type": "group_psd"
   },

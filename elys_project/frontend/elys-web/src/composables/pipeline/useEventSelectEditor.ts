@@ -9,7 +9,7 @@
 
 import { computed, type Ref, type ComputedRef } from 'vue'
 import type { NodeProperty, PipelineGraphNode, LoadDataDataInfo, PipelineDefinitionPayload } from '@/types'
-import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, TFR_NODE_TYPE, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
+import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, TFR_NODE_TYPE, PSD_NODE_TYPE, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
 
 interface EventSelectEditorOptions {
   selectedNode: ComputedRef<PipelineGraphNode | null>
@@ -23,9 +23,12 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
   const { selectedNode, definition, loadDataSelectedInfos, updateLiteGraphNode, markDirty } = options
 
   const isEpochNode = computed(() => selectedNode.value?.type === EPOCH_NODE_TYPE)
-  // ERP 与 TFR 同口径：候选 condition 都来自上游 Epoch 勾选的分组
+  // ERP / TFR / PSD 同口径：候选 condition 都来自上游 Epoch 勾选的分组
   const isConditionFromEpoch = computed(
-    () => selectedNode.value?.type === ERP_NODE_TYPE || selectedNode.value?.type === TFR_NODE_TYPE,
+    () =>
+      selectedNode.value?.type === ERP_NODE_TYPE ||
+      selectedNode.value?.type === TFR_NODE_TYPE ||
+      selectedNode.value?.type === PSD_NODE_TYPE,
   )
 
   /** 沿 graph.links 倒推：从某节点开始向上找指定 type 的最近祖先节点（BFS）。 */

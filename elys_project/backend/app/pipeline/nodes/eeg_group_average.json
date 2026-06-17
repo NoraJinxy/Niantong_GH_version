@@ -34,6 +34,7 @@
   },
   "save": {
     "step_label": "psd_grandavg",
+    "name_template_default": "Grand Average PSD · {condition}",
     "auto_tags": ["step:grand_average", "type:psd_grandavg"],
     "data_type": "psd_grandavg"
   },

@@ -649,6 +649,15 @@ class NodeDispatcher:
                 if di.get("artifact_id") or di.get("study_output_id")
             ]
 
+            # 保存设置（keep/cache_eligible/display_name/tags）：与其他节点同源，由拓扑角色驱动。
+            # group 输出非单被试，传 condition=label 让命名模板渲染（"Group PSD · EO"）。
+            save_meta = self._save_settings_metadata(
+                context,
+                data_info={"condition": label, "task": label},
+                index=0,
+                split_value=label or None,
+            )
+
             artifact = study_output_store.save_file_from_writer(
                 filename,
                 lambda path, r=result: save_group_psd_npz(r, path),
@@ -664,6 +673,7 @@ class NodeDispatcher:
                     "n_subjects": result["n_subjects"],
                     "subjects": result["subjects"],
                     "label": label,
+                    **save_meta,
                 },
                 preview=summary,
                 source_dataset_id=None,
@@ -763,6 +773,14 @@ class NodeDispatcher:
 
                 upstream_ids = [str(data_info.get("artifact_id") or data_info.get("study_output_id") or "")]
 
+                # 保存设置：Grand Average 是终端 leaf，拓扑驱动下 keep=True → 结果页可见。
+                save_meta = self._save_settings_metadata(
+                    context,
+                    data_info={"condition": label, "task": label},
+                    index=index,
+                    split_value=label or None,
+                )
+
                 artifact = study_output_store.save_file_from_writer(
                     filename,
                     lambda path, r=result: save_psd_grandavg_npz(r, path),
@@ -777,6 +795,7 @@ class NodeDispatcher:
                         "upstream_recording_ids": [],
                         "label": label,
                         "n_subjects": result.get("n_subjects"),
+                        **save_meta,
                     },
                     preview=summary,
                     source_dataset_id=None,
