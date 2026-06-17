@@ -25,7 +25,7 @@ export interface PaletteDef {
   /** 下拉里显示的名字（求短、专业、无来源印记） */
   label: string
   /** 分组（下拉里按组分隔） */
-  group: '品牌' | '期刊配色' | '色盲安全' | '通用'
+  group: '推荐' | '期刊配色' | '色盲安全' | '通用'
   /** 角标（如「默认」），可选 */
   tag?: string
   /** true=连续色（渐变，按数量取样插值）；缺省=离散色（分类，超出长度循环复用） */
@@ -35,8 +35,8 @@ export interface PaletteDef {
 }
 
 export const PALETTE_DEFS: readonly PaletteDef[] = [
-  // —— 品牌 —— elys 自有，长在全站 token 上，临床稳重
-  { key: 'elys', label: 'elys 风格', group: '品牌', tag: '默认', colors: CURVE_PALETTE },
+  // —— 推荐 —— elys 自有，长在全站 token 上，临床稳重
+  { key: 'elys', label: 'elys 风格', group: '推荐', tag: '默认', colors: CURVE_PALETTE },
 
   // —— 期刊配色 —— 照各大期刊正文图的定性用色，投稿 / 出图直接对味
   { key: 'npg', label: 'Nature 风格', group: '期刊配色',

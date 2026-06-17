@@ -422,7 +422,7 @@ const showLeft = ref(true)
 const showHelp = ref(false)
 const isFullscreen = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
-const cmap = ref<HeatmapCmap>('rdbu')
+const cmap = ref<HeatmapCmap>('elys')
 const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, cmap: false, modules: false })
 
 const { colorAt } = usePalette('elys')
@@ -981,7 +981,7 @@ async function bootstrap() {
     primaryMeta.value = d
     allChanNames.value = d.ch_names_all
     defaultChannel.value = d.channel
-    cmap.value = d.unit === 'power' ? 'viridis' : 'rdbu'
+    cmap.value = d.unit === 'power' ? 'viridis' : 'elys' // 绝对功率用顺序色 viridis；有基线校正(ERSP)用招牌 elys
     const m = new Map<string, StudyOutputTfr>()
     m.set(`0::${d.channel}`, d)
     tfrMap.value = m

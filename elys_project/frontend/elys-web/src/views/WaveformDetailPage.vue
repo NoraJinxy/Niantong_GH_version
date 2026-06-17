@@ -249,9 +249,10 @@
           </div>
           <div class="wf-tg">
             <span class="wf-lbl">Y(μV)</span>
-            <select v-model.number="yScaleIdx" class="wf-csel">
-              <option v-for="(y, i) in Y_SCALES" :key="i" :value="i">{{ y.label }}</option>
-            </select>
+            <input v-model="yLoInput" class="wf-cin" type="number" step="5" :placeholder="autoYLoLabel" title="下限(留空=自动)" @keydown.enter="applyYRange" @change="applyYRange" />
+            <span class="wf-dash">–</span>
+            <input v-model="yHiInput" class="wf-cin" type="number" step="5" :placeholder="autoYHiLabel" title="上限(留空=自动)" @keydown.enter="applyYRange" @change="applyYRange" />
+            <button class="wf-ctb" :class="{ 'is-on': !isYManual }" @click="resetYRange">自动</button>
           </div>
           <div class="wf-tg">
             <button class="wf-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
@@ -310,6 +311,7 @@
                     :x-label="`时间 (${xUnit})`"
                     y-label="μV"
                     :y-max="yMaxValue"
+                    :y-domain="effectiveYDomain"
                     :display-mode="displayMode"
                     :show-grid="showGrid"
                     :loading="loading"
@@ -335,7 +337,7 @@
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="yMaxValue" :subtitle="topoSubtitle" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="yMaxValue" :domain="effectiveYDomain" :subtitle="topoSubtitle" />
           </template>
 
           <div v-else class="wf-state">该数据没有可绘制的通道曲线。</div>
@@ -463,6 +465,7 @@ import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { channelColor, PALETTE_DEFS } from '@/composables/observe/channelColor'
 import { fetchTimeseries } from '@/composables/observe/plotCache'
+import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 
 const route = useRoute()
 
@@ -471,15 +474,7 @@ const MAX_CHANNELS = 64
 const MAX_POINTS = 2000 // uPlot Canvas 比 SVG 可承载更多点；仍由后端按窗下采样（上限 8000）
 const CONTINUOUS = ['raw', 'filtered_raw', 'ica_cleaned']
 const MAX_SEG_BOXES = 2000 // 段列表全列出、靠 .wf-seglist 滚动容器承载（仅极端超量时才退回步进器）
-const Y_SCALES = [
-  { label: '自动', max: 0 },
-  { label: '±5', max: 5 },
-  { label: '±10', max: 10 },
-  { label: '±20', max: 20 },
-  { label: '±50', max: 50 },
-  { label: '±100', max: 100 },
-  { label: '±200', max: 200 },
-]
+
 const DATA_TYPE_LABELS: Record<string, string> = {
   raw: '连续原始 (raw)',
   filtered_raw: '滤波后 (filtered_raw)',
@@ -505,9 +500,6 @@ const isMultiOutput = outputIds.length > 1
 const nameHint = qstr('name')
 const typeHint = qstr('type')
 
-// ---------- 因素类型（行/列/叠加）----------
-type Factor = 'seg' | 'chan' | 'none'
-
 // ---------- 状态 ----------
 const tsMap = ref<Map<number, StudyOutputTimeseries>>(new Map()) // segIndex(或产物序号) -> 时域数据
 const loading = ref(true)
@@ -520,22 +512,8 @@ const segAnchor = ref<number | null>(null) // shift 连选锚点（段/Epoch）
 // 叠加维度（#6）：数据集/条件/Epoch(=seg) 或 通道(chan) 三选一在子图内叠加；其余维度自动拆成子图(行/列)。
 // 默认叠加 seg，按通道分面——避免单格几十条叠成意大利面。
 const overlayDim = ref<'seg' | 'chan' | 'none'>('seg')
-// seg 只 1 个值时叠加维度强制落到通道（否则没东西可叠）
-const effectiveOverlay = computed<'seg' | 'chan' | 'none'>(() => (overlayDim.value === 'seg' && segCount.value <= 1 ? 'chan' : overlayDim.value))
-// 当前可分面的维度（值>1、且不是叠加维度）：1 个→画廊；2 个→行×列矩阵；0 个→单格
-const facetDims = computed<Factor[]>(() => {
-  const ov = effectiveOverlay.value
-  const dims: Factor[] = []
-  if (segCount.value > 1 && ov !== 'seg') dims.push('seg')
-  if (orderedSel.value.length > 1 && ov !== 'chan') dims.push('chan')
-  return dims
-})
-// rowFactor/colFactor 由叠加维度派生（只读）：cells / facetStyle / gridCols 等下游沿用不改
-const rowFactor = computed<Factor>(() => (facetDims.value.length >= 2 ? facetDims.value[0] : 'none'))
-const colFactor = computed<Factor>(() => {
-  const d = facetDims.value
-  return d.length >= 2 ? d[1] : d.length === 1 ? d[0] : 'none'
-})
+// effectiveOverlay / facetDims / rowFactor / colFactor / cells / facetStyle / 共享轴
+// 统一由 useFacetGrid 引擎派生（见下方调用，与 PSD/TFR 同源）；本页只注入数据访问 buildCell。
 const reqTmin = ref<number | null>(null) // 秒
 const reqTmax = ref<number | null>(null)
 // view-only 瞬时滤波（仅观察、不存储、不影响 pipeline）
@@ -546,7 +524,11 @@ const notchInput = ref<number | string>('')
 const reqFilter = ref<{ lFreq: number | null; hFreq: number | null; notch: number | null }>({ lFreq: null, hFreq: null, notch: null })
 const winLoInput = ref<number | string>('') // 显示单位
 const winHiInput = ref<number | string>('')
-const yScaleIdx = ref(0)
+// Y 量程(µV)：上/下限各自可填（ERP 成分有正有负 → 非对称）；留空那侧回填对称自动值。
+const yLoManual = ref<number | null>(null)
+const yHiManual = ref<number | null>(null)
+const yLoInput = ref<number | string>('')
+const yHiInput = ref<number | string>('')
 const showGrid = ref(true)
 const showStats = ref(true)
 const showTopo = ref(true)
@@ -559,8 +541,8 @@ const palOpen = ref(false) // 配色下拉是否展开
 const currentPalette = computed(() => PALETTE_DEFS.find((d) => d.key === paletteKey.value) ?? PALETTE_DEFS[0])
 const palette = computed(() => currentPalette.value.colors)
 const paletteContinuous = computed(() => currentPalette.value.continuous === true)
-// 下拉按组分隔：品牌 / 期刊 / 色盲安全 / 通用
-const paletteGroups = (['品牌', '期刊配色', '色盲安全', '通用'] as const).map((label) => ({
+// 下拉按组分隔：推荐 / 期刊 / 色盲安全 / 通用
+const paletteGroups = (['推荐', '期刊配色', '色盲安全', '通用'] as const).map((label) => ({
   label,
   items: PALETTE_DEFS.filter((d) => d.group === label),
 }))
@@ -592,7 +574,21 @@ function onZoom(v: { min: number; max: number } | null) {
   viewXMin.value = v ? v.min : null
   viewXMax.value = v ? v.max : null
 }
-function onAmp(s: number) { ampScale.value = s }
+function onAmp(s: number) {
+  if (!(s > 0)) return
+  if (displayMode.value === 'spread') {
+    ampScale.value = s // 排列模式：缩放每道波高（canvas 内已 clamp 0.1–50）
+    return
+  }
+  // 叠加模式：绕 Y 窗中心收/放 → 写入手动上下限（与拖输入框同源）。s>1（向上滚）=窗收窄=波形放大
+  const [lo, hi] = effectiveYDomain.value
+  const center = (lo + hi) / 2
+  let half = Math.min(Math.max((hi - lo) / 2 / s, 1), 5000)
+  yLoManual.value = round(center - half, 1)
+  yHiManual.value = round(center + half, 1)
+  yLoInput.value = yLoManual.value
+  yHiInput.value = yHiManual.value
+}
 function resetZoom() {
   viewXMin.value = null
   viewXMax.value = null
@@ -739,7 +735,7 @@ function chanValues(name: string): number[] {
   return ch ? ch.values : []
 }
 // 子图强调色 = 该格首条曲线色（按通道一图→通道色；按条件叠加→条件色）
-function cellAccent(cell: Cell): string {
+function cellAccent(cell: { series: { color: string }[] }): string {
   return cell.series[0]?.color || 'var(--c-border)'
 }
 // 导出当前子图为 PNG（一期简版）：白底合成 + 顶部标题，抓子图内 uPlot canvas
@@ -773,104 +769,40 @@ function xsFor(t: StudyOutputTimeseries) {
   return t.times.map((s) => s * xFactor.value)
 }
 
-// ---------- facet 单元（行/列因素 + 格内叠加，通用引擎）----------
-interface Cell {
-  key: string
-  title: string
-  data: number[][]
-  series: { name: string; color: string }[]
-}
-const cells = computed<Cell[]>(() => {
-  const chans = orderedSel.value
-  const segs = sortedSegs.value
-  if (!chans.length || !segs.length) return []
-
-  const rf = rowFactor.value
-  const cf = colFactor.value
-  const segIsGrid = rf === 'seg' || cf === 'seg'
-  const rowVals: (number | string | null)[] = rf === 'seg' ? segs : rf === 'chan' ? chans : [null]
-  const colVals: (number | string | null)[] = cf === 'seg' ? segs : cf === 'chan' ? chans : [null]
-
-  const out: Cell[] = []
-  for (const rv of rowVals) {
-    for (const cv of colVals) {
-      // 解析该格被网格钉死的 seg / channel
-      const pinnedSeg = rf === 'seg' ? (rv as number) : cf === 'seg' ? (cv as number) : undefined
-      const pinnedChan = rf === 'chan' ? (rv as string) : cf === 'chan' ? (cv as string) : undefined
-      const cellSegs: number[] = pinnedSeg != null ? [pinnedSeg] : segs
-      const cellChans: string[] = pinnedChan != null ? [pinnedChan] : chans
-      const multiSeg = cellSegs.length > 1
-      const multiChan = cellChans.length > 1
-
-      let xs: number[] = []
-      const cols: number[][] = []
-      const series: { name: string; color: string }[] = []
-      for (const seg of cellSegs) {
-        const t = tsMap.value.get(seg)
-        if (!t) continue
-        const tx = xsFor(t)
-        if (!xs.length) xs = tx
-        // uPlot AlignedData 要求每条 y 与 x 等长；叠加的多产物时间向量长度不一致时跳过该段，避免错位/崩溃
-        if (tx.length !== xs.length) continue
-        const sc = scaleFor(t)
-        for (const chan of cellChans) {
-          const ch = t.channels.find((c) => c.name === chan)
-          if (!ch || ch.values.length !== xs.length) continue
-          cols.push(ch.values.map((v) => v * sc))
-          const nm = multiSeg && multiChan ? `${segLabel(seg)}·${chan}` : multiSeg ? segLabel(seg) : chan
-          // 颜色编码"叠加因素"：段叠加→按段着色；否则按通道
-          const color = !segIsGrid && multiSeg ? segColor(seg) : chColor(allChanNames.value.indexOf(chan))
-          series.push({ name: nm, color })
-        }
+// ---------- facet 布局（统一走 useFacetGrid，与 PSD/TFR 同源）----------
+// 本页只注入「每格画什么」(buildCell)：多段×多通道叠加 + 单位换算(scaleFor) → µV，颜色按叠加维度编码。
+// rowFactor/colFactor 仍取出，供下方「把段推成分面时自动补第 2 段」(maybeAddSecondSeg) 用。
+const { effectiveOverlay, facetDims, rowFactor, colFactor, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
+  segs: () => sortedSegs.value,
+  chans: () => orderedSel.value,
+  segCount: () => segCount.value,
+  overlayDim,
+  segLabel,
+  buildCell: ({ segs, chans, multiSeg, multiChan, segIsGrid }) => {
+    let xs: number[] = []
+    const cols: number[][] = []
+    const series: { name: string; color: string }[] = []
+    for (const seg of segs) {
+      const t = tsMap.value.get(seg)
+      if (!t) continue
+      const tx = xsFor(t)
+      if (!xs.length) xs = tx
+      // uPlot AlignedData 要求每条 y 与 x 等长；叠加的多产物时间向量长度不一致时跳过该段，避免错位/崩溃
+      if (tx.length !== xs.length) continue
+      const sc = scaleFor(t)
+      for (const chan of chans) {
+        const ch = t.channels.find((c) => c.name === chan)
+        if (!ch || ch.values.length !== xs.length) continue
+        cols.push(ch.values.map((v) => v * sc))
+        const nm = multiSeg && multiChan ? `${segLabel(seg)}·${chan}` : multiSeg ? segLabel(seg) : chan
+        // 颜色编码「叠加因素」：段叠加→按段着色；否则按通道
+        const color = !segIsGrid && multiSeg ? segColor(seg) : chColor(allChanNames.value.indexOf(chan))
+        series.push({ name: nm, color })
       }
-      const titleParts: string[] = []
-      if (rf !== 'none') titleParts.push(rf === 'seg' ? segLabel(rv as number) : String(rv))
-      if (cf !== 'none') titleParts.push(cf === 'seg' ? segLabel(cv as number) : String(cv))
-      // key 带上当前选中段签名：改选数据集/段时强制重建子图（与矩阵布局一致），规避复用组件不刷新致空图
-      out.push({ key: `r:${String(rv)}|c:${String(cv)}|s:${segs.join(',')}`, title: titleParts.join(' · '), data: [xs, ...cols], series })
     }
-  }
-  return out
+    return { data: [xs, ...cols], series }
+  },
 })
-
-// facet 网格列模板（叠加模型 #6）：
-// - 两个分面维度（行×列，三要素全用上）→ 严格矩阵，列数 = 列因素值个数
-// - 单个 / 零分面维度 → 画廊式自适应换行（auto 按行列铺排）
-const facetStyle = computed(() => {
-  const rf = rowFactor.value
-  const cf = colFactor.value
-  if (rf !== 'none' && cf !== 'none') {
-    const n = (cf === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
-    return { gridTemplateColumns: `repeat(${n}, minmax(220px, 1fr))` }
-  }
-  return { gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }
-})
-
-// 图例去重：只在一张子图画（矩阵→右上角；画廊/单因素→第一格），各格内容相同无需重复
-const legendCellIndex = computed(() => {
-  if (rowFactor.value !== 'none' && colFactor.value !== 'none') {
-    const cols = (colFactor.value === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
-    return cols - 1
-  }
-  return 0
-})
-// 多子图时压缩坐标轴占用（去 μV/时间 标题、缩小刻度区）
-const denseAxes = computed(() => cells.value.length > 1)
-// 共享 facet 轴（仅严格矩阵布局、列数已知）：y 刻度只画最左列、x 刻度只画最底行
-const gridCols = computed(() => {
-  if (rowFactor.value === 'none' || colFactor.value === 'none') return 0
-  return (colFactor.value === 'seg' ? sortedSegs.value.length : orderedSel.value.length) || 1
-})
-function cellHideY(ci: number): boolean {
-  const cols = gridCols.value
-  return cols > 0 && ci % cols !== 0
-}
-function cellHideX(ci: number): boolean {
-  const cols = gridCols.value
-  if (cols <= 0) return false
-  const lastRow = Math.floor((cells.value.length - 1) / cols)
-  return Math.floor(ci / cols) !== lastRow
-}
 
 const hasCurves = computed(() => allChanNames.value.length > 0 && (ts.value?.times.length || 0) > 1)
 
@@ -879,7 +811,29 @@ const autoYMax = computed(() => {
   for (const cell of cells.value) for (let i = 1; i < cell.data.length; i++) for (const v of cell.data[i]) m = Math.max(m, Math.abs(v))
   return Math.max(2, Math.ceil((m * 1.2) / 2) * 2)
 })
-const yMaxValue = computed(() => Y_SCALES[yScaleIdx.value].max || autoYMax.value)
+// 生效 Y 量程（非对称 [lo,hi]）：手动值优先，缺的那侧回填 ∓autoYMax；非法组合(上≤下)退回对称自动。
+// overlay 主图直接用它；spread 每道满量程 + 地形图 ±vmax 仍要对称 → 取两端最大绝对值 yMaxValue。
+const effectiveYDomain = computed<[number, number]>(() => {
+  const a = autoYMax.value
+  let lo = yLoManual.value ?? -a
+  let hi = yHiManual.value ?? a
+  if (hi <= lo) { lo = -a; hi = a }
+  return [lo, hi]
+})
+const isYManual = computed(() => yLoManual.value !== null || yHiManual.value !== null)
+const yMaxValue = computed(() => Math.max(Math.abs(effectiveYDomain.value[0]), Math.abs(effectiveYDomain.value[1])) || 2)
+const autoYLoLabel = computed(() => String(-Math.round(autoYMax.value)))
+const autoYHiLabel = computed(() => String(Math.round(autoYMax.value)))
+function applyYRange() {
+  yLoManual.value = toNum(yLoInput.value)
+  yHiManual.value = toNum(yHiInput.value)
+}
+function resetYRange() {
+  yLoManual.value = null
+  yHiManual.value = null
+  yLoInput.value = ''
+  yHiInput.value = ''
+}
 
 // ---------- 区间统计（逐 段×通道，与布局无关）----------
 interface StatRow {
@@ -1334,8 +1288,23 @@ watch([() => sortedSegs.value.join(','), reqTmin, reqTmax, () => JSON.stringify(
   resetZoom() // 取新窗口的数据 = 新视图，清掉旧的视觉缩放
   void load()
 })
-// 改 Y 档 = 重设幅度基准、切叠加/排列 = 幅度语义变 → 复位幅度系数（保留时间缩放）
-watch([yScaleIdx, displayMode], () => { ampScale.value = 1 })
+// 改 Y 轴上限 = 重设幅度基准、切叠加/排列 = 幅度语义变 → 复位幅度系数（保留时间缩放）
+watch([yLoManual, yHiManual, displayMode], () => { ampScale.value = 1 })
+// 滚轮视觉缩放 → 回写「时间窗」输入框，让工具条数字始终 = 屏上可见窗（与频域/时频一致）。
+// 注意：时域工具条的时间窗本是取数窗（reqTmin/Max），与纯前端视觉缩放(viewX*)是两套；此处只做显示同步。
+// 退出缩放（状态条 ✕ / 缩回全幅）→ 回填当前已取窗口；再取数后由 load() 自己回填，故只认非空视图。
+watch([viewXMin, viewXMax], ([mn, mx]) => {
+  if (mn != null && mx != null) {
+    winLoInput.value = round(mn, xPrec.value)
+    winHiInput.value = round(mx, xPrec.value)
+  } else {
+    const t = ts.value
+    if (t) {
+      winLoInput.value = round(t.tmin * xFactor.value, xPrec.value)
+      winHiInput.value = round(t.tmax * xFactor.value, xPrec.value)
+    }
+  }
+})
 
 // ---------- 通道选择 ----------
 // 通道点选：单击单选 · Ctrl/⌘ 加选切换 · Shift 连选 [锚点..当前]
@@ -1604,7 +1573,8 @@ onUnmounted(() => {
 .wf-err-title { font-size: 15px; font-weight: 600; }
 .wf-err-msg { color: var(--c-text-2); font-size: 13px; max-width: 480px; }
 
-.wf-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: 320px; gap: 10px; overflow: auto; align-content: start; }
+/* grid-auto-rows 用 minmax(240px,1fr)：行少时 1fr 撑满容器高度（自适应补白），行多时回落 240px 最小高并滚动 */
+.wf-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: minmax(240px, 1fr); gap: 10px; overflow: auto; align-content: stretch; }
 .wf-facet.is-few { display: flex; }
 .wf-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .wf-facet.is-few .wf-cell { flex: 1; min-width: 0; }

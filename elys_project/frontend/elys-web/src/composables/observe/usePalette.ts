@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue'
 import { channelColor, PALETTE_DEFS } from './channelColor'
 
-const PALETTE_GROUP_ORDER = ['品牌', '期刊配色', '色盲安全', '通用'] as const
+const PALETTE_GROUP_ORDER = ['推荐', '期刊配色', '色盲安全', '通用'] as const
 
 export function usePalette(defaultKey = 'elys') {
   const paletteKey = ref<string>(defaultKey)
@@ -13,7 +13,7 @@ export function usePalette(defaultKey = 'elys') {
   const palette = computed(() => currentPalette.value.colors)
   const paletteContinuous = computed(() => currentPalette.value.continuous === true)
 
-  // 下拉按组分隔：品牌 / 期刊配色 / 色盲安全 / 通用
+  // 下拉按组分隔：推荐 / 期刊配色 / 色盲安全 / 通用
   const paletteGroups = PALETTE_GROUP_ORDER.map((label) => ({
     label,
     items: PALETTE_DEFS.filter((d) => d.group === label),

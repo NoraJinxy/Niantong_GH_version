@@ -230,6 +230,7 @@
             <span class="ov-help-trigger">🖱 操作提示</span>
             <div v-if="showHelp" class="ov-help-pop">
               <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放频率轴</span></div>
+              <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调 dB 范围</span></div>
               <div class="ov-help-row"><kbd>拖拽</kbd><span>选频段区间</span></div>
               <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
               <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标</span></div>
@@ -299,6 +300,7 @@
                     @lock="onLock"
                     @unlock="onUnlock"
                     @zoom="onZoom"
+                    @amp="onAmp"
                   />
                 </div>
               </section>
@@ -614,6 +616,19 @@ const effectiveYDomain = computed<[number, number] | null>(() => {
   if (lo === null || hi === null || hi <= lo) return auto
   return [lo, hi]
 })
+// Ctrl+滚轮（与时域/TFR 统一手势）：绕 dB 窗中心收/放 → 写入手动上下限，与拖输入框同源。
+// scale>1（向上滚）→ 窗口收窄→曲线起伏放大；与时域「向上滚=波形放大」方向一致。
+function onAmp(scale: number) {
+  const cur = effectiveYDomain.value
+  if (!cur || scale <= 0) return
+  const center = (cur[0] + cur[1]) / 2
+  let half = (cur[1] - cur[0]) / 2 / scale
+  half = Math.min(Math.max(half, 0.5), 500) // 防滚到 0 / 爆量程
+  yLoManual.value = round(center - half, 1)
+  yHiManual.value = round(center + half, 1)
+  yLoInput.value = yLoManual.value
+  yHiInput.value = yHiManual.value
+}
 const autoYLoLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomainAll.value[0])) : '自动'))
 const autoYHiLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomainAll.value[1])) : '自动'))
 

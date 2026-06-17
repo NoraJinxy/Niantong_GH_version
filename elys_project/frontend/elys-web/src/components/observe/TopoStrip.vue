@@ -2,9 +2,9 @@
   <div class="topo-strip">
     <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
       <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
-        <span>{{ loLabel ?? ('−' + fmtScale(vmax)) }}</span>
+        <span>{{ loLabel ?? axisLabel(barLo) }}</span>
         <span style="width: 88px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); background: linear-gradient(to right, rgb(38,92,186), rgb(245,247,250), rgb(206,52,48));"></span>
-        <span>{{ hiLabel ?? ('+' + fmtScale(vmax)) }}</span>
+        <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
         <span style="margin-left: 2px;">{{ unit }}</span>
       </span>
     </div>
@@ -26,17 +26,30 @@
 // 建矩阵那笔重活默认派给 Web Worker（topoKernel.worker），首屏/切组主线程不卡；worker 不可用时同步兜底。
 // 绘制：色面 + 头罩圈 + 鼻耳 + 电极点全部画在**同一张 canvas、同一套坐标变换**里——
 // 旧版「canvas 色面 + SVG 头罩」两层叠放会在真机上对不齐，单层从根上消除该问题。
-import { onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { TOPO_RES as RES, buildTopoKernel } from './topoKernel'
 
 interface TopoPoint { name: string; x: number; y: number; value: number }
 interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null }
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV' })
+// vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
+// domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——白仍钉在 0，正侧按 hi、负侧按 |lo| 各自归一，
+//         色阶条与标签随之非对称。两者二选一：给了 domain 就用它，否则回退 ±vmax。
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null })
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
   return v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
 }
+// 带符号轴标签（0 不带号；±vmax 对称时退化为旧的「−x / +x」）
+function axisLabel(v: number): string {
+  if (Math.abs(v) < 1e-9) return '0'
+  return (v > 0 ? '+' : '−') + fmtScale(Math.abs(v))
+}
+// 色阶条两端值：给了 domain 用 [lo,hi]，否则对称 ±vmax
+const barLo = computed(() => (props.domain ? props.domain[0] : -props.vmax))
+const barHi = computed(() => (props.domain ? props.domain[1] : props.vmax))
+// 色阶条渐变固定 蓝→白→红、白居中：值按 [lo,hi] 线性铺满整条色板（蓝=lo·白=窗中点·红=hi），
+// 非对称窗（如 0–12）也走满蓝→红，不再因「白钉死 0µV」退化成半截白→红（对标 EEGLAB 色限）。
 
 // ── 配色 LUT：发散色（负→蓝、零→近白、正→红），按归一化 t∈[-1,1] 预烤；vmax 只用于把数值映成 t，不进 LUT ──
 const LUT_N = 512
@@ -157,21 +170,21 @@ function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent) {
 }
 
 // 一格全绘：色面（M·v→LUT→putImageData）+ 头罩圈 + 鼻耳 + 电极点，同一坐标变换 mapX/mapY，物理对齐
-function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], vmax: number, seg: number) {
-  // 1) 色面算进离屏 RES×RES
+function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], lo: number, hi: number, seg: number) {
+  // 1) 色面算进离屏 RES×RES。值按 [lo,hi] 线性铺满 蓝(lo)→白(中点)→红(hi)：非对称窗也走满蓝红、不退化半截。
   const o = ensureOffscreen()
   const data = o.img.data
   const { inside, M, N } = kernel
   const v = valueVector(points, kernel.names)
-  const invVmax = vmax > 0 ? 1 / vmax : 1
+  const span = hi - lo
+  const inv = span > 0 ? 2 / span : 0 // t = (s-lo)*inv - 1 ∈ [-1,1]，白落在窗中点
   for (let p = 0; p < inside.length; p++) {
     let s = 0
     const base = p * N
     for (let j = 0; j < N; j++) s += M[base + j] * v[j]
-    let t = s * invVmax
+    let t = Number.isFinite(s) && span > 0 ? (s - lo) * inv - 1 : 0 // span≤0(全平/无量程)→白
     if (t < -1) t = -1
     else if (t > 1) t = 1
-    else if (!Number.isFinite(t)) t = 0
     const li = (((t + 1) * 0.5 * (LUT_N - 1)) | 0) * 3
     const di = inside[p] * 4
     data[di] = LUT[li]
@@ -240,18 +253,20 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
 }
 
 function renderAll() {
-  const vmax = props.vmax
+  // 色阶域：给了非对称 domain 用 [lo,hi]，否则对称 [−vmax, vmax]；值线性铺满 蓝→白→红
+  const lo = barLo.value
+  const hi = barHi.value
   for (const c of props.cells) {
     if (!c.points || c.points.length < 3) continue
     const canvas = canvasMap.get(c.seg)
     if (!canvas) continue
     const kernel = getKernel(sigOf(c.points), c.points)
     if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 本格留空（无 montage 提示走 v-else）
-    drawCell(canvas, kernel, c.points, vmax, c.seg)
+    drawCell(canvas, kernel, c.points, lo, hi, c.seg)
   }
 }
 
-watch(() => [props.cells, props.vmax], async () => { await nextTick(); renderAll() }, { deep: false })
+watch(() => [props.cells, props.vmax, props.domain], async () => { await nextTick(); renderAll() }, { deep: false })
 onMounted(async () => { await nextTick(); renderAll() })
 onUnmounted(() => { worker?.terminate(); worker = null })
 </script>

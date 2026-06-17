@@ -12,7 +12,7 @@
 // 渲染：原始矩阵(nT×nF)烤进离屏 ImageData，再 drawImage 按视窗子矩形拉伸+双线性插值到绘图区（MNE 风平滑面）。
 // 性能：底图(面+轴+频段线+刺激线)缓存在 baseCv，鼠标移动只 blit 底图 + 叠十字线，不重算面。
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
-import { buildHeatmapLut, HEATMAP_LUT_N, type HeatmapCmap } from './heatmapColor'
+import { buildHeatmapLut, HEATMAP_LUT_N, IS_SEQUENTIAL, type HeatmapCmap } from './heatmapColor'
 
 interface Roi {
   t0: number
@@ -29,7 +29,7 @@ const props = withDefaults(
     freqs: number[]
     /** 时间轴（升序，s），与 power 列对齐。 */
     times: number[]
-    /** 色阶上界：rdbu 用对称 ±zmax、viridis 用 0..zmax。父层跨格取共享值保证可比。 */
+    /** 色阶上界：发散色用对称 ±zmax、顺序色用 0..zmax。父层跨格取共享值保证可比。 */
     zmax: number
     cmap?: HeatmapCmap
     unit?: string
@@ -54,7 +54,7 @@ const props = withDefaults(
     viewFMax?: number | null
   }>(),
   {
-    cmap: 'rdbu',
+    cmap: 'elys',
     unit: 'dB',
     showGrid: true,
     tZero: true,
@@ -80,6 +80,8 @@ const emit = defineEmits<{
   (e: 'unlock'): void
   /** 滚轮缩放时间轴：新可见范围（s），null=退回全幅。父层广播给所有格。 */
   (e: 'zoom', view: { min: number; max: number } | null): void
+  /** Ctrl+滚轮调色阶：相对倍率（>1=向上滚），父层据此收/放 zmax；与 1D 图 Ctrl+滚轮调幅同契约。 */
+  (e: 'amp', scale: number): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -203,7 +205,7 @@ function buildMatrix() {
   const img = mctx.createImageData(nT, nF)
   const d = img.data
   const s = props.zmax > 0 ? props.zmax : 1
-  const seq = props.cmap === 'viridis'
+  const seq = IS_SEQUENTIAL[props.cmap] // 顺序色 0..zmax；发散色 ±zmax（与 heatmapColor.heatmapLutIndex 同口径）
   for (let iF = 0; iF < nF; iF++) {
     const row = props.power[iF] || []
     const imgRow = nF - 1 - iF // 翻转：低频 iF=0 → 画到底部
@@ -212,7 +214,7 @@ function buildMatrix() {
       const v = row[iT]
       let li: number
       if (!Number.isFinite(v)) {
-        li = seq ? 0 : (HEATMAP_LUT_N - 1) >> 1 // NaN → viridis 最低 / rdbu 白心
+        li = seq ? 0 : (HEATMAP_LUT_N - 1) >> 1 // NaN → 顺序色最低 / 发散色白心
       } else if (seq) {
         let k = v / s
         k = k < 0 ? 0 : k > 1 ? 1 : k
@@ -548,6 +550,11 @@ function onWheel(e: WheelEvent) {
   const g = computeGeom()
   if (!g) return
   e.preventDefault()
+  // Ctrl/⌘ + 滚轮：调色阶（向上滚=色阶收窄=更饱和），与 1D 图 Ctrl+滚轮调幅一致
+  if (e.ctrlKey || e.metaKey) {
+    emit('amp', e.deltaY < 0 ? 1.15 : 1 / 1.15)
+    return
+  }
   const ext = dataExtent(props.times)
   const min = g.t0
   const max = g.t1
