@@ -284,7 +284,7 @@
                     :loading="loading"
                     :region="region"
                     :ref-lines="false"
-                    :markers="psdMarkers"
+                    :markers="cellPsdMarkers(cell.segs)"
                     :highlight="focusChannel"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
@@ -899,11 +899,18 @@ const BAND_COLORS: Record<string, string> = { delta: '#378ADD', theta: '#1D9E75'
 function bandColor(name: string): string {
   return BAND_COLORS[name] ?? 'var(--c-border)'
 }
-// α 峰 / IAF 标记（取主读数通道）
-const psdMarkers = computed(() => {
-  const s = readoutStat.value
-  return s && Number.isFinite(s.iaf) ? [{ x: s.iaf, label: `IAF ${s.iaf.toFixed(1)}`, color: '#BA7517' }] : []
-})
+// α 峰 / IAF 标记：单 seg 格取该条件下 readout 通道的 IAF；多 seg 叠加格取全局 readout stat
+function cellPsdMarkers(cellSegs: number[]): { x: number; label: string; color: string }[] {
+  const chanName = readoutStat.value?.chan
+  if (!chanName) return []
+  if (cellSegs.length !== 1) {
+    const s = readoutStat.value
+    return s && Number.isFinite(s.iaf) ? [{ x: s.iaf, label: `IAF ${s.iaf.toFixed(1)}`, color: '#BA7517' }] : []
+  }
+  const row = statsRows.value.find((r) => r.seg === cellSegs[0] && r.chan === chanName)
+  if (!row || !Number.isFinite(row.iaf)) return []
+  return [{ x: row.iaf, label: `IAF ${row.iaf.toFixed(1)}`, color: '#BA7517' }]
+}
 
 // ---------- 频段地形图（selectedBand / 自定义区间 / 游标频率 → 头皮投影，复用 TopoStrip）----------
 const showTopo = ref(true)

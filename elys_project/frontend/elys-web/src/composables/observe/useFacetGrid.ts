@@ -24,6 +24,8 @@ export interface FacetCell {
   /** uPlot AlignedData：[x[], ...每条曲线 y[]]。 */
   data: number[][]
   series: { name: string; color: string }[]
+  /** 本格涉及的段索引（seg 为 grid 因素时为 1 个，否则为全部所选段）。 */
+  segs: number[]
 }
 
 export interface FacetGrid {
@@ -109,6 +111,7 @@ export function useFacetGrid(opts: {
           title: titleParts.join(' · '),
           data,
           series,
+          segs: cellSegs,
         })
       }
     }
