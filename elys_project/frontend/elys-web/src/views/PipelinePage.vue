@@ -9,14 +9,6 @@
         title="拖动调整左侧节点库宽度"
         @mousedown="startDrawerDrag('library', $event)"
       ></div>
-      <div
-        v-if="inspectorVisible"
-        class="drawer-handle drawer-handle--seam-right"
-        :class="{ 'is-dragging': drawerDragging === 'inspector' }"
-        :style="{ right: inspectorWidth + 'px' }"
-        title="拖动调整右侧检查器宽度"
-        @mousedown="startDrawerDrag('inspector', $event)"
-      ></div>
       <aside
         class="library"
         :class="{ 'is-hidden': !libraryVisible }"
@@ -566,6 +558,14 @@
         :style="{ width: inspectorWidth + 'px' }"
         @click.stop
       >
+        <!-- 手柄在 inspector 内部，随 inspector 左边缘自动移动，无需外部 right 绑定 -->
+        <div
+          class="drawer-handle drawer-handle--seam-right"
+          :class="{ 'is-dragging': drawerDragging === 'inspector' }"
+          title="拖动调整右侧检查器宽度"
+          @mousedown="startDrawerDrag('inspector', $event)"
+        ></div>
+        <div class="inspector-inner">
         <div v-if="!selectedNode || !selectedNodeSpec" class="inspector-empty">
           <div class="inspector-empty-icon" aria-hidden="true">
             <IconLine name="clipboard" :size="36" :stroke-width="1.4" />
@@ -1081,6 +1081,7 @@
             </div>
           </div>
         </section>
+        </div><!-- /inspector-inner -->
       </aside>
     </div>
 </template>
@@ -2321,6 +2322,13 @@ function bindHiDpiLiteGraphEvents(canvas: LGraphCanvas, canvasEl: HTMLCanvasElem
 
   canvasWithEvents.processMouseDown = (event) => {
     if (event.which !== 3 && event.button !== 2) closePipelineContextMenu()
+    // LiteGraph uses pointer_is_down to detect two-finger touch (right-click emulation).
+    // When mouseup fires outside the canvas the flag gets stuck, so the next left-click
+    // is mis-detected as pointer_is_double=true and triggers the context menu.
+    // Force-reset before every left-click to prevent the false positive.
+    if (event.button === 0) {
+      ;(canvasWithEvents as unknown as Record<string, unknown>).pointer_is_down = false
+    }
     return processMouseDown(toHiDpiEvent(event))
   }
   canvasWithEvents.processMouseMove = (event) => processMouseMove(toHiDpiEvent(event))
@@ -3097,11 +3105,22 @@ function describeError(error: unknown, fallback: string) {
 .inspector {
   right: 0;
   z-index: 30;
-  padding: 12px;
+  padding: 0;
   border-left: 1px solid var(--c-border);
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.04);
   min-width: 320px;
   max-width: 800px;
+  overflow: visible; /* 允许内部手柄向左溢出至画布缝处 */
+}
+
+.inspector-inner {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  min-height: 0;
 }
 
 .inspector.is-hidden {
@@ -3130,8 +3149,8 @@ function describeError(error: unknown, fallback: string) {
 }
 
 .drawer-handle--seam-right {
-  /* 配合 :style="{ right: inspectorWidth }" —— 横跨右侧检查器的左缝 */
-  transform: translateX(50%);
+  /* 手柄在 inspector 内部，left: -7px 使中心骑在 inspector 左缝；不依赖外部 right 绑定 */
+  left: -7px;
 }
 
 .drawer-handle::after {

@@ -116,10 +116,10 @@
               <strong>文件列表</strong>
               <span class="ldp-section-count">{{ hitFiles.length }} 条</span>
               <select v-model="groupByMode" class="ldp-group-select">
+                <option value="none">不分组</option>
                 <option value="subject">按被试</option>
                 <option value="task">按任务</option>
                 <option value="session">按 Session</option>
-                <option value="none">不分组</option>
               </select>
             </div>
             <div
@@ -130,7 +130,7 @@
             >
               <div v-if="!hitFiles.length" class="ldp-empty-hint">无命中文件</div>
               <template v-for="group in groupedHitFiles" :key="group.name">
-                <div class="ldp-file-group-header">
+                <div v-if="groupByMode !== 'none'" class="ldp-file-group-header">
                   <span><IconLine name="chevronDown" :size="11" /> {{ group.name }}</span>
                   <span class="ldp-group-count">{{ group.files.length }} 条</span>
                 </div>
@@ -141,6 +141,7 @@
                   :class="{
                     'is-selected': fileListSelected.has(file.id),
                     'is-in-selected': selectedFileIds.includes(file.id),
+                    'is-flat': groupByMode === 'none',
                   }"
                   @click="handleFileListClick($event, file.id)"
                 >
@@ -254,6 +255,11 @@ interface LoadDataFilter {
   dataset_asset_id?: string | null
   dataset_asset_ids?: FilterListValue
   mount_id?: string | null
+  // UI 状态持久化字段（explicit 模式下后端不读，仅用于面板重开时恢复 exclude 选择）
+  _ui_exclude_subjects?: string[]
+  _ui_exclude_sessions?: string[]
+  _ui_exclude_tasks?: string[]
+  _ui_exclude_runs?: string[]
 }
 
 interface LoadDataParams {
@@ -288,7 +294,7 @@ const emit = defineEmits<{
 
 const currentTab = ref<TabKey>('subject')
 const filterText = ref('')
-const groupByMode = ref<GroupMode>('subject')
+const groupByMode = ref<GroupMode>('none')
 
 const includes = ref({
   subject: new Set<string>(),
@@ -705,6 +711,18 @@ function emitChange() {
     return v.length ? v : 'all'
   })()
 
+  // 保存 exclude 状态（后端在 explicit 模式下不读这些字段，仅用于面板重开时 UI 恢复）
+  const _ui_exclude_subjects = [...excludes.value.subject]
+  const _ui_exclude_sessions = [...excludes.value.exp]
+    .filter((t) => t.startsWith('ses:'))
+    .map((t) => t.slice(4))
+  const _ui_exclude_tasks = [...excludes.value.exp]
+    .filter((t) => t.startsWith('task:'))
+    .map((t) => t.slice(5))
+  const _ui_exclude_runs = [...excludes.value.exp]
+    .filter((t) => t.startsWith('run:'))
+    .map((t) => t.slice(4))
+
   // 永远走 explicit 模式 —— Selected File 列表 = LoadData 真正的输出集合
   // Selected File 空 → dataset_ids 空 → 后端 validator 报 LOAD_DATA_DATASET_IDS_REQUIRED
   emit('update:modelValue', {
@@ -715,6 +733,10 @@ function emitChange() {
       sessions,
       tasks,
       runs,
+      _ui_exclude_subjects,
+      _ui_exclude_sessions,
+      _ui_exclude_tasks,
+      _ui_exclude_runs,
     },
     dataset_ids: [...selectedFileIds.value],
   })
@@ -735,21 +757,36 @@ function restoreStateFromParams(params: LoadDataParams) {
     fileListSelected.value = new Set()
     selectedListSelected.value = new Set()
 
-    if (params.selection_mode === 'filter') {
-      const f = params.dataset_filter
-      if (Array.isArray(f.subjects)) {
-        for (const s of f.subjects) includes.value.subject.add(s)
-      }
-      if (Array.isArray(f.sessions)) {
-        for (const s of f.sessions) includes.value.exp.add(`ses:${s}`)
-      }
-      if (Array.isArray(f.tasks)) {
-        for (const t of f.tasks) includes.value.exp.add(`task:${t}`)
-      }
-      if (Array.isArray(f.runs)) {
-        for (const r of f.runs) includes.value.exp.add(`run:${r}`)
-      }
-    } else if (params.selection_mode === 'explicit' && params.dataset_ids.length > 0) {
+    // 无论 filter 还是 explicit 模式，dataset_filter 里都存了 include 状态
+    const f = params.dataset_filter
+    if (Array.isArray(f.subjects)) {
+      for (const s of f.subjects) includes.value.subject.add(s)
+    }
+    if (Array.isArray(f.sessions)) {
+      for (const s of f.sessions) includes.value.exp.add(`ses:${s}`)
+    }
+    if (Array.isArray(f.tasks)) {
+      for (const t of f.tasks) includes.value.exp.add(`task:${t}`)
+    }
+    if (Array.isArray(f.runs)) {
+      for (const r of f.runs) includes.value.exp.add(`run:${r}`)
+    }
+
+    // 恢复 exclude 状态（_ui_exclude_* 字段）
+    if (Array.isArray(f._ui_exclude_subjects)) {
+      for (const s of f._ui_exclude_subjects) excludes.value.subject.add(s)
+    }
+    if (Array.isArray(f._ui_exclude_sessions)) {
+      for (const s of f._ui_exclude_sessions) excludes.value.exp.add(`ses:${s}`)
+    }
+    if (Array.isArray(f._ui_exclude_tasks)) {
+      for (const t of f._ui_exclude_tasks) excludes.value.exp.add(`task:${t}`)
+    }
+    if (Array.isArray(f._ui_exclude_runs)) {
+      for (const r of f._ui_exclude_runs) excludes.value.exp.add(`run:${r}`)
+    }
+
+    if (params.dataset_ids && params.dataset_ids.length > 0) {
       selectedFileIds.value = [...params.dataset_ids]
     }
     triggerSetMutation()
@@ -1118,6 +1155,11 @@ watch(
   line-height: 1.6;
   white-space: nowrap;
   min-width: max-content;
+}
+
+/* 平铺模式：没有分组头，文件名贴左对齐，去掉为缩进留的左 padding */
+.ldp-file-item.is-flat {
+  padding-left: 10px;
 }
 
 .ldp-file-item:hover {
