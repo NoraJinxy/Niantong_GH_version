@@ -66,14 +66,26 @@ def _run_spectral(raw: Any, params: dict[str, Any], filter_type: str, method: st
 
 
 def _run_notch(raw: Any, params: dict[str, Any], method: str) -> Any:
-    """工频陷波：走 MNE raw.notch_filter()。中心频率 × 谐波展开成 [50, 100, 150 …]。"""
+    """工频陷波：走 MNE raw.notch_filter()。中心频率 × 谐波展开成 [50, 100, 150 …]。
+
+    采样率定 Nyquist（= sfreq/2，可表示的最高频率）：高于 Nyquist 的谐波物理上根本测不到、
+    更无从陷除——128Hz 数据（Nyquist 64）下的 100/150Hz 就是够不着。MNE 碰到这种频率会直接
+    报错、连累整条链失败。所以这里先按 Nyquist 把够不着的谐波筛掉，只陷有效的那几个：专家照常
+    填 3 次谐波，引擎做物理上做得到的部分，而不是因为一个够不着的谐波把整条链拖垮。
+    """
     if method not in {"fir", "iir", "spectrum_fit"}:
         raise ValueError("Notch method must be fir, iir, or spectrum_fit.")
     freq = _positive_float_or_none(params.get("notch_freq"))
     if freq is None:
         raise ValueError("Notch filter requires a positive notch_freq (line frequency).")
     harmonics = _resolve_int(params.get("notch_harmonics"), default=1, lo=1, hi=20, name="notch_harmonics")
-    freqs = [freq * order for order in range(1, harmonics + 1)]
+    nyquist = float(raw.info["sfreq"]) / 2.0
+    freqs = [freq * order for order in range(1, harmonics + 1) if freq * order < nyquist]
+    if not freqs:
+        raise ValueError(
+            f"Notch base frequency {freq:g}Hz is at or above the Nyquist frequency "
+            f"{nyquist:g}Hz (sampling rate {nyquist * 2:g}Hz); cannot notch this recording."
+        )
 
     filtered = raw.copy().load_data()
     filtered.notch_filter(freqs=freqs, method=method, verbose="ERROR")
