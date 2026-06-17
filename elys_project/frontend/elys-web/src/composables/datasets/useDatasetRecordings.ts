@@ -9,7 +9,7 @@
 // DatasetsPage.vue 拆分批 4。
 
 import { computed, ref, type ComputedRef } from 'vue'
-import { recordingApi } from '@/api/datasetAssets'
+import { recordingApi, type RecordingQaResponse, type RecordingQaReviewPayload } from '@/api/datasetAssets'
 import type { DatasetAsset, DatasetFile, Recording, RecordingRelabelPayload, RecordingVersion } from '@/types'
 import {
   fileBucketOf,
@@ -64,6 +64,9 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
   // 每条记录的「第几次上传」历史（含真实源文件名）。懒加载、按 version_seq 倒序。
   const recordingVersionsById = ref<Record<string, RecordingVersion[]>>({})
   const recordingVersionsLoading = ref<Record<string, boolean>>({})
+  // 每条记录的质控（mock）报告，懒加载
+  const recordingQaById = ref<Record<string, RecordingQaResponse>>({})
+  const recordingQaLoading = ref<Record<string, boolean>>({})
   const isLoadingRecordings = ref(false)
   const recordingsError = ref('')
 
@@ -141,6 +144,8 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     recordingFilesError.value = {}
     recordingVersionsById.value = {}
     recordingVersionsLoading.value = {}
+    recordingQaById.value = {}
+    recordingQaLoading.value = {}
     if (!asset || !context) return
 
     isLoadingRecordings.value = true
@@ -169,6 +174,8 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     recordingFilesError.value = {}
     recordingVersionsById.value = {}
     recordingVersionsLoading.value = {}
+    recordingQaById.value = {}
+    recordingQaLoading.value = {}
     recordingsError.value = ''
   }
 
@@ -230,6 +237,54 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     await recordingApi.relabel(context.studyId, recording.id, payload)
   }
 
+  // 删除/排除一条采集记录（不可恢复）。调用方负责删除后刷新列表。
+  async function deleteRecording(recording: DatasetRecordingRow) {
+    const context = recordsStudyContext.value
+    if (!context) throw new Error('缺少研究项上下文，无法删除记录')
+    await recordingApi.remove(context.studyId, recording.id)
+  }
+
+  // 质控：读已有报告（懒加载）。无报告/失败时落空对象，抽屉据此显示「跑质控」。
+  async function loadRecordingQa(recording: DatasetRecordingRow, force = false) {
+    const context = recordsStudyContext.value
+    if (!context) return
+    if (!force && recordingQaById.value[recording.id]) return
+    recordingQaLoading.value = { ...recordingQaLoading.value, [recording.id]: true }
+    try {
+      const res = await recordingApi.qaReport(context.studyId, recording.id)
+      recordingQaById.value = { ...recordingQaById.value, [recording.id]: res.data }
+    } catch {
+      recordingQaById.value = { ...recordingQaById.value, [recording.id]: {} }
+    } finally {
+      recordingQaLoading.value = { ...recordingQaLoading.value, [recording.id]: false }
+    }
+  }
+
+  // 把质控结果落地：更新抽屉报告 + 就地同步表格那行的 qaStatus（不整列刷新、不丢已加载的报告）。
+  function applyQaResult(recordingId: string, res: RecordingQaResponse) {
+    recordingQaById.value = { ...recordingQaById.value, [recordingId]: res }
+    if (res.qa_status != null) {
+      const row = selectedAssetRecordings.value.find((r) => r.id === recordingId)
+      if (row) row.qaStatus = res.qa_status
+    }
+  }
+
+  // 质控：生成 / 刷新 mock 报告。
+  async function runRecordingQa(recording: DatasetRecordingRow) {
+    const context = recordsStudyContext.value
+    if (!context) throw new Error('缺少研究项上下文，无法运行质控')
+    const res = await recordingApi.runQa(context.studyId, recording.id)
+    applyQaResult(recording.id, res.data)
+  }
+
+  // 质控：人工复核（通过 accept / 驳回 reject / 暂存 hold）。
+  async function reviewRecordingQa(recording: DatasetRecordingRow, payload: RecordingQaReviewPayload) {
+    const context = recordsStudyContext.value
+    if (!context) throw new Error('缺少研究项上下文，无法复核质控')
+    const res = await recordingApi.reviewQa(context.studyId, recording.id, payload)
+    applyQaResult(recording.id, res.data)
+  }
+
   // 拉某条记录的「第几次上传」历史；按 version_seq 倒序（最新一次在前）。
   async function loadRecordingVersions(recording: DatasetRecordingRow, force = false) {
     const context = recordsStudyContext.value
@@ -272,5 +327,11 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
     loadRecordingFiles,
     loadRecordingVersions,
     relabelRecording,
+    recordingQaById,
+    recordingQaLoading,
+    deleteRecording,
+    loadRecordingQa,
+    runRecordingQa,
+    reviewRecordingQa,
   }
 }

@@ -53,6 +53,7 @@ from app.services.recordings import (
     list_recording_versions_for_study,
     list_recordings_for_study,
 )
+from app.services.file_browser import resolve_dataset_file_path
 from app.routers._dataset_shared import (
     require_system_permission,
     recording_to_response,
@@ -367,6 +368,83 @@ def relabel_recording_endpoint(
         raise
     db.refresh(recording)
     return recording_to_response(recording)
+
+
+@recording_router.delete("/{recording_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_recording_endpoint(
+    study_id: str,
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 删除 / 排除一条采集记录：连带删其上传版本 + 全部文件（original_upload / fif / sidecar），并清物理文件。
+    # 删除后该 BIDS 四元组（被试/会话/任务/轮次）空出，可重新上传干净数据。原始存档随记录一并清除、不可恢复。
+    require_system_permission(current_user, "data:write", "当前用户没有删除采集记录权限")
+    study = require_study_write(db.query(Study).filter(Study.id == study_id).first(), db, current_user)
+    recording = get_recording_for_study(db, study=study, recording_id=recording_id)
+    if recording is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="采集记录不存在")
+
+    # 行删除前先解析出本记录全部物理文件路径（删后对象失效）。逐文件 best-effort，绝不 rmtree 目录，
+    # 避免误删同一被试其他任务的文件——DatasetFile 已覆盖 original_upload/fif/sidecar 全部物理文件。
+    file_paths: list[Path] = []
+    for dataset_file in (
+        db.query(DatasetFile)
+        .filter(DatasetFile.study_id == study.id, DatasetFile.recording_id == recording_id)
+        .all()
+    ):
+        try:
+            file_paths.append(resolve_dataset_file_path(dataset_file, study=study))
+        except Exception:
+            pass
+
+    # 审计/反馈所需字段在删除前快照（删后关系不可再访问）。
+    subject_label = getattr(recording.subject, "bids_subject_id", None)
+    rec_session, rec_task, rec_run = recording.session, recording.task, recording.run
+    rec_asset_id = str(recording.dataset_asset_id) if recording.dataset_asset_id else None
+    resource_label = (
+        " · ".join(part for part in [f"sub-{subject_label}" if subject_label else None, rec_task] if part)
+        or str(recording_id)
+    )
+
+    try:
+        # cascade：versions 走 ORM all,delete-orphan；dataset_files 走 DB ON DELETE CASCADE。
+        db.delete(recording)
+        db.add(
+            AuditEvent(
+                study_id=study.id,
+                event_scope="study",
+                action="recording.deleted",
+                actor_id=getattr(current_user, "id", None),
+                resource_kind="recording",
+                resource_id=str(recording_id),
+                resource_label=resource_label,
+                occurred_at=datetime.utcnow(),
+                snapshot=study_snapshot(study),
+                metadata_json={
+                    "subject": subject_label,
+                    "session": rec_session,
+                    "task": rec_task,
+                    "run": rec_run,
+                    "dataset_asset_id": rec_asset_id,
+                    "hard_deleted": True,
+                },
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    # best-effort 物理清理（提交后做，失败不回滚已删的 DB 行）
+    for path in file_paths:
+        try:
+            if path.exists() and path.is_file():
+                path.unlink()
+        except Exception:
+            pass
+
+    return None
 
 
 @recording_router.post("/import-task", response_model=AsyncTaskResponse, status_code=status.HTTP_201_CREATED)

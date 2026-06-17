@@ -257,6 +257,14 @@
               <div v-if="group.message" :class="getGroupMessageClass(group)">
                 {{ group.message }}
               </div>
+              <button
+                v-if="group.status === 'replace-pending'"
+                class="btn btn--sm btn--primary"
+                type="button"
+                @click="openReplaceConfirm(group)"
+              >
+                确认上传
+              </button>
               <div
                 v-if="['uploading', 'processing', 'done'].includes(group.status)"
                 class="upload-processing-steps"
@@ -468,6 +476,7 @@ interface UploadGroup {
   statusText: string
   message: string
   outcome: ImportOutcome | null
+  existsDetail: DatasetExistsDetail | null
   expanded: boolean
 }
 
@@ -936,6 +945,7 @@ function makeBrainVisionGroup(files: File[]): UploadGroup {
     statusText: '等待导入',
     message: '',
     outcome: null,
+    existsDetail: null,
     expanded: false,
   }
 }
@@ -959,6 +969,7 @@ function makeSingleFileGroup(file: File, kind: 'edf' | 'bdf'): UploadGroup {
     statusText: '等待导入',
     message: '',
     outcome: null,
+    existsDetail: null,
     expanded: false,
   }
 }
@@ -982,6 +993,7 @@ function makeInvalidGroup(files: File[], message: string): UploadGroup {
     statusText: '不可导入',
     message,
     outcome: null,
+    existsDetail: null,
     expanded: true,
   }
 }
@@ -1288,6 +1300,7 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
       group.message = '该 Recording 已存在，请确认是否作为原始上传新版本导入并切换为当前版本。'
       group.selected = false
       group.outcome = null
+      group.existsDetail = existsDetail
       group.expanded = true
       replaceCandidate.value = group
       replaceDetail.value = existsDetail
@@ -1352,6 +1365,12 @@ function closeReplaceConfirm() {
   if (isReplacing.value) return
   replaceCandidate.value = null
   replaceDetail.value = null
+  replaceError.value = ''
+}
+
+function openReplaceConfirm(group: UploadGroup) {
+  replaceCandidate.value = group
+  replaceDetail.value = group.existsDetail
   replaceError.value = ''
 }
 

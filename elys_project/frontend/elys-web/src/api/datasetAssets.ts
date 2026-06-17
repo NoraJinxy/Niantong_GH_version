@@ -104,6 +104,27 @@ export const studyDatasetMountApi = {
     api.delete<StudyDatasetMount>(`/studies/${studyId}/datasets/mounts/${mountId}`),
 }
 
+// 质控（mock）相关的轻量类型：只覆盖前端用到的字段（完整结构见后端 DatasetQaReport）。
+export interface RecordingQaReviewPayload {
+  conclusion: 'accept' | 'reject' | 'hold'
+  notes?: string
+}
+export interface RecordingQaReport {
+  mode?: string
+  summary?: {
+    level?: string | null
+    score?: number | null
+    warnings?: string[]
+    blocking_issues?: string[]
+  }
+  human_review?: { conclusion?: string | null; notes?: string | null } | null
+}
+export interface RecordingQaResponse {
+  qa_status?: string | null
+  qa_report?: RecordingQaReport | null
+  has_report?: boolean
+}
+
 export const recordingApi = {
   list: (studyId: string, params: RecordingListParams = {}) =>
     dataApi.get<RecordingListResponse>(`/studies/${studyId}/recordings`, { params }),
@@ -114,5 +135,15 @@ export const recordingApi = {
   // 「调整归类」：改一条采集记录的 BIDS 实体（被试/会话/任务/轮次），后端会物理重排派生层
   relabel: (studyId: string, recordingId: string, payload: RecordingRelabelPayload) =>
     dataApi.patch<Recording>(`/studies/${studyId}/recordings/${recordingId}`, payload),
+  // 删除/排除一条采集记录（连带删版本+文件、清物理文件；原始存档一并清除、不可恢复）
+  remove: (studyId: string, recordingId: string) =>
+    dataApi.delete<void>(`/studies/${studyId}/recordings/${recordingId}`),
+  // 质控（mock）：读报告 / 生成报告 / 人工复核（通过·驳回·暂存）
+  qaReport: (studyId: string, recordingId: string) =>
+    dataApi.get<RecordingQaResponse>(`/studies/${studyId}/recordings/${recordingId}/qa`),
+  runQa: (studyId: string, recordingId: string) =>
+    dataApi.post<RecordingQaResponse>(`/studies/${studyId}/recordings/${recordingId}/qa/mock-run`),
+  reviewQa: (studyId: string, recordingId: string, payload: RecordingQaReviewPayload) =>
+    dataApi.post<RecordingQaResponse>(`/studies/${studyId}/recordings/${recordingId}/qa/review`, payload),
 }
 

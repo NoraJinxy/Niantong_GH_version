@@ -226,6 +226,36 @@
             <span>{{ selectedRecording.hasCanonicalFif ? '已整理好，可直接分析' : '原始数据已就绪，分析数据稍后自动准备' }}</span>
           </div>
 
+          <!-- 质控（mock）：状态 + 跑质控 + 人工复核 -->
+          <div class="dmt-drawer__label">质控</div>
+          <div class="dmt-qa">
+            <div class="dmt-qa__row">
+              <span class="badge" :class="qaStatusBadge">{{ qaStatusText }}</span>
+              <button class="btn btn--sm" type="button" :disabled="qaRunning" @click="onRunQa">
+                <span v-if="qaRunning" class="spinner"></span>{{ qaRunning ? '运行中…' : (selectedQaHasReport ? '重跑质控' : '跑质控') }}
+              </button>
+            </div>
+            <div v-if="selectedQaHasReport" class="dmt-qa__report">
+              <p v-for="(issue, i) in qaBlocking" :key="`b${i}`" class="dmt-qa__issue dmt-qa__issue--blocking">{{ issue }}</p>
+              <p v-for="(warn, i) in qaWarnings" :key="`w${i}`" class="dmt-qa__issue">{{ warn }}</p>
+              <p v-if="!qaBlocking.length && !qaWarnings.length" class="dmt-qa__ok">未发现问题</p>
+              <div class="dmt-qa__review">
+                <span v-if="selectedQaReviewed" class="dmt-muted">人工复核：{{ qaReviewText }}</span>
+                <template v-else>
+                  <button
+                    class="btn btn--sm btn--primary"
+                    type="button"
+                    :disabled="qaReviewing || qaHasBlocking"
+                    :title="qaHasBlocking ? '存在阻塞问题，不能确认通过' : ''"
+                    @click="onReviewQa('accept')"
+                  >标记通过</button>
+                  <button class="btn btn--sm btn--danger" type="button" :disabled="qaReviewing" @click="onReviewQa('reject')">驳回</button>
+                </template>
+              </div>
+            </div>
+            <div v-if="qaError" class="inline-error">{{ qaError }}</div>
+          </div>
+
           <details v-if="(selectedBuckets?.tech.length || 0) > 0" class="dmt-tech">
             <summary>技术与元数据文件（{{ selectedBuckets?.tech.length }}）· 排错 / 高级</summary>
             <div v-for="f in selectedBuckets?.tech" :key="f.id" class="dmt-tech__item">
@@ -233,6 +263,28 @@
               <span class="dmt-muted">{{ formatFileSize(f.file_size || 0) }}</span>
             </div>
           </details>
+
+          <!-- 危险操作：删除/排除这条记录（两步确认，不可恢复） -->
+          <div class="dmt-danger">
+            <button
+              v-if="!deleteConfirming"
+              class="btn btn--sm dmt-danger__btn"
+              type="button"
+              @click="deleteConfirming = true"
+            >
+              <AppIcon name="trash" :size="13" /> 删除这条记录
+            </button>
+            <template v-else>
+              <p class="dmt-danger__q">确认永久删除？这条记录的原始数据与分析数据一并清除，不可恢复。</p>
+              <div class="dmt-danger__actions">
+                <button class="btn btn--sm" type="button" :disabled="deleting" @click="deleteConfirming = false">取消</button>
+                <button class="btn btn--sm btn--danger" type="button" :disabled="deleting" @click="confirmDelete">
+                  <span v-if="deleting" class="spinner"></span>{{ deleting ? '删除中…' : '永久删除' }}
+                </button>
+              </div>
+            </template>
+            <div v-if="deleteError" class="inline-error">{{ deleteError }}</div>
+          </div>
 
         </aside>
       </div>
@@ -267,15 +319,20 @@ const {
   recordingFilesLoading,
   recordingVersionsById,
   recordingVersionsLoading,
+  recordingQaById,
   isLoadingRecordings,
   recordingsError,
   loadSelectedAssetRecordings,
   loadRecordingFiles,
   loadRecordingVersions,
   relabelRecording,
+  deleteRecording,
+  loadRecordingQa,
+  runRecordingQa,
+  reviewRecordingQa,
 } = ctx.recordings
 const { recordsStudyContext } = ctx.importTarget
-const { activeTab } = ctx
+const { activeTab, handleUploaded } = ctx
 
 const selectedRecordingId = ref<string | null>(null)
 const mainView = ref<'table' | 'matrix'>('table')
@@ -407,8 +464,12 @@ function baseName(path: string) {
 function selectRecording(rec: DatasetRecordingRow) {
   selectedRecordingId.value = rec.id
   relabelEditing.value = false
+  deleteConfirming.value = false
+  deleteError.value = ''
+  qaError.value = ''
   void loadRecordingFiles(rec)
   void loadRecordingVersions(rec)
+  void loadRecordingQa(rec)
 }
 
 // 「调整归类」：抽屉内联改 BIDS 标签
@@ -462,9 +523,89 @@ async function saveRelabel() {
 }
 
 function extractRelabelError(err: any): string {
+  return extractDetailError(err, '调整归类失败，请稍后重试')
+}
+
+function extractDetailError(err: any, fallback: string): string {
   const detail = err?.response?.data?.detail
   if (detail && typeof detail === 'object' && detail.message) return detail.message
   if (typeof detail === 'string') return detail
-  return '调整归类失败，请稍后重试'
+  return fallback
+}
+
+// ===== 删除 / 排除记录（两步内联确认，不可恢复）=====
+const deleteConfirming = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
+
+async function confirmDelete() {
+  const rec = selectedRecording.value
+  if (!rec) return
+  deleting.value = true
+  deleteError.value = ''
+  try {
+    await deleteRecording(rec)
+    selectedRecordingId.value = null
+    deleteConfirming.value = false
+    await handleUploaded() // 与上传后同一刷新：重载资产计数 + 记录列表
+  } catch (err: any) {
+    deleteError.value = extractDetailError(err, '删除失败，请稍后重试')
+  } finally {
+    deleting.value = false
+  }
+}
+
+// ===== 质控（mock）=====
+const qaRunning = ref(false)
+const qaReviewing = ref(false)
+const qaError = ref('')
+
+const selectedQa = computed(() =>
+  selectedRecordingId.value ? recordingQaById.value[selectedRecordingId.value] : undefined,
+)
+const selectedQaReport = computed(() => selectedQa.value?.qa_report || null)
+const selectedQaHasReport = computed(() => Boolean(selectedQa.value?.has_report || selectedQaReport.value))
+const selectedQaReviewed = computed(() => Boolean(selectedQaReport.value?.human_review?.conclusion))
+const qaHasBlocking = computed(() => (selectedQaReport.value?.summary?.blocking_issues?.length || 0) > 0)
+const qaWarnings = computed(() => selectedQaReport.value?.summary?.warnings || [])
+const qaBlocking = computed(() => selectedQaReport.value?.summary?.blocking_issues || [])
+// 状态优先用质控接口返回的最新值，回退到记录行
+const qaStatusValue = computed(() => selectedQa.value?.qa_status ?? selectedRecording.value?.qaStatus ?? null)
+const qaStatusText = computed(() => getQaStatusLabel(qaStatusValue.value))
+const qaStatusBadge = computed(() => getQaStatusClass(qaStatusValue.value))
+const qaReviewText = computed(() => {
+  const c = selectedQaReport.value?.human_review?.conclusion
+  if (c === 'accept') return '已通过'
+  if (c === 'reject') return '已驳回'
+  if (c === 'hold') return '已暂存'
+  return ''
+})
+
+async function onRunQa() {
+  const rec = selectedRecording.value
+  if (!rec) return
+  qaRunning.value = true
+  qaError.value = ''
+  try {
+    await runRecordingQa(rec)
+  } catch (err: any) {
+    qaError.value = extractDetailError(err, '运行质控失败，请稍后重试')
+  } finally {
+    qaRunning.value = false
+  }
+}
+
+async function onReviewQa(conclusion: 'accept' | 'reject') {
+  const rec = selectedRecording.value
+  if (!rec) return
+  qaReviewing.value = true
+  qaError.value = ''
+  try {
+    await reviewRecordingQa(rec, { conclusion })
+  } catch (err: any) {
+    qaError.value = extractDetailError(err, '复核质控失败，请稍后重试')
+  } finally {
+    qaReviewing.value = false
+  }
 }
 </script>
