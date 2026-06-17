@@ -17,6 +17,10 @@ export function useEditorLayout() {
 
   let _drawerDragStartX = 0
   let _drawerDragStartWidth = 0
+  // 拖动时直接操作面板 DOM，绕过 Vue nextTick
+  // library 手柄用 _dragHandleEl 同步位置；inspector 手柄已移入 inspector 内部，随面板自动跟手，无需单独更新
+  let _dragHandleEl: HTMLElement | null = null
+  let _dragPanelEl: HTMLElement | null = null
 
   function restoreLayoutState() {
     try {
@@ -84,6 +88,14 @@ export function useEditorLayout() {
     drawerDragging.value = which
     _drawerDragStartX = e.clientX
     _drawerDragStartWidth = which === 'library' ? libraryWidth.value : inspectorWidth.value
+    // 缓存面板 DOM 供直接操作；inspector 手柄已在面板内部，自动跟手，无需缓存
+    const root = (e.target as HTMLElement).closest('.pipeline-page') as HTMLElement | null
+    if (root) {
+      _dragHandleEl = which === 'library'
+        ? root.querySelector<HTMLElement>('.drawer-handle--seam-left')
+        : null
+      _dragPanelEl = root.querySelector<HTMLElement>(which === 'library' ? '.library' : '.inspector')
+    }
     document.body.style.cursor = 'ew-resize'
     document.body.style.userSelect = 'none'
     document.addEventListener('mousemove', onDrawerDragMove)
@@ -93,11 +105,27 @@ export function useEditorLayout() {
 
   function onDrawerDragMove(e: MouseEvent) {
     if (!drawerDragging.value) return
+    const isLibrary = drawerDragging.value === 'library'
+    // 左栏向右拖变宽(+dx)，右栏向左拖变宽(−dx)
     const dx = e.clientX - _drawerDragStartX
-    if (drawerDragging.value === 'library') {
-      libraryWidth.value = Math.max(180, Math.min(400, _drawerDragStartWidth + dx))
+    const rawW = isLibrary ? _drawerDragStartWidth + dx : _drawerDragStartWidth - dx
+    const minW = isLibrary ? 180 : 320
+    const maxW = isLibrary ? 400 : 800
+    const newW = Math.max(minW, Math.min(maxW, rawW))
+
+    // 手柄严格跟随光标（gap=0），撞到上下限即停在边界——标准 resize 手感（VSCode/Figma 同款）。
+    // 注：早先为「消死区」加过撞界重置锚点，但实测会让手柄与光标产生恒定偏移、反向拖时手柄飘在
+    // 光标前方更难抓（右栏 max 800 量程大、易过冲，偏移最明显——正是右栏手感怪的真凶），故移除。
+
+    if (isLibrary) {
+      libraryWidth.value = newW
+      // 直接写 DOM，不等 Vue nextTick，手柄与面板同帧更新
+      if (_dragHandleEl) _dragHandleEl.style.left = newW + 'px'
+      if (_dragPanelEl) _dragPanelEl.style.width = newW + 'px'
     } else {
-      inspectorWidth.value = Math.max(320, Math.min(800, _drawerDragStartWidth - dx))
+      // inspector 手柄在面板内部、随面板左缘自动跟手，无需单独写 DOM
+      inspectorWidth.value = newW
+      if (_dragPanelEl) _dragPanelEl.style.width = newW + 'px'
     }
   }
 
@@ -111,6 +139,8 @@ export function useEditorLayout() {
       persistLayout('inspector-width', String(inspectorWidth.value))
     }
     drawerDragging.value = null
+    _dragHandleEl = null
+    _dragPanelEl = null
     document.removeEventListener('mousemove', onDrawerDragMove)
     document.removeEventListener('mouseup', onDrawerDragEnd)
   }
