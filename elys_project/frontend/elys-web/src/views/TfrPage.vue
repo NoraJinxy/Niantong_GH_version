@@ -72,7 +72,6 @@
                 >
                   <span class="ov-li-dot" :style="{ background: selectedChans.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name text-mono">{{ name }}</span>
-                  <span v-if="defaultChannel === name" class="ov-li-tag">能量最强</span>
                 </div>
               </div>
               <p class="ov-sec-hint">每加一个通道就多一张热图。看双侧对称（如 C3/C4）就选两个。</p>
@@ -86,15 +85,28 @@
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.cmap }">▾</span>
             </div>
             <div v-show="!collapsed.cmap" class="ov-sec-body">
-              <div class="ov-ovpick">
-                <button type="button" class="ov-ovbtn" :class="{ 'is-on': cmap === 'rdbu' }" @click="cmap = 'rdbu'">发散 RdBu</button>
-                <button type="button" class="ov-ovbtn" :class="{ 'is-on': cmap === 'viridis' }" @click="cmap = 'viridis'">顺序 Viridis</button>
+              <!-- 色卡下拉：当前色卡(渐变条+名字)点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
+              <div class="tfr-cmap">
+                <button type="button" class="tfr-cmap-cur" :class="{ 'is-open': cmapOpen }" @click="cmapOpen = !cmapOpen">
+                  <span class="tfr-cmap-sw" :style="{ background: heatmapCssGradient(cmap, 'to right') }"></span>
+                  <span class="tfr-cmap-name">{{ currentCmapLabel }}</span>
+                  <span class="tfr-cmap-arr">▾</span>
+                </button>
+                <div v-if="cmapOpen" class="tfr-cmap-list">
+                  <button
+                    v-for="c in HEATMAP_CMAPS"
+                    :key="c.key"
+                    type="button"
+                    class="tfr-cmap-opt"
+                    :class="{ 'is-on': cmap === c.key }"
+                    @click="selectCmap(c.key)"
+                  >
+                    <span class="tfr-cmap-sw" :style="{ background: heatmapCssGradient(c.key, 'to right') }"></span>
+                    <span class="tfr-cmap-opt-name">{{ c.label }}</span>
+                  </button>
+                </div>
               </div>
-              <p class="ov-sec-hint">
-                {{ cmap === 'rdbu'
-                  ? '红=功率增强(ERS)、蓝=减弱(ERD)、白=无变化。0 居中，适合相对基线的有符号功率。'
-                  : '低→高单调上色，适合绝对功率（无基线校正）；色盲友好。' }}
-              </p>
+              <p class="ov-sec-hint">{{ cmapHint }}</p>
             </div>
           </section>
 
@@ -112,6 +124,10 @@
               <div v-if="showTopo" class="ov-topo-mode">
                 <button class="ov-mini2" :class="{ 'is-on': topoMode === 'window' }" @click="topoMode = 'window'">区间</button>
                 <button class="ov-mini2" :class="{ 'is-on': topoMode === 'cursor' }" @click="topoMode = 'cursor'">跟随游标</button>
+              </div>
+              <div v-if="showTopo" class="ov-topo-mode">
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'linked' }" @click="topoScaleMode = 'linked'">跟随热图</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'auto' }" @click="topoScaleMode = 'auto'">突出对比</button>
               </div>
               <p v-if="showTopo" class="ov-sec-hint">{{ topoModeHint }}</p>
             </div>
@@ -153,6 +169,7 @@
             <span class="ov-help-trigger">🖱 操作提示</span>
             <div v-if="showHelp" class="ov-help-pop">
               <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放时间轴</span></div>
+              <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调色阶</span></div>
               <div class="ov-help-row"><kbd>拖拽</kbd><span>框选时频 ROI</span></div>
               <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标 (t,f)</span></div>
               <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标 / 清 ROI</span></div>
@@ -227,12 +244,13 @@
                     @lock="onLock"
                     @unlock="onUnlock"
                     @zoom="onZoom"
+                    @amp="onAmp"
                   />
                   <div v-else class="ov-cell-loading">加载中…</div>
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="topoVmax" :subtitle="topoSubtitle" :unit="unit" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :subtitle="topoSubtitle" :unit="unit" />
           </template>
 
           <div v-else class="ov-state">
@@ -250,9 +268,9 @@
           <span class="ov-sbar-sep">|</span>
           <!-- 色阶图例（持久可见，给医生的大白话） -->
           <span class="tfr-cbar">
-            <span class="tfr-cbar-lo">{{ cmap === 'rdbu' ? '−' + autoFmt(effectiveZmax) + ' 蓝(ERD)' : '0' }}</span>
+            <span class="tfr-cbar-lo">{{ isDivergingCmap ? '−' + autoFmt(effectiveZmax) + ' ERD' : '0' }}</span>
             <span class="tfr-cbar-sw" :style="{ background: cbarGradient }"></span>
-            <span class="tfr-cbar-hi">{{ cmap === 'rdbu' ? '+' + autoFmt(effectiveZmax) + ' 红(ERS)' : autoFmt(effectiveZmax) }}</span>
+            <span class="tfr-cbar-hi">{{ isDivergingCmap ? '+' + autoFmt(effectiveZmax) + ' ERS' : autoFmt(effectiveZmax) }}</span>
             <span class="tfr-cbar-u">{{ unit }}</span>
           </span>
           <div style="flex: 1"></div>
@@ -351,7 +369,7 @@ import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import { heatmapCssGradient, type HeatmapCmap } from '@/components/observe/heatmapColor'
+import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } from '@/components/observe/heatmapColor'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import '@/components/observe/observePage.css'
@@ -535,7 +553,28 @@ function resetZmax() {
   zmaxManual.value = null
   zmaxInput.value = ''
 }
+// Ctrl+滚轮（与时域/PSD 统一手势）：调色阶 zmax（向上滚=zmax 收窄=更饱和）→ 写入手动值，与色阶输入框同源
+function onAmp(scale: number) {
+  if (scale <= 0) return
+  let z = effectiveZmax.value / scale // scale>1（向上滚）→ zmax 变小 → 更饱和
+  z = Math.min(Math.max(z, 1e-3), 1e6)
+  zmaxManual.value = z
+  zmaxInput.value = round(z, 2)
+}
 const cbarGradient = computed(() => heatmapCssGradient(cmap.value))
+const isDivergingCmap = computed(() => !IS_SEQUENTIAL[cmap.value])
+// 色卡下拉（与时域/频域「配色」同款交互；不暴露发散/顺序等术语，靠渐变色卡自解释 + 下方一句人话提示）
+const cmapOpen = ref(false)
+const currentCmapLabel = computed(() => HEATMAP_CMAPS.find((c) => c.key === cmap.value)?.label ?? cmap.value)
+function selectCmap(k: HeatmapCmap) {
+  cmap.value = k
+  cmapOpen.value = false
+}
+const cmapHint = computed(() =>
+  isDivergingCmap.value
+    ? '双色：红=增强(ERS)·蓝=减弱(ERD)·白≈无变化，0 居中（适合有基线校正的数据）'
+    : '单向渐变：颜色越亮 = 功率越高（适合看绝对功率）',
+)
 
 // ---------- 时间窗 / 频率窗（纯视觉缩放） ----------
 const viewTMin = ref<number | null>(null)
@@ -838,6 +877,12 @@ const topoVmax = computed(() => {
   for (const c of topoCells.value) if (c.points) for (const p of c.points) if (Number.isFinite(p.value)) m = Math.max(m, Math.abs(p.value))
   return m
 })
+// 色阶档（对标 PSD）：联动=跟随上方热图 ±色阶(effectiveZmax)，topo 与热图同一套颜色刻度、同值同色；
+// 自动=topo 自身 max|值| 定标，本图内对比更足（但与热图色阶可能不一致）。TFR 值本就有正负·0 居中，无需去均值。
+const topoScaleMode = ref<'auto' | 'linked'>('linked')
+const effectiveTopoVmax = computed(() =>
+  topoScaleMode.value === 'linked' ? effectiveZmax.value : topoVmax.value || effectiveZmax.value,
+)
 const topoSubtitle = computed(() => {
   if (topoMode.value === 'cursor') {
     const tf = displayTF.value
@@ -847,11 +892,17 @@ const topoSubtitle = computed(() => {
   const src = region.value ? 'ROI' : '刺激后'
   return `${src} ${fmtFreq(w.fmin)}–${fmtFreq(w.fmax)}Hz · ${fmtTime(w.tmin)}–${fmtTime(w.tmax)}s`
 })
-const topoModeHint = computed(() =>
-  topoMode.value === 'cursor'
-    ? '地形图跟随游标所在 (时间,频率) 点的全脑分布，移动鼠标即时更新（前端本地算·零延迟）；双击锁定后冻结，游标空闲时显示区间。'
-    : '地形图 = 当前频窗 × 时窗内各通道平均功率；框选 ROI 后跟随 ROI。',
-)
+const topoModeHint = computed(() => {
+  const win =
+    topoMode.value === 'cursor'
+      ? '跟随游标 (时间,频率) 点的全脑分布，移鼠标即时更新、双击锁定冻结。'
+      : '当前频窗 × 时窗内各通道平均功率；框选 ROI 后跟随 ROI。'
+  const scale =
+    topoScaleMode.value === 'linked'
+      ? `跟随上方热图的颜色刻度（±${autoFmt(effectiveZmax.value)}${unit.value}）：同一颜色=同一数值，可直接对照。`
+      : '突出本图对比：按本图自身最大值定标，把强弱拉到最明显（但颜色不再与上方热图一致）。'
+  return `${win} ${scale}`
+})
 // 取数集变化 / 开关地形图 → 取回缺失的立方体（一次性，之后切模式/移游标都本地算、不再回后端）
 watch(
   () => [sortedSegs.value.join(','), showTopo.value],
@@ -1064,4 +1115,19 @@ onUnmounted(() => {
 .tfr-cbar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-3); }
 .tfr-cbar-sw { width: 70px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); }
 .tfr-cbar-u { margin-left: 1px; }
+/* 色卡下拉（渐变色卡 + 名字，对标时域/频域「配色」；列表就地展开、双列省空间） */
+.tfr-cmap { position: relative; }
+.tfr-cmap-cur { display: flex; align-items: center; gap: 7px; width: 100%; height: 28px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); cursor: pointer; }
+.tfr-cmap-cur:hover { border-color: var(--c-primary); }
+.tfr-cmap-cur.is-open { border-color: var(--c-primary); background: var(--c-surface); }
+.tfr-cmap-sw { width: 46px; height: 14px; flex-shrink: 0; border-radius: 2px; box-shadow: 0 0 0 1px var(--c-border) inset; }
+.tfr-cmap-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tfr-cmap-arr { font-size: 11px; color: var(--c-text-3); transition: transform .15s; }
+.tfr-cmap-cur.is-open .tfr-cmap-arr { transform: rotate(180deg); }
+.tfr-cmap-list { margin-top: 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 4px; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, .06); max-height: 240px; overflow-y: auto; }
+.tfr-cmap-opt { display: flex; align-items: center; gap: 6px; padding: 4px 5px; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--c-text-2); cursor: pointer; }
+.tfr-cmap-opt:hover { background: var(--c-bg-soft); }
+.tfr-cmap-opt.is-on { background: var(--c-bg-soft); border-color: var(--c-primary); color: var(--c-text); }
+.tfr-cmap-opt .tfr-cmap-sw { width: 28px; height: 15px; }
+.tfr-cmap-opt-name { flex: 1; min-width: 0; text-align: left; font-size: 11px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
