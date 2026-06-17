@@ -1044,6 +1044,36 @@ def anonymize_raw_for_import(raw) -> None:
             pass
 
 
+# 非 EEG 设备元数据通道名模式（大小写不敏感、去空格后匹配）。Emotiv / 部分消费级设备会把
+# 时间戳、采样计数、电量、接触质量(CQ_)、信号质量(EQ_)、标记等非脑电信号也写成普通通道，
+# MNE 读 EDF 默认一律标 'eeg'，这些含 NaN/inf 或非生理值的道会污染 LOF 坏道检测 / PSD /
+# 地形图 / ICA。导入转 FIF 时按名重标为 'misc'，下游 pick_types(eeg=True) 即自动只取真电极。
+_NON_EEG_CHANNEL_PATTERNS = (
+    "TIME_STAMP", "COUNTER", "INTERPOLATED", "HIGHBITFLEX", "SATURATIONFLAG",
+    "RAW_CQ", "BATTERY", "MARKER", "CQ_", "EQ_",
+)
+
+
+def retype_non_eeg_channels(raw) -> list[str]:
+    """把设备元数据通道从 'eeg' 重标为 'misc'，返回被重标的通道名（供溯源）。
+
+    安全闸：仅当重标后仍剩通道时才生效——若某未知设备命名导致全部命中，放弃重标（宁可不动
+    也不误伤），让后续分析照常进行而非被掏空。
+    """
+    import re  # noqa: PLC0415
+
+    combined = re.compile("|".join(re.escape(p) for p in _NON_EEG_CHANNEL_PATTERNS), re.IGNORECASE)
+    to_misc = {
+        name: "misc"
+        for name in raw.ch_names
+        if combined.search(name.upper().replace(" ", ""))
+    }
+    if not to_misc or len(to_misc) >= len(raw.ch_names):
+        return []
+    raw.set_channel_types(to_misc)
+    return sorted(to_misc)
+
+
 def generate_canonical_fif(
     *,
     study: Study,
@@ -1067,6 +1097,8 @@ def generate_canonical_fif(
     raw = load_raw_for_conversion(upload_kind, source_path)
     # P2 (2026-06-10 Q3): 强制 PII 脱敏，必须在 raw.save() 之前 —— canonical FIF 出生即干净。
     anonymize_raw_for_import(raw)
+    # 把设备元数据通道（CQ_/EQ_/时间戳/电量/标记等）重标为 misc，避免污染下游 EEG 分析。
+    retyped_non_eeg = retype_non_eeg_channels(raw)
     temp_dir = Path(tempfile.mkdtemp(prefix="fif-", dir=temp_root))
     # Q6 (2026-06-10): canonical FIF 后缀统一 _eeg.fif（BIDS EEG modality 命名）。
     canonical_fif_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.fif")
@@ -1146,6 +1178,7 @@ def generate_canonical_fif(
                 "sfreq": sfreq,
                 "durationSeconds": duration,
                 "nEvents": n_events,
+                "retypedNonEegChannels": retyped_non_eeg,
             },
             "GeneratedBy": {
                 "Name": "ELYS import pipeline",
