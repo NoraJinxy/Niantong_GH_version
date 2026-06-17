@@ -45,7 +45,7 @@ param(
 
     # ① 启动模板（自己在控制台「实例启动模板」里制定的那个）
     [string]$LaunchTemplateName = "",
-    [string]$LaunchTemplateId = "lt-wz9agq2ncd0z03h1x46h",
+    [string]$LaunchTemplateId = "lt-wz9ilspofmoem5ulajdi",
     [string]$LaunchTemplateVersion = "",  # 留空=模板默认版本
 
     # ② 抢占式 Spot
