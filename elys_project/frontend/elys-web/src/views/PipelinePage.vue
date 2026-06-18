@@ -5424,6 +5424,45 @@ function describeError(error: unknown, fallback: string) {
   100% { box-shadow: 0 0 0 2px rgba(59, 111, 176, 0); background: transparent; }
 }
 
+/* litegraph 数字控件「点击输入数值」弹的原生 prompt 默认黑皮(#333/black)——覆盖成扁平浅色小框。
+   它被 append 到画布容器内，故 :deep 能命中；litegraph.css 的 box-shadow 带 !important，这里也要 !important。 */
+:deep(.graphdialog) {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 0 !important;
+  padding: 7px 9px !important;
+  background-color: #fff !important;
+  border: 1px solid #d4dde8 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.16) !important;
+  font-size: 13px !important;
+  font-family: 'Segoe UI', system-ui, sans-serif !important;
+  color: #1f2a37 !important;
+}
+:deep(.graphdialog .name) { display: none !important; } /* 隐藏冗余的 "Value" 英文标签 */
+:deep(.graphdialog input.value),
+:deep(.graphdialog textarea.value) {
+  margin: 0 !important;
+  min-height: 0 !important;
+  background-color: #f1f5f9 !important;
+  color: #1f2a37 !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  font-size: 13px !important;
+}
+:deep(.graphdialog button.rounded) {
+  margin: 0 !important;
+  background-color: #3b6fb0 !important;
+  color: #fff !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+}
+
 .dataset-qa-cell {
   display: grid;
   gap: 4px;
