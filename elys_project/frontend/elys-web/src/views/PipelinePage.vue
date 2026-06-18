@@ -196,6 +196,7 @@
                 <button class="canvas-tool" type="button" title="自动排列节点并适应屏幕" @click="autoArrangeGraph({ markAsDirty: true })">整理布局</button>
                 <button class="canvas-tool" type="button" title="缩放到全部节点可见" @click="fitGraphToView()">适应</button>
                 <button class="canvas-tool" type="button" title="缩放回 100%" @click="resetLiteGraphZoom">100%</button>
+                <button class="canvas-tool" type="button" title="导出为静态 HTML 文件" @click="exportPipelineHtml">导出</button>
               </div>
             </div>
             <div v-if="!liteGraphReady" class="empty-canvas">
@@ -2406,6 +2407,198 @@ function fitGraphToView(padding = 56) {
   liteGraphCanvas.ds.scale = scale
   liteGraphCanvas.ds.offset = [(W * 0.5) / scale - centerX, (H * 0.5) / scale - centerY]
   liteGraphCanvas.setDirty(true, true)
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline → 静态 HTML 导出
+// ---------------------------------------------------------------------------
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function formatParamForHtmlExport(prop: NodeSpec['properties'][number], value: unknown): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (prop.type === 'boolean') return Boolean(value) ? '是' : '否'
+  if (prop.type === 'select') {
+    const opt = prop.options?.find((o) => String(o.value) === String(value))
+    return opt?.label ?? String(value)
+  }
+  if (prop.type === 'channel_list' || prop.type === 'event_select') {
+    const arr = Array.isArray(value) ? (value as unknown[]) : []
+    if (!arr.length) return ''
+    const names = arr.map((v) =>
+      typeof v === 'object' && v !== null ? ((v as { name?: string }).name ?? JSON.stringify(v)) : String(v),
+    )
+    if (names.length <= 4) return names.join(' / ')
+    return `${names.slice(0, 3).join(' / ')} 等 ${names.length} 项`
+  }
+  if (prop.type === 'tags_input') {
+    const arr = Array.isArray(value) ? (value as unknown[]) : []
+    return arr.length ? arr.map(String).join(', ') : ''
+  }
+  if (prop.type === 'dataset_filter' || prop.type === 'dataset_ids') {
+    if (Array.isArray(value) && (value as unknown[]).length) return `${(value as unknown[]).length} 项`
+    return '按筛选条件'
+  }
+  if (prop.type === 'montage_picker') return String(value)
+  if (prop.type === 'number' || prop.type === 'integer') {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return String(value)
+    return prop.type === 'integer' ? String(n) : String(parseFloat(n.toFixed(3)))
+  }
+  const s = String(value)
+  return s.length > 120 ? `${s.slice(0, 120)}…` : s
+}
+
+function buildPipelineExportHtml(canvasDataUrl: string): string {
+  const pl = currentPipeline.value
+  const nodes = definition.value.graph.nodes
+  const linkCount = (definition.value.graph.links as unknown[]).length
+  const exportTime = new Date().toLocaleString('zh-CN', { hour12: false })
+
+  const nodeCardsHtml = nodes
+    .map((node, idx) => {
+      const spec = nodeSpecs.value.find((s) => s.type === node.type) ?? null
+      const params = (node.params ?? {}) as Record<string, unknown>
+      const title = node.title || spec?.title || node.type
+      const desc = spec?.description ?? ''
+
+      const visibleProps = (spec?.properties ?? []).filter((p) => {
+        if (p.advanced) return false
+        if (p.type === 'text' || p.type === 'string') return false
+        if (!p.visible_when) return true
+        return Object.entries(p.visible_when as Record<string, unknown[]>).every(([k, allowed]) => {
+          const v = params[k] ?? spec!.properties.find((pp) => pp.name === k)?.default
+          return (allowed as unknown[]).map(String).includes(String(v ?? ''))
+        })
+      })
+
+      const paramRows = visibleProps
+        .map((p) => {
+          const raw = params[p.name]
+          const val = raw !== undefined && raw !== null && raw !== '' ? raw : p.default
+          const display = formatParamForHtmlExport(p, val)
+          if (!display) return ''
+          const unitHtml = p.unit ? ` <span class="unit">${escHtml(p.unit)}</span>` : ''
+          return `<tr><td class="param-label">${escHtml(p.label ?? p.name)}</td><td class="param-value">${escHtml(display)}${unitHtml}</td></tr>`
+        })
+        .filter(Boolean)
+        .join('\n')
+
+      return `
+    <div class="node-card">
+      <div class="node-header">
+        <span class="node-index">${idx + 1}</span>
+        <div class="node-title-wrap">
+          <div class="node-title">${escHtml(title)}</div>
+          ${desc ? `<div class="node-desc">${escHtml(desc)}</div>` : ''}
+        </div>
+        <div class="node-type">${escHtml(node.type)}</div>
+      </div>
+      ${paramRows ? `<table class="params-table"><tbody>${paramRows}</tbody></table>` : '<p class="no-params">无参数</p>'}
+    </div>`
+    })
+    .join('\n')
+
+  const canvasSection = canvasDataUrl
+    ? `
+  <section class="canvas-section">
+    <h2 class="section-title">工作流图</h2>
+    <div class="canvas-wrap">
+      <img src="${canvasDataUrl}" alt="工作流图" class="canvas-img" />
+    </div>
+  </section>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escHtml(pl?.name ?? '未命名工作流')} · Pipeline</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;background:#F0F4FA;color:#1A2B3C;font-size:14px;line-height:1.5}
+.page{max-width:1100px;margin:0 auto;padding:36px 24px}
+.page-header{background:linear-gradient(135deg,#1D3E6B 0%,#2B5EA7 100%);color:#fff;padding:28px 36px;border-radius:12px;margin-bottom:28px;box-shadow:0 4px 20px rgba(29,62,107,.2)}
+.pipeline-name{font-size:26px;font-weight:700;letter-spacing:-.5px;margin-bottom:10px}
+.pipeline-meta{display:flex;flex-wrap:wrap;font-size:13px;opacity:.78}
+.pipeline-meta span{padding:0 14px;border-left:1px solid rgba(255,255,255,.3)}
+.pipeline-meta span:first-child{padding-left:0;border-left:none}
+.section-title{font-size:11px;font-weight:700;color:#768AA0;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #D6E4F7}
+.canvas-section{margin-bottom:32px}
+.canvas-wrap{background:#20293A;border-radius:10px;overflow:hidden;padding:8px;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+.canvas-img{width:100%;height:auto;display:block;border-radius:6px}
+.nodes-section{margin-bottom:32px}
+.node-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.node-card{background:#fff;border:1px solid #D6E4F7;border-radius:10px;overflow:hidden;box-shadow:0 1px 5px rgba(30,60,100,.07)}
+.node-header{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid #EEF3FB;background:#F7FAFF}
+.node-index{flex-shrink:0;width:22px;height:22px;background:#3B6FB0;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:2px}
+.node-title-wrap{flex:1;min-width:0}
+.node-title{font-size:13px;font-weight:600;color:#1A2B3C}
+.node-desc{font-size:11px;color:#768AA0;margin-top:2px;line-height:1.4}
+.node-type{font-size:10px;color:#A0B4C8;font-family:monospace;background:#EEF3FB;padding:2px 6px;border-radius:4px;white-space:nowrap;margin-top:3px;flex-shrink:0}
+.params-table{width:100%;border-collapse:collapse}
+.params-table tr+tr td{border-top:1px solid #F0F5FC}
+.param-label{padding:7px 8px 7px 16px;font-size:12px;color:#768AA0;width:38%;vertical-align:middle}
+.param-value{padding:7px 16px 7px 8px;font-size:12px;color:#1D3E6B;font-weight:500;vertical-align:middle;word-break:break-word}
+.unit{font-size:11px;color:#3B6FB0;font-weight:400}
+.no-params{padding:10px 16px;font-size:12px;color:#A0B4C8;font-style:italic}
+.page-footer{text-align:center;font-size:11px;color:#A8BACE;padding-top:20px;border-top:1px solid #D6E4F7;margin-top:8px}
+@media print{body{background:#fff}.page-header{background:#1D3E6B!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.canvas-wrap{background:#20293A!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-header">
+    <div class="pipeline-name">${escHtml(pl?.name ?? '未命名工作流')}</div>
+    <div class="pipeline-meta">
+      <span>版本 ${pl?.version ?? 1}</span>
+      <span>${nodes.length} 节点</span>
+      <span>${linkCount} 连线</span>
+      <span>导出 ${exportTime}</span>
+    </div>
+  </header>
+  ${canvasSection}
+  <section class="nodes-section">
+    <h2 class="section-title">节点参数明细</h2>
+    <div class="node-grid">
+      ${nodeCardsHtml}
+    </div>
+  </section>
+  <footer class="page-footer">ELYS · 念析脑电分析平台 · Pipeline Export</footer>
+</div>
+</body>
+</html>`
+}
+
+function exportPipelineHtml() {
+  if (!liteGraph || !liteGraphCanvas) return
+
+  const ds = liteGraphCanvas.ds as { scale: number; offset: [number, number] }
+  const prevScale = ds.scale
+  const prevOffset: [number, number] = [ds.offset[0], ds.offset[1]]
+
+  fitGraphToView(32)
+  ;(liteGraphCanvas as { draw?: (a: boolean, b: boolean) => void }).draw?.(true, true)
+  const dataUrl = liteGraphCanvasEl.value?.toDataURL('image/png', 1.0) ?? ''
+
+  ds.scale = prevScale
+  ds.offset = prevOffset
+  liteGraphCanvas.setDirty(true, true)
+
+  const html = buildPipelineExportHtml(dataUrl)
+  const safeName = (currentPipeline.value?.name ?? 'pipeline').replace(/[^\w一-鿿\-]/g, '_')
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `pipeline_${safeName}.html`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 /** 自动排列：把全部节点按蛇形网格重排（依拓扑层深，连线最短），再适应屏幕。
