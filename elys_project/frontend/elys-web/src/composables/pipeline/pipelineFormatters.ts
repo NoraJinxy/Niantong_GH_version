@@ -65,14 +65,19 @@ export function formatJobStatus(status: string) {
   if (normalized === 'running') return '运行中'
   if (normalized === 'waiting_user_input') return '等待确认'
   if (normalized === 'pending') return '等待'
-  if (normalized === 'cached') return '缓存'
+  // 缓存命中对用户等同「成功」：缓存是内部加速细节，不向用户暴露。
+  // 缓存与否的区分只保留在画布节点配色（nodeStatusSoftColor 的 cached 分支）与 ?debug 浮层，供调试辨认。
+  if (normalized === 'cached') return '成功'
   if (normalized === 'skipped') return '跳过'
   if (normalized === 'canceled') return '已取消'
   return status
 }
 
 export function jobStatusClass(status: string) {
-  return `status-pill--${normalizedJobStatus(status)}`
+  const normalized = normalizedJobStatus(status)
+  // 缓存命中复用「成功」绿色药丸，与新算成功视觉一致（不暴露缓存语义）。
+  if (normalized === 'cached') return 'status-pill--success'
+  return `status-pill--${normalized}`
 }
 
 // UI Phase (docs_v2/6-05) P1-2: 步骤可视化状态映射

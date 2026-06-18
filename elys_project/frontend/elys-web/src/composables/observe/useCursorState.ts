@@ -38,7 +38,7 @@ export function useCursorState<I = unknown>(opts: {
     cursorLocked.value ? 'locked' : cursorReadout.value ? 'follow' : 'idle',
   )
   const cursorStateText = computed(() =>
-    cursorState.value === 'locked' ? '游标锁定' : cursorState.value === 'follow' ? '游标跟随' : '游标空闲',
+    cursorState.value === 'locked' ? '游标锁定' : cursorState.value === 'follow' ? '游标实时' : '游标空闲',
   )
   const cursorStateHint = computed(() =>
     cursorState.value === 'locked'
