@@ -243,16 +243,13 @@ import Modal from '@/components/common/Modal.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StudyOverviewTab from './study/StudyOverviewTab.vue'
 import WorkbenchShell from '../components/WorkbenchShell.vue'
-import { datasetApi } from '../api/datasets'
-import { studyDatasetMountApi } from '../api/datasetAssets'
-import { pipelineApi } from '../api/pipelines'
 import { studyApi } from '../api/studies'
 import { useAuthStore } from '../stores/auth'
 import { friendlyError } from '@/composables/common/errors'
 import { formatDateTime } from '@/composables/common/formatters'
 import { deriveStudyStage } from '@/composables/studies/studyStage'
 import { studyRoleLabel, studyStatusLabel, studyStatusTone } from '@/composables/studies/studyFormatters'
-import type { CreateStudyRequest, Pipeline, PipelineExecution, Study, StudyDatasetMount, StudyMember } from '../types'
+import type { CreateStudyRequest, Pipeline, PipelineExecution, Study, StudyDatasetMount } from '../types'
 
 type StudyViewMode = 'active' | 'trash'
 type StudyAction = 'trash' | 'restore' | 'purge'
@@ -276,7 +273,6 @@ interface StudySummary {
 }
 
 const SUMMARY_LIMIT = 12
-const EXECUTION_PIPELINE_LIMIT = 3
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -472,45 +468,29 @@ async function loadStudySummary(study: Study) {
     loading: true,
   }
   try {
-    const [datasetsRes, pipelinesRes, membersRes, mountsRes] = await Promise.all([
-      datasetApi.list(study.id).catch(() => null),
-      pipelineApi.list(study.id).catch(() => null),
-      studyApi.listMembers(study.id).catch(() => null),
-      studyDatasetMountApi.list(study.id).catch(() => null),
-    ])
-
-    const pipelines = pipelinesRes?.data.pipelines ?? []
-    const executionResponses = await Promise.all(
-      pipelines.slice(0, EXECUTION_PIPELINE_LIMIT).map((pipeline) => pipelineApi.listExecutions(study.id, pipeline.id, 5).catch(() => null)),
-    )
-    const executions = executionResponses.flatMap((res) => res?.data.executions ?? [])
-    const runningExecutions = executions.filter((execution) => ['pending', 'running'].includes(execution.status)).length
-    const latestExecution = executions
-      .slice()
-      .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime())[0] ?? null
-    const members = membersRes?.data.members ?? []
-    const currentMember = findCurrentMember(members, study)
-    const candidateDates = [study.updated_at, latestExecution?.started_at, latestExecution?.finished_at].filter(
+    // 一次聚合请求替代原先每项 4+3 个并发请求（N+1）：后端 /summary 在库里一把算好计数与最近活动。
+    const { data } = await studyApi.summary(study.id)
+    const latestExec = data.executions[0] ?? null
+    const candidateDates = [study.updated_at, latestExec?.started_at, latestExec?.finished_at].filter(
       Boolean,
     ) as string[]
 
     summaries[study.id] = {
       loaded: true,
       loading: false,
-      recordingCount: datasetsRes?.data.recordings.length ?? null,
-      pipelineCount: pipelines.length,
-      executionCount: executions.length,
-      runningExecutionCount: runningExecutions,
-      memberCount: membersRes ? members.length : null,
-      memberRole: currentMember?.role ?? (study.owner_id === auth.user?.id ? 'owner' : null),
-      canRun: currentMember?.can_run ?? null,
-      latestExecution,
+      recordingCount: data.counts.recordings,
+      pipelineCount: data.counts.pipelines,
+      executionCount: data.counts.executions,
+      runningExecutionCount: data.running_execution_count,
+      memberCount: data.counts.members,
+      memberRole: data.member_role ?? (study.owner_id === auth.user?.id ? 'owner' : null),
+      canRun: data.can_run,
       latestActivityAt: candidateDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null,
-      mounts: mountsRes ? mountsRes.data.mounts.filter((mount) => mount.is_active) : null,
-      pipelines,
-      executions: executions
-        .slice()
-        .sort((a, b) => new Date(b.started_at ?? 0).getTime() - new Date(a.started_at ?? 0).getTime()),
+      mounts: data.mounts,
+      // 左栏列表只消费上面那几项；下列富字段列表不展示，仅为满足类型置空（详情页另走 useStudySummary）。
+      latestExecution: null,
+      pipelines: [],
+      executions: [],
     }
   } catch (err) {
     summaries[study.id] = {
@@ -520,12 +500,6 @@ async function loadStudySummary(study: Study) {
     }
     summaryWarnings.value.push(`「${study.name}」的处理摘要同步失败：${err instanceof Error ? err.message : '未知错误'}`)
   }
-}
-
-function findCurrentMember(members: StudyMember[], study: Study) {
-  const userId = auth.user?.id
-  if (!userId) return null
-  return members.find((member) => member.user_id === userId) ?? (study.owner_id === userId ? ({ role: 'owner' } as StudyMember) : null)
 }
 
 function makeEmptySummary(): StudySummary {
