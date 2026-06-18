@@ -1150,6 +1150,8 @@ import type {
 } from '@/types'
 import {
   LOAD_DATA_NODE_TYPE,
+  EPOCH_NODE_TYPE,
+  ERP_NODE_TYPE,
   LITEGRAPH_NODE_ID_PROP,
   LITEGRAPH_HIDPI_EVENT_PROP,
   LITEGRAPH_ORIGINAL_CLIENT_X_PROP,
@@ -1230,6 +1232,7 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
+const CARD_ROW_H = 19
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -2901,7 +2904,7 @@ function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
   const slotH = LiteGraph.NODE_SLOT_HEIGHT || 28
-  const rowH = (LiteGraph.NODE_WIDGET_HEIGHT || 24) + 4
+  const rowH = CARD_ROW_H
   const portsHeight = portRows * slotH
   const widgetsHeight = widgets.length ? widgets.length * rowH + 8 : 0
   const height = Math.max(NODE_CARD_MIN_HEIGHT, portsHeight + widgetsHeight + 14)
@@ -2936,7 +2939,7 @@ function pushReadonlyWidget(
   drawFn: (ctx: CanvasRenderingContext2D, width: number, y: number, h: number) => void,
 ) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
-  const H = LiteGraph.NODE_WIDGET_HEIGHT || 24
+  const H = CARD_ROW_H
   widgets.push({
     type: 'elys_readonly',
     name: '',
@@ -2951,20 +2954,52 @@ function pushReadonlyWidget(
   })
 }
 
-/** 只读「标签 …… 值」事实行。 */
+/** 用 arcTo 画圆角矩形（兼容不支持 roundRect 的环境）。 */
+function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.arcTo(x + w, y, x + w, y + r, r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+  ctx.lineTo(x + r, y + h)
+  ctx.arcTo(x, y + h, x, y + h - r, r)
+  ctx.lineTo(x, y + r)
+  ctx.arcTo(x, y, x + r, y, r)
+  ctx.closePath()
+  ctx.fill()
+}
+
+/** 只读「标签 …… [蓝色 pill 值]」事实行（B 风格：左灰标签 + 右蓝徽章值）。 */
 function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
   pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
     const cy = y + h * 0.5
+    const PAD_L = 10
+    const PAD_R = 10
+    const PILL_H = 14
+    const PILL_PAD_H = 6
+    const PILL_R = 3
+
+    // Label（左，灰）
     if (label) {
-      ctx.font = '12px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#687386'
+      ctx.font = '11px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#8A9AB0'
       ctx.textAlign = 'left'
-      ctx.fillText(truncWidgetText(label, 8), 18, cy)
+      ctx.fillText(truncWidgetText(label, 10), PAD_L, cy)
     }
-    ctx.font = '600 13px "Segoe UI", Arial, sans-serif'
-    ctx.fillStyle = '#1F2A37'
+
+    // Value pill（右，蓝徽章）
+    ctx.font = '600 11px "Segoe UI", Arial, sans-serif'
+    const valueText = truncWidgetText(value, 16)
+    const tw = ctx.measureText(valueText).width
+    const pillW = tw + PILL_PAD_H * 2
+    const pillX = width - PAD_R - pillW
+    const pillY = Math.round(cy - PILL_H / 2)
+    ctx.fillStyle = '#EBF4FF'
+    fillRoundRect(ctx, pillX, pillY, pillW, PILL_H, PILL_R)
+    ctx.fillStyle = '#2B6CB0'
     ctx.textAlign = 'right'
-    ctx.fillText(truncWidgetText(value, label ? 12 : 22), width - 16, cy)
+    ctx.fillText(valueText, width - PAD_R - PILL_PAD_H, cy)
   })
 }
 
@@ -3000,10 +3035,105 @@ function pushLoadDataSummary(graphNode: LiteGraphNode, params: Record<string, un
     return
   }
   const byId = new Map(studyDatasets.value.map((r) => [String(r.id), r]))
-  if (rawIds.length <= 2) {
+  if (rawIds.length <= 3) {
     for (const id of rawIds) pushReadonlyLine(graphNode, recordingDisplayName(byId.get(String(id))), {})
   } else {
-    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {})
+    for (const id of rawIds.slice(0, 2)) pushReadonlyLine(graphNode, recordingDisplayName(byId.get(String(id))), {})
+    pushReadonlyLine(graphNode, `…还有 ${rawIds.length - 2} 个`, { muted: true })
+  }
+}
+
+// ===== 节点专属摘要函数 =====
+
+/** Filter：带通/高通/低通显范围，陷波显工频+谐波数。 */
+function pushFilterSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const filterType = String(params.filter_type ?? 'bandpass')
+  const TYPE_LABEL: Record<string, string> = { bandpass: '带通', highpass: '高通', lowpass: '低通', notch: '工频陷波' }
+  const typeLabel = TYPE_LABEL[filterType] ?? filterType
+
+  if (filterType === 'notch') {
+    const freq = Number(params.notch_freq ?? 50)
+    const harmonics = Number(params.notch_harmonics ?? 3)
+    pushReadonlyFact(graphNode, '类型', typeLabel)
+    pushReadonlyFact(graphNode, '工频', `${trimNumberText(freq)} Hz`)
+    if (harmonics > 1) pushReadonlyFact(graphNode, '谐波', String(harmonics))
+  } else {
+    const lf = params.l_freq != null ? Number(params.l_freq) : null
+    const hf = params.h_freq != null ? Number(params.h_freq) : null
+    let rangeText = ''
+    if (filterType === 'bandpass' && lf != null && hf != null) rangeText = `${trimNumberText(lf)} → ${trimNumberText(hf)} Hz`
+    else if (filterType === 'highpass' && lf != null) rangeText = `> ${trimNumberText(lf)} Hz`
+    else if (filterType === 'lowpass' && hf != null) rangeText = `< ${trimNumberText(hf)} Hz`
+    pushReadonlyFact(graphNode, '类型', typeLabel)
+    if (rangeText) pushReadonlyFact(graphNode, '范围', rangeText)
+  }
+}
+
+/** Bad Channels：处理方式 + 检测算法，两个字以内。 */
+function pushBadChannelsSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const action = String(params.action ?? 'interpolate')
+  const method = String(params.method ?? 'lof')
+  pushReadonlyFact(graphNode, '处理', action === 'interpolate' ? '修复' : '仅标记')
+  pushReadonlyFact(graphNode, '算法', method === 'lof' ? 'LOF' : 'RANSAC')
+}
+
+/** 把 event_select / channel_list 值解析成名称字符串列表：对象取 .name，字符串直接用。 */
+function resolveNameList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object' && 'name' in item) return String((item as { name: unknown }).name)
+      return String(item)
+    })
+    .filter(Boolean)
+}
+
+/** Re-reference：显实际通道名，≤3 个全显，>3 前 2 + "+N"；空则提示未设置。 */
+function pushRereferenceSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const channels = Array.isArray(params.ref_channels) ? (params.ref_channels as unknown[]).map(String).filter(Boolean) : []
+  if (channels.length === 0) {
+    pushReadonlyLine(graphNode, '未设置参考', { muted: true })
+    return
+  }
+  if (channels.length === 1 && channels[0] === 'average') {
+    pushReadonlyFact(graphNode, '参考', '共同平均')
+    return
+  }
+  const MAX_SHOW = 3
+  const display =
+    channels.length <= MAX_SHOW
+      ? channels.join(' / ')
+      : `${channels.slice(0, 2).join(' / ')} +${channels.length - 2}`
+  pushReadonlyFact(graphNode, '参考', display)
+}
+
+/** Epoch：显条件名（≤2 个全显，>2 折叠）+ 时窗范围。 */
+function pushEpochSummary(graphNode: LiteGraphNode, params: Record<string, unknown>, spec: NodeSpec | null) {
+  const condNames = resolveNameList(params.conditions)
+  const tmin = params.tmin ?? spec?.properties.find((p) => p.name === 'tmin')?.default ?? -0.2
+  const tmax = params.tmax ?? spec?.properties.find((p) => p.name === 'tmax')?.default ?? 1.0
+
+  if (condNames.length > 0) {
+    const condText =
+      condNames.length <= 2 ? condNames.join(' / ') : `${condNames.slice(0, 2).join(' / ')} +${condNames.length - 2}`
+    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+  } else {
+    pushReadonlyLine(graphNode, '未选条件', { muted: true })
+  }
+  pushReadonlyFact(graphNode, '时窗', `${trimNumberText(Number(tmin))} → ${trimNumberText(Number(tmax))} s`)
+}
+
+/** ERP Average：显条件名（同 Epoch，不显"2 项"）。 */
+function pushErpSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const raw = params.condition
+  const condNames = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
+  if (condNames.length > 0) {
+    const condText =
+      condNames.length <= 2 ? condNames.join(' / ') : `${condNames.slice(0, 2).join(' / ')} +${condNames.length - 2}`
+    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+  } else {
+    pushReadonlyLine(graphNode, '未选条件', { muted: true })
   }
 }
 
@@ -3019,29 +3149,42 @@ function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
 }
 
 /** 重建节点就地内容：**纯只读展示，零交互**。点节点本身会选中 → 自动打开右侧检查器编辑。
- *  标量参数 → 「标签: 值」只读行；复杂参数（通道/条件/数据集）→ 「标签: N 项」只读行；LoadData → 文件名 / 未选提示。 */
+ *  专属节点走各自的 push*Summary；其余走通用 planNodeWidgets → pushReadonlyFact。 */
 function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (!graphNode) return
   const nodeType = String((graphNode as { type?: unknown }).type || '')
   const spec = nodeSpecs.value.find((item) => item.type === nodeType) || null
+  const params = (graphNode.properties || {}) as Record<string, unknown>
   ;(graphNode as { widgets?: unknown[] }).widgets = []
 
-  // LoadData 专属：只呈现文件名 / 未选提示，数据筛选编辑去检查器
-  if (nodeType === LOAD_DATA_NODE_TYPE) {
-    pushLoadDataSummary(graphNode, (graphNode.properties || {}) as Record<string, unknown>)
-    sizeNodeForWidgets(graphNode, spec)
-    liteGraphCanvas?.setDirty(true, true)
-    return
+  switch (nodeType) {
+    case LOAD_DATA_NODE_TYPE:
+      pushLoadDataSummary(graphNode, params)
+      break
+    case 'eeg/filter/apply':
+      pushFilterSummary(graphNode, params)
+      break
+    case 'eeg/preproc/bad_channels':
+      pushBadChannelsSummary(graphNode, params)
+      break
+    case 'eeg/preproc/rereference':
+      pushRereferenceSummary(graphNode, params)
+      break
+    case EPOCH_NODE_TYPE:
+      pushEpochSummary(graphNode, params, spec)
+      break
+    case ERP_NODE_TYPE:
+      pushErpSummary(graphNode, params)
+      break
+    default:
+      if (spec) {
+        for (const plan of planNodeWidgets(spec, params)) {
+          const value = plan.kind === 'button' ? plan.summary : readonlyPlanValue(plan, spec)
+          pushReadonlyFact(graphNode, plan.label, value)
+        }
+      }
   }
 
-  if (spec) {
-    const params = (graphNode.properties || {}) as Record<string, unknown>
-    for (const plan of planNodeWidgets(spec, params)) {
-      // 标量 → 值；复杂参数（button）→ 摘要（N 项）。一律只读，编辑去检查器。
-      const value = plan.kind === 'button' ? plan.summary : readonlyPlanValue(plan, spec)
-      pushReadonlyFact(graphNode, plan.label, value)
-    }
-  }
   sizeNodeForWidgets(graphNode, spec)
   liteGraphCanvas?.setDirty(true, true)
 }
