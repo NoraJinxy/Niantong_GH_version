@@ -102,8 +102,6 @@
               :key="study.id"
               class="study-row"
               :to="`/studies/${study.id}`"
-              target="_blank"
-              rel="noopener"
             >
               <span class="status-dot" :class="`is-${study.status}`"></span>
               <div class="study-row__content">
@@ -180,8 +178,6 @@
                 class="run-row"
                 :class="{ 'is-attention': isAttentionExecutionStatus(execution.status) }"
                 :to="pipelineExecutionRoute(execution)"
-                target="_blank"
-                rel="noopener"
               >
                 <span class="run-row__dot" :class="`is-${execution.status}`"></span>
                 <div class="run-row__body">
