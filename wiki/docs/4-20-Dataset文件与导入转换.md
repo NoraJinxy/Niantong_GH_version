@@ -121,6 +121,8 @@ flowchart LR
 ## 6. 格式处理策略
 
 > 两层重构后，所有上传格式统一走「原始存档 + 转 canonical FIF」：原文件存 `sourcedata/`，导入时用 MNE 读取转出 `BIDSdata/` 的 `_eeg.fif`（强制 `raw.anonymize()` 脱敏）。不再有 raw_bids 物理视图，也不做硬链接 / reflink / `.vhdr/.vmrk` 重写。
+>
+> 转 FIF 时还会在 `raw.save` 前两步清理 / 富化：①设备元数据通道（`CQ_/EQ_/`时间戳/电量/标记等）重标 `misc`，免污染下游 EEG 分析；②**自动绑定电极位置（montage）**——按「通道名 ↔ 内置帽通道名」重叠识别厂家/标准帽（BioSemi `A1…`→`biosemi*`、EGI `E1…`→`GSN-HydroCel*`、标准 10-20→`standard_1020/1005`），认不出则不绑、留待手动上传，文件自带坐标则不覆盖。于是 **canonical FIF「出生即带坐标」**，下游坏道插值 / 地形图天生有坐标、流水线无需手接「通道定位」节点（绑定明细记入 `provenance.validation.montageAutobind`）。
 
 | 上传格式 | 处理 |
 |---|---|
@@ -149,6 +151,7 @@ flowchart LR
 | 同步上传 EEG | 已实现，走 `POST /api/v1/studies/{study_id}/recordings/import`，当前仍在 HTTP 请求线程内完成 |
 | Dataset 标准上传目录 | 已实现，新文件写入 `storage/datasets/{asset}/sourcedata/original_uploads/upload-NNN`（去 `versions/`） |
 | canonical FIF 生成 | 已实现，写入 `BIDSdata/sub-/[ses-/]eeg/`（`_eeg.fif`），路径同步回写 `recordings.fif_path` / `recording_versions.fif_path` |
+| canonical FIF 自动电极定位 | 已实现（`montage_autobind`，转 FIF 时按通道名匹配厂家/标准帽自动绑 montage、认不出留待手动上传），**真机待部署 + 重新导入数据**验证 |
 | original/fif/sidecar 文件索引 | 已在 `dataset_files` 登记（`original_upload` / `fif` / `fif_*`），外键挂到 `recording_id` / `recording_version_id`，包含 `logical_path/storage_uri/sha256` |
 | Dataset Asset/Mount 上传目标 | 已支持 `dataset_asset_id` / `mount_name` |
 | 未挂载 Dataset 上传拦截 | 已实现，显式 `dataset_asset_id` 必须能解析到当前 Study active mount |

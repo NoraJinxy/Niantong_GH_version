@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
+from app.engine.preprocess.montage_autobind import autobind_montage
 from app.models import (
     DatasetAsset,
     DatasetFile,
@@ -1099,6 +1100,10 @@ def generate_canonical_fif(
     anonymize_raw_for_import(raw)
     # 把设备元数据通道（CQ_/EQ_/时间戳/电量/标记等）重标为 misc，避免污染下游 EEG 分析。
     retyped_non_eeg = retype_non_eeg_channels(raw)
+    # 自动绑定电极位置（montage）：已知厂家帽（BioSemi/EGI..）套对应模板，认不出退标准 10-20/10-05，
+    # 再认不出则不绑、留待手动上传。绑在 raw.save 前 → canonical FIF「出生即带坐标」，下游免「通道定位」节点。
+    # 放在 retype 之后：misc（非 EEG）通道已剔除，只对真电极定位，且绝不阻断导入（异常已在模块内吞掉）。
+    montage_autobind = autobind_montage(raw, upload_kind=upload_kind)
     temp_dir = Path(tempfile.mkdtemp(prefix="fif-", dir=temp_root))
     # Q6 (2026-06-10): canonical FIF 后缀统一 _eeg.fif（BIDS EEG modality 命名）。
     canonical_fif_path = canonical_fif_base.with_name(f"{canonical_fif_base.name}_eeg.fif")
@@ -1179,6 +1184,7 @@ def generate_canonical_fif(
                 "durationSeconds": duration,
                 "nEvents": n_events,
                 "retypedNonEegChannels": retyped_non_eeg,
+                "montageAutobind": montage_autobind,
             },
             "GeneratedBy": {
                 "Name": "ELYS import pipeline",
