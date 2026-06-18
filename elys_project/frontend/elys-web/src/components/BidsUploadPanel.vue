@@ -332,6 +332,7 @@
     <div class="bids-uploader__footer">
       <div>
         <div v-if="summaryText" class="muted text-sm">{{ summaryText }}</div>
+        <div v-if="autoFillNote" class="muted text-sm">{{ autoFillNote }}</div>
         <div v-if="!hasUploadTarget" class="muted text-sm">系统正在自动准备上传位置；文件可以先选择，稍候即可提交。</div>
         <div v-if="globalError" class="inline-error">{{ globalError }}</div>
         <div v-if="globalSuccess" class="inline-success">{{ globalSuccess }}</div>
@@ -513,6 +514,9 @@ const isReplacing = ref(false)
 const batchProgressTotal = ref(0)
 const batchProgressCompleted = ref(0)
 const batchProgressActiveGroupId = ref('')
+const autoFillNote = ref('')
+const existingTuples = ref<Set<string>>(new Set())
+let existingRecordingsKey = ''
 
 const importStages = [
   { key: 'original', label: '原始文件', description: '保留你上传的原文件' },
@@ -623,6 +627,14 @@ watch(hasUploadTarget, (ready) => {
   }
 })
 
+// 导入目标（study + 数据集）就绪或切换时，后台尽力把库里已有的 recordings 捞回来，
+// 供「自动分配被试编号」避开已占用的四元组（best-effort，失败只退化为「保证本批内部不冲突」）。
+watch(
+  () => `${uploadStudyId.value}|${uploadDatasetAssetId.value}`,
+  () => { void loadExistingRecordings() },
+  { immediate: true },
+)
+
 function makeUploadGroupId() {
   const randomUUID = globalThis.crypto?.randomUUID
   if (typeof randomUUID === 'function') return randomUUID.call(globalThis.crypto)
@@ -645,25 +657,28 @@ function openFolderInput() {
 function handleSingleFileInput(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
-  setSelectedFiles(files)
+  void setSelectedFiles(files)
 }
 
 function handleFolderInput(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
-  setSelectedFiles(files)
+  void setSelectedFiles(files)
 }
 
 async function handleDrop(event: DragEvent) {
   isDragging.value = false
   const dropped = await getDroppedFiles(event.dataTransfer)
-  setSelectedFiles(dropped.files)
+  void setSelectedFiles(dropped.files)
 }
 
-function setSelectedFiles(files: File[]) {
+async function setSelectedFiles(files: File[]) {
   globalError.value = ''
   globalSuccess.value = ''
+  autoFillNote.value = ''
   closeReplaceConfirm()
+  // 自动分配被试编号要避开库里已有的四元组，先尽力把已有记录捞回来（已缓存则瞬回）
+  await loadExistingRecordings()
   const hasIncompleteRelatedData = hasIncompleteBrainVisionSelection(files)
   groups.value = classifyFiles(files)
   queueFilter.value = 'all'
@@ -681,6 +696,7 @@ function clearGroups() {
   groups.value = []
   globalError.value = ''
   globalSuccess.value = ''
+  autoFillNote.value = ''
   resetBatchProgress()
   closeReplaceConfirm()
 }
@@ -922,7 +938,9 @@ function classifyFiles(files: File[]): UploadGroup[] {
     result.push(makeBrainVisionGroup(sortBrainVisionFiles(items)))
   })
 
-  return result.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
+  result.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
+  assignBatchSubjects(result)
+  return result
 }
 
 function makeBrainVisionGroup(files: File[]): UploadGroup {
@@ -1024,7 +1042,7 @@ function getMissingBrainVisionMessage(files: File[]) {
 function inferEntities(file: File) {
   const text = `${getFileRelativePath(file)} ${file.name}`
   return {
-    subject: findEntity(text, /sub-?([A-Za-z0-9]+)/i) || '01',
+    subject: findEntity(text, /sub-?([A-Za-z0-9]+)/i),
     session: findEntity(text, /ses-?([A-Za-z0-9]+)/i) || defaultSession.value,
     task: findEntity(text, /task-?([A-Za-z0-9]+)/i) || defaultTask.value || 'rest',
     run: findEntity(text, /run-?([A-Za-z0-9]+)/i) || defaultRun.value,
@@ -1038,6 +1056,153 @@ function findEntity(text: string, pattern: RegExp) {
 
 function sanitizeEntity(value: string) {
   return value.replace(/[^A-Za-z0-9]/g, '')
+}
+
+// —— 批量被试编号（subject）自动分配 ——
+// 痛点：一批没带 BIDS「sub-」标签的文件，旧逻辑会各自兜底成同一个 subject（'01'），
+// 于是它们的 (subject/session/task/run) 四元组彼此相同 → 互相覆盖、触发「已存在」弹窗。
+// 这里做一次「批级」消歧：先尝试从文件名 / 路径的差异里抠出能区分彼此的编号；抠不出来再
+// 顺序兜底（01、02…），并避开库里已有的四元组。只是「大致模糊」的猜测，用户仍可在表格逐个改。
+
+function discriminatorSource(group: UploadGroup) {
+  const primary = group.files.find((file) => getFileExtension(file) === '.vhdr') || group.files[0]
+  if (!primary) return ''
+  const path = getFileRelativePath(primary).replace(/\\/g, '/')
+  const extension = getFileExtension(primary)
+  return extension ? path.slice(0, path.length - extension.length) : path
+}
+
+function longestCommonPrefix(items: string[]) {
+  if (!items.length) return ''
+  let prefix = items[0]
+  for (const item of items) {
+    while (prefix && !item.startsWith(prefix)) prefix = prefix.slice(0, -1)
+    if (!prefix) return ''
+  }
+  return prefix
+}
+
+function longestCommonSuffix(items: string[]) {
+  if (!items.length) return ''
+  let suffix = items[0]
+  for (const item of items) {
+    while (suffix && !item.endsWith(suffix)) suffix = suffix.slice(1)
+    if (!suffix) return ''
+  }
+  return suffix
+}
+
+function padNumericTokens(tokens: string[]) {
+  if (!tokens.every((token) => /^\d+$/.test(token))) return tokens
+  const width = Math.max(2, ...tokens.map((token) => token.length))
+  return tokens.map((token) => token.padStart(width, '0'))
+}
+
+// 剥掉一组标签的公共前缀 / 公共后缀，留下中间「真正不一样」的那段当区分编号。
+// 仅当每个都非空且互不相同才算可靠；否则返回空串数组，交给顺序兜底。
+function deriveDistinctTokens(labels: string[]): string[] {
+  if (labels.length < 2) return labels.map(() => '')
+  const prefix = longestCommonPrefix(labels)
+  const trimmedFront = labels.map((label) => label.slice(prefix.length))
+  const suffix = longestCommonSuffix(trimmedFront)
+  const cores = trimmedFront.map((label) => (suffix ? label.slice(0, label.length - suffix.length) : label))
+  const tokens = cores.map((core) => sanitizeEntity(core))
+  if (!tokens.every(Boolean)) return labels.map(() => '')
+  if (new Set(tokens).size !== tokens.length) return labels.map(() => '')
+  return padNumericTokens(tokens)
+}
+
+function normalizeEntityValue(value: string | null | undefined) {
+  return (value || '').toString().trim().replace(/[^A-Za-z0-9]/g, '').toLowerCase()
+}
+
+function normalizeSubjectValue(value: string | null | undefined) {
+  return normalizeEntityValue((value || '').toString().replace(/^sub-?/i, ''))
+}
+
+// 唯一性以 (subject/session/task/run) 四元组为准，与后端 DATASET_EXISTS 的判重口径一致。
+function entityTupleKey(subject: string, session?: string | null, task?: string | null, run?: string | null) {
+  return [
+    normalizeSubjectValue(subject),
+    normalizeEntityValue(session),
+    normalizeEntityValue(task),
+    normalizeEntityValue(run),
+  ].join('|')
+}
+
+function groupTupleKey(group: UploadGroup) {
+  return entityTupleKey(group.subject, group.session, group.task, group.run)
+}
+
+function nextFreeSubject(taken: Set<string>, group: UploadGroup) {
+  for (let n = 1; n < 1000; n += 1) {
+    const candidate = String(n).padStart(2, '0')
+    if (!taken.has(entityTupleKey(candidate, group.session, group.task, group.run))) return candidate
+  }
+  return String(Date.now())
+}
+
+function assignBatchSubjects(allGroups: UploadGroup[]) {
+  const valid = allGroups.filter((group) => group.valid)
+  if (!valid.length) {
+    autoFillNote.value = ''
+    return
+  }
+
+  // 第一步：对「文件名没带 sub- 标签」的多个文件，尝试按文件名差异抠出彼此区分的编号
+  let touched = 0
+  const anonymous = valid.filter((group) => !group.subject.trim())
+  if (anonymous.length > 1) {
+    const tokens = deriveDistinctTokens(anonymous.map(discriminatorSource))
+    anonymous.forEach((group, index) => {
+      if (tokens[index]) {
+        group.subject = tokens[index]
+        touched += 1
+      }
+    })
+  }
+
+  // 第二步：全批去重兜底 —— 任何与「库里已有」或「本批在前的组」相同的四元组，顺延到下一个空号
+  const taken = new Set(existingTuples.value)
+  for (const group of valid) {
+    let key = groupTupleKey(group)
+    if (!group.subject.trim() || taken.has(key)) {
+      group.subject = nextFreeSubject(taken, group)
+      touched += 1
+      key = groupTupleKey(group)
+    }
+    taken.add(key)
+  }
+
+  autoFillNote.value = valid.length > 1 && touched
+    ? '已按文件名自动区分被试编号（subject），避免互相覆盖、也尽量避开已导入的数据；如不准确可直接在下方逐个修改。'
+    : ''
+}
+
+// 尽力把当前导入目标（study + 数据集）里已有的 recordings 四元组捞回来，给自动分配避让。
+// best-effort：拿不到就只保证本批内部不冲突，后端仍会兜底判重。按目标缓存，重复选文件不重复请求。
+async function loadExistingRecordings(force = false) {
+  const studyId = uploadStudyId.value
+  const assetId = uploadDatasetAssetId.value
+  const key = `${studyId}|${assetId}`
+  if (!studyId) {
+    existingTuples.value = new Set()
+    existingRecordingsKey = key
+    return
+  }
+  if (!force && key === existingRecordingsKey) return
+  try {
+    const res = await datasetApi.list(studyId)
+    const tuples = new Set<string>()
+    for (const recording of res.data.recordings) {
+      if (assetId && recording.dataset_asset_id && recording.dataset_asset_id !== assetId) continue
+      tuples.add(entityTupleKey(recording.bids_subject_id || recording.subject_id, recording.session, recording.task, recording.run))
+    }
+    existingTuples.value = tuples
+    existingRecordingsKey = key
+  } catch {
+    // 忽略：退化为「只保证本批内部不冲突」
+  }
 }
 
 function getFileExtension(file: File) {
@@ -1350,6 +1515,7 @@ async function uploadSelectedGroups() {
   if (successCount) {
     globalSuccess.value = `已成功导入 ${successCount} 份数据到当前数据集`
     emit('uploaded')
+    void loadExistingRecordings(true)
   }
   if (duplicateCount) {
     globalError.value = '有 Recording 已经存在，请在弹窗中确认是否新增原始上传版本并切换当前指针'
@@ -1394,6 +1560,7 @@ async function confirmReplacement() {
     if (result === 'success') {
       globalSuccess.value = '已新增原始上传版本，并切换为当前数据集工作版本'
       emit('uploaded')
+      void loadExistingRecordings(true)
       replaceCandidate.value = null
       replaceDetail.value = null
       replaceError.value = ''
