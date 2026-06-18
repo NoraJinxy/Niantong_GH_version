@@ -1,6 +1,6 @@
 <template>
   <div>
-    <header class="topbar">
+    <header v-if="showTopbar" class="topbar">
       <RouterLink to="/" class="topbar__brand" title="返回首页">
         <div class="logo"><svg viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg></div>
         <div class="topbar__brand-text">念析 <small>ELYS</small></div>
@@ -80,6 +80,7 @@ const props = defineProps<{
   activeKey: string
   activeTopKey?: string
   showSidebar?: boolean
+  showTopbar?: boolean
   narrow?: boolean
 }>()
 
@@ -88,6 +89,7 @@ const { user } = storeToRefs(auth)
 
 const activeTopKey = computed(() => props.activeTopKey || props.activeKey)
 const showSidebar = computed(() => props.showSidebar !== false)
+const showTopbar = computed(() => props.showTopbar !== false)
 const roleText = computed(() => {
   const roles = user.value?.roles || []
   return roles.length ? roles.join(' / ') : 'pi'

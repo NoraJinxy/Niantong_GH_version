@@ -53,7 +53,7 @@
             <strong>{{ decision.title }}</strong>
             <p>{{ decision.description }}</p>
           </div>
-          <RouterLink class="btn btn--primary" :to="decision.to">{{ decision.action }}</RouterLink>
+          <RouterLink class="btn btn--primary" :to="decision.to" target="_blank" rel="noopener">{{ decision.action }}</RouterLink>
         </div>
       </section>
 
