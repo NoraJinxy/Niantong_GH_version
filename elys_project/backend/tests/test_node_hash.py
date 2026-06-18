@@ -2,7 +2,7 @@
 Purpose: 单元测试 app/pipeline/hash.py 的 node_hash 算法稳定性。
 
 核心断言：
-- spec metadata 字段（schema_version / save / ui / backend 装饰字段）变化 → node_hash 不变
+- spec metadata 字段（schema_version / save / ui / cache / backend 装饰字段）变化 → node_hash 不变
 - 算法相关字段（node_type / backend.module / backend.function）变化 → node_hash 改变
 - params / input 变化 → node_hash 改变
 
@@ -22,7 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.pipeline.hash import node_hash  # noqa: E402
+from app.pipeline.hash import input_hash, node_hash  # noqa: E402
 
 
 # === 基线 spec ===
@@ -125,6 +125,17 @@ def test_properties_change_does_not_affect_node_hash_directly():
     assert hash_of(spec_a) == hash_of(spec_b)
 
 
+def test_cache_config_change_does_not_affect_hash():
+    """spec.cache 是缓存"策略"字段，不参与 node_hash —— node_hash 本身就是缓存 key，
+    改"怎么缓存"（enabled / strategy）不该改"算什么的指纹"，否则换缓存策略会平白冲掉已缓存结果。
+    hash.py.node_hash 显式排除 cache（见其 docstring），故改 cache.* → hash 必须一致。"""
+    spec_a = base_spec()
+    spec_b = base_spec()
+    spec_a["cache"] = {"enabled": True, "strategy": "content_hash"}
+    spec_b["cache"] = {"enabled": False, "strategy": "node_hash_v2"}
+    assert hash_of(spec_a) == hash_of(spec_b)
+
+
 # === Group 2: 算法关键字段变化 → hash 改变 ===
 
 def test_node_type_change_changes_hash():
@@ -158,14 +169,6 @@ def test_backend_function_change_changes_hash():
     assert hash_of(spec_a) != hash_of(spec_b)
 
 
-def test_cache_config_change_changes_hash():
-    """cache 配置（enabled/strategy）参与 hash，让 cache 行为变化也能 invalidate 旧 cache。"""
-    spec_a = base_spec()
-    spec_b = base_spec()
-    spec_b["cache"]["strategy"] = "node_hash_v2"
-    assert hash_of(spec_a) != hash_of(spec_b)
-
-
 def test_params_digest_change_changes_hash():
     """params 变 → params_digest 变 → hash 必须变。"""
     a = node_hash(
@@ -185,6 +188,44 @@ def test_input_digest_change_changes_hash():
     b = node_hash(
         node_type="x", params_digest="p", input_digest="i2", node_spec=base_spec(),
     )
+    assert a != b
+
+
+# === Group 2.5: input_hash 对"上游缓存命中"的稳定性（回归） ===
+# 缓存恢复时 cache.py 会往上游产物的 processing 注入 cached=True。若该标记进入
+# input_hash，则"上游命中缓存"的下游节点 input_hash 会和"上游新鲜计算"时不一致，
+# 导致紧邻下游必然 cache miss 一次（实测：Epoch 命中缓存后 TFR 仍重跑 22s）。
+
+def _data_info(content_hash="sha-aaa", cached=False):
+    processing = {"node_id": "n1", "node_type": "eeg/epoch/segment", "params": {"tmin": -0.2}}
+    if cached:
+        processing["cached"] = True
+    return {
+        "content_hash": content_hash,
+        "sha256": content_hash,
+        "artifact_id": "art-1",
+        "storage_path": "pipeline/epoch/sub-01.fif",
+        "file_role": "pipeline_artifact",
+        "data_type": "epochs",
+        "processing": processing,
+    }
+
+
+def _inputs(data_info):
+    return {"Epochs": {"data_infos": [data_info], "artifacts": [], "value": None}}
+
+
+def test_input_hash_ignores_cached_marker_in_processing():
+    """上游 fresh（无 cached）与 cached（processing.cached=True）→ input_hash 必须一致。"""
+    fresh = input_hash(_inputs(_data_info(cached=False)))
+    cached = input_hash(_inputs(_data_info(cached=True)))
+    assert fresh == cached
+
+
+def test_input_hash_still_changes_on_real_content_change():
+    """真实内容变化（content_hash 不同）仍必须改变 input_hash —— 剔除 cached 标记不引入误命中。"""
+    a = input_hash(_inputs(_data_info(content_hash="sha-aaa")))
+    b = input_hash(_inputs(_data_info(content_hash="sha-bbb")))
     assert a != b
 
 

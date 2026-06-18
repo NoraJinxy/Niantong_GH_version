@@ -132,7 +132,15 @@ def _data_info_signature(data_info: dict[str, Any]) -> dict[str, Any]:
         "data_type",
         "processing",
     )
-    return {key: data_info.get(key) for key in keys if key in data_info}
+    signature = {key: data_info.get(key) for key in keys if key in data_info}
+    # processing 里的 cached 是"来源标记"（缓存恢复时 cache.py._restore_value 注入），
+    # 不是数据内容。若把它纳入签名，"上游命中缓存"的产物签名会和"上游新鲜计算"时不一致，
+    # 导致紧邻下游节点的 input_hash 漂移、必然 cache miss 一次（如 Epoch 命中后 TFR 仍重跑）。
+    # 剔除来源标记，保证 fresh / cached 上游产出相同签名；不影响 cached 标记继续向前端流动。
+    processing = signature.get("processing")
+    if isinstance(processing, dict) and "cached" in processing:
+        signature["processing"] = {k: v for k, v in processing.items() if k != "cached"}
+    return signature
 
 
 def _artifact_signature(artifact: dict[str, Any]) -> dict[str, Any]:
