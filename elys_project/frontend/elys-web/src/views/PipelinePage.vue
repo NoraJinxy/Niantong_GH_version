@@ -2455,18 +2455,32 @@ function graphLayoutIsDegenerate(): boolean {
 }
 
 /** 加载工作流后整理视图：退化布局（脚本一字排开）自动整理（不标脏，保存时才落库），否则只适应屏幕。
- *  推迟到连续两帧后再执行：加载是同步的，但右侧检查器抽屉此刻才展开、ResizeObserver 尚未结算、
- *  litegraph 也还没首绘——此时 fitGraphToView 对一个未定型的视口算缩放会算偏、视图停在默认 100%
- *  装不下（用户反馈「点开好丑」）。等两帧让视口尺寸 + 首次渲染都落定，fit 才是最后一锤、缩放才准。 */
+ *  轮询到「画布真有尺寸」再适应：加载可能早于画布初始化 / 布局结算（右侧检查器抽屉此刻才展开、
+ *  ResizeObserver 未结算、节点未首绘），此时 fitGraphToView 因画布宽高未就绪而空跑返回、视图停在
+ *  默认 100% 装不下（用户反馈「点开好丑」）。故每帧重试，画布一拿到真实尺寸立刻适应；至多 ~0.8s 放弃，
+ *  始终未就绪（如标签页未激活）则不强行适应，免得按最小尺寸算出错误缩放。 */
 function normalizeGraphViewOnLoad() {
   if (!liteGraph || !liteGraphCanvas) return
   if (definition.value.graph.nodes.length === 0) return
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+  let tries = 0
+  const attempt = () => {
     if (!liteGraph || !liteGraphCanvas) return
     if (definition.value.graph.nodes.length === 0) return
+    const ready =
+      (liteGraphCanvasEl.value?.width || 0) > 2 &&
+      (liteGraphCanvasEl.value?.height || 0) > 2 &&
+      (liteGraphShell.value?.clientWidth || 0) > 2
+    if (!ready) {
+      if (tries < 48) {
+        tries += 1
+        requestAnimationFrame(attempt)
+      }
+      return
+    }
     if (graphLayoutIsDegenerate()) autoArrangeGraph({ markAsDirty: false })
     else fitGraphToView()
-  }))
+  }
+  requestAnimationFrame(attempt)
 }
 
 function nextNodePosition(index: number): [number, number] {
