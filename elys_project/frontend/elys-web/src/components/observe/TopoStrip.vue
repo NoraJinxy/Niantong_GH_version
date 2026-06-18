@@ -329,7 +329,8 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 </script>
 
 <style scoped>
-.topo-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* 自绘放大镜光标（描白边的招牌蓝），替掉系统默认那只糙放大镜；hotspot 落在镜片中心 (11,11) */
+.topo-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; --cursor-zoom: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%20viewBox='0%200%2028%2028'%3E%3Cg%20fill='none'%20stroke-linecap='round'%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%232E6BFF'%20stroke-width='2.2'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%232E6BFF'%20stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E") 11 11, pointer; }
 /* 固定宽度：游标 ms 位数变化（5 / 315 / 1000）不再改变本列宽度，右侧地形图卡不再左右抖动 */
 .topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
 .topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
@@ -338,7 +339,7 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-expand { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; font-size: 11px; color: var(--c-text-2); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 999px; cursor: pointer; line-height: 1.7; }
 .topo-expand:hover { color: var(--c-text); background: var(--c-bg-soft); }
 .topo-expand svg { flex-shrink: 0; }
-.topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; cursor: zoom-in; }
+.topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; cursor: var(--cursor-zoom); }
 .topo-card { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--c-border); border-top-width: 2px; border-radius: var(--r-sm); background: var(--c-surface); padding: 4px 4px 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .topo-hd { font-size: 9px; font-weight: 600; color: var(--c-text-2); display: flex; align-items: center; gap: 4px; max-width: 100%; }
 .topo-hd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
