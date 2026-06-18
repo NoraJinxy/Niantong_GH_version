@@ -2991,7 +2991,7 @@ function pushReadonlyWidget(
   })
 }
 
-/** 用 arcTo 画圆角矩形（兼容不支持 roundRect 的环境）。 */
+/** 用 arcTo 画圆角矩形（fill，兼容不支持 roundRect 的环境）。 */
 function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
   ctx.moveTo(x + r, y)
@@ -3007,54 +3007,89 @@ function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.fill()
 }
 
-/** 只读「标签 …… [蓝色 pill 值]」事实行（B 风格：左灰标签 + 右蓝徽章值）。 */
+/** 用 arcTo 画圆角矩形（stroke，与 fillRoundRect 同路径）。 */
+function strokeRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.arcTo(x + w, y, x + w, y + r, r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+  ctx.lineTo(x + r, y + h)
+  ctx.arcTo(x, y + h, x, y + h - r, r)
+  ctx.lineTo(x, y + r)
+  ctx.arcTo(x, y, x + r, y, r)
+  ctx.closePath()
+  ctx.stroke()
+}
+
+/** 按像素宽度截断文字（ctx 须已设好字体）—— 比字符数截断更准确，中文/数字/ASCII 混合时不溢出。 */
+function truncByWidth(ctx: CanvasRenderingContext2D, text: string, maxPx: number): string {
+  if (ctx.measureText(text).width <= maxPx) return text
+  let s = text
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxPx) s = s.slice(0, -1)
+  return s + '…'
+}
+
+/** 只读「标签 …… [蓝色 pill 值]」事实行：标签 10px 浅灰 + 右侧蓝色圆角徽章，动态像素宽度截断。 */
 function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
   pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
     const cy = y + h * 0.5
     const PAD_L = 10
     const PAD_R = 10
-    const PILL_H = 14
-    const PILL_PAD_H = 6
-    const PILL_R = 3
+    const PILL_H = 15
+    const PILL_PAD_H = 7
+    const PILL_R = 4
+    const MIN_GAP = 8
 
-    // Label（左，灰）
+    // Label（左，浅灰，10px — 和蓝色值形成层次对比）
+    let labelEndX = PAD_L
     if (label) {
-      ctx.font = '11px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#8A9AB0'
+      ctx.font = '10px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#9AAABB'
       ctx.textAlign = 'left'
       ctx.fillText(truncWidgetText(label, 10), PAD_L, cy)
+      labelEndX = PAD_L + ctx.measureText(truncWidgetText(label, 10)).width
     }
 
-    // Value pill（右，蓝徽章）
+    // Value pill（右，蓝徽章 + 微边框）— 按像素宽度截断，避免中文/事件名混合时溢出
     ctx.font = '600 11px "Segoe UI", Arial, sans-serif'
-    const valueText = truncWidgetText(value, 16)
+    const maxPillContentW = Math.max(24, width - PAD_R - PILL_PAD_H * 2 - labelEndX - MIN_GAP)
+    const valueText = truncByWidth(ctx, value, maxPillContentW)
     const tw = ctx.measureText(valueText).width
     const pillW = tw + PILL_PAD_H * 2
     const pillX = width - PAD_R - pillW
     const pillY = Math.round(cy - PILL_H / 2)
+
     ctx.fillStyle = '#EBF4FF'
     fillRoundRect(ctx, pillX, pillY, pillW, PILL_H, PILL_R)
-    ctx.fillStyle = '#2B6CB0'
+    ctx.strokeStyle = '#BDD7F0'
+    ctx.lineWidth = 0.5
+    strokeRoundRect(ctx, pillX, pillY, pillW, PILL_H, PILL_R)
+
+    ctx.fillStyle = '#1D5C96'
     ctx.textAlign = 'right'
     ctx.fillText(valueText, width - PAD_R - PILL_PAD_H, cy)
   })
 }
 
-/** 只读单行（左对齐）；muted=灰斜体提示，accent=蓝，否则深字加粗。 */
+/** 只读单行（左对齐，像素宽度截断）；muted=细灰斜体，accent=蓝提示，默认=文件名/普通文本。 */
 function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?: boolean; accent?: boolean }) {
-  pushReadonlyWidget(graphNode, (ctx, _width, y, h) => {
+  pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
+    const PAD_L = 10
+    const PAD_R = 10
     if (opts.muted) {
-      ctx.font = 'italic 13px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#94A3B8'
+      ctx.font = 'italic 10px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#A0B0C0'
     } else if (opts.accent) {
-      ctx.font = '12px "Segoe UI", Arial, sans-serif'
+      ctx.font = '11px "Segoe UI", Arial, sans-serif'
       ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
     } else {
-      ctx.font = '600 13px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#1F2A37'
+      ctx.font = '11px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#2D3E52'
     }
     ctx.textAlign = 'left'
-    ctx.fillText(truncWidgetText(text, 24), 18, y + h * 0.5)
+    ctx.fillText(truncByWidth(ctx, text, width - PAD_L - PAD_R), PAD_L, y + h * 0.5)
   })
 }
 
@@ -3153,8 +3188,8 @@ function pushEpochSummary(graphNode: LiteGraphNode, params: Record<string, unkno
 
   if (condNames.length > 0) {
     const condText =
-      condNames.length <= 2 ? condNames.join(' / ') : `${condNames.slice(0, 2).join(' / ')} +${condNames.length - 2}`
-    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+      condNames.length <= 2 ? condNames.join(' · ') : `${condNames.slice(0, 2).join(' · ')} +${condNames.length - 2}`
+    pushReadonlyFact(graphNode, '条件', condText)
   } else {
     pushReadonlyLine(graphNode, '未选条件', { muted: true })
   }
@@ -3167,8 +3202,8 @@ function pushErpSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   const condNames = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
   if (condNames.length > 0) {
     const condText =
-      condNames.length <= 2 ? condNames.join(' / ') : `${condNames.slice(0, 2).join(' / ')} +${condNames.length - 2}`
-    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+      condNames.length <= 2 ? condNames.join(' · ') : `${condNames.slice(0, 2).join(' · ')} +${condNames.length - 2}`
+    pushReadonlyFact(graphNode, '条件', condText)
   } else {
     pushReadonlyLine(graphNode, '未选条件', { muted: true })
   }
@@ -3201,8 +3236,8 @@ function pushTfrSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   const raw = params.condition
   const conds = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
   if (conds.length > 0) {
-    const condText = conds.length <= 2 ? conds.join(' / ') : `${conds.slice(0, 2).join(' / ')} +${conds.length - 2}`
-    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+    const condText = conds.length <= 2 ? conds.join(' · ') : `${conds.slice(0, 2).join(' · ')} +${conds.length - 2}`
+    pushReadonlyFact(graphNode, '条件', condText)
   }
   const fmin = params.fmin ?? 4
   const fmax = params.fmax ?? 40
@@ -3219,8 +3254,8 @@ function pushPsdSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   const raw = params.condition
   const conds = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
   if (conds.length > 0) {
-    const condText = conds.length <= 2 ? conds.join(' / ') : `${conds.slice(0, 2).join(' / ')} +${conds.length - 2}`
-    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+    const condText = conds.length <= 2 ? conds.join(' · ') : `${conds.slice(0, 2).join(' · ')} +${conds.length - 2}`
+    pushReadonlyFact(graphNode, '条件', condText)
   }
   const fmin = params.fmin ?? 1
   const fmax = params.fmax ?? 40
