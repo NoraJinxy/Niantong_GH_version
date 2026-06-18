@@ -222,8 +222,8 @@ function drawUnder(u: uPlot) {
 }
 
 // 画内紧凑图例（series 之后画 → draw 钩子），右上角；带半透明背板防与曲线糊在一起
-function drawLegend(u: uPlot) {
-  if (!props.showLegend || props.series.length < 2 || props.displayMode === 'spread') return
+function drawLegend(u: uPlot, forceShow = false) {
+  if ((!forceShow && !props.showLegend) || props.series.length < 2 || props.displayMode === 'spread') return
   const ctx = u.ctx
   const { left, top, width } = u.bbox
   const dpr = PX_RATIO
@@ -338,13 +338,15 @@ function yRange(u: uPlot): [number, number] {
   return [-h, h]
 }
 
-function buildOpts(w: number, h: number): uPlot.Options {
+function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
   const grid = props.showGrid
   const spread = props.displayMode === 'spread'
   const n = props.series.length
   // 高亮仅在「目标序列确实在本格」时生效，否则本格保持常规线宽（避免别的格被无谓压细）
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
-  const dense = props.denseAxes
+  const dense = exportMode ? false : props.denseAxes
+  const hideX = exportMode ? false : props.hideXLabels
+  const hideY = exportMode ? false : props.hideYLabels
   const axisFont = dense ? '11px var(--ff-mono, monospace)' : '13px var(--ff-mono, monospace)'
   // 共享 facet 轴：非边缘格把刻度标签置空（仍占同样刻度区宽度以对齐网格）
   const blank = (_u: uPlot, splits: number[]): string[] => splits.map(() => '')
@@ -365,9 +367,9 @@ function buildOpts(w: number, h: number): uPlot.Options {
         size: dense ? 40 : 56,
         stroke: AXIS,
         grid: { show: grid, stroke: GRID },
-        ticks: { show: !props.hideYLabels, stroke: GRID },
+        ticks: { show: !hideY, stroke: GRID },
         font: axisFont,
-        values: props.hideYLabels ? blank : undefined,
+        values: hideY ? blank : undefined,
       }
 
   // 框选区间用：drag 选区不缩放（setScale:false）。不开 cursor.sync——它会把 mousedown/up
@@ -386,7 +388,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
       y: spread ? { range: [-1, n] } : { range: yRange }, // spread 留 ±1 余量：曲线超出泳道交叠时首/末道不被裁掉
     },
     axes: [
-      { label: dense ? undefined : props.xLabel, size: dense ? 30 : 44, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !props.hideXLabels, stroke: GRID }, font: axisFont, values: props.hideXLabels ? blank : undefined },
+      { label: dense ? undefined : props.xLabel, size: dense ? 30 : 44, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !hideX, stroke: GRID }, font: axisFont, values: hideX ? blank : undefined },
       yAxis,
     ],
     series: [
@@ -401,7 +403,7 @@ function buildOpts(w: number, h: number): uPlot.Options {
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
-      draw: [(u: uPlot) => { drawLegend(u); drawLocked(u); drawMarkers(u) }],
+      draw: [(u: uPlot) => { drawLegend(u, exportMode); if (!exportMode) drawLocked(u); drawMarkers(u) }],
       setSelect: [
         (u: uPlot) => {
           const sel = u.select
@@ -613,6 +615,36 @@ watch(
   },
   { deep: true },
 )
+
+// 导出：用正确横版尺寸重建 uPlot，解决 facet 小格 canvas 导出比例错误。
+function getExportCanvas(): HTMLCanvasElement | null {
+  if (!props.series.length || !props.data[0]?.length) return null
+  const dpr = window.devicePixelRatio || 1
+  // 物理像素固定 2400px 宽；CSS 尺寸按 DPR 折算
+  const targetCssW = Math.round(2400 / dpr)
+  const targetCssH = Math.round(targetCssW * 0.4)
+  const container = document.createElement('div')
+  container.style.cssText = `width:${targetCssW}px;height:${targetCssH}px;position:fixed;top:-9999px;left:-9999px;visibility:hidden;pointer-events:none`
+  document.body.appendChild(container)
+  let out: HTMLCanvasElement | null = null
+  try {
+    const dd = buildDisplayData()
+    const u = new uPlot(buildOpts(targetCssW, targetCssH, true), dd as unknown as uPlot.AlignedData, container)
+    const src = container.querySelector('canvas') as HTMLCanvasElement | null
+    if (src) {
+      out = document.createElement('canvas')
+      out.width = src.width
+      out.height = src.height
+      const ctx = out.getContext('2d')
+      if (ctx) ctx.drawImage(src, 0, 0)
+    }
+    u.destroy()
+  } finally {
+    document.body.removeChild(container)
+  }
+  return out
+}
+defineExpose({ getExportCanvas })
 </script>
 
 <style scoped>

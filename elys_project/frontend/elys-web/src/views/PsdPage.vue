@@ -439,6 +439,7 @@ import { usePalette } from '@/composables/observe/usePalette'
 import '@/components/observe/observePage.css'
 
 const route = useRoute()
+const cellTimeCourseRefs: any[] = []
 
 // ---------- 常量 ----------
 const MAX_CHANNELS = 64
@@ -1037,24 +1038,36 @@ function exportCsv() {
   a.click()
   URL.revokeObjectURL(url)
 }
-function exportCell(e: MouseEvent, title: string) {
-  const cellEl = (e.target as HTMLElement).closest('.ov-cell')
-  const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
-  if (!src || !src.width) return
-  const scale = src.clientWidth ? src.width / src.clientWidth : 2
-  const headH = Math.round(20 * scale)
+// 导出当前子图为 PNG：优先用 getExportCanvas 在正确横版尺寸重绘（解决 facet 小格导出比例错误），降级走双线性放大
+function exportCell(e: MouseEvent, title: string, ci?: number) {
+  const hqCv: HTMLCanvasElement | null = ci != null ? (cellTimeCourseRefs[ci] as any)?.getExportCanvas?.() ?? null : null
+  let src: HTMLCanvasElement | null = hqCv
+  if (!src) {
+    const cellEl = (e.target as HTMLElement).closest('.ov-cell')
+    const raw = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
+    if (!raw || !raw.width) return
+    const printScale = Math.max(1, Math.ceil(2400 / raw.width))
+    const fb = document.createElement('canvas')
+    fb.width = raw.width * printScale
+    fb.height = raw.height * printScale
+    const fctx = fb.getContext('2d')!
+    fctx.imageSmoothingEnabled = true
+    fctx.imageSmoothingQuality = 'high'
+    fctx.drawImage(raw, 0, 0, fb.width, fb.height)
+    src = fb
+  }
+  const headH = Math.round(src.width * 0.028)
   const out = document.createElement('canvas')
   out.width = src.width
   out.height = src.height + headH
-  const ctx = out.getContext('2d')
-  if (!ctx) return
+  const ctx = out.getContext('2d')!
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, out.width, out.height)
   if (title) {
     ctx.fillStyle = '#1F2733'
-    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.font = `${Math.round(headH * 0.55)}px sans-serif`
     ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
+    ctx.fillText(title, Math.round(headH * 0.4), headH / 2, out.width - Math.round(headH * 0.8))
   }
   ctx.drawImage(src, 0, headH)
   const a = document.createElement('a')

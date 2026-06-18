@@ -468,6 +468,7 @@ import { fetchTimeseries } from '@/composables/observe/plotCache'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 
 const route = useRoute()
+const cellTimeCourseRefs: any[] = []
 
 // ---------- 常量 ----------
 const MAX_CHANNELS = 64
