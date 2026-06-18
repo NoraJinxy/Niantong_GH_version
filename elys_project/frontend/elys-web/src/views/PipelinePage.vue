@@ -1225,11 +1225,20 @@ import {
   type LooseLiteGraph,
   type LiteGraphLink,
 } from '@/composables/pipeline/litegraphUtils'
-import { planNodeWidgets } from '@/composables/pipeline/nodeWidgetPlan'
+import { planNodeWidgets, type NodeWidgetPlan } from '@/composables/pipeline/nodeWidgetPlan'
 import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTypes'
 
-// 节点滑块填充色（Tier 1：全站统一一种主色，不分类别色）
+// 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
+// 节点卡上「保留内联编辑」的参数白名单（默认只读，仅这些医生真会随手调的阈值类数字可在卡上改）。
+// 其余参数一律只读呈现，编辑去右侧检查器。名字不匹配也无害（不在 plans 里就不显）。
+const NODE_CARD_EDITABLE: Record<string, string[]> = {
+  'eeg/filter/apply': ['l_freq', 'h_freq', 'notch_freq'],
+  'eeg/epoch/segment': ['tmin', 'tmax'],
+  'eeg/epoch/reject': ['reject_peak_to_peak'],
+  'eeg/analysis/tfr': ['fmin', 'fmax'],
+  'eeg/analysis/psd': ['fmin', 'fmax'],
+}
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -2971,56 +2980,162 @@ function pushSummaryWidget(graphNode: LiteGraphNode, label: string, summary: str
   })
 }
 
-/** 按 spec + 当前 params 重建节点上的就地控件（清空后重加），并按控件数调高卡片。 */
+/** 数字去尾零（30.0→「30」、0.50→「0.5」）—— 只读事实自绘，能甩掉 litegraph 原生 toFixed 的尾零。 */
+function trimNumberText(v: number): string {
+  if (!Number.isFinite(v)) return String(v ?? '')
+  return Number.isInteger(v) ? String(v) : String(parseFloat(v.toFixed(3)))
+}
+
+/** 一条 recording 的卡上文件名：优先 fif/source 路径 basename，否则退回 BIDS 式 sub-xxx_task。 */
+function recordingDisplayName(rec: { fif_path?: string | null; source_path?: string | null; bids_subject_id?: string | null; subject_id?: string | null; task?: string | null } | undefined): string {
+  if (!rec) return '(数据缺失)'
+  const path = String(rec.fif_path || rec.source_path || '')
+  const base = path ? path.split(/[\\/]/).pop() || '' : ''
+  if (base) return base
+  const subj = rec.bids_subject_id || rec.subject_id || '?'
+  return `sub-${subj}${rec.task ? `_${rec.task}` : ''}`
+}
+
+/** 往节点塞一个只读自绘控件（不可编辑），点击 = 选中节点 + 打开检查器。drawFn 自定义内容。 */
+function pushReadonlyWidget(
+  graphNode: LiteGraphNode,
+  drawFn: (ctx: CanvasRenderingContext2D, width: number, y: number, h: number) => void,
+  onClick: () => void,
+) {
+  const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
+  const H = LiteGraph.NODE_WIDGET_HEIGHT || 24
+  widgets.push({
+    type: 'elys_readonly',
+    name: '',
+    value: null,
+    computeSize: (width: number) => [width, H],
+    draw: (ctx: CanvasRenderingContext2D, _node: unknown, width: number, y: number, h: number) => {
+      ctx.save()
+      ctx.textBaseline = 'middle'
+      drawFn(ctx, width, y, h)
+      ctx.restore()
+    },
+    mouse: (event: { type?: string }) => {
+      if (String(event?.type || '').endsWith('down')) { onClick(); return true }
+      return false
+    },
+  })
+}
+
+/** 只读「标签 …… 值」事实行（无控件框、不可编辑）。 */
+function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string, onClick: () => void) {
+  pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
+    const cy = y + h * 0.5
+    if (label) {
+      ctx.font = '12px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#687386'
+      ctx.textAlign = 'left'
+      ctx.fillText(truncWidgetText(label, 8), 18, cy)
+    }
+    ctx.font = '600 13px "Segoe UI", Arial, sans-serif'
+    ctx.fillStyle = '#1F2A37'
+    ctx.textAlign = 'right'
+    ctx.fillText(truncWidgetText(value, label ? 12 : 22), width - 16, cy)
+  }, onClick)
+}
+
+/** 只读单行（左对齐）；muted=灰斜体提示，accent=蓝，否则深字加粗。 */
+function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?: boolean; accent?: boolean }, onClick: () => void) {
+  pushReadonlyWidget(graphNode, (ctx, _width, y, h) => {
+    if (opts.muted) {
+      ctx.font = 'italic 13px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#94A3B8'
+    } else if (opts.accent) {
+      ctx.font = '12px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
+    } else {
+      ctx.font = '600 13px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#1F2A37'
+    }
+    ctx.textAlign = 'left'
+    ctx.fillText(truncWidgetText(text, 24), 18, y + h * 0.5)
+  }, onClick)
+}
+
+/** LoadData 专属只读摘要：选 1~2 个显文件名、更多显「N 个文件」、没选显「未选择数据」提示。 */
+function pushLoadDataSummary(graphNode: LiteGraphNode, params: Record<string, unknown>, onClick: () => void) {
+  const rawIds = Array.isArray(params.dataset_ids) ? (params.dataset_ids as unknown[]).filter(Boolean) : []
+  if (rawIds.length === 0) {
+    pushReadonlyLine(graphNode, '未选择数据', { muted: true }, onClick)
+    pushReadonlyLine(graphNode, '点击设置 →', { accent: true }, onClick)
+    return
+  }
+  const byId = new Map(studyDatasets.value.map((r) => [String(r.id), r]))
+  if (rawIds.length <= 2) {
+    for (const id of rawIds) pushReadonlyLine(graphNode, recordingDisplayName(byId.get(String(id))), {}, onClick)
+  } else {
+    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {}, onClick)
+  }
+}
+
+/** 只读事实的显示值：combo→中文档位、数字→去尾零+单位、开关→开/关。 */
+function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
+  if (plan.kind === 'combo') return plan.value
+  if (plan.kind === 'toggle') return plan.value ? '开' : '关'
+  if (plan.kind === 'number' || plan.kind === 'slider') {
+    const unit = spec.properties.find((p) => p.name === plan.name)?.unit
+    return trimNumberText(plan.value) + (unit ? ` ${unit}` : '')
+  }
+  return ''
+}
+
+/** 按 spec + 当前 params 重建节点就地内容：默认只读「方法学摘要」，仅白名单参数（阈值类）保留内联编辑，
+ *  复杂参数 → 「摘要 + 编辑 ›」胶囊跳检查器，LoadData → 文件名 / 未选提示。 */
 function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (!graphNode) return
   const nodeType = String((graphNode as { type?: unknown }).type || '')
   const spec = nodeSpecs.value.find((item) => item.type === nodeType) || null
   ;(graphNode as { widgets?: unknown[] }).widgets = []
+  const nodeId = getLiteGraphNodeId(graphNode)
+  const openInspector = () => focusInspectorParam(nodeId, '')
+
+  // LoadData 专属：只呈现文件名 / 未选提示，三个数据筛选控件全撤下卡（编辑在检查器）
+  if (nodeType === LOAD_DATA_NODE_TYPE) {
+    pushLoadDataSummary(graphNode, (graphNode.properties || {}) as Record<string, unknown>, openInspector)
+    sizeNodeForWidgets(graphNode, spec)
+    liteGraphCanvas?.setDirty(true, true)
+    return
+  }
+
   if (spec) {
     const params = (graphNode.properties || {}) as Record<string, unknown>
     const plans = planNodeWidgets(spec, params)
-    // visible_when 的「控制字段」集合：只有改这些才需要重建控件（避免拖滑块时每帧重建、打断拖拽）
+    // visible_when 的「控制字段」集合：只有改这些才需要重建控件（避免拖拽时每帧重建、打断交互）
     const controllerKeys = new Set<string>()
     for (const prop of spec.properties) {
       if (prop.visible_when) for (const key of Object.keys(prop.visible_when)) controllerKeys.add(key)
     }
+    const editable = new Set(NODE_CARD_EDITABLE[nodeType] || [])
     const addWidget = (graphNode as unknown as {
       addWidget: (type: string, name: string, value: unknown, callback: (v: unknown) => void, options?: Record<string, unknown>) => unknown
     }).addWidget.bind(graphNode)
 
     for (const plan of plans) {
       const isController = controllerKeys.has(plan.name)
-      if (plan.kind === 'combo') {
-        // 长中文选项要截断显示，但回调拿到的是截断后的串 → 另建「截断 label → 真值」表保证写回正确
-        const labels = plan.labels.map((l) => truncWidgetText(l, 9))
-        const valueByTrunc: Record<string, unknown> = {}
-        plan.labels.forEach((full, i) => { valueByTrunc[labels[i]] = plan.valueByLabel[full] })
-        addWidget('combo', truncWidgetText(plan.label, 9), truncWidgetText(plan.value, 9), (v) => {
-          const key = String(v)
-          const mapped = key in valueByTrunc ? valueByTrunc[key] : (plan.valueByLabel[key] ?? v)
-          onNodeWidgetEdited(graphNode, plan.name, mapped, isController)
-        }, { values: labels })
-      } else if (plan.kind === 'number' || plan.kind === 'slider') {
-        // 有界数字也用步进器渲染（不用 litegraph slider —— 那个填充块容易被误当运行进度条）
+      if (plan.kind === 'button') {
+        // 复杂参数（通道/条件/数据集）→ 摘要胶囊，点击跳检查器对应区
+        pushSummaryWidget(graphNode, plan.label, plan.summary, () => focusInspectorParam(nodeId, plan.name))
+      } else if (editable.has(plan.name) && (plan.kind === 'number' || plan.kind === 'slider')) {
+        // 白名单内的阈值类数字 → 保留内联步进编辑（单位塞标签；litegraph 数字控件原生不带单位）
         const min = plan.min
         const max = plan.max
         const step = plan.kind === 'number' ? plan.step : 1
         const unit = spec.properties.find((p) => p.name === plan.name)?.unit
-        const name = truncWidgetText(plan.label, 8) + (unit ? ` ${unit}` : '') // 单位塞进标签（litegraph 数字控件原生不带单位）
+        const name = truncWidgetText(plan.label, 8) + (unit ? ` ${unit}` : '')
         addWidget('number', name, plan.value, (v) => {
           let n = Number(v)
           if (min !== null && min !== undefined && n < min) n = min
           if (max !== null && max !== undefined && n > max) n = max
           onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
         }, { min: min ?? undefined, max: max ?? undefined, step, precision: plan.precision })
-      } else if (plan.kind === 'toggle') {
-        addWidget('toggle', truncWidgetText(plan.label, 10), plan.value, (v) => {
-          onNodeWidgetEdited(graphNode, plan.name, Boolean(v), isController)
-        }, { on: '开', off: '关' })
-      } else if (plan.kind === 'button') {
-        const nodeId = getLiteGraphNodeId(graphNode)
-        pushSummaryWidget(graphNode, plan.label, plan.summary, () => focusInspectorParam(nodeId, plan.name))
+      } else {
+        // 其余一律只读事实（呈现为主，编辑去检查器）
+        pushReadonlyFact(graphNode, plan.label, readonlyPlanValue(plan, spec), openInspector)
       }
     }
   }
