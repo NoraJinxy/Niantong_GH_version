@@ -193,8 +193,9 @@
                 <span>{{ definition.graph.links.length }} 连线</span>
               </div>
               <div class="canvas-overlay__actions">
-                <button class="canvas-tool" type="button" @click="centerLiteGraphView">居中</button>
-                <button class="canvas-tool" type="button" @click="resetLiteGraphZoom">100%</button>
+                <button class="canvas-tool" type="button" title="自动排列节点并适应屏幕" @click="autoArrangeGraph({ markAsDirty: true })">整理布局</button>
+                <button class="canvas-tool" type="button" title="缩放到全部节点可见" @click="fitGraphToView()">适应</button>
+                <button class="canvas-tool" type="button" title="缩放回 100%" @click="resetLiteGraphZoom">100%</button>
               </div>
             </div>
             <div v-if="!liteGraphReady" class="empty-canvas">
@@ -1191,6 +1192,7 @@ import {
   drawNodeStatusBadge,
   drawNodeSaveIcon,
   graphNodeSize,
+  computeSnakeLayout,
   type LiteGraphNode,
   type LooseLiteGraph,
   type LiteGraphLink,
@@ -2303,6 +2305,92 @@ function resetLiteGraphZoom() {
   liteGraphCanvas.setDirty(true, true)
 }
 
+/** 缩放 + 平移，让全部节点恰好落进可视区（解决「一屏装不下」）。
+ *  镜像 LiteGraph centerOnNode 的坐标变换：画布像素 = (图坐标 + ds.offset) × ds.scale，
+ *  这里改成把「所有节点包围盒的中心」对齐到画布中心，缩放取「宽、高两个方向都装得下」的较小值。
+ *  W/H 用 canvas 位图像素（已含 devicePixelRatio），故 padding 也按 pixelRatio 放大；
+ *  缩放夹在 ds.min_scale/max_scale 内（resizeLiteGraphCanvas 设的，已含 pixelRatio）。 */
+function fitGraphToView(padding = 56) {
+  if (!liteGraph || !liteGraphCanvas) return
+  const nodes = liteGraphNodes(liteGraph)
+  if (!nodes.length) return
+  const W = liteGraphCanvasEl.value?.width || 0
+  const H = liteGraphCanvasEl.value?.height || 0
+  if (W < 2 || H < 2) return
+  const titleH = LiteGraph.NODE_TITLE_HEIGHT || 30
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const node of nodes) {
+    const x = Number(node.pos?.[0] ?? 0)
+    const y = Number(node.pos?.[1] ?? 0)
+    const w = Number(node.size?.[0] ?? NODE_CARD_WIDTH)
+    const h = Number(node.size?.[1] ?? NODE_CARD_MIN_HEIGHT)
+    if (x < minX) minX = x
+    if (y - titleH < minY) minY = y - titleH // 标题画在 pos.y 之上 titleH 处
+    if (x + w > maxX) maxX = x + w
+    if (y + h > maxY) maxY = y + h
+  }
+  const contentW = Math.max(1, maxX - minX)
+  const contentH = Math.max(1, maxY - minY)
+  const pad = padding * (liteGraphPixelRatio || 1)
+  const minScale = liteGraphCanvas.ds.min_scale || LITEGRAPH_MIN_ZOOM
+  const maxScale = liteGraphCanvas.ds.max_scale || LITEGRAPH_MAX_ZOOM
+  let scale = Math.min((W - 2 * pad) / contentW, (H - 2 * pad) / contentH)
+  scale = Math.max(minScale, Math.min(maxScale, scale))
+  const centerX = minX + contentW / 2
+  const centerY = minY + contentH / 2
+  liteGraphCanvas.ds.scale = scale
+  liteGraphCanvas.ds.offset = [(W * 0.5) / scale - centerX, (H * 0.5) / scale - centerY]
+  liteGraphCanvas.setDirty(true, true)
+}
+
+/** 自动排列：把全部节点按蛇形网格重排（依拓扑层深，连线最短），再适应屏幕。
+ *  画布宽高比传给布局算法，让排出来的网格接近画布形状。markAsDirty 时标脏（用户主动整理才落库）。 */
+function autoArrangeGraph(options: { markAsDirty?: boolean } = {}) {
+  if (!liteGraph) return
+  const nodes = definition.value.graph.nodes
+  if (nodes.length === 0) return
+  const W = liteGraphCanvasEl.value?.width || 0
+  const H = liteGraphCanvasEl.value?.height || 0
+  const aspect = W > 0 && H > 0 ? W / H : 1.7
+  const layout = computeSnakeLayout(nodes, definition.value.graph.links || [], {
+    gapX: NODE_GAP_X,
+    gapY: NODE_GAP_Y,
+    aspect,
+  })
+  for (const node of nodes) {
+    const pos = layout.get(node.id)
+    if (pos) node.position = pos
+  }
+  syncDefinitionToLiteGraph()
+  if (options.markAsDirty) markDirty()
+  fitGraphToView()
+}
+
+/** 判断当前布局是否「退化」：单行（脚本生成的一字长蛇阵）或单列（叠罗汉）。
+ *  节点 < 4 个不折腾。坐标按 ~48px 量化分桶，容忍轻微抖动。 */
+function graphLayoutIsDegenerate(): boolean {
+  const nodes = definition.value.graph.nodes
+  if (nodes.length < 4) return false
+  const rows = new Set<number>()
+  const cols = new Set<number>()
+  for (const node of nodes) {
+    rows.add(Math.round(Number(node.position?.[1] ?? 0) / 48))
+    cols.add(Math.round(Number(node.position?.[0] ?? 0) / 48))
+  }
+  return rows.size <= 1 || cols.size <= 1
+}
+
+/** 加载工作流后整理视图：退化布局（脚本一字排开）自动整理（不标脏，保存时才落库），否则只适应屏幕。 */
+function normalizeGraphViewOnLoad() {
+  if (!liteGraph || !liteGraphCanvas) return
+  if (definition.value.graph.nodes.length === 0) return
+  if (graphLayoutIsDegenerate()) autoArrangeGraph({ markAsDirty: false })
+  else fitGraphToView()
+}
+
 function nextNodePosition(index: number): [number, number] {
   if (liteGraphCanvas?.visible_area) {
     const area = liteGraphCanvas.visible_area
@@ -2428,6 +2516,8 @@ function showPipelineContextMenu(node: LiteGraphNode | null, event: LiteGraphCon
         { key: 'delete-node', label: '删除节点', danger: true },
       ]
     : [
+        { key: 'auto-arrange', label: '整理布局', disabled: definition.value.graph.nodes.length === 0 },
+        { key: 'fit-view', label: '适应屏幕', disabled: definition.value.graph.nodes.length === 0 },
         { key: 'center-view', label: '居中视图', disabled: definition.value.graph.nodes.length === 0 },
         { key: 'reset-zoom', label: '缩放到 100%' },
         { key: 'add-load-data', label: '添加 LoadData 节点', disabled: !nodeSpecs.value.some((spec) => spec.type === LOAD_DATA_NODE_TYPE) },
@@ -2489,6 +2579,12 @@ function runPipelineContextAction(item: PipelineContextMenuItem) {
       break
     case 'delete-node':
       if (nodeId) deleteNodeById(nodeId)
+      break
+    case 'auto-arrange':
+      autoArrangeGraph({ markAsDirty: true })
+      break
+    case 'fit-view':
+      fitGraphToView()
       break
     case 'center-view':
       centerLiteGraphView()
@@ -2809,6 +2905,8 @@ function loadPipelineIntoEditor(pipeline: Pipeline, targetExecutionId = '') {
   void loadPipelineExecutions(pipeline, targetExecutionId)
   // 最后尝试恢复未保存草稿（远程版本一致才恢复，否则跳过）
   tryRestoreDraft()
+  // 整理视图：脚本生成的「一字长蛇阵」自动折成蛇形网格，其余只缩放到全部可见
+  normalizeGraphViewOnLoad()
 }
 
 function startNewPipeline(markAsDirty = true) {

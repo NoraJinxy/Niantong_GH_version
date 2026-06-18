@@ -201,3 +201,88 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
   const portRows = Math.max(spec.inputs?.length || 0, spec.outputs?.length || 0)
   return [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, 78 + portRows * 26)]
 }
+
+/**
+ * 工作流自动布局：把「多为线性、偶有末端分叉」的 DAG 排成蛇形网格（boustrophedon / 牛耕式折行）。
+ *
+ * 为什么蛇形而不是普通网格：普通网格里「上一行最右」要去连「下一行最左」，连线斜穿整行很乱；
+ * 蛇形让奇数行反向（右→左），于是「上一行末」与「下一行首」上下相邻，连线最短、读起来一气呵成。
+ * 脚本生成的 pipeline 现在把节点全钉在同一行（一字长蛇阵、一屏装不下），这个函数就是来收拾它的。
+ *
+ * 排序规则：
+ *   1) 算每个节点的「层深 depth」= 从任一根节点到它的最长路径长度（Kahn 拓扑排序 + 松弛）。
+ *      这样节点一定排在其所有上游之后；末端 ERP/TFR/PSD 这类同层分叉会聚在一起。
+ *   2) 同层按节点在原数组里的先后做稳定排序，最终展平成一条线性序列。
+ *   3) 序列按列数 cols 折行铺进网格，奇偶行蛇形交替方向。
+ *
+ * 列数 cols 按画布宽高比 aspect 自适应：让网格宽高比 ≈ 画布宽高比，fit（缩放到全部可见）后最舒服。
+ *   推导：网格宽 = cols·gapX，网格高 ≈ (n/cols)·gapY；令 宽/高 = aspect
+ *        → cols² = aspect·n·gapY/gapX → cols = √(aspect·n·gapY/gapX)。
+ *
+ * @returns 节点 id → [x, y] 画布坐标的 Map；空图返回空 Map。（DAG 应无环；万一有环，环上节点 depth 取 0 兜底。）
+ */
+export function computeSnakeLayout(
+  nodes: Array<{ id: string }>,
+  links: Array<{ from?: { node?: string } | null; to?: { node?: string } | null } | null> | null | undefined,
+  opts: { gapX: number; gapY: number; aspect: number; marginX?: number; marginY?: number },
+): Map<string, [number, number]> {
+  const layout = new Map<string, [number, number]>()
+  const n = nodes.length
+  if (n === 0) return layout
+
+  const { gapX, gapY } = opts
+  const aspect = opts.aspect > 0 ? opts.aspect : 1.6
+  const marginX = opts.marginX ?? 80
+  const marginY = opts.marginY ?? 80
+
+  const orderIndex = new Map<string, number>()
+  nodes.forEach((node, i) => orderIndex.set(node.id, i))
+  const ids = new Set(nodes.map((node) => node.id))
+
+  const children = new Map<string, string[]>()
+  const indeg = new Map<string, number>()
+  for (const id of ids) {
+    children.set(id, [])
+    indeg.set(id, 0)
+  }
+  for (const link of links || []) {
+    const from = link?.from?.node
+    const to = link?.to?.node
+    if (!from || !to || from === to || !ids.has(from) || !ids.has(to)) continue
+    children.get(from)!.push(to)
+    indeg.set(to, (indeg.get(to) || 0) + 1)
+  }
+
+  // Kahn 拓扑 + 最长路径层深；入队按原始顺序，保持同层稳定
+  const depth = new Map<string, number>()
+  for (const id of ids) depth.set(id, 0)
+  const queue = nodes.filter((node) => (indeg.get(node.id) || 0) === 0).map((node) => node.id)
+  while (queue.length) {
+    const cur = queue.shift() as string
+    const curDepth = depth.get(cur) || 0
+    for (const next of children.get(cur) || []) {
+      if (curDepth + 1 > (depth.get(next) || 0)) depth.set(next, curDepth + 1)
+      indeg.set(next, (indeg.get(next) || 0) - 1)
+      if ((indeg.get(next) || 0) === 0) queue.push(next)
+    }
+  }
+
+  const sequence = [...ids].sort((a, b) => {
+    const da = depth.get(a) || 0
+    const db = depth.get(b) || 0
+    if (da !== db) return da - db
+    return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0)
+  })
+
+  let cols = Math.round(Math.sqrt((aspect * n * gapY) / gapX))
+  cols = Math.max(2, Math.min(n, cols))
+
+  sequence.forEach((id, i) => {
+    const row = Math.floor(i / cols)
+    const within = i % cols
+    const col = row % 2 === 0 ? within : cols - 1 - within // 蛇形：奇数行反向
+    layout.set(id, [marginX + col * gapX, marginY + row * gapY])
+  })
+
+  return layout
+}
