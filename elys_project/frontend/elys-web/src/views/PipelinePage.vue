@@ -1152,6 +1152,7 @@ import {
   LOAD_DATA_NODE_TYPE,
   EPOCH_NODE_TYPE,
   ERP_NODE_TYPE,
+  ICA_APPLY_NODE_TYPE,
   LITEGRAPH_NODE_ID_PROP,
   LITEGRAPH_HIDPI_EVENT_PROP,
   LITEGRAPH_ORIGINAL_CLIENT_X_PROP,
@@ -2919,17 +2920,32 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 
 // ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
 
-/** 统一节点尺寸：所有节点**等宽**（NODE_CARD_WIDTH），高度=端口区+控件区贴合收紧（不留大空白）。
- *  端口区按 litegraph 实际排布（端口下方才排控件）估算：portRows·slotH；控件区 count·(H+4)+收尾。 */
-function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
+/** 统一节点尺寸 + 沉底：先按端口区 + 控件区算最小高度，若总高度 > 最小高度则在首位插 spacer 把内容推到底部。 */
+function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
   const slotH = LiteGraph.NODE_SLOT_HEIGHT || 28
-  const rowH = CARD_ROW_H
   const portsHeight = portRows * slotH
-  const widgetsHeight = widgets.length ? widgets.length * rowH + 8 : 0
-  const height = Math.max(NODE_CARD_MIN_HEIGHT, portsHeight + widgetsHeight + 14)
-  graphNode.size = [NODE_CARD_WIDTH, height]
+  const widgetsHeight = widgets.length ? widgets.length * CARD_ROW_H + 8 : 0
+  const contentHeight = portsHeight + widgetsHeight + 14
+  const totalHeight = Math.max(NODE_CARD_MIN_HEIGHT, contentHeight)
+
+  // 沉底：剩余空间用 spacer 填在内容上方，把参数行推到卡片底部
+  const spacerH = totalHeight - contentHeight
+  if (spacerH > 0 && widgets.length > 0) {
+    ;(graphNode as { widgets?: unknown[] }).widgets = [
+      {
+        type: 'elys_spacer',
+        name: '',
+        value: null,
+        computeSize: (w: number) => [w, spacerH],
+        draw: (_ctx: CanvasRenderingContext2D, _node: unknown, _w: number, _y: number, _h: number) => undefined,
+      } as unknown,
+      ...widgets,
+    ]
+  }
+
+  graphNode.size = [NODE_CARD_WIDTH, totalHeight]
 }
 
 /** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截。 */
@@ -3158,6 +3174,69 @@ function pushErpSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   }
 }
 
+/** ICA Compute：方法 + 成分数（隐掉无用的 random_state）。 */
+function pushIcaComputeSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const method = String(params.method ?? 'fastica')
+  const METHOD_LABELS: Record<string, string> = { fastica: 'FastICA', infomax: 'Infomax', picard: 'Picard' }
+  pushReadonlyFact(graphNode, '方法', METHOD_LABELS[method] ?? method)
+  const n = params.n_components
+  pushReadonlyFact(graphNode, '成分', n != null && n !== '' ? String(n) : '自动')
+}
+
+/** ICA Apply：解析 excluded_components 文本→成分索引列表，空则提示待审阅。 */
+function pushIcaApplySummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const raw = String(params.excluded_components ?? '').trim()
+  if (!raw) {
+    pushReadonlyLine(graphNode, '待审阅', { muted: true })
+    return
+  }
+  const parts = raw.split(/[,\s]+/).filter(Boolean)
+  const display =
+    parts.length <= 5 ? parts.join(', ') : `${parts.slice(0, 4).join(', ')} +${parts.length - 4}`
+  pushReadonlyFact(graphNode, '排除', display)
+}
+
+/** TFR：条件名 + 频率范围 + 基线模式。 */
+function pushTfrSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const raw = params.condition
+  const conds = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
+  if (conds.length > 0) {
+    const condText = conds.length <= 2 ? conds.join(' / ') : `${conds.slice(0, 2).join(' / ')} +${conds.length - 2}`
+    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+  }
+  const fmin = params.fmin ?? 4
+  const fmax = params.fmax ?? 40
+  pushReadonlyFact(graphNode, '频率', `${trimNumberText(Number(fmin))} → ${trimNumberText(Number(fmax))} Hz`)
+  const bm = String(params.baseline_mode ?? 'logratio')
+  const BM_LABELS: Record<string, string> = {
+    logratio: 'dB', percent: '% 变化', zscore: 'Z-score', ratio: '比值', mean: '减均值', none: '不做基线',
+  }
+  pushReadonlyFact(graphNode, '基线', BM_LABELS[bm] ?? bm)
+}
+
+/** PSD：条件名（可选）+ 频率范围 + 估计方法。 */
+function pushPsdSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const raw = params.condition
+  const conds = resolveNameList(Array.isArray(raw) ? raw : raw ? [raw] : [])
+  if (conds.length > 0) {
+    const condText = conds.length <= 2 ? conds.join(' / ') : `${conds.slice(0, 2).join(' / ')} +${conds.length - 2}`
+    pushReadonlyFact(graphNode, '条件', truncWidgetText(condText, 18))
+  }
+  const fmin = params.fmin ?? 1
+  const fmax = params.fmax ?? 40
+  pushReadonlyFact(graphNode, '频率', `${trimNumberText(Number(fmin))} → ${trimNumberText(Number(fmax))} Hz`)
+  const method = String(params.method ?? 'welch')
+  const M_LABELS: Record<string, string> = { welch: 'Welch', multitaper: 'Multitaper', fft: 'FFT' }
+  pushReadonlyFact(graphNode, '方法', M_LABELS[method] ?? method)
+}
+
+/** Channel Location：只显电极帽模板名，去掉 rename / on_missing 细节。 */
+function pushChannelLocationSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const montage = String(params.montage ?? 'auto')
+  const display = montage === 'auto' ? '自动' : montage === 'custom' ? '自定义' : montage
+  pushReadonlyFact(graphNode, '电极帽', display)
+}
+
 /** 只读事实的显示值：combo→中文档位、数字→去尾零+单位、开关→开/关。 */
 function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   if (plan.kind === 'combo') return plan.value
@@ -3197,6 +3276,21 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
     case ERP_NODE_TYPE:
       pushErpSummary(graphNode, params)
       break
+    case 'eeg/ica/compute':
+      pushIcaComputeSummary(graphNode, params)
+      break
+    case ICA_APPLY_NODE_TYPE:
+      pushIcaApplySummary(graphNode, params)
+      break
+    case 'eeg/analysis/tfr':
+      pushTfrSummary(graphNode, params)
+      break
+    case 'eeg/analysis/psd':
+      pushPsdSummary(graphNode, params)
+      break
+    case 'eeg/preproc/channel_location':
+      pushChannelLocationSummary(graphNode, params)
+      break
     default:
       if (spec) {
         for (const plan of planNodeWidgets(spec, params)) {
@@ -3206,7 +3300,7 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       }
   }
 
-  sizeNodeForWidgets(graphNode, spec)
+  finalizeNodeWidgets(graphNode, spec)
   liteGraphCanvas?.setDirty(true, true)
 }
 
