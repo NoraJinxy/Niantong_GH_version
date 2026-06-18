@@ -1,14 +1,20 @@
 <template>
   <div class="topo-strip">
     <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
-      <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
-        <span>{{ loLabel ?? axisLabel(barLo) }}</span>
-        <span :style="{ width: '88px', height: '9px', borderRadius: '2px', border: '1px solid var(--c-border)', background: barGradient }"></span>
-        <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
-        <span style="margin-left: 2px;">{{ unit }}</span>
-      </span>
+      <div class="topo-cap-right">
+        <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
+          <span>{{ loLabel ?? axisLabel(barLo) }}</span>
+          <span :style="{ width: '88px', height: '9px', borderRadius: '2px', border: '1px solid var(--c-border)', background: barGradient }"></span>
+          <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
+          <span style="margin-left: 2px;">{{ unit }}</span>
+        </span>
+        <button v-if="cells.length" type="button" class="topo-expand" title="放大查看全部地形图（双击地形图亦可）" @click="openExpanded">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+          <span>放大</span>
+        </button>
+      </div>
     </div>
-    <div class="topo-cards">
+    <div class="topo-cards" @dblclick="openExpanded">
       <div v-for="c in cells" :key="c.seg" class="topo-card" :style="{ borderTopColor: c.color }">
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
         <!-- 单层 canvas：色面 + 头罩 + 鼻耳 + 电极点同一坐标变换绘制（杜绝分层错位）；hover 真值走动态 title -->
@@ -16,6 +22,33 @@
         <div v-else class="topo-empty">无电极坐标<br />(该结果未带 montage)</div>
       </div>
     </div>
+
+    <!-- 放大查看：把本条地形图整组铺成网格大图，标签=条件名，色阶/绘制全复用条带那套 -->
+    <Modal v-if="expanded" @close="expanded = false">
+      <div class="topo-modal" role="dialog" aria-label="地形图放大查看">
+        <div class="topo-modal-hd">
+          <div class="topo-modal-ttl">地形图<span class="topo-modal-sub">{{ subtitle }}</span></div>
+          <div class="topo-modal-actions">
+            <span v-if="vmax > 0" class="topo-modal-bar">
+              <span>{{ loLabel ?? axisLabel(barLo) }}</span>
+              <span class="topo-modal-grad" :style="{ background: barGradient }"></span>
+              <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
+              <span class="topo-modal-unit">{{ unit }}</span>
+            </span>
+            <button type="button" class="topo-modal-x" title="关闭（Esc）" aria-label="关闭" @click="expanded = false">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+        </div>
+        <div class="topo-modal-grid">
+          <div v-for="c in cells" :key="c.seg" class="topo-modal-card" :style="{ borderTopColor: c.color }">
+            <div class="topo-modal-cardhd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-modal-cardname">{{ c.label }}</span></div>
+            <canvas v-if="c.points && c.points.length" :ref="(el) => setModalCanvas(c.seg, el)" class="topo-modal-cv"></canvas>
+            <div v-else class="topo-modal-empty">无电极坐标<br />(该结果未带 montage)</div>
+          </div>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
@@ -26,7 +59,8 @@
 // 建矩阵那笔重活默认派给 Web Worker（topoKernel.worker），首屏/切组主线程不卡；worker 不可用时同步兜底。
 // 绘制：色面 + 头罩圈 + 鼻耳 + 电极点全部画在**同一张 canvas、同一套坐标变换**里——
 // 旧版「canvas 色面 + SVG 头罩」两层叠放会在真机上对不齐，单层从根上消除该问题。
-import { computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, onMounted, onUnmounted, watch, nextTick, ref } from 'vue'
+import Modal from '@/components/common/Modal.vue'
 import { TOPO_RES as RES, buildTopoKernel } from './topoKernel'
 import { buildHeatmapLut, HEATMAP_LUT_N, heatmapCssGradient, type HeatmapCmap } from './heatmapColor'
 
@@ -141,20 +175,32 @@ function ensureOffscreen() {
 }
 
 // 本格可见 canvas + 电极命中表（CSS 像素，供 hover 读数）
+// 条带（小图）与放大弹窗（大图）各持一套 canvas/命中表，共用同一套绘制逻辑（drawCell），按目标 store 落点。
+type Hit = { name: string; value: number; x: number; y: number }
 const canvasMap = new Map<number, HTMLCanvasElement>()
-const hitMap = new Map<number, { name: string; value: number; x: number; y: number }[]>()
-function setCanvas(seg: number, el: unknown) {
+const hitMap = new Map<number, Hit[]>()
+const modalCanvasMap = new Map<number, HTMLCanvasElement>()
+const modalHitMap = new Map<number, Hit[]>()
+
+// 放大查看：把本条整组地形图铺成网格大图（标签=条件名）
+const expanded = ref(false)
+function openExpanded() { if (props.cells.length) expanded.value = true }
+
+function bindCanvas(seg: number, el: unknown, cmap: Map<number, HTMLCanvasElement>, hmap: Map<number, Hit[]>) {
   if (el instanceof HTMLCanvasElement) {
-    canvasMap.set(seg, el)
-    el.onmousemove = (ev) => onHover(seg, el, ev) // 动态 title：悬停最近电极 → 原生 tooltip 显名+值
+    cmap.set(seg, el)
+    el.onmousemove = (ev) => onHover(seg, el, ev, hmap) // 动态 title：悬停最近电极 → 原生 tooltip 显名+值
     el.onmouseleave = () => { el.title = '' }
   } else {
-    canvasMap.delete(seg)
-    hitMap.delete(seg)
+    cmap.delete(seg)
+    hmap.delete(seg)
   }
 }
-function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent) {
-  const hits = hitMap.get(seg)
+function setCanvas(seg: number, el: unknown) { bindCanvas(seg, el, canvasMap, hitMap) }
+function setModalCanvas(seg: number, el: unknown) { bindCanvas(seg, el, modalCanvasMap, modalHitMap) }
+
+function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent, hmap: Map<number, Hit[]>) {
+  const hits = hmap.get(seg)
   if (!hits) return
   const rect = el.getBoundingClientRect()
   const mx = ev.clientX - rect.left
@@ -165,11 +211,11 @@ function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent) {
     const d = Math.hypot(h.x - mx, h.y - my)
     if (d < bestD) { bestD = d; best = h }
   }
-  el.title = best ? `${best.name}: ${best.value.toFixed(2)} µV` : ''
+  el.title = best ? `${best.name}: ${best.value.toFixed(2)} ${props.unit}` : ''
 }
 
 // 一格全绘：色面（M·v→LUT→putImageData）+ 头罩圈 + 鼻耳 + 电极点，同一坐标变换 mapX/mapY，物理对齐
-function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], lo: number, hi: number, lut: Uint8Array, lutN: number, seg: number) {
+function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], lo: number, hi: number, lut: Uint8Array, lutN: number, seg: number, store: Map<number, Hit[]>) {
   // 1) 色面算进离屏 RES×RES。值按 [lo,hi] 线性铺满整条色板（中点=lut 中段；发散色=白心，顺序色=中间调）。
   const o = ensureOffscreen()
   const data = o.img.data
@@ -248,25 +294,36 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
     ctx.stroke()
     hits.push({ name: p.name, value: p.value, x: ex * rx, y: ey * ry })
   }
-  hitMap.set(seg, hits)
+  store.set(seg, hits)
 }
 
-function renderAll() {
+// 把整组地形图绘到指定的一套 canvas（条带或弹窗），命中表落到对应 store。大图小图同逻辑、只是尺寸不同。
+function renderInto(cmap: Map<number, HTMLCanvasElement>, hmap: Map<number, Hit[]>) {
   // 色阶域：给了非对称 domain 用 [lo,hi]，否则对称 [−vmax, vmax]；值线性铺满整条色板
   const lo = barLo.value
   const hi = barHi.value
   const { lut, n } = activeLut() // 当前色板 LUT（默认 elys；TFR 跟随其热图 cmap）
   for (const c of props.cells) {
     if (!c.points || c.points.length < 3) continue
-    const canvas = canvasMap.get(c.seg)
+    const canvas = cmap.get(c.seg)
     if (!canvas) continue
     const kernel = getKernel(sigOf(c.points), c.points)
     if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 本格留空（无 montage 提示走 v-else）
-    drawCell(canvas, kernel, c.points, lo, hi, lut, n, c.seg)
+    drawCell(canvas, kernel, c.points, lo, hi, lut, n, c.seg, hmap)
   }
+}
+// 条带常绘；弹窗开着时一并刷新（cells/游标变化、worker 矩阵到位都会走这里）
+function renderAll() {
+  renderInto(canvasMap, hitMap)
+  if (expanded.value) renderInto(modalCanvasMap, modalHitMap)
 }
 
 watch(() => [props.cells, props.vmax, props.domain, props.cmap], async () => { await nextTick(); renderAll() }, { deep: false })
+// 弹窗开 → 等大图 canvas 挂载后绘制；关 → 清掉弹窗那套引用
+watch(expanded, async (v) => {
+  if (v) { await nextTick(); renderInto(modalCanvasMap, modalHitMap) }
+  else { modalCanvasMap.clear(); modalHitMap.clear() }
+})
 onMounted(async () => { await nextTick(); renderAll() })
 onUnmounted(() => { worker?.terminate(); worker = null })
 </script>
@@ -276,11 +333,34 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 /* 固定宽度：游标 ms 位数变化（5 / 315 / 1000）不再改变本列宽度，右侧地形图卡不再左右抖动 */
 .topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
 .topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
-.topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; }
+.topo-cap-right { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
+/* 「放大」入口：低噪声药丸按钮，给非技术受众一个显式可发现的开关（双击同样可开） */
+.topo-expand { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; font-size: 11px; color: var(--c-text-2); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 999px; cursor: pointer; line-height: 1.7; }
+.topo-expand:hover { color: var(--c-text); background: var(--c-bg-soft); }
+.topo-expand svg { flex-shrink: 0; }
+.topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; cursor: zoom-in; }
 .topo-card { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--c-border); border-top-width: 2px; border-radius: var(--r-sm); background: var(--c-surface); padding: 4px 4px 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .topo-hd { font-size: 9px; font-weight: 600; color: var(--c-text-2); display: flex; align-items: center; gap: 4px; max-width: 100%; }
 .topo-hd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .topo-cv { width: 100%; height: 96px; display: block; }
 .topo-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: var(--c-text-3); line-height: 1.4; padding: 12px 4px; }
+
+/* ── 放大查看弹窗：外壳沿用全站 modal 规格（surface + r-md + shadow-lg），内容铺成大网格 ── */
+.topo-modal { width: min(1080px, 92vw); max-height: 88vh; display: flex; flex-direction: column; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
+.topo-modal-hd { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 13px 16px; border-bottom: 1px solid var(--c-border); }
+.topo-modal-ttl { font-size: 14px; font-weight: 600; color: var(--c-text); display: flex; align-items: baseline; gap: 8px; }
+.topo-modal-sub { font-size: 12px; font-weight: 400; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.topo-modal-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
+.topo-modal-bar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3); }
+.topo-modal-grad { width: 120px; height: 10px; border-radius: 2px; border: 1px solid var(--c-border); }
+.topo-modal-unit { margin-left: 2px; }
+.topo-modal-x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; color: var(--c-text-3); background: transparent; border: none; border-radius: var(--r-sm); cursor: pointer; }
+.topo-modal-x:hover { color: var(--c-text); background: var(--c-bg-soft); }
+.topo-modal-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; padding: 16px; background: var(--c-bg-soft); }
+.topo-modal-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 10px 12px; border: 1px solid var(--c-border); border-top-width: 3px; border-radius: var(--r-sm); background: var(--c-surface); box-shadow: var(--shadow-sm); }
+.topo-modal-cardhd { width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--c-text-2); }
+.topo-modal-cardname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo-modal-cv { width: 100%; height: 230px; display: block; }
+.topo-modal-empty { width: 100%; height: 230px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; color: var(--c-text-3); line-height: 1.5; }
 </style>
