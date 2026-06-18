@@ -1230,15 +1230,6 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
-// 节点卡上「保留内联编辑」的参数白名单（默认只读，仅这些医生真会随手调的阈值类数字可在卡上改）。
-// 其余参数一律只读呈现，编辑去右侧检查器。名字不匹配也无害（不在 plans 里就不显）。
-const NODE_CARD_EDITABLE: Record<string, string[]> = {
-  'eeg/filter/apply': ['l_freq', 'h_freq', 'notch_freq'],
-  'eeg/epoch/segment': ['tmin', 'tmax'],
-  'eeg/epoch/reject': ['reject_peak_to_peak'],
-  'eeg/analysis/tfr': ['fmin', 'fmax'],
-  'eeg/analysis/psd': ['fmin', 'fmax'],
-}
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -2907,25 +2898,27 @@ function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   graphNode.size = [NODE_CARD_WIDTH, height]
 }
 
-/** widget 改值 → 写回 node.properties + 同步 definition + 标脏；改的是 visible_when 控制项才重建控件。 */
-function onNodeWidgetEdited(graphNode: LiteGraphNode, name: string, value: unknown, isController: boolean) {
-  graphNode.properties = { ...(graphNode.properties || {}), [name]: value }
-  scheduleLiteGraphSync(true)
-  if (isController) window.requestAnimationFrame(() => applyNodeWidgets(graphNode))
-}
-
-/** 复杂参数按钮 → 选中节点 + 打开检查器 + 滚到对应字段（决策：跳右侧检查器对应区）。 */
+/** 节点上任意可点内容（只读事实 / 复杂项胶囊）→ 选中节点 + 打开检查器 + 滚到对应字段并**聚焦输入框**。
+ *  这是节点卡的唯一编辑入口：卡片只呈现，编辑一律来右栏（不再弹 litegraph 原生输入框）。paramName 空则只打开检查器。 */
 function focusInspectorParam(nodeId: string, paramName: string) {
   if (!nodeId) return
   selectedNodeId.value = nodeId
   selectLiteGraphNode(nodeId, { center: false })
   showInspector()
   void nextTick(() => {
+    if (!paramName) return
     const el = document.querySelector(`.inspector [data-param="${paramName}"]`)
-    if (el instanceof HTMLElement) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.classList.add('param-flash')
-      window.setTimeout(() => el.classList.remove('param-flash'), 1200)
+    if (!(el instanceof HTMLElement)) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('param-flash')
+    window.setTimeout(() => el.classList.remove('param-flash'), 1200)
+    // 真正把焦点落到对应输入框（用户要的「焦点移到右栏对应地方」），滚动稳定后再 focus
+    const input = el.querySelector('input, select, textarea')
+    if (input instanceof HTMLElement) {
+      window.setTimeout(() => {
+        input.focus()
+        if (input instanceof HTMLInputElement && input.type !== 'checkbox') input.select()
+      }, 80)
     }
   })
 }
@@ -3084,8 +3077,8 @@ function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   return ''
 }
 
-/** 按 spec + 当前 params 重建节点就地内容：默认只读「方法学摘要」，仅白名单参数（阈值类）保留内联编辑，
- *  复杂参数 → 「摘要 + 编辑 ›」胶囊跳检查器，LoadData → 文件名 / 未选提示。 */
+/** 重建节点就地内容：纯**只读摘要**（呈现为主），点任意行都跳右栏对应字段编辑——卡上不再有任何内联输入。
+ *  标量参数 → 只读事实行；复杂参数 → 「摘要 + 编辑 ›」胶囊；LoadData → 文件名 / 未选提示。 */
 function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (!graphNode) return
   const nodeType = String((graphNode as { type?: unknown }).type || '')
@@ -3094,7 +3087,7 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
   const nodeId = getLiteGraphNodeId(graphNode)
   const openInspector = () => focusInspectorParam(nodeId, '')
 
-  // LoadData 专属：只呈现文件名 / 未选提示，三个数据筛选控件全撤下卡（编辑在检查器）
+  // LoadData 专属：只呈现文件名 / 未选提示，数据筛选编辑去检查器
   if (nodeType === LOAD_DATA_NODE_TYPE) {
     pushLoadDataSummary(graphNode, (graphNode.properties || {}) as Record<string, unknown>, openInspector)
     sizeNodeForWidgets(graphNode, spec)
@@ -3104,38 +3097,13 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
 
   if (spec) {
     const params = (graphNode.properties || {}) as Record<string, unknown>
-    const plans = planNodeWidgets(spec, params)
-    // visible_when 的「控制字段」集合：只有改这些才需要重建控件（避免拖拽时每帧重建、打断交互）
-    const controllerKeys = new Set<string>()
-    for (const prop of spec.properties) {
-      if (prop.visible_when) for (const key of Object.keys(prop.visible_when)) controllerKeys.add(key)
-    }
-    const editable = new Set(NODE_CARD_EDITABLE[nodeType] || [])
-    const addWidget = (graphNode as unknown as {
-      addWidget: (type: string, name: string, value: unknown, callback: (v: unknown) => void, options?: Record<string, unknown>) => unknown
-    }).addWidget.bind(graphNode)
-
-    for (const plan of plans) {
-      const isController = controllerKeys.has(plan.name)
+    for (const plan of planNodeWidgets(spec, params)) {
       if (plan.kind === 'button') {
-        // 复杂参数（通道/条件/数据集）→ 摘要胶囊，点击跳检查器对应区
+        // 复杂参数（通道/条件/数据集）→ 「摘要 + 编辑 ›」胶囊，点击跳检查器对应区
         pushSummaryWidget(graphNode, plan.label, plan.summary, () => focusInspectorParam(nodeId, plan.name))
-      } else if (editable.has(plan.name) && (plan.kind === 'number' || plan.kind === 'slider')) {
-        // 白名单内的阈值类数字 → 保留内联步进编辑（单位塞标签；litegraph 数字控件原生不带单位）
-        const min = plan.min
-        const max = plan.max
-        const step = plan.kind === 'number' ? plan.step : 1
-        const unit = spec.properties.find((p) => p.name === plan.name)?.unit
-        const name = truncWidgetText(plan.label, 8) + (unit ? ` ${unit}` : '')
-        addWidget('number', name, plan.value, (v) => {
-          let n = Number(v)
-          if (min !== null && min !== undefined && n < min) n = min
-          if (max !== null && max !== undefined && n > max) n = max
-          onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
-        }, { min: min ?? undefined, max: max ?? undefined, step, precision: plan.precision })
       } else {
-        // 其余一律只读事实（呈现为主，编辑去检查器）
-        pushReadonlyFact(graphNode, plan.label, readonlyPlanValue(plan, spec), openInspector)
+        // 标量参数 → 只读事实行；点击直接跳右栏对应字段并聚焦（不弹 litegraph 输入框）
+        pushReadonlyFact(graphNode, plan.label, readonlyPlanValue(plan, spec), () => focusInspectorParam(nodeId, plan.name))
       }
     }
   }
