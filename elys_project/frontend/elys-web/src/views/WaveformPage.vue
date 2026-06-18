@@ -309,6 +309,7 @@
                     :ref="(el: any) => { cellTimeCourseRefs[ci] = el }"
                     :data="cell.data"
                     :series="cell.series"
+                    :use-spline="true"
                     :x-label="`时间 (${xUnit})`"
                     y-label="μV"
                     :y-max="yMaxValue"
@@ -483,8 +484,9 @@ import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useCursorState } from '@/composables/observe/useCursorState'
-import { useQueryString, round, toNum, shortId, clampInt, fmtSubject } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, clampInt, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { useFullscreen } from '@/composables/observe/useFullscreen'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
