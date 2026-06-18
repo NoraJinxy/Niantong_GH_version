@@ -113,6 +113,20 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+# 签名只取「内容身份」字段：内容哈希 + 存储定位 + artifact_id + 数据类型。
+#
+# 关键不变式：缓存恢复必须对下游 input_hash 透明 —— 同一份上游产物，无论这次是
+# 「新鲜计算」（dispatcher 经 StudyOutputSummary.to_dict() 生成 data_info/artifact）
+# 还是「命中缓存恢复」（cache.py 重建 data_info/artifact），算出的签名必须完全一致；
+# 否则只要上游命中缓存，紧邻下游的 input_hash 就漂移、必然 cache miss 一次。
+#
+# 两条路径在「溯源 / 来源 / 表示层」字段上并不逐字段一致（实测漂移点）：
+#   - data_info.processing：缓存恢复时被注入 cached=True（新鲜运行没有）；
+#   - artifact.artifact_type / source_dataset_id：to_dict() 带，_register_artifact_references 不带。
+# 这些都不是数据内容 —— 内容身份由 content_hash/sha256 + 存储路径 + artifact_id 唯一确定。
+# 故签名一律排除这些字段，既消除漂移、又不会误命中（不同内容 → 不同 sha256）。
+
+
 def _data_info_signature(data_info: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "content_hash",
@@ -130,17 +144,9 @@ def _data_info_signature(data_info: dict[str, Any]) -> dict[str, Any]:
         "dataset_id",
         "source_dataset_id",
         "data_type",
-        "processing",
+        # 刻意不含 "processing"：溯源元数据，缓存恢复路径与新鲜路径不一致（见上）。
     )
-    signature = {key: data_info.get(key) for key in keys if key in data_info}
-    # processing 里的 cached 是"来源标记"（缓存恢复时 cache.py._restore_value 注入），
-    # 不是数据内容。若把它纳入签名，"上游命中缓存"的产物签名会和"上游新鲜计算"时不一致，
-    # 导致紧邻下游节点的 input_hash 漂移、必然 cache miss 一次（如 Epoch 命中后 TFR 仍重跑）。
-    # 剔除来源标记，保证 fresh / cached 上游产出相同签名；不影响 cached 标记继续向前端流动。
-    processing = signature.get("processing")
-    if isinstance(processing, dict) and "cached" in processing:
-        signature["processing"] = {k: v for k, v in processing.items() if k != "cached"}
-    return signature
+    return {key: data_info.get(key) for key in keys if key in data_info}
 
 
 def _artifact_signature(artifact: dict[str, Any]) -> dict[str, Any]:
@@ -149,9 +155,9 @@ def _artifact_signature(artifact: dict[str, Any]) -> dict[str, Any]:
         "checksum",
         "artifact_id",
         "storage_path",
-        "artifact_type",
         "data_type",
-        "source_dataset_id",
+        # 刻意不含 "artifact_type"（恒为 "derivative"、无区分度）与 "source_dataset_id"
+        # （溯源字段，缓存恢复路径不填）：两者会让 fresh/cached 的 artifact 签名漂移（见上）。
     )
     return {key: artifact.get(key) for key in keys if key in artifact}
 

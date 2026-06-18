@@ -192,9 +192,11 @@ def test_input_digest_change_changes_hash():
 
 
 # === Group 2.5: input_hash 对"上游缓存命中"的稳定性（回归） ===
-# 缓存恢复时 cache.py 会往上游产物的 processing 注入 cached=True。若该标记进入
-# input_hash，则"上游命中缓存"的下游节点 input_hash 会和"上游新鲜计算"时不一致，
-# 导致紧邻下游必然 cache miss 一次（实测：Epoch 命中缓存后 TFR 仍重跑 22s）。
+# 不变式：同一份上游产物，无论本次是"新鲜计算"还是"命中缓存恢复"，签名必须一致，
+# 否则上游一旦命中缓存，紧邻下游 input_hash 就漂移、必然 cache miss 一次
+# （实测：Epoch 命中缓存后 TFR 仍重跑 22s）。两条路径已知两个漂移点，签名都须忽略：
+#   ① data_info.processing：缓存恢复时 cache.py 注入 cached=True（新鲜运行没有）；
+#   ② artifact.artifact_type / source_dataset_id：to_dict() 带，缓存恢复 _register_* 不带。
 
 def _data_info(content_hash="sha-aaa", cached=False):
     processing = {"node_id": "n1", "node_type": "eeg/epoch/segment", "params": {"tmin": -0.2}}
@@ -223,9 +225,46 @@ def test_input_hash_ignores_cached_marker_in_processing():
 
 
 def test_input_hash_still_changes_on_real_content_change():
-    """真实内容变化（content_hash 不同）仍必须改变 input_hash —— 剔除 cached 标记不引入误命中。"""
+    """真实内容变化（content_hash 不同）仍必须改变 input_hash —— 不引入误命中。"""
     a = input_hash(_inputs(_data_info(content_hash="sha-aaa")))
     b = input_hash(_inputs(_data_info(content_hash="sha-bbb")))
+    assert a != b
+
+
+def _artifact(provenance=True, content_hash="sha-aaa"):
+    """模拟上游产物的 artifact 字典。provenance=True 复刻新鲜 dispatch 的
+    StudyOutputSummary.to_dict()（带 artifact_type / source_dataset_id）；
+    provenance=False 复刻缓存恢复 _register_artifact_references（不带这两字段）。"""
+    art = {
+        "content_hash": content_hash,
+        "sha256": content_hash,
+        "checksum": content_hash,
+        "artifact_id": "out-1",
+        "storage_path": "outputs/aa/aaa/sub-01_epo.fif",
+        "data_type": "epochs",
+    }
+    if provenance:
+        art["artifact_type"] = "derivative"
+        art["source_dataset_id"] = "rec-123"
+    return art
+
+
+def _inputs_artifact(artifact):
+    return {"Epochs": {"data_infos": [], "artifacts": [artifact], "value": None}}
+
+
+def test_input_hash_ignores_artifact_provenance_drift():
+    """新鲜 dispatch 的 artifact 带 artifact_type/source_dataset_id、缓存恢复的不带 →
+    两者 input_hash 必须一致（否则上游命中缓存后 artifact 签名漂移、紧邻下游必然 miss）。"""
+    fresh = input_hash(_inputs_artifact(_artifact(provenance=True)))
+    cached = input_hash(_inputs_artifact(_artifact(provenance=False)))
+    assert fresh == cached
+
+
+def test_input_hash_artifact_still_changes_on_content_change():
+    """artifact 内容变化（content_hash 不同）仍必须改变 input_hash —— 不引入误命中。"""
+    a = input_hash(_inputs_artifact(_artifact(content_hash="sha-aaa")))
+    b = input_hash(_inputs_artifact(_artifact(content_hash="sha-bbb")))
     assert a != b
 
 
