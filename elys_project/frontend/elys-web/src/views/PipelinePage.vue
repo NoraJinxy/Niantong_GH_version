@@ -2454,12 +2454,19 @@ function graphLayoutIsDegenerate(): boolean {
   return rows.size <= 1 || cols.size <= 1
 }
 
-/** 加载工作流后整理视图：退化布局（脚本一字排开）自动整理（不标脏，保存时才落库），否则只适应屏幕。 */
+/** 加载工作流后整理视图：退化布局（脚本一字排开）自动整理（不标脏，保存时才落库），否则只适应屏幕。
+ *  推迟到连续两帧后再执行：加载是同步的，但右侧检查器抽屉此刻才展开、ResizeObserver 尚未结算、
+ *  litegraph 也还没首绘——此时 fitGraphToView 对一个未定型的视口算缩放会算偏、视图停在默认 100%
+ *  装不下（用户反馈「点开好丑」）。等两帧让视口尺寸 + 首次渲染都落定，fit 才是最后一锤、缩放才准。 */
 function normalizeGraphViewOnLoad() {
   if (!liteGraph || !liteGraphCanvas) return
   if (definition.value.graph.nodes.length === 0) return
-  if (graphLayoutIsDegenerate()) autoArrangeGraph({ markAsDirty: false })
-  else fitGraphToView()
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!liteGraph || !liteGraphCanvas) return
+    if (definition.value.graph.nodes.length === 0) return
+    if (graphLayoutIsDegenerate()) autoArrangeGraph({ markAsDirty: false })
+    else fitGraphToView()
+  }))
 }
 
 function nextNodePosition(index: number): [number, number] {
