@@ -203,25 +203,28 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
 }
 
 /**
- * 工作流自动布局：把「多为线性、偶有末端分叉」的 DAG 排成蛇形网格（boustrophedon / 牛耕式折行）。
+ * 工作流自动布局：把「多为线性、偶有末端分叉」的 DAG 排成「打字机式」折行网格（每行恒从左到右）。
  *
- * 为什么蛇形而不是普通网格：普通网格里「上一行最右」要去连「下一行最左」，连线斜穿整行很乱；
- * 蛇形让奇数行反向（右→左），于是「上一行末」与「下一行首」上下相邻，连线最短、读起来一气呵成。
- * 脚本生成的 pipeline 现在把节点全钉在同一行（一字长蛇阵、一屏装不下），这个函数就是来收拾它的。
+ * 为什么不用蛇形（boustrophedon）：litegraph 节点端口是固定的——输入永远在左、输出永远在右，
+ * 数据天然向右流。蛇形让偶数行反向（右→左），那一行的节点「出口在右却要连左边的下一个节点」，
+ * 连线整个往回兜，方向完全看不清（实测被用户打脸）。所以这里**每行都保持从左到右**：
+ * 行尾换到下一行行首（像文字折行 / 打字机回车），每个节点的「出→入」方向恒定向右，一眼可辨流向。
+ * 换行处那条「回扫线」（上行最右 → 下行最左）就像段落换行，人一看就懂。
  *
  * 排序规则：
  *   1) 算每个节点的「层深 depth」= 从任一根节点到它的最长路径长度（Kahn 拓扑排序 + 松弛）。
  *      这样节点一定排在其所有上游之后；末端 ERP/TFR/PSD 这类同层分叉会聚在一起。
  *   2) 同层按节点在原数组里的先后做稳定排序，最终展平成一条线性序列。
- *   3) 序列按列数 cols 折行铺进网格，奇偶行蛇形交替方向。
+ *   3) 序列按列数 cols 折行铺进网格，**每行一律左→右**（不反向）。
  *
  * 列数 cols 按画布宽高比 aspect 自适应：让网格宽高比 ≈ 画布宽高比，fit（缩放到全部可见）后最舒服。
  *   推导：网格宽 = cols·gapX，网格高 ≈ (n/cols)·gapY；令 宽/高 = aspect
  *        → cols² = aspect·n·gapY/gapX → cols = √(aspect·n·gapY/gapX)。
+ *   （调用方按节点实际宽高传 gapX/gapY，所以节点越高 cols 越多、行数越少、回扫线越少。）
  *
  * @returns 节点 id → [x, y] 画布坐标的 Map；空图返回空 Map。（DAG 应无环；万一有环，环上节点 depth 取 0 兜底。）
  */
-export function computeSnakeLayout(
+export function computeFlowLayout(
   nodes: Array<{ id: string }>,
   links: Array<{ from?: { node?: string } | null; to?: { node?: string } | null } | null> | null | undefined,
   opts: { gapX: number; gapY: number; aspect: number; marginX?: number; marginY?: number },
@@ -279,8 +282,7 @@ export function computeSnakeLayout(
 
   sequence.forEach((id, i) => {
     const row = Math.floor(i / cols)
-    const within = i % cols
-    const col = row % 2 === 0 ? within : cols - 1 - within // 蛇形：奇数行反向
+    const col = i % cols // 打字机式：每行一律左→右，不反向（保持流向可读）
     layout.set(id, [marginX + col * gapX, marginY + row * gapY])
   })
 

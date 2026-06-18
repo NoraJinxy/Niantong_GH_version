@@ -1192,7 +1192,7 @@ import {
   drawNodeStatusBadge,
   drawNodeSaveIcon,
   graphNodeSize,
-  computeSnakeLayout,
+  computeFlowLayout,
   type LiteGraphNode,
   type LooseLiteGraph,
   type LiteGraphLink,
@@ -2360,9 +2360,19 @@ function autoArrangeGraph(options: { markAsDirty?: boolean } = {}) {
   const W = liteGraphCanvasEl.value?.width || 0
   const H = liteGraphCanvasEl.value?.height || 0
   const aspect = W > 0 && H > 0 ? W / H : 1.7
-  const layout = computeSnakeLayout(nodes, definition.value.graph.links || [], {
-    gapX: NODE_GAP_X,
-    gapY: NODE_GAP_Y,
+  // 行列间距按节点「实际」最大宽高算（加了 widget 后节点变高，固定间距会上下重叠）；
+  // 节点越高 → gapY 越大 → cols 越多、行数越少、换行回扫线越少。
+  const titleH = LiteGraph.NODE_TITLE_HEIGHT || 30
+  let maxW = NODE_CARD_WIDTH
+  let maxH = NODE_CARD_MIN_HEIGHT
+  for (const lgNode of liteGraphNodes(liteGraph)) {
+    const size = (lgNode.size || []) as number[]
+    maxW = Math.max(maxW, Number(size[0]) || 0)
+    maxH = Math.max(maxH, (Number(size[1]) || 0) + titleH)
+  }
+  const layout = computeFlowLayout(nodes, definition.value.graph.links || [], {
+    gapX: Math.round(maxW + 64),
+    gapY: Math.round(maxH + 60),
     aspect,
   })
   for (const node of nodes) {
