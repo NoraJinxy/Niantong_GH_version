@@ -3,7 +3,7 @@
     <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
       <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
         <span>{{ loLabel ?? axisLabel(barLo) }}</span>
-        <span style="width: 88px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); background: linear-gradient(to right, rgb(38,92,186), rgb(245,247,250), rgb(206,52,48));"></span>
+        <span :style="{ width: '88px', height: '9px', borderRadius: '2px', border: '1px solid var(--c-border)', background: barGradient }"></span>
         <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
         <span style="margin-left: 2px;">{{ unit }}</span>
       </span>
@@ -28,13 +28,14 @@
 // 旧版「canvas 色面 + SVG 头罩」两层叠放会在真机上对不齐，单层从根上消除该问题。
 import { computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { TOPO_RES as RES, buildTopoKernel } from './topoKernel'
+import { buildHeatmapLut, HEATMAP_LUT_N, heatmapCssGradient, type HeatmapCmap } from './heatmapColor'
 
 interface TopoPoint { name: string; x: number; y: number; value: number }
 interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null }
 // vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
-// domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——白仍钉在 0，正侧按 hi、负侧按 |lo| 各自归一，
-//         色阶条与标签随之非对称。两者二选一：给了 domain 就用它，否则回退 ±vmax。
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null })
+// domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
+// cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys' })
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
@@ -48,23 +49,21 @@ function axisLabel(v: number): string {
 // 色阶条两端值：给了 domain 用 [lo,hi]，否则对称 ±vmax
 const barLo = computed(() => (props.domain ? props.domain[0] : -props.vmax))
 const barHi = computed(() => (props.domain ? props.domain[1] : props.vmax))
-// 色阶条渐变固定 蓝→白→红、白居中：值按 [lo,hi] 线性铺满整条色板（蓝=lo·白=窗中点·红=hi），
-// 非对称窗（如 0–12）也走满蓝→红，不再因「白钉死 0µV」退化成半截白→红（对标 EEGLAB 色限）。
+// 色阶条渐变：用当前色板（默认 elys），值按 [lo,hi] 线性铺满整条色板、白/中点落窗中央。
+const barGradient = computed(() => heatmapCssGradient(props.cmap ?? 'elys', 'to right'))
 
-// ── 配色 LUT：发散色（负→蓝、零→近白、正→红），按归一化 t∈[-1,1] 预烤；vmax 只用于把数值映成 t，不进 LUT ──
-const LUT_N = 512
-const LUT = new Uint8Array(LUT_N * 3)
-;(function buildLUT() {
-  const white = [245, 247, 250]
-  for (let i = 0; i < LUT_N; i++) {
-    const t = (i / (LUT_N - 1)) * 2 - 1 // -1..1
-    const target = t < 0 ? [38, 92, 186] : [206, 52, 48] // 红蓝发散（RdBu 风）
-    const k = Math.pow(Math.abs(t), 0.8) // 轻微 gamma(<1)：中等幅值也更显色
-    LUT[i * 3] = Math.round(white[0] + (target[0] - white[0]) * k)
-    LUT[i * 3 + 1] = Math.round(white[1] + (target[1] - white[1]) * k)
-    LUT[i * 3 + 2] = Math.round(white[2] + (target[2] - white[2]) * k)
+// 当前生效 LUT：用 props.cmap（默认 elys）的热图色板 LUT；缓存，cmap 不变不重烤。
+// 注：热图 LUT 按 i→t∈[-1,1](发散)/k∈[0,1](顺序) 预烤，下标都走 (t+1)/2·(N-1)，发散映白心、顺序映低→高，两者皆对。
+let cmapLut: Uint8Array | null = null
+let cmapLutKey: HeatmapCmap | null = null
+function activeLut(): { lut: Uint8Array; n: number } {
+  const cm = props.cmap ?? 'elys'
+  if (cmapLutKey !== cm) {
+    cmapLut = buildHeatmapLut(cm)
+    cmapLutKey = cm
   }
-})()
+  return { lut: cmapLut as Uint8Array, n: HEATMAP_LUT_N }
+}
 
 // ── kernel 调度：每个 montage 的插值矩阵，按签名缓存；重活派给 worker，主线程不阻塞 ──
 interface ReadyKernel { names: string[]; inside: Int32Array; M: Float32Array; N: number }
@@ -170,8 +169,8 @@ function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent) {
 }
 
 // 一格全绘：色面（M·v→LUT→putImageData）+ 头罩圈 + 鼻耳 + 电极点，同一坐标变换 mapX/mapY，物理对齐
-function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], lo: number, hi: number, seg: number) {
-  // 1) 色面算进离屏 RES×RES。值按 [lo,hi] 线性铺满 蓝(lo)→白(中点)→红(hi)：非对称窗也走满蓝红、不退化半截。
+function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPoint[], lo: number, hi: number, lut: Uint8Array, lutN: number, seg: number) {
+  // 1) 色面算进离屏 RES×RES。值按 [lo,hi] 线性铺满整条色板（中点=lut 中段；发散色=白心，顺序色=中间调）。
   const o = ensureOffscreen()
   const data = o.img.data
   const { inside, M, N } = kernel
@@ -185,11 +184,11 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
     let t = Number.isFinite(s) && span > 0 ? (s - lo) * inv - 1 : 0 // span≤0(全平/无量程)→白
     if (t < -1) t = -1
     else if (t > 1) t = 1
-    const li = (((t + 1) * 0.5 * (LUT_N - 1)) | 0) * 3
+    const li = (((t + 1) * 0.5 * (lutN - 1)) | 0) * 3
     const di = inside[p] * 4
-    data[di] = LUT[li]
-    data[di + 1] = LUT[li + 1]
-    data[di + 2] = LUT[li + 2]
+    data[di] = lut[li]
+    data[di + 1] = lut[li + 1]
+    data[di + 2] = lut[li + 2]
     data[di + 3] = 255
   }
   o.ctx.putImageData(o.img, 0, 0)
@@ -253,20 +252,21 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
 }
 
 function renderAll() {
-  // 色阶域：给了非对称 domain 用 [lo,hi]，否则对称 [−vmax, vmax]；值线性铺满 蓝→白→红
+  // 色阶域：给了非对称 domain 用 [lo,hi]，否则对称 [−vmax, vmax]；值线性铺满整条色板
   const lo = barLo.value
   const hi = barHi.value
+  const { lut, n } = activeLut() // 当前色板 LUT（默认 elys；TFR 跟随其热图 cmap）
   for (const c of props.cells) {
     if (!c.points || c.points.length < 3) continue
     const canvas = canvasMap.get(c.seg)
     if (!canvas) continue
     const kernel = getKernel(sigOf(c.points), c.points)
     if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 本格留空（无 montage 提示走 v-else）
-    drawCell(canvas, kernel, c.points, lo, hi, c.seg)
+    drawCell(canvas, kernel, c.points, lo, hi, lut, n, c.seg)
   }
 }
 
-watch(() => [props.cells, props.vmax, props.domain], async () => { await nextTick(); renderAll() }, { deep: false })
+watch(() => [props.cells, props.vmax, props.domain, props.cmap], async () => { await nextTick(); renderAll() }, { deep: false })
 onMounted(async () => { await nextTick(); renderAll() })
 onUnmounted(() => { worker?.terminate(); worker = null })
 </script>

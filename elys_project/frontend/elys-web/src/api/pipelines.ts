@@ -104,6 +104,7 @@ export const pipelineApi = {
     appendListParam(params, 'tags', query.tags)
     if (query.keep !== undefined) params.set('keep', String(query.keep))
     if (query.include_deleted) params.set('include_deleted', 'true')
+    if (query.visible_only) params.set('visible_only', 'true')
     if (query.limit !== undefined) params.set('limit', String(query.limit))
     if (query.offset !== undefined) params.set('offset', String(query.offset))
     const qs = params.toString()

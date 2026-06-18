@@ -306,8 +306,7 @@ function fmtFreq(v: number): string {
   return Math.abs(v) >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
 }
 
-function drawTimeAxis(ctx: CanvasRenderingContext2D, g: Geom) {
-  const dpr = PX_RATIO
+function drawTimeAxis(ctx: CanvasRenderingContext2D, g: Geom, dpr = PX_RATIO) {
   const fontPx = (props.denseAxes ? 10 : 12) * dpr
   const tick = 4 * dpr
   ctx.font = `${fontPx}px monospace`
@@ -338,8 +337,7 @@ function drawTimeAxis(ctx: CanvasRenderingContext2D, g: Geom) {
 }
 
 // 频率轴：均匀 niceTicks 刻度 + 朝外短刻度线（对标 matplotlib/MNE，默认不画贯穿网格）。
-function drawFreqAxis(ctx: CanvasRenderingContext2D, g: Geom) {
-  const dpr = PX_RATIO
+function drawFreqAxis(ctx: CanvasRenderingContext2D, g: Geom, dpr = PX_RATIO) {
   const fontPx = (props.denseAxes ? 10 : 12) * dpr
   const tick = 4 * dpr
   ctx.font = `${fontPx}px monospace`
@@ -369,9 +367,8 @@ function drawFreqAxis(ctx: CanvasRenderingContext2D, g: Geom) {
   }
 }
 
-function drawStim(ctx: CanvasRenderingContext2D, g: Geom) {
+function drawStim(ctx: CanvasRenderingContext2D, g: Geom, dpr = PX_RATIO) {
   if (0 <= g.t0 || 0 >= g.t1) return
-  const dpr = PX_RATIO
   const x = tToX(g, 0)
   ctx.strokeStyle = STIM_LINE
   ctx.lineWidth = 1.5 * dpr
@@ -616,6 +613,52 @@ onUnmounted(() => {
     cv.removeEventListener('wheel', onWheel)
   }
 })
+
+// 高清导出：在独立离屏 canvas 以 PX_RATIO × scale 倍 DPR 重绘，坐标轴矢量级清晰，跳过鼠标叠加层
+function getExportCanvas(scale: number): HTMLCanvasElement | null {
+  const g = computeGeom()
+  if (!g) return null
+  const exportDpr = PX_RATIO * scale
+  const eg: Geom = {
+    W: Math.round(g.W * scale), H: Math.round(g.H * scale),
+    left: g.left * scale, top: g.top * scale,
+    pw: g.pw * scale, ph: g.ph * scale,
+    t0: g.t0, t1: g.t1, f0: g.f0, f1: g.f1,
+  }
+  const offscreen = document.createElement('canvas')
+  offscreen.width = eg.W
+  offscreen.height = eg.H
+  const ctx = offscreen.getContext('2d')
+  if (!ctx) return null
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, eg.W, eg.H)
+  buildMatrix()
+  if (matrixCv) {
+    const [te0, te1] = dataExtent(props.times)
+    const [fe0, fe1] = dataExtent(props.freqs)
+    const nT = matrixCv.width, nF = matrixCv.height
+    const sx = ((eg.t0 - te0) / (te1 - te0 || 1)) * nT
+    const sw = ((eg.t1 - eg.t0) / (te1 - te0 || 1)) * nT
+    const sy = ((fe1 - eg.f1) / (fe1 - fe0 || 1)) * nF
+    const sh = ((eg.f1 - eg.f0) / (fe1 - fe0 || 1)) * nF
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(eg.left, eg.top, eg.pw, eg.ph)
+    ctx.clip()
+    ctx.drawImage(matrixCv, sx, sy, Math.max(0.001, sw), Math.max(0.001, sh), eg.left, eg.top, eg.pw, eg.ph)
+    ctx.restore()
+  }
+  drawTimeAxis(ctx, eg, exportDpr)
+  drawFreqAxis(ctx, eg, exportDpr)
+  if (props.tZero) drawStim(ctx, eg, exportDpr)
+  ctx.strokeStyle = TICK
+  ctx.lineWidth = exportDpr
+  ctx.strokeRect(eg.left + 0.5, eg.top + 0.5, eg.pw - 1, eg.ph - 1)
+  return offscreen
+}
+defineExpose({ getExportCanvas })
 
 // 配色变 → 重烤 LUT + 重建底图
 watch(

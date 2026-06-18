@@ -267,7 +267,9 @@
               class="result-row"
               :class="{ 'is-active': activeId === row.id, 'is-checked': selectedIds.has(row.id) }"
               tabindex="0"
+              title="单击选中 · 双击在新标签页打开观察"
               @click="setActive(row.id)"
+              @dblclick="openObserve(row)"
               @keydown.enter="setActive(row.id)"
             >
               <!-- UI Phase (docs_v2/6-05) P1-3: 卡片视图顶部预览占位 -->
@@ -383,7 +385,7 @@
               <button class="btn btn--primary btn--sm" type="button" @click="downloadRow(activeRow)">
                 <AppIcon name="import" :size="14" />下载
               </button>
-              <RouterLink class="btn btn--sm" :to="observeRoute(activeRow)">打开观察</RouterLink>
+              <button class="btn btn--sm" type="button" @click="openObserve(activeRow)">打开观察</button>
               <RouterLink
                 v-if="activeRow.produced_by_execution_id"
                 class="btn btn--sm"
@@ -492,7 +494,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
 import { pipelineApi } from '@/api/pipelines'
@@ -510,6 +512,7 @@ const keepOptions: Array<{ value: 'keep' | 'discard'; label: string }> = [
 ]
 
 const route = useRoute()
+const router = useRouter()
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
 const datasets = ref<StudyOutput[]>([])
 // 结果页只展示有意义的输出：保存 / 缓存 / 回收站；滤掉「纯临时」（不保存、系统也不缓存的跑完即清中间废料）
@@ -576,8 +579,23 @@ function observeRoute(row: { id: string; data_type?: string | null; display_name
     name: row.display_name || row.data_type || '结果',
   }
   if (dt === 'tfr') return { path: '/observe/tfr', query }
-  if (dt === 'psd') return { path: '/observe/psd', query }
+  // psd 与 grand average 都是频域功率谱 → 频域观察页（grand average 复用 /psd，渲染均值曲线）
+  if (dt === 'psd' || dt === 'psd_grandavg') return { path: '/observe/psd', query }
   return { path: '/observe/waveform', query: { ...query, type: row.data_type || '' } }
+}
+
+// 查看结果：在新标签页打开观察页（与画布节点双击一致）。用 <a target="_blank"> 模拟点击，
+// 比 window.open 更可靠——浏览器按「新标签」处理、可拖进标签栏并排，而非独立弹窗。
+function openObserve(row: { id: string; data_type?: string | null; display_name?: string | null } | null) {
+  if (!row) return
+  const href = router.resolve(observeRoute(row)).href
+  const link = document.createElement('a')
+  link.href = href
+  link.target = '_blank'
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 const dataTypeOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.data_type)))
@@ -715,6 +733,9 @@ async function reload() {
   try {
     const query: StudyOutputListQuery = {
       include_deleted: true,
+      // 只拉「有意义」的结果（keep/cache/已删除）；隐藏的纯临时中间产物（filtered_raw/raw/中间 psd 等）
+      // 本就不展示也不计数，服务端先滤掉，避免拉回上百行废料拖慢加载。
+      visible_only: true,
       limit: 1000,
       offset: 0,
     }

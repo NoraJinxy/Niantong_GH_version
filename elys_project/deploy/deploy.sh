@@ -90,6 +90,11 @@ BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend/elys-web"
 BACKEND_PORT="8000"
 CELERY_WORKFLOW_QUEUE="workflow.default"
+# Celery worker 内存护栏（计算服当前 PG/Redis/Celery 同机，必须护住 PG 不被 MNE 跑批挤垮）。
+# MemoryHigh=软上限：超了内核先节流回收、争取任务跑完；MemoryMax=硬上限：超了在 worker 自己的
+# cgroup 内 OOM 杀进程，而不触发全局 OOM 把 PostgreSQL 一起带走。按机型调（当前按 8核16G 设）。
+WORKER_MEMORY_HIGH="9G"
+WORKER_MEMORY_MAX="10G"
 SRC="/tmp/elys_project"
 STUDIES_DIR="/mnt/elys_data/studies"
 ELYS_STORAGE_ROOT=""
@@ -117,6 +122,8 @@ while [[ $# -gt 0 ]]; do
         --public-scheme) PUBLIC_SCHEME="$2"; shift 2 ;;
         --data-upstream) DATA_UPSTREAM="$2"; shift 2 ;;
         --studies-dir) STUDIES_DIR="$2"; shift 2 ;;
+        --worker-memory-high) WORKER_MEMORY_HIGH="$2"; shift 2 ;;
+        --worker-memory-max) WORKER_MEMORY_MAX="$2"; shift 2 ;;
         --extra-apt-packages) EXTRA_APT_PACKAGES="$2"; shift 2 ;;
         --use-cn-mirrors) USE_CN_MIRRORS="$2"; shift 2 ;;
         --reset-db) RESET_DB=true; shift ;;
@@ -811,6 +818,11 @@ User=www-data
 Group=www-data
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${BACKEND_DIR}/.env
+# 内存护栏：worker 用量超 MemoryHigh 先被内核节流回收；超 MemoryMax 则在本 cgroup 内 OOM 只杀
+# worker，不触发全局 OOM 把同机的 PostgreSQL 一起带走。MemorySwapMax=0 让上限是真实 RAM 天花板。
+MemoryHigh=${WORKER_MEMORY_HIGH}
+MemoryMax=${WORKER_MEMORY_MAX}
+MemorySwapMax=0
 ExecStart=${BACKEND_DIR}/venv/bin/celery -A app.tasks.celery_app:celery_app worker -B -s ${BACKEND_DIR}/celerybeat-schedule -Q ${CELERY_WORKFLOW_QUEUE} --loglevel=INFO
 Restart=always
 RestartSec=10

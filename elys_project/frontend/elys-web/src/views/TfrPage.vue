@@ -214,11 +214,12 @@
                   <span class="ov-cell-tag" :style="{ background: cell.accent }"></span>
                   <span class="ov-cell-name">{{ cell.title }}</span>
                   <span class="ov-cell-meta text-mono">{{ cell.tfr ? `${cell.tfr.nave} trials · ${Math.round(cell.tfr.sfreq)}Hz` : '加载中' }}</span>
-                  <button class="ov-cell-dl" title="导出 PNG" @click.stop="exportCell($event, cell.title)">⬇</button>
+                  <button class="ov-cell-dl" title="导出 PNG" @click.stop="exportCell($event, cell.title, ci)">⬇</button>
                 </div>
                 <div class="ov-cell-plot">
                   <HeatmapCanvas
                     v-if="cell.tfr"
+                    :ref="(el: any) => { cellHeatmapRefs[ci] = el }"
                     :power="cell.tfr.power"
                     :freqs="cell.tfr.freqs"
                     :times="cell.tfr.times"
@@ -250,7 +251,7 @@
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :subtitle="topoSubtitle" :unit="unit" />
+            <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :cmap="cmap" :subtitle="topoSubtitle" :unit="unit" />
           </template>
 
           <div v-else class="ov-state">
@@ -292,24 +293,26 @@
         <div class="ov-right-scroll">
           <!-- 游标读数：各图在 (t,f) 处的功率 -->
           <div class="ov-hover" :class="{ 'is-expanded': hoverExpanded }">
-            <template v-if="displayTF">
-              <div class="ov-hover-hd">
+            <div class="ov-hover-hd">
+              <template v-if="displayTF">
                 <span v-if="cursorLocked" class="ov-hover-lock">🔒 锁定</span>游标
                 <span class="text-mono">{{ fmtTime(displayTF.t) }}s · {{ fmtFreq(displayTF.f) }}Hz</span>
                 <span v-if="cursorLocked" class="ov-hover-tip">右键解锁</span><span class="ov-hover-unit">{{ unit }}</span>
-              </div>
+              </template>
+              <template v-else>游标 <span class="text-mono">–</span><span class="ov-hover-unit">{{ unit }}</span></template>
+            </div>
+            <template v-if="hoverItems.length">
               <div class="ov-hover-list">
                 <div v-for="it in hoverItems" :key="it.key" class="ov-hover-row">
                   <span class="ov-li-dot" :style="{ background: it.color }"></span>
                   <span class="ov-hover-name">{{ it.name }}</span>
-                  <span class="ov-hover-val text-mono">{{ Number.isFinite(it.value) ? it.value.toFixed(2) : '—' }}</span>
+                  <span class="ov-hover-val text-mono">{{ displayTF && Number.isFinite(it.value) ? it.value.toFixed(2) : '–' }}</span>
                 </div>
               </div>
-              <button v-if="readoutItems.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">
-                {{ hoverExpanded ? '收起' : `展开全部 ${readoutItems.length} 张` }}
+              <button v-if="hoverItemsAll.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">
+                {{ hoverExpanded ? '收起' : `展开全部 ${hoverItemsAll.length} 张` }}
               </button>
             </template>
-            <div v-else class="ov-hover-idle">在热图上移动查看该 (时间, 频率) 处各图功率 · 双击锁定</div>
           </div>
 
           <div v-if="!focusCell" class="ov-right-empty">
@@ -368,6 +371,8 @@ import { useRoute } from 'vue-router'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
+// HeatmapCanvas 实例数组（v-for 中按 ci 填入），exportCell 读取以触发高清重绘
+const cellHeatmapRefs: (InstanceType<typeof HeatmapCanvas> | null)[] = []
 import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } from '@/components/observe/heatmapColor'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
@@ -698,7 +703,10 @@ const readoutItems = computed(() => {
     .filter((c) => c.tfr)
     .map((c) => ({ key: c.key, name: c.title, color: c.accent, value: valueAt(c.tfr as StudyOutputTfr, tf.t, tf.f) }))
 })
-const hoverItems = computed(() => (hoverExpanded.value ? readoutItems.value : readoutItems.value.slice(0, HOVER_COLLAPSED)))
+const lastHoverItems = ref<{ key: string; name: string; color: string; value: number }[]>([])
+watch(readoutItems, (val) => { if (val.length) lastHoverItems.value = val })
+const hoverItemsAll = computed(() => readoutItems.value.length ? readoutItems.value : lastHoverItems.value)
+const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : hoverItemsAll.value.slice(0, HOVER_COLLAPSED)))
 
 // ---------- ROI 框选 ----------
 interface Roi { t0: number; t1: number; f0: number; f1: number }
@@ -924,10 +932,18 @@ function statsMatrix(): string[][] {
 const copied = ref(false)
 function copyStats() {
   const text = statsMatrix().map((r) => r.join('\t')).join('\n')
-  navigator.clipboard?.writeText(text).then(() => {
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1200)
-  }).catch(() => {})
+  const showCopied = () => { copied.value = true; window.setTimeout(() => (copied.value = false), 1200) }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {})
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+    document.body.appendChild(el)
+    el.select()
+    try { document.execCommand('copy'); showCopied() } catch { /* ignore */ }
+    document.body.removeChild(el)
+  }
 }
 function exportCsv() {
   const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
@@ -939,26 +955,66 @@ function exportCsv() {
   a.click()
   URL.revokeObjectURL(url)
 }
-function exportCell(e: MouseEvent, title: string) {
+function exportCell(e: MouseEvent, title: string, ci?: number) {
+  const EXPORT_SCALE = 3 // 目标 3× 屏幕物理像素，约 300dpi（4 英寸宽单栏）
+
+  // 优先路径：HeatmapCanvas 高清重绘，坐标轴矢量级清晰
+  if (ci != null) {
+    const hmc = cellHeatmapRefs[ci]
+    const exportCv = hmc?.getExportCanvas(EXPORT_SCALE)
+    if (exportCv) {
+      // 取屏幕 canvas 推算 exportDpr，用同比例加标题栏
+      const srcCv = (e.target as HTMLElement).closest('.ov-cell')?.querySelector('canvas') as HTMLCanvasElement | null
+      const screenDpr = srcCv?.clientWidth ? srcCv.width / srcCv.clientWidth : 2
+      const exportDpr = screenDpr * EXPORT_SCALE
+      const headH = Math.round(20 * exportDpr)
+      const out = document.createElement('canvas')
+      out.width = exportCv.width
+      out.height = exportCv.height + headH
+      const ctx = out.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, out.width, out.height)
+        if (title) {
+          ctx.fillStyle = '#1F2733'
+          ctx.font = `${Math.round(11 * exportDpr)}px sans-serif`
+          ctx.textBaseline = 'middle'
+          ctx.fillText(title, Math.round(8 * exportDpr), headH / 2, out.width - Math.round(16 * exportDpr))
+        }
+        ctx.drawImage(exportCv, 0, headH)
+        const a = document.createElement('a')
+        a.href = out.toDataURL('image/png')
+        a.download = `tfr_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
+        a.click()
+        return
+      }
+    }
+  }
+
+  // 回退路径：双线性放大至 2400px（仅当 HeatmapCanvas ref 取不到时）
   const cellEl = (e.target as HTMLElement).closest('.ov-cell')
   const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
   if (!src || !src.width) return
-  const scale = src.clientWidth ? src.width / src.clientWidth : 2
-  const headH = Math.round(20 * scale)
+  const dpr = src.clientWidth ? src.width / src.clientWidth : 2
+  const printScale = Math.max(1, Math.ceil(2400 / src.width))
+  const totalDpr = dpr * printScale
+  const headH = Math.round(20 * totalDpr)
   const out = document.createElement('canvas')
-  out.width = src.width
-  out.height = src.height + headH
+  out.width = src.width * printScale
+  out.height = src.height * printScale + headH
   const ctx = out.getContext('2d')
   if (!ctx) return
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, out.width, out.height)
   if (title) {
     ctx.fillStyle = '#1F2733'
-    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.font = `${Math.round(11 * totalDpr)}px sans-serif`
     ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
+    ctx.fillText(title, Math.round(8 * totalDpr), headH / 2, out.width - Math.round(16 * totalDpr))
   }
-  ctx.drawImage(src, 0, headH)
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(src, 0, headH, src.width * printScale, src.height * printScale)
   const a = document.createElement('a')
   a.href = out.toDataURL('image/png')
   a.download = `tfr_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`

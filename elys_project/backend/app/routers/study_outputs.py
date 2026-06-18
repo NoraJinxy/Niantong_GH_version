@@ -220,6 +220,10 @@ def list_study_outputs(
     tags: list[str] | None = Query(default=None),
     keep: bool | None = Query(default=None),
     include_deleted: bool = Query(default=False),
+    visible_only: bool = Query(
+        default=False,
+        description="只返回「有意义」的结果：keep / cache_eligible / 已删除（结果页用，避免拉回一堆隐藏的纯临时中间产物）。",
+    ),
     include_cross_study: bool = Query(
         default=False,
         description="Phase 3 (docs_v2/3-25): 列出其他 Study 已发布且共享的结果 (lifecycle_state='published' AND visibility='shared')",
@@ -269,6 +273,16 @@ def list_study_outputs(
         query = query.filter(StudyOutput.condition.in_(conditions))
     if keep is not None:
         query = query.filter(StudyOutput.keep.is_(keep))
+    if visible_only:
+        # 结果页只展示 keep / cache / 已删除；纯临时中间产物（keep=False 且 cache=False）
+        # 占绝大多数却从不显示，服务端先滤掉，避免序列化 + 传输上百行废料拖慢加载。
+        query = query.filter(
+            _or(
+                StudyOutput.keep.is_(True),
+                StudyOutput.cache_eligible.is_(True),
+                StudyOutput.deleted_at.isnot(None),
+            )
+        )
     if tags:
         # JSONB contains: 任一 tag 匹配即可
         from sqlalchemy import or_ as _or
@@ -751,7 +765,7 @@ def get_study_output_psd(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，功率谱不可用。"},
         )
-    if str(dataset.data_type or "").lower() != "psd":
+    if str(dataset.data_type or "").lower() not in ("psd", "psd_grandavg"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "DERIVED_DATASET_NOT_PSD", "message": "该结果不是功率谱(PSD)类型。"},

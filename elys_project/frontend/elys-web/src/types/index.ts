@@ -1171,6 +1171,8 @@ export interface StudyOutputListQuery {
   tags?: string[]
   keep?: boolean
   include_deleted?: boolean
+  /** 只拉「有意义」的结果（keep/cache/已删除），跳过隐藏的纯临时中间产物——结果页提速用 */
+  visible_only?: boolean
   limit?: number
   offset?: number
 }
