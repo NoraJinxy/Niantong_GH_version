@@ -513,7 +513,9 @@ const { paletteKey, palOpen, currentPalette, paletteGroups, selectPalette, color
 
 // ---------- 段（=数据集/条件输出）与通道选择 ----------
 const segKeys = computed(() => outputIds.map((_, i) => i))
-const segSel = useMultiSelect<number>(() => segKeys.value, isMultiOutput ? outputIds.map((_, i) => i) : [0])
+// 默认只选第 1 个产物：多产物节点(N 被试 × 条件)双击进来会送一长串，全选会一次性触发多路云端读、
+// 糊一墙「加载中」；其余列出待勾，要对比再手动加（与 TFR / 时域一致）。
+const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
 const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
 const primary = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
@@ -556,7 +558,13 @@ function segColor(seg: number) {
 }
 function segLabel(seg: number): string {
   const psd = psdMap.value.get(seg)
-  return psd?.condition || labelCache[seg] || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
+  if (psd) {
+    // 数据集名优先「被试 · 条件」——多被试时 condition 重复，必须带被试才分得清；都缺退化 display_name
+    const parts = [psd.subject ? `sub-${psd.subject}` : '', psd.condition || ''].filter(Boolean)
+    if (parts.length) return parts.join(' · ')
+    if (psd.display_name) return psd.display_name
+  }
+  return labelCache[seg] || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
 }
 
 // ---------- facet 单元（数据访问注入 useFacetGrid）----------

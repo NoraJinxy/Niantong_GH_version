@@ -522,7 +522,9 @@ const tsMap = ref<Map<number, StudyOutputTimeseries>>(new Map()) // segIndex(或
 const loading = ref(true)
 const error = ref('')
 // 多产物模式：默认全选 + 把"数据集"摆到列维度（一进来同屏看到各条件叠加）
-const selectedSegs = ref<Set<number>>(new Set(isMultiOutput ? outputIds.map((_, i) => i) : [0]))
+// 默认只选第 1 个产物：多产物节点(N 被试 × 条件)双击进来会送一长串，全选会一次性触发多路云端读、
+// 糊一墙「加载中」；其余列出待勾，要对比再手动加（与 TFR / PSD 一致）。单产物时 [0]=首个条件/epoch。
+const selectedSegs = ref<Set<number>>(new Set([0]))
 const segAnchor = ref<number | null>(null) // shift 连选锚点（段/Epoch）
 // 绘图布局：行/列因素分配；未分配（none）的因素在格内叠加
 // 默认沿用已验证的观感：单产物=单格全通道叠加（行列都—）；多产物=每通道一子图、数据集格内叠加（行=通道）
@@ -695,7 +697,7 @@ const segKindLabel = computed(() => (isMultiOutput ? '数据集' : ts.value?.seg
 const labelCache = reactive<Record<number, string>>({})
 const segOptions = computed(() =>
   isMultiOutput
-    ? outputIds.map((_, i) => labelCache[i] || tsMap.value.get(i)?.segment_label || `数据集 ${i + 1}`)
+    ? outputIds.map((_, i) => segLabel(i))
     : ts.value?.segment_options ?? null,
 )
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
@@ -733,8 +735,13 @@ function segLabel(seg: number) {
   // epochs：用序号 #N 标识（同条件的多 epoch 才分得清；图例 / 卡片 / 表 / 地形图统一）
   if (!isMultiOutput && ts.value?.segment_kind === 'epoch') return `#${seg + 1}`
   const t = tsMap.value.get(seg)
+  if (isMultiOutput) {
+    // 多产物对比：数据集名 =「被试 · 条件」，多被试时 condition 重复必须带被试区分；缺则退化数据集 N
+    const subj = t?.subject ? `sub-${t.subject}` : ''
+    const combined = [subj, t?.segment_label || ''].filter(Boolean).join(' · ')
+    return combined || labelCache[seg] || `数据集 ${seg + 1}`
+  }
   if (t?.segment_label) return t.segment_label
-  if (isMultiOutput) return `数据集 ${seg + 1}`
   return ts.value?.segment_options?.[seg] ?? `#${seg + 1}`
 }
 function segColor(seg: number) {
@@ -1187,7 +1194,11 @@ async function load() {
     const m = new Map<number, StudyOutputTimeseries>()
     for (const s of ok) {
       m.set(s.value[0], s.value[1])
-      if (isMultiOutput && s.value[1].segment_label) labelCache[s.value[0]] = s.value[1].segment_label
+      if (isMultiOutput && s.value[1].segment_label) {
+        const r = s.value[1]
+        const subj = r.subject ? `sub-${r.subject}` : ''
+        labelCache[s.value[0]] = [subj, r.segment_label].filter(Boolean).join(' · ')
+      }
     }
     tsMap.value = m
     const failed = settled.length - ok.length

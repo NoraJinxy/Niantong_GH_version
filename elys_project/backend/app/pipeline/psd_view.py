@@ -119,6 +119,8 @@ def build_psd_lines(
         "data_type": "psd",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
         "condition": getattr(dataset, "condition", None),
+        "subject": getattr(dataset, "bids_subject_id", None),
+        "display_name": getattr(dataset, "display_name", None),
         "method": "welch",
         "unit": "dB",
         "sfreq": sfreq,

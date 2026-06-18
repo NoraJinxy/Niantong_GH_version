@@ -999,6 +999,8 @@ export interface StudyOutputTimeseries {
   n_segments: number | null
   segment_index: number | null
   segment_label: string | null
+  subject: string | null
+  display_name: string | null
   segment_kind: 'epoch' | 'condition' | null
   segment_options: string[] | null
   n_channels_total: number
@@ -1123,6 +1125,8 @@ export interface StudyOutputPsd {
   data_type: string
   study_output_id: string
   condition: string | null
+  subject: string | null
+  display_name: string | null
   method: string
   unit: string
   sfreq: number

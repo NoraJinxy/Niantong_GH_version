@@ -79,16 +79,21 @@ def build_timeseries(
     path = resolve_study_output_path(study, artifact)
     validate_study_output_file(path, artifact)
     if data_type in CONTINUOUS_TYPES:
-        return _ts_raw(path, data_type, tmin, tmax, max_points, max_channels, l_freq, h_freq, notch)
-    if data_type == "epochs":
-        return _ts_epochs(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
-    if data_type == "evoked":
-        return _ts_evoked(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
-    raise StudyOutputPreviewError(
-        "DERIVED_DATASET_TIMESERIES_UNSUPPORTED",
-        f"暂不支持 data_type={data_type or 'unknown'} 的时域曲线",
-        status_code=400,
-    )
+        result = _ts_raw(path, data_type, tmin, tmax, max_points, max_channels, l_freq, h_freq, notch)
+    elif data_type == "epochs":
+        result = _ts_epochs(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
+    elif data_type == "evoked":
+        result = _ts_evoked(path, tmin, tmax, index, max_points, max_channels, l_freq, h_freq, notch)
+    else:
+        raise StudyOutputPreviewError(
+            "DERIVED_DATASET_TIMESERIES_UNSUPPORTED",
+            f"暂不支持 data_type={data_type or 'unknown'} 的时域曲线",
+            status_code=400,
+        )
+    # 多产物对比时前端按「被试 · 条件」标注数据集，故把产物的被试 / 名一并带出
+    result["subject"] = getattr(artifact, "bids_subject_id", None)
+    result["display_name"] = getattr(artifact, "display_name", None)
+    return result
 
 
 def encode_timeseries_binary(payload: dict[str, Any]) -> bytes:
