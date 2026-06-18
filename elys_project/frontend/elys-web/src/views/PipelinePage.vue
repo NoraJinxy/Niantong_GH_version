@@ -1858,6 +1858,16 @@ watch([executionJobs, runArtifacts], () => {
   void loadSelectedIcaInteraction()
 })
 
+// 数据集列表异步加载完（或变化）时，重画 LoadData 节点卡：建节点那一刻 studyDatasets 可能还没回来，
+// 卡上 dataset_ids 查不到 recording → 误显「(数据缺失)」；列表到位后重画即可解析出文件名。
+watch(studyDatasets, () => {
+  if (!liteGraph) return
+  for (const node of liteGraphNodes(liteGraph)) {
+    if (String((node as { type?: unknown }).type || '') === LOAD_DATA_NODE_TYPE) applyNodeWidgets(node)
+  }
+  liteGraphCanvas?.setDirty(true, true)
+})
+
 onMounted(async () => {
   restoreLayoutState()
   await nextTick()
@@ -3056,6 +3066,11 @@ function pushLoadDataSummary(graphNode: LiteGraphNode, params: Record<string, un
   if (rawIds.length === 0) {
     pushReadonlyLine(graphNode, '未选择数据', { muted: true }, onClick)
     pushReadonlyLine(graphNode, '点击设置 →', { accent: true }, onClick)
+    return
+  }
+  if (studyDatasets.value.length === 0) {
+    // 数据集列表还没加载完 → 先显数量（watch 在列表到位后会重画显文件名），别误报「数据缺失」
+    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {}, onClick)
     return
   }
   const byId = new Map(studyDatasets.value.map((r) => [String(r.id), r]))
