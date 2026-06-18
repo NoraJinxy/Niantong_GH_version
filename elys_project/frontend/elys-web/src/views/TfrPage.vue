@@ -367,7 +367,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
@@ -377,9 +376,8 @@ import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } from '@/components/observe/heatmapColor'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
+import { useQueryString, round, toNum, shortId } from '@/composables/observe/observeUtils'
 import '@/components/observe/observePage.css'
-
-const route = useRoute()
 
 // ---------- 常量 ----------
 const INACTIVE_DOT = '#cbd2dc'
@@ -394,11 +392,7 @@ const TIME_WINDOWS = [
 ]
 
 // ---------- 查询参数 ----------
-function qstr(key: string, fallback = ''): string {
-  const raw = route.query[key]
-  if (Array.isArray(raw)) return raw[0] ?? fallback
-  return raw ?? fallback
-}
+const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
 const urlOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 // 数据集列表：URL 带的在前，挂载后自动发现「同研究项下其它 TFR 产物」追加进来（可勾选并排对比，免手动拼 URL）
@@ -773,19 +767,6 @@ const statsRows = computed<StatRow[]>(() =>
 )
 
 // ---------- 工具 ----------
-function shortId(v?: string | null) {
-  if (!v) return ''
-  return v.length > 10 ? v.slice(0, 8) + '…' : v
-}
-function round(n: number, p: number) {
-  const f = Math.pow(10, p)
-  return Math.round(n * f) / f
-}
-function toNum(v: number | string): number | null {
-  if (v === '' || v === null || v === undefined) return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
-}
 function fmtTime(v: number) {
   return Math.abs(v) >= 10 ? String(Math.round(v)) : String(Math.round(v * 100) / 100)
 }
@@ -1145,10 +1126,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.psd-bandpills { display: flex; gap: 4px; flex-wrap: wrap; }
-.psd-bandpill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; border-radius: var(--r-pill); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-family: var(--ff-mono); }
-.psd-bandpill:hover { border-color: var(--c-primary); }
-.psd-bandpill.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
 .ov-cell-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--c-text-3); font-size: 12px; }
 /* 状态条色阶图例 */
 .tfr-cbar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 10px; color: var(--c-text-3); }

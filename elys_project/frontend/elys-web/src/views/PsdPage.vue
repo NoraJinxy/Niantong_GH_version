@@ -54,23 +54,23 @@
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('channel')">
               通道
-              <span class="ov-sec-cnt">{{ selected.size }}/{{ allChanNames.length }}</span>
+              <span class="ov-sec-cnt">{{ selectedChans.size }}/{{ allChanNames.length }}</span>
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.channel }">▾</span>
             </div>
             <div v-show="!collapsed.channel" class="ov-sec-body">
               <div class="ov-sec-actions">
-                <button v-if="selected.size < allChanNames.length" type="button" class="ov-link" @click="chanSel.selectAll()">全选</button>
-                <button v-if="selected.size > 0" type="button" class="ov-link" @click="chanSel.selectNone()">清空</button>
+                <button v-if="selectedChans.size < allChanNames.length" type="button" class="ov-link" @click="chanSel.selectAll()">全选</button>
+                <button v-if="selectedChans.size > 0" type="button" class="ov-link" @click="chanSel.selectNone()">清空</button>
               </div>
               <div class="ov-chanlist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
                   v-for="(name, i) in allChanNames"
                   :key="name"
                   class="ov-li"
-                  :class="{ 'is-sel': selected.has(name) }"
+                  :class="{ 'is-sel': selectedChans.has(name) }"
                   @click="chanSel.onClick(i, $event)"
                 >
-                  <span class="ov-li-dot" :style="{ background: selected.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-dot" :style="{ background: selectedChans.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name text-mono">{{ name }}</span>
                   <MiniSparkline class="ov-li-spark" :values="chanValues(name)" :color="chColor(i)" />
                 </div>
@@ -263,7 +263,7 @@
 
           <template v-else-if="primaryPsd">
             <div v-if="partialNote" class="ov-partial">{{ partialNote }}</div>
-            <div v-if="!selected.size" class="ov-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
+            <div v-if="!selectedChans.size" class="ov-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="ov-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
               <section v-for="(cell, ci) in cells" :key="cell.key" class="ov-cell" :class="{ 'is-focus': effectiveFocus && cell.title === effectiveFocus }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="ov-cell-hd">
@@ -308,7 +308,7 @@
                 </div>
               </section>
             </div>
-            <TopoStrip v-if="showTopo && selected.size && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :subtitle="topoSubtitle" unit="dB" :lo-label="topoLoLabel" :hi-label="topoHiLabel" />
+            <TopoStrip v-if="showTopo && selectedChans.size && topoCells.length" :cells="topoCells" :vmax="effectiveTopoVmax" :subtitle="topoSubtitle" unit="dB" :lo-label="topoLoLabel" :hi-label="topoHiLabel" />
           </template>
 
           <div v-else class="ov-state">
@@ -322,7 +322,7 @@
           <span class="ov-sbar-dot"></span>
           <span>PSD · {{ primaryPsd.method }}</span><span class="ov-sbar-sep">|</span>
           <span>{{ Math.round(primaryPsd.sfreq) }}Hz</span><span class="ov-sbar-sep">|</span>
-          <span>{{ selected.size }}/{{ primaryPsd.n_channels_total }}ch</span><span class="ov-sbar-sep">|</span>
+          <span>{{ selectedChans.size }}/{{ primaryPsd.n_channels_total }}ch</span><span class="ov-sbar-sep">|</span>
           <span>窗 {{ fmtX(winLo) }}~{{ fmtX(winHi) }}Hz</span>
           <div style="flex: 1"></div>
           <span v-if="isZoomed" class="ov-sbar-zoom" @click="resetZoom" title="复位频率缩放（滚轮缩放）">🔍 {{ zoomLabel }} <span class="ov-sbar-zoom-x">✕</span></span>
@@ -443,7 +443,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import type { StudyOutputPsd } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
@@ -453,9 +452,9 @@ import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { useCursorState } from '@/composables/observe/useCursorState'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { usePalette } from '@/composables/observe/usePalette'
+import { useQueryString, round, toNum, shortId } from '@/composables/observe/observeUtils'
 import '@/components/observe/observePage.css'
 
-const route = useRoute()
 const cellTimeCourseRefs: any[] = []
 
 // ---------- 常量 ----------
@@ -479,11 +478,7 @@ const FREQ_WINDOWS = [
 ]
 
 // ---------- 查询参数 ----------
-function qstr(key: string, fallback = ''): string {
-  const raw = route.query[key]
-  if (Array.isArray(raw)) return raw[0] ?? fallback
-  return raw ?? fallback
-}
+const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
 const outputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 const datasetId = outputIds[0] || ''
@@ -505,7 +500,7 @@ const displayMode = ref<'overlay' | 'spread'>('overlay')
 const isFullscreen = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const collapsed = reactive<Record<string, boolean>>({
-  dataset: false, channel: false, band: false, range: false, layout: false, modules: false,
+  dataset: false, channel: false, range: false, layout: false, modules: false,
 })
 
 // 配色
@@ -518,23 +513,23 @@ const segKeys = computed(() => outputIds.map((_, i) => i))
 const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
 const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
-const primary = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
+const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const primaryPsd = computed<StudyOutputPsd | null>(
-  () => psdMap.value.get(primary.value) ?? psdMap.value.values().next().value ?? null,
+  () => psdMap.value.get(primarySeg.value) ?? psdMap.value.values().next().value ?? null,
 )
 const segCount = computed(() => outputIds.length)
 
 const allChanNames = computed(() => (primaryPsd.value?.channels ?? []).map((c) => c.name))
 const chanSel = useMultiSelect<string>(() => allChanNames.value, [])
-const selected = chanSel.selected
-const orderedSel = computed(() => allChanNames.value.filter((n) => selected.value.has(n)))
+const selectedChans = chanSel.selected
+const orderedChans = computed(() => allChanNames.value.filter((n) => selectedChans.value.has(n)))
 
 // 数据进来后默认选前 N 个通道
 watch(
   () => allChanNames.value.join(''),
   (key) => {
     if (!key) return
-    if (selected.value.size === 0) {
+    if (selectedChans.value.size === 0) {
       chanSel.set(allChanNames.value.slice(0, Math.min(allChanNames.value.length, DEFAULT_SELECT)))
     }
   },
@@ -547,7 +542,7 @@ const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() 
   const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
   if (segCount.value > 1) opts.push({ v: 'seg', l: '数据集' })
   opts.push({ v: 'chan', l: '通道' })
-  if (segCount.value > 1 && orderedSel.value.length > 1) opts.push({ v: 'none', l: '矩阵' })
+  if (segCount.value > 1 && orderedChans.value.length > 1) opts.push({ v: 'none', l: '矩阵' })
   return opts
 })
 function chColor(i: number) {
@@ -573,7 +568,7 @@ function cellAccent(cell: { series: { color: string }[] }): string {
 }
 const { effectiveOverlay, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
   segs: () => sortedSegs.value,
-  chans: () => orderedSel.value,
+  chans: () => orderedChans.value,
   segCount: () => segCount.value,
   overlayDim,
   segLabel,
@@ -608,7 +603,7 @@ const yDomainAll = computed<[number, number] | null>(() => {
     const psd = psdMap.value.get(seg)
     if (!psd) continue
     for (const ch of psd.channels) {
-      if (!selected.value.has(ch.name)) continue
+      if (!selectedChans.value.has(ch.name)) continue
       if (ch.pmin != null) lo = Math.min(lo, ch.pmin)
       if (ch.pmax != null) hi = Math.max(hi, ch.pmax)
     }
@@ -659,21 +654,8 @@ const autoYLoLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomai
 const autoYHiLabel = computed(() => (yDomainAll.value ? String(Math.round(yDomainAll.value[1])) : '自动'))
 
 // ---------- 工具 ----------
-function shortId(v?: string | null) {
-  if (!v) return ''
-  return v.length > 10 ? v.slice(0, 8) + '…' : v
-}
-function round(n: number, p: number) {
-  const f = Math.pow(10, p)
-  return Math.round(n * f) / f
-}
 function fmtX(v: number) {
   return Number(v.toFixed(1))
-}
-function toNum(v: number | string): number | null {
-  if (v === '' || v === null || v === undefined) return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
 }
 const displayName = computed(() => nameHint || (primaryPsd.value?.condition ? `功率谱 · ${primaryPsd.value.condition}` : '功率谱'))
 function chanValues(name: string): number[] {
@@ -863,7 +845,7 @@ interface PsdStatRow {
   bandAbs: Record<string, number> // 各频段均值 dB
 }
 const statsRows = computed<PsdStatRow[]>(() => {
-  const chans = orderedSel.value
+  const chans = orderedChans.value
   const segs = sortedSegs.value
   if (!chans.length) return []
   const out: PsdStatRow[] = []
