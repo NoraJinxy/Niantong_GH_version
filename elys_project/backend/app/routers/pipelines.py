@@ -5,6 +5,7 @@ Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_
 
 import asyncio
 import json
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
@@ -646,15 +647,36 @@ def normalize_pipeline_execution_mode(value: str | None) -> str:
     return mode if mode in PIPELINE_EXECUTION_MODES else "auto"
 
 
+# 模块级 worker 可用性缓存（每进程一份）：见 celery_workers_available 的说明。
+_worker_availability_cache: dict[str, Any] = {"checked_at": 0.0, "value": None}
+
+
 def celery_workers_available(settings) -> tuple[bool, str, dict[str, Any]]:
+    # auto 模式每次运行都要 ping worker 决定走 inline 还是异步；连续运行时这是固定开销
+    # （worker 在线 = broker 往返延迟，离线 = 等满 CELERY_WORKER_PING_TIMEOUT_SECONDS）。
+    # 用短 TTL 缓存探测结果：TTL 内的连续运行直接复用、跳过 ping；过期后下次重新 ping。
+    # worker 中途挂掉时最多 TTL 秒后下次探测自愈（比写死 PIPELINE_EXECUTION_MODE=celery
+    # 安全——那样 worker 一挂、任务会无限期卡在队列里）。TTL 设 0 即关闭缓存、恢复每次 ping。
+    ttl = float(getattr(settings, "CELERY_WORKER_PING_CACHE_TTL_SECONDS", 0.0) or 0.0)
+    now = time.monotonic()
+    cached = _worker_availability_cache.get("value")
+    if ttl > 0 and cached is not None and (now - float(_worker_availability_cache.get("checked_at") or 0.0)) < ttl:
+        available, reason, info = cached
+        return available, f"{reason}:cached", info
     try:
         inspector = run_pipeline_task.app.control.inspect(timeout=settings.CELERY_WORKER_PING_TIMEOUT_SECONDS)
         replies = inspector.ping() if inspector is not None else None
     except Exception as exc:
-        return False, f"celery_worker_ping_failed: {exc}", {}
-    if not replies:
-        return False, "no_celery_worker_reply", {}
-    return True, "celery_worker_available", replies
+        result: tuple[bool, str, dict[str, Any]] = (False, f"celery_worker_ping_failed: {exc}", {})
+    else:
+        if not replies:
+            result = (False, "no_celery_worker_reply", {})
+        else:
+            result = (True, "celery_worker_available", replies)
+    if ttl > 0:
+        _worker_availability_cache["checked_at"] = now
+        _worker_availability_cache["value"] = result
+    return result
 
 
 def should_execute_pipeline_inline(settings) -> tuple[bool, str, dict[str, Any]]:

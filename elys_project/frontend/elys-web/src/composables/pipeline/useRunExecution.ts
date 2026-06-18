@@ -117,10 +117,20 @@ export function useRunExecution(options: RunExecutionOptions) {
     applyRunStateToCanvas()
   }
 
+  // 运行状态轮询的渐进退避间隔：前几拍快（秒级完成的缓存命中运行能立刻看到、
+  // 不必干等一个完整的 1.5s 间隔），之后回落到常规间隔，避免长任务（如新算 TFR
+  // 16s）高频轮询压后端。pollCount 为「已完成的轮询次数」。
+  function nextRunPollDelay(pollCount: number): number {
+    if (pollCount <= 2) return 300
+    if (pollCount <= 5) return 700
+    return EXECUTION_POLL_INTERVAL_MS
+  }
+
   function startRunPolling(executionId = activeExecutionId.value) {
     if (!executionId) return
     stopRunPolling(false)
     runPolling.value = true
+    let pollCount = 0
     const tick = async () => {
       await refreshRunState(executionId)
       if (activeExecutionId.value !== executionId || !runPolling.value) return
@@ -128,9 +138,12 @@ export function useRunExecution(options: RunExecutionOptions) {
         stopRunPolling(false)
         return
       }
-      executionPollTimer = window.setTimeout(tick, EXECUTION_POLL_INTERVAL_MS)
+      pollCount += 1
+      executionPollTimer = window.setTimeout(tick, nextRunPollDelay(pollCount))
     }
-    executionPollTimer = window.setTimeout(tick, EXECUTION_POLL_INTERVAL_MS)
+    // 立即发起首拍：①已是终态（inline 模式 / 秒杀完成）能瞬间收尾；②让画布立刻
+    // 反映「运行中」、用户不必盯着没反应的界面干等 1.5s。后续按退避节奏继续。
+    executionPollTimer = window.setTimeout(tick, 0)
   }
 
   async function refreshRunState(executionId = activeExecutionId.value) {

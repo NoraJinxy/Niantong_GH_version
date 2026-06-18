@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     CELERY_WORKFLOW_QUEUE: str = "workflow.default"
     PIPELINE_EXECUTION_MODE: str = "auto"
     CELERY_WORKER_PING_TIMEOUT_SECONDS: float = 0.5
+    # auto 模式下「探测 worker 是否在线」结果的缓存有效期（秒）：TTL 内的连续运行复用
+    # 上次探测、跳过 ping，省掉每次运行的固定开销。设 0 关闭缓存、恢复每次都 ping。
+    CELERY_WORKER_PING_CACHE_TTL_SECONDS: float = 5.0
 
     STUDIES_DIR: str = "/mnt/elys_data/studies"
     ELYS_STORAGE_ROOT: str = "/mnt/elys_data/storage"
