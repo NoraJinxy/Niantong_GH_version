@@ -177,7 +177,7 @@ const router = createRouter({
     {
       path: '/observe/waveform',
       name: 'ObserveWaveform',
-      component: () => import('@/views/WaveformDetailPage.vue'),
+      component: () => import('@/views/WaveformPage.vue'),
       meta: { requiresAuth: true },
     },
     {
