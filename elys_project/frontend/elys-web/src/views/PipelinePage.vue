@@ -1233,7 +1233,7 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
-const CARD_ROW_H = 19
+const CARD_ROW_H = 16
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
