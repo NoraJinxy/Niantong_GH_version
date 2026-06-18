@@ -517,6 +517,9 @@ const batchProgressActiveGroupId = ref('')
 const autoFillNote = ref('')
 const existingTuples = ref<Set<string>>(new Set())
 let existingRecordingsKey = ''
+// 上传期撞「已存在」时，自动顺延被试号重传的最大次数。nextFreeSubject 单次就会扫到空号，
+// 故正常一次即中；多出来的次数只为兜并发竞争（别的会话刚抢走同号）。超过仍撞才回退到弹窗。
+const MAX_AUTO_ADAPT_RETRIES = 8
 
 const importStages = [
   { key: 'original', label: '原始文件', description: '保留你上传的原文件' },
@@ -1179,30 +1182,38 @@ function assignBatchSubjects(allGroups: UploadGroup[]) {
     : ''
 }
 
-// 尽力把当前导入目标（study + 数据集）里已有的 recordings 四元组捞回来，给自动分配避让。
-// best-effort：拿不到就只保证本批内部不冲突，后端仍会兜底判重。按目标缓存，重复选文件不重复请求。
+// 尽力把当前 study 下已有的 recordings 四元组捞回来，给自动分配避让。
+// 口径必须与后端导入判重一致：后端按「同一研究项 (study) 内 subject/session/task/run 唯一」判重，
+// 并不按 dataset_asset 细分（见 dataset_imports.py 的 DATASET_EXISTS）。所以这里也要收**全 study**
+// 的记录、不再按当前数据集过滤——否则会漏掉「同 study、别的数据集」已占用的四元组，自动分配照样
+// 发出会撞的编号，上传时才弹「已存在」。best-effort：拿不到就退化为「只保证本批内部不冲突」，
+// 真撞了还有上传期 409 自动避让兜底。按 study 缓存，重复选文件不重复请求。
 async function loadExistingRecordings(force = false) {
   const studyId = uploadStudyId.value
-  const assetId = uploadDatasetAssetId.value
-  const key = `${studyId}|${assetId}`
   if (!studyId) {
     existingTuples.value = new Set()
-    existingRecordingsKey = key
+    existingRecordingsKey = ''
     return
   }
-  if (!force && key === existingRecordingsKey) return
+  if (!force && studyId === existingRecordingsKey) return
   try {
     const res = await datasetApi.list(studyId)
     const tuples = new Set<string>()
     for (const recording of res.data.recordings) {
-      if (assetId && recording.dataset_asset_id && recording.dataset_asset_id !== assetId) continue
       tuples.add(entityTupleKey(recording.bids_subject_id || recording.subject_id, recording.session, recording.task, recording.run))
     }
     existingTuples.value = tuples
-    existingRecordingsKey = key
+    existingRecordingsKey = studyId
   } catch {
-    // 忽略：退化为「只保证本批内部不冲突」
+    // 忽略：退化为「只保证本批内部不冲突」，真撞了由上传期 409 自动避让兜底
   }
+}
+
+// 上传期把后端报回来的「已占用四元组」登记进避让集合，供本次重传与后续上传一起避开。
+function registerOccupiedTuple(subject: string, session?: string | null, task?: string | null, run?: string | null) {
+  const next = new Set(existingTuples.value)
+  next.add(entityTupleKey(subject, session, task, run))
+  existingTuples.value = next
 }
 
 function getFileExtension(file: File) {
@@ -1385,7 +1396,7 @@ function getOutcomeUserSummary(outcome: ImportOutcome) {
   return `已导入；${fifText}；${fileIndexText}`
 }
 
-async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise<'success' | 'duplicate' | 'failed'> {
+async function uploadGroup(group: UploadGroup, replaceExisting = false, autoAdaptDepth = 0): Promise<'success' | 'duplicate' | 'failed'> {
   const target = getUploadTarget()
   if (!target) {
     group.status = 'error'
@@ -1459,10 +1470,20 @@ async function uploadGroup(group: UploadGroup, replaceExisting = false): Promise
   } catch (err: any) {
     const existsDetail = getDatasetExistsDetail(err)
     if (existsDetail && !replaceExisting) {
+      // 撞到「同 study 已存在的四元组」。用户诉求是「上传即新数据、自动避开重叠」，所以默认不弹
+      // 「覆盖为新版本」，而是把这条已占用的四元组登记下来、被试号顺延到下一个空号后自动重传，
+      // 直到避开后端 study 级判重。仅当连续多次仍撞（极端并发）才回退到弹窗，把选择权交还用户。
+      registerOccupiedTuple(existsDetail.subject, existsDetail.session, existsDetail.task, existsDetail.run)
+      if (autoAdaptDepth < MAX_AUTO_ADAPT_RETRIES) {
+        const previousSubject = group.subject
+        group.subject = nextFreeSubject(new Set(existingTuples.value), group)
+        autoFillNote.value = `「被试 ${previousSubject}·${group.task}」在本研究项已存在，已自动改用被试 ${group.subject} 上传以避免覆盖；如需调整可在表格中修改。`
+        return uploadGroup(group, false, autoAdaptDepth + 1)
+      }
       group.status = 'replace-pending'
       group.progress = 0
       group.statusText = '等待确认'
-      group.message = '该 Recording 已存在，请确认是否作为原始上传新版本导入并切换为当前版本。'
+      group.message = '该数据位已存在，且自动避让多次仍冲突，请确认是否作为新一次数据（版本）导入。'
       group.selected = false
       group.outcome = null
       group.existsDetail = existsDetail
