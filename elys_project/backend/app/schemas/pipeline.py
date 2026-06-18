@@ -36,6 +36,10 @@ class NodeProperty(BaseModel):
     hash: bool = True
     description: Optional[str] = None
     help: Optional[str] = None
+    # 前端节点控件 / 检查器靠这两个字段做「高级折叠」和「条件显示」；漏了会被 Pydantic 过滤掉，
+    # 导致前端收不到 → 该藏的参数全显出来（如带通滤波器误显「工频」）。
+    advanced: bool = False
+    visible_when: Optional[dict[str, list[Any]]] = None
 
 
 class NodeSpecResponse(BaseModel):

@@ -2885,13 +2885,17 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 
 // ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
 
-/** 按控件数量调整卡片高度（与 litegraph computeSize 同口径：每控件 H+4，外加 8 收尾）。 */
+/** 统一节点尺寸：所有节点**等宽**（NODE_CARD_WIDTH），高度=端口区+控件区贴合收紧（不留大空白）。
+ *  端口区按 litegraph 实际排布（端口下方才排控件）估算：portRows·slotH；控件区 count·(H+4)+收尾。 */
 function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
-  const base = spec ? graphNodeSize(spec) : [NODE_CARD_WIDTH, NODE_CARD_MIN_HEIGHT]
-  const count = (graphNode as { widgets?: unknown[] }).widgets?.length || 0
+  const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
+  const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
+  const slotH = LiteGraph.NODE_SLOT_HEIGHT || 28
   const rowH = (LiteGraph.NODE_WIDGET_HEIGHT || 24) + 4
-  const widgetsHeight = count > 0 ? count * rowH + 8 : 0
-  graphNode.size = [base[0], base[1] + widgetsHeight]
+  const portsHeight = portRows * slotH
+  const widgetsHeight = widgets.length ? widgets.length * rowH + 8 : 0
+  const height = Math.max(NODE_CARD_MIN_HEIGHT, portsHeight + widgetsHeight + 14)
+  graphNode.size = [NODE_CARD_WIDTH, height]
 }
 
 /** widget 改值 → 写回 node.properties + 同步 definition + 标脏；改的是 visible_when 控制项才重建控件。 */
@@ -2917,6 +2921,56 @@ function focusInspectorParam(nodeId: string, paramName: string) {
   })
 }
 
+/** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截，免得撑爆撞箭头。 */
+function truncWidgetText(text: string, max: number): string {
+  const s = String(text ?? '')
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s
+}
+
+/** 复杂参数的「摘要 + 编辑 ›」自绘控件：浅底圆角胶囊（不是 litegraph 原生 button 那个 #222 黑块）。
+ *  点击 → onClick（跳右侧检查器对应区）。直接 push 进 node.widgets：
+ *  litegraph 对非内置 type 会走 default 分支调 w.draw / w.mouse。 */
+function pushSummaryWidget(graphNode: LiteGraphNode, label: string, summary: string, onClick: () => void) {
+  const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
+  const H = LiteGraph.NODE_WIDGET_HEIGHT || 24
+  widgets.push({
+    type: 'elys_summary',
+    name: label,
+    value: null,
+    computeSize: (width: number) => [width, H],
+    draw(ctx: CanvasRenderingContext2D, _node: unknown, width: number, y: number, h: number) {
+      const margin = 15
+      const w = width - margin * 2
+      if (w <= 0) return
+      ctx.save()
+      ctx.fillStyle = '#F1F5F9'
+      ctx.strokeStyle = '#D7DEE8'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      if (typeof (ctx as unknown as { roundRect?: unknown }).roundRect === 'function') ctx.roundRect(margin, y, w, h, [h * 0.5])
+      else ctx.rect(margin, y, w, h)
+      ctx.fill()
+      ctx.stroke()
+      ctx.font = '12px "Segoe UI", Arial, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#536273'
+      ctx.textAlign = 'left'
+      ctx.fillText(truncWidgetText(label, 8), margin + 10, y + h * 0.5)
+      ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
+      ctx.textAlign = 'right'
+      ctx.fillText(`${truncWidgetText(summary, 8)}  编辑 ›`, width - margin - 10, y + h * 0.5)
+      ctx.restore()
+    },
+    mouse(event: { type?: string }) {
+      if (String(event?.type || '').endsWith('down')) {
+        onClick()
+        return true
+      }
+      return false
+    },
+  })
+}
+
 /** 按 spec + 当前 params 重建节点上的就地控件（清空后重加），并按控件数调高卡片。 */
 function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (!graphNode) return
@@ -2938,30 +2992,35 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
     for (const plan of plans) {
       const isController = controllerKeys.has(plan.name)
       if (plan.kind === 'combo') {
-        addWidget('combo', plan.label, plan.value, (v) => {
+        // 长中文选项要截断显示，但回调拿到的是截断后的串 → 另建「截断 label → 真值」表保证写回正确
+        const labels = plan.labels.map((l) => truncWidgetText(l, 9))
+        const valueByTrunc: Record<string, unknown> = {}
+        plan.labels.forEach((full, i) => { valueByTrunc[labels[i]] = plan.valueByLabel[full] })
+        addWidget('combo', truncWidgetText(plan.label, 9), truncWidgetText(plan.value, 9), (v) => {
           const key = String(v)
-          const mapped = Object.prototype.hasOwnProperty.call(plan.valueByLabel, key) ? plan.valueByLabel[key] : v
+          const mapped = key in valueByTrunc ? valueByTrunc[key] : (plan.valueByLabel[key] ?? v)
           onNodeWidgetEdited(graphNode, plan.name, mapped, isController)
-        }, { values: plan.labels })
-      } else if (plan.kind === 'number') {
-        addWidget('number', plan.label, plan.value, (v) => {
+        }, { values: labels })
+      } else if (plan.kind === 'number' || plan.kind === 'slider') {
+        // 有界数字也用步进器渲染（不用 litegraph slider —— 那个填充块容易被误当运行进度条）
+        const min = plan.min
+        const max = plan.max
+        const step = plan.kind === 'number' ? plan.step : 1
+        const unit = spec.properties.find((p) => p.name === plan.name)?.unit
+        const name = truncWidgetText(plan.label, 8) + (unit ? ` ${unit}` : '') // 单位塞进标签（litegraph 数字控件原生不带单位）
+        addWidget('number', name, plan.value, (v) => {
           let n = Number(v)
-          if (plan.min !== null && n < plan.min) n = plan.min
-          if (plan.max !== null && n > plan.max) n = plan.max
+          if (min !== null && min !== undefined && n < min) n = min
+          if (max !== null && max !== undefined && n > max) n = max
           onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
-        }, { min: plan.min ?? undefined, max: plan.max ?? undefined, step: plan.step, precision: plan.precision })
-      } else if (plan.kind === 'slider') {
-        addWidget('slider', plan.label, plan.value, (v) => {
-          const n = Number(v)
-          onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
-        }, { min: plan.min, max: plan.max, precision: plan.precision, slider_color: NODE_WIDGET_SLIDER_COLOR })
+        }, { min: min ?? undefined, max: max ?? undefined, step, precision: plan.precision })
       } else if (plan.kind === 'toggle') {
-        addWidget('toggle', plan.label, plan.value, (v) => {
+        addWidget('toggle', truncWidgetText(plan.label, 10), plan.value, (v) => {
           onNodeWidgetEdited(graphNode, plan.name, Boolean(v), isController)
         }, { on: '开', off: '关' })
       } else if (plan.kind === 'button') {
         const nodeId = getLiteGraphNodeId(graphNode)
-        addWidget('button', `${plan.label} · ${plan.summary}`, null, () => focusInspectorParam(nodeId, plan.name))
+        pushSummaryWidget(graphNode, plan.label, plan.summary, () => focusInspectorParam(nodeId, plan.name))
       }
     }
   }
