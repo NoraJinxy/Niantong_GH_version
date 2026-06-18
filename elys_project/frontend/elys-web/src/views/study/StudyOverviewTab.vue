@@ -53,7 +53,12 @@
             <strong>{{ decision.title }}</strong>
             <p>{{ decision.description }}</p>
           </div>
-          <RouterLink class="btn btn--primary" :to="decision.to">{{ decision.action }}</RouterLink>
+          <RouterLink
+            class="btn btn--primary"
+            :to="decision.to"
+            :target="decisionOpensPipeline ? '_blank' : undefined"
+            :rel="decisionOpensPipeline ? 'noopener' : undefined"
+          >{{ decision.action }}</RouterLink>
         </div>
       </section>
 
@@ -208,6 +213,8 @@ const decision = computed(() => {
   )
   return { ...stage.nextStep, to: nextStepRoute(stage.nextStep.target, sid) }
 })
+// 指向工作流(pipeline)时在新标签打开，让用户专注；指向数据集/数据 tab 则维持当前页跳转。
+const decisionOpensPipeline = computed(() => String(decision.value.to).includes('/pipeline'))
 
 // 概览结果区只展示「保存 / 缓存 / 回收站」三类；纯临时（keep=false 且 cache_eligible=false 且未删）
 // 是系统中间态，与「结果」tab 同口径藏掉，不占用户视野。

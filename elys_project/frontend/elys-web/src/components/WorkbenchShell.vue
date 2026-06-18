@@ -76,13 +76,19 @@ import { useAuthStore } from '@/stores/auth'
 import { isWorkbenchNavPreview, sideNavGroups, topNavItems } from '@/data/workbenchPages'
 import AppIcon from '@/components/AppIcon.vue'
 
-const props = defineProps<{
-  activeKey: string
-  activeTopKey?: string
-  showSidebar?: boolean
-  showTopbar?: boolean
-  narrow?: boolean
-}>()
+// showTopbar 默认 true：必须用 withDefaults 显式给默认值。Vue3 对「缺省的 Boolean 类型 prop」
+// 会做布尔铸型——不传时铸成 false 而非 undefined，若只靠 `props.showTopbar !== false` 会让所有
+// 「没传 show-topbar」的页面（Dashboard/数据集/研究项…）顶栏被判 false 而整条消失。
+const props = withDefaults(
+  defineProps<{
+    activeKey: string
+    activeTopKey?: string
+    showSidebar?: boolean
+    showTopbar?: boolean
+    narrow?: boolean
+  }>(),
+  { showTopbar: true },
+)
 
 const auth = useAuthStore()
 const { user } = storeToRefs(auth)
