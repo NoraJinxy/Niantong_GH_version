@@ -625,20 +625,33 @@
               <strong>{{ selectedNodeArtifactCount }}</strong>
             </div>
             <div v-if="selectedJobError" class="state-text state-text--error">{{ selectedJobError }}</div>
+            <div v-if="cacheHitDebug" class="node-run-summary__debug">{{ cacheHitDebug }}</div>
           </div>
 
           <div v-if="selectedNodeArtifacts.length" class="artifact-list">
             <button
-              v-for="artifact in selectedNodeArtifacts"
-              :key="artifact.id"
-              class="artifact-row"
-              :class="{ 'is-active': selectedArtifactPreview?.study_output_id === artifact.id }"
+              v-if="selectedNodeArtifacts.length > 1"
+              class="artifact-summary"
               type="button"
-              @click="openArtifactPreview(artifact)"
+              :aria-expanded="artifactListExpanded"
+              @click="artifactListExpanded = !artifactListExpanded"
             >
-              <span>{{ artifactLabel(artifact) }}</span>
-              <small>{{ artifact.data_type }} · {{ formatFileSize(artifact.file_size) }}</small>
+              <span>{{ artifactSummaryText }}</span>
+              <small>{{ artifactListExpanded ? '收起 ▴' : '展开全部 ▾' }}</small>
             </button>
+            <template v-if="selectedNodeArtifacts.length === 1 || artifactListExpanded">
+              <button
+                v-for="artifact in selectedNodeArtifacts"
+                :key="artifact.id"
+                class="artifact-row"
+                :class="{ 'is-active': selectedArtifactPreview?.study_output_id === artifact.id }"
+                type="button"
+                @click="openArtifactPreview(artifact)"
+              >
+                <span>{{ artifactFriendlyLabel(artifact) }}</span>
+                <small>{{ formatDataType(artifact.data_type) }}</small>
+              </button>
+            </template>
           </div>
 
           <div v-if="artifactPreviewOpen" class="artifact-preview-panel">
@@ -1104,6 +1117,7 @@ import type {
   PipelineGraphNode,
   PipelineJob,
   PipelineValidationResponse,
+  StudyOutput,
 } from '@/types'
 import {
   LOAD_DATA_NODE_TYPE,
@@ -1131,8 +1145,10 @@ import {
   withAlpha,
   nodeStatusColor,
   nodeStatusSoftColor,
+  normalizedJobStatus,
   formatJobStatus,
   jobStatusClass,
+  formatDataType,
   stepVisualState,
   stepIcon,
   isStepDone,
@@ -2140,6 +2156,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   // 其余按 data_type 路由：TFR=/observe/tfr、PSD=/observe/psd、其余=/observe/waveform。
   const evokeds = saved.filter((item) => item.data_type === 'evoked')
   const psds = saved.filter((item) => (item.data_type || '').toLowerCase() === 'psd')
+  const tfrs = saved.filter((item) => (item.data_type || '').toLowerCase() === 'tfr')
   let href: string
   if (evokeds.length) {
     const ids = evokeds.map((e) => e.id).join(',')
@@ -2159,17 +2176,25 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
       name: psds.length > 1 ? '功率谱（多条件对比）' : psds[0].display_name || '功率谱',
     })
     href = `/observe/psd?${params.toString()}`
+  } else if (tfrs.length) {
+    // TFR 多条件产物（同 evoked/psd 口径）→ 一起送时频页按"数据集"对比；
+    // 只送本节点产物，观察页据此呈现，保证"双击哪个节点 = 看哪个节点产的"
+    const ids = tfrs.map((t) => t.id).join(',')
+    const params = new URLSearchParams({
+      studyId,
+      study_output_id: ids,
+      name: tfrs.length > 1 ? '时频（多条件对比）' : tfrs[0].display_name || '时频',
+    })
+    href = `/observe/tfr?${params.toString()}`
   } else {
     const target = saved[0]
-    const dt = (target.data_type || '').toLowerCase()
     const base = {
       studyId,
       study_output_id: target.id,
       name: target.display_name || target.data_type || '结果',
+      type: target.data_type || '',
     }
-    if (dt === 'tfr') href = `/observe/tfr?${new URLSearchParams(base).toString()}`
-    else if (dt === 'psd') href = `/observe/psd?${new URLSearchParams(base).toString()}`
-    else href = `/observe/waveform?${new URLSearchParams({ ...base, type: target.data_type || '' }).toString()}`
+    href = `/observe/waveform?${new URLSearchParams(base).toString()}`
   }
   // 用 <a target="_blank"> 模拟点链接 → 浏览器按"在新标签页打开"处理（可拖进标签栏并排），
   // 比 window.open(name) 更可靠：后者在部分浏览器里会被当成独立弹窗，无法并入标签栏
@@ -2191,7 +2216,51 @@ function jobErrorMessage(job: PipelineJob) {
     if (isRecord(first)) return String(first.message || first.code || '')
     if (first) return String(first)
   }
-  return job.log_tail || ''
+  // log_tail 仅在任务真失败时作为错误兜底；成功/缓存命中 job 的 log_tail
+  //（如 "Cache hit from job …"）是调试信息而非错误，不向用户暴露（缓存调试见 cacheHitDebug + ?debug）。
+  const normalized = normalizedJobStatus(job.status)
+  if (normalized === 'failed' || normalized === 'canceled') return job.log_tail || ''
+  return ''
+}
+
+// 缓存命中的来源 job 等信息只对开发者可见：本地 DEV，或 URL 带 ?debug（云端生产构建排查用，
+// DEV 在生产构建为 false 故必须保留 ?debug 入口）。普通用户无需知道缓存命中这件事。
+const cacheDebugVisible = computed(
+  () => Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV) || route.query.debug != null,
+)
+const cacheHitDebug = computed(() => {
+  if (!cacheDebugVisible.value) return ''
+  const job = selectedJob.value
+  if (!job || normalizedJobStatus(job.status) !== 'cached') return ''
+  return job.log_tail || '缓存命中'
+})
+
+// 产物列表：多产物默认折叠成一行汇总，点开才看明细，避免对用户铺一长串技术文件名。
+const artifactListExpanded = ref(false)
+watch(selectedJob, () => {
+  artifactListExpanded.value = false
+})
+const artifactSummaryText = computed(() => {
+  const items = selectedNodeArtifacts.value
+  if (!items.length) return ''
+  const typeLabels = new Set(items.map((item) => formatDataType(item.data_type)))
+  const typeText = typeLabels.size === 1 ? [...typeLabels][0] : '产物'
+  const subjects = new Set(items.map((item) => item.bids_subject_id || item.subject_id).filter(Boolean))
+  const conditions = new Set(items.map((item) => item.condition).filter(Boolean))
+  const parts = [`${items.length} 个${typeText}`]
+  if (subjects.size > 1) parts.push(`${subjects.size} 名被试`)
+  if (conditions.size > 1) parts.push(`${conditions.size} 个条件`)
+  return parts.join(' · ')
+})
+function artifactFriendlyLabel(artifact: StudyOutput) {
+  const subject = artifact.bids_subject_id || artifact.subject_id || ''
+  const condition = artifact.condition || ''
+  const friendly = [subject, condition].filter(Boolean).join(' · ')
+  if (friendly) return friendly
+  // 退化：结构化字段缺失时取 display_name 末段（去 BIDS 路径前缀），仍比整条 glob 路径短。
+  const name = artifact.display_name || ''
+  if (name) return name.split('/').pop() || name
+  return formatDataType(artifact.data_type)
 }
 
 function applyLiteGraphRunState() {
@@ -4685,9 +4754,46 @@ function describeError(error: unknown, fallback: string) {
   color: var(--c-text);
 }
 
+/* 缓存命中调试信息（仅 DEV / ?debug 可见）：中性灰、等宽，刻意不用红色 error 样式 */
+.node-run-summary__debug {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  color: var(--c-text-3);
+  word-break: break-all;
+}
+
 .artifact-list {
   display: grid;
   gap: 6px;
+}
+
+/* 多产物折叠汇总条：默认收起，点开看明细，避免对用户铺一长串技术文件名 */
+.artifact-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--c-text);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.artifact-summary:hover {
+  border-color: rgba(47, 95, 143, 0.38);
+  background: #eef4fa;
+}
+
+.artifact-summary small {
+  color: var(--c-text-3);
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .artifact-row {

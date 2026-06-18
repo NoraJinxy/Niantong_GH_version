@@ -405,7 +405,6 @@ const urlOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) 
 const outputIds = ref<string[]>([...urlOutputIds])
 const datasetId = urlOutputIds[0] || ''
 const nameHint = qstr('name')
-const outputLabels = reactive<Record<string, string>>({}) // 产物 id → 友好名（condition / display_name）
 const isMultiOutput = computed(() => outputIds.value.length > 1)
 
 // ---------- 状态 ----------
@@ -449,8 +448,6 @@ function segColor(seg: number) {
   return colorAt(seg, Math.max(1, outputIds.value.length))
 }
 function segLabel(seg: number): string {
-  const id = outputIds.value[seg]
-  if (id && outputLabels[id]) return outputLabels[id]
   const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
   return meta?.condition || labelCache[seg] || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
 }
@@ -662,7 +659,7 @@ const lockedTF = ref<TF | null>(null)
 const displayTF = computed<TF | null>(() => (cursorLocked.value ? lockedTF.value : hoveredTF.value))
 const cursorStateKey = computed(() => (cursorLocked.value ? 'locked' : hoveredTF.value ? 'follow' : 'idle'))
 const cursorStateText = computed(() =>
-  cursorLocked.value ? '游标锁定' : hoveredTF.value ? '游标跟随' : '',
+  cursorLocked.value ? '游标锁定' : hoveredTF.value ? '游标实时' : '',
 )
 function onCursor(p: { t: number; f: number; value: number } | null) {
   hoveredTF.value = p ? { t: p.t, f: p.f } : null
@@ -1044,7 +1041,6 @@ async function bootstrap() {
     if (d.condition) labelCache[0] = d.condition
     if (!selectedChans.value.size) chanSel.set([d.channel])
     document.title = `时频分析 · ${displayName.value} — 念析`
-    void discoverSiblings()
     await syncLoad()
     void loadCubes()
   } catch (err: unknown) {
@@ -1054,28 +1050,6 @@ async function bootstrap() {
   }
 }
 
-// 自动发现同研究项下其它 TFR 产物 → 追加到「数据集」列表供勾选对比（列不出不致命，退化为单数据集）
-async function discoverSiblings() {
-  if (!studyId) return
-  try {
-    const res = await pipelineApi.listStudyOutputs(studyId, { data_types: ['tfr'], limit: 200 })
-    const items = (res.data.study_outputs || []).filter((o) => !o.deleted_at && !o.purged_at)
-    if (!items.length) return
-    const seen = new Set(outputIds.value)
-    const merged = [...outputIds.value]
-    for (const o of items) {
-      const label = o.condition || o.display_name || ''
-      if (label) outputLabels[o.id] = label
-      if (!seen.has(o.id)) {
-        seen.add(o.id)
-        merged.push(o.id)
-      }
-    }
-    if (merged.length !== outputIds.value.length) outputIds.value = merged
-  } catch {
-    /* 列不出兄弟产物不致命 */
-  }
-}
 async function syncLoad() {
   if (!studyId) return
   const pairs: [number, string][] = []
