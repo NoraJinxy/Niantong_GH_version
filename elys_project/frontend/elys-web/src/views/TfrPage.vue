@@ -433,7 +433,9 @@ const { colorAt } = usePalette('elys')
 
 // ---------- 段（数据集/条件）与通道选择 ----------
 const segKeys = computed(() => outputIds.value.map((_, i) => i))
-const segSel = useMultiSelect<number>(() => segKeys.value, urlOutputIds.map((_, i) => i))
+// 默认只选第 1 个产物：多产物节点(如 N 被试 × 条件)双击进来会送一长串，全选会一次性触发
+// 十几路云端请求糊一墙「加载中」；其余列出待勾，要对比再手动加。
+const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
 const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
 
@@ -449,7 +451,14 @@ function segColor(seg: number) {
 }
 function segLabel(seg: number): string {
   const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
-  return meta?.condition || labelCache[seg] || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
+  if (meta) {
+    // 数据集名优先「被试 · 条件」(sub-H01D01B01 · clench_fist)——多被试时 condition 会重复，
+    // 必须带被试才分得清谁是谁；都缺则退化到 display_name。
+    const parts = [meta.subject ? `sub-${meta.subject}` : '', meta.condition || ''].filter(Boolean)
+    if (parts.length) return parts.join(' · ')
+    if (meta.display_name) return meta.display_name
+  }
+  return labelCache[seg] || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
 }
 function findAnyForSeg(seg: number): StudyOutputTfr | null {
   for (const ch of orderedChans.value) {

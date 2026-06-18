@@ -142,6 +142,8 @@ def build_tfr_heatmap(
         "data_type": "tfr",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
         "condition": getattr(dataset, "condition", None),
+        "subject": getattr(dataset, "bids_subject_id", None),
+        "display_name": getattr(dataset, "display_name", None),
         "method": str(getattr(tfr, "method", "") or "morlet"),
         "baseline_mode": str(baseline_mode or "none"),
         "unit": unit,

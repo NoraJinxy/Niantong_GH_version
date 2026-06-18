@@ -1030,6 +1030,8 @@ export interface StudyOutputTfr {
   data_type: string
   study_output_id: string
   condition: string | null
+  subject: string | null
+  display_name: string | null
   method: string
   baseline_mode: string
   unit: string
