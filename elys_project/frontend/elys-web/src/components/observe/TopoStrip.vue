@@ -328,69 +328,61 @@ watch(expanded, async (v) => {
   if (v) { await nextTick(); renderInto(modalCanvasMap, modalHitMap) }
   else { modalCanvasMap.clear(); modalHitMap.clear() }
 })
-// ── 导出 PNG：把整组大图 + 标题 / 副标题 / 色阶 / 每张条件名标签合成成一张多面板图（期刊插图式排版）──
+// ── 导出 PNG：整组大图拼成多面板图——每格只留「条件名标签 + 地形图」，底部居中一条色阶图例；
+//    不印标题 / 副标题等 UI 文字（那些是给屏幕看的、对静态图是噪声，窄图里还会叠字）──
 const EXPORT_FONT = '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
 const EXPORT_MONO = '"JetBrains Mono", Consolas, Menlo, monospace'
 function sanitizeName(s: string): string {
   return s.replace(/[\\/:*?"<>|]+/g, '').replace(/[·\s]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 48)
 }
-// 在导出画布上画一条色阶条（lo [渐变] hi 单位），颜色逐列采当前 LUT，与地形图配色完全一致
-function drawExportBar(ctx: CanvasRenderingContext2D, rightX: number, midY: number, barW: number, barH: number, d: number) {
+// 在导出画布上画一条居中色阶图例（lo [渐变] hi 单位），颜色逐列采当前 LUT，与地形图配色完全一致
+function drawExportBar(ctx: CanvasRenderingContext2D, centerX: number, midY: number, barW: number, barH: number, d: number) {
   const { lut, n } = activeLut()
   const loT = props.loLabel ?? axisLabel(barLo.value)
   const hiT = props.hiLabel ?? axisLabel(barHi.value)
-  const gap = 5 * d
+  const gap = 6 * d
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   ctx.font = `400 ${11 * d}px ${EXPORT_MONO}`
-  ctx.fillStyle = '#79859A'
-  const uW = ctx.measureText(props.unit).width
-  const hiW = ctx.measureText(hiT).width
   const loW = ctx.measureText(loT).width
-  let cur = rightX
-  ctx.fillText(props.unit, cur - uW, midY); cur -= uW + gap
-  ctx.fillText(hiT, cur - hiW, midY); cur -= hiW + gap
-  const barLeft = cur - barW
+  const hiW = ctx.measureText(hiT).width
+  const uW = ctx.measureText(props.unit).width
+  // 整组 [lo 渐变 hi 单位] 居中：先量总宽，再从左往右铺
+  let x = centerX - (loW + gap + barW + gap + hiW + gap + uW) / 2
+  ctx.fillStyle = '#79859A'; ctx.fillText(loT, x, midY); x += loW + gap
   for (let px = 0; px < barW; px++) {
     const t = (px / Math.max(1, barW - 1)) * 2 - 1
     const li = (((t + 1) * 0.5 * (n - 1)) | 0) * 3
     ctx.fillStyle = `rgb(${lut[li]},${lut[li + 1]},${lut[li + 2]})`
-    ctx.fillRect(barLeft + px, midY - barH / 2, 1, barH)
+    ctx.fillRect(x + px, midY - barH / 2, 1, barH)
   }
   ctx.strokeStyle = '#E5E9F2'; ctx.lineWidth = Math.max(1, d)
-  ctx.strokeRect(barLeft, midY - barH / 2, barW, barH)
-  ctx.fillStyle = '#79859A'
-  ctx.fillText(loT, barLeft - gap - loW, midY)
+  ctx.strokeRect(x, midY - barH / 2, barW, barH)
+  x += barW + gap
+  ctx.fillStyle = '#79859A'; ctx.fillText(hiT, x, midY); x += hiW + gap
+  ctx.fillText(props.unit, x, midY)
 }
 function exportPng() {
   const list = props.cells
   if (!list.length) return
   renderInto(modalCanvasMap, modalHitMap) // 先刷一遍，确保大图是最新（游标 / 数据可能刚变）
   const d = 2 // 2× 输出，导出图更锐
-  const P = 18 * d, GAP = 14 * d, titleH = 40 * d
+  const P = 18 * d, GAP = 14 * d
   const cellW = 226 * d, labelH = 28 * d, imgH = 212 * d, cellH = labelH + imgH
   const cols = list.length <= 3 ? list.length : Math.min(4, Math.ceil(Math.sqrt(list.length)))
   const rows = Math.ceil(list.length / cols)
   const W = P * 2 + cols * cellW + (cols - 1) * GAP
-  const gridTop = P + titleH + 10 * d
-  const H = gridTop + rows * cellH + (rows - 1) * GAP + P
+  const gridTop = P
+  const gridBottom = gridTop + rows * cellH + (rows - 1) * GAP
+  const hasBar = props.vmax > 0
+  const footerGap = hasBar ? 14 * d : 0
+  const footerH = hasBar ? 16 * d : 0
+  const H = gridBottom + footerGap + footerH + P
   const cv = document.createElement('canvas')
   cv.width = W; cv.height = H
   const ctx = cv.getContext('2d')
   if (!ctx) return
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
-
-  // 标题行：地形图 + 副标题（左）；色阶条（右）
-  const titleY = P + titleH / 2
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
-  ctx.fillStyle = '#20293B'; ctx.font = `600 ${15 * d}px ${EXPORT_FONT}`
-  ctx.fillText('地形图', P, titleY)
-  const tW = ctx.measureText('地形图').width
-  if (props.subtitle) {
-    ctx.fillStyle = '#79859A'; ctx.font = `400 ${12 * d}px ${EXPORT_FONT}`
-    ctx.fillText(props.subtitle, P + tW + 8 * d, titleY + d)
-  }
-  if (props.vmax > 0) drawExportBar(ctx, W - P, titleY, 130 * d, 11 * d, d)
 
   // 每格：卡片描边 + 顶部条件色条 + 条件名（含色点）+ 居中地形图
   for (let i = 0; i < list.length; i++) {
@@ -424,6 +416,9 @@ function exportPng() {
       ctx.fillText('无电极坐标', x + iw / 2, iy + ih / 2)
     }
   }
+
+  // 底部唯一图例：居中色阶（标题 / 副标题等 UI 文字不印进图）
+  if (hasBar) drawExportBar(ctx, W / 2, gridBottom + footerGap + footerH / 2, 170 * d, 11 * d, d)
 
   const name = '地形图' + (props.subtitle ? '_' + sanitizeName(props.subtitle) : '') + '.png'
   cv.toBlob((blob) => {
