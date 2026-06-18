@@ -376,7 +376,8 @@ import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } from '@/components/observe/heatmapColor'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
-import { useQueryString, round, toNum, shortId } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, fmtSubject } from '@/composables/observe/observeUtils'
+import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import '@/components/observe/observePage.css'
 
 // ---------- 常量 ----------
@@ -448,7 +449,7 @@ function segLabel(seg: number): string {
   if (meta) {
     // 数据集名优先「被试 · 条件」(sub-H01D01B01 · clench_fist)——多被试时 condition 会重复，
     // 必须带被试才分得清谁是谁；都缺则退化到 display_name。
-    const parts = [meta.subject ? `sub-${meta.subject}` : '', meta.condition || ''].filter(Boolean)
+    const parts = [fmtSubject(meta.subject), meta.condition || ''].filter(Boolean)
     if (parts.length) return parts.join(' · ')
     if (meta.display_name) return meta.display_name
   }
@@ -1118,6 +1119,7 @@ function onFsChange() {
 onMounted(() => {
   document.title = '时频分析 — 念析'
   document.addEventListener('fullscreenchange', onFsChange)
+  if (isMultiOutput.value) void loadOutputLabels(studyId, outputIds.value, labelCache)
   void bootstrap()
 })
 onUnmounted(() => {

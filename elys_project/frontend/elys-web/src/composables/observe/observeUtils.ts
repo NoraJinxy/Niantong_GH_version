@@ -38,3 +38,10 @@ export function shortId(value?: string | null): string {
 export function clampInt(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v
 }
+
+/** 被试标签规范化：补「sub-」前缀但不重复（后端 subject 字段可能已含 sub-，避免 sub-sub-093）。空值返回 ''。 */
+export function fmtSubject(s?: string | null): string {
+  const v = (s ?? '').trim()
+  if (!v) return ''
+  return v.startsWith('sub-') ? v : `sub-${v}`
+}

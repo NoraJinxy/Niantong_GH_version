@@ -452,7 +452,8 @@ import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { useCursorState } from '@/composables/observe/useCursorState'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { usePalette } from '@/composables/observe/usePalette'
-import { useQueryString, round, toNum, shortId } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, fmtSubject } from '@/composables/observe/observeUtils'
+import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -555,7 +556,7 @@ function segLabel(seg: number): string {
   const psd = psdMap.value.get(seg)
   if (psd) {
     // 数据集名优先「被试 · 条件」——多被试时 condition 重复，必须带被试才分得清；都缺退化 display_name
-    const parts = [psd.subject ? `sub-${psd.subject}` : '', psd.condition || ''].filter(Boolean)
+    const parts = [fmtSubject(psd.subject), psd.condition || ''].filter(Boolean)
     if (parts.length) return parts.join(' · ')
     if (psd.display_name) return psd.display_name
   }
@@ -1187,6 +1188,7 @@ onMounted(() => {
   document.title = '功率谱 — 念析'
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('fullscreenchange', onFsChange)
+  if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
   void load()
 })
 onUnmounted(() => {

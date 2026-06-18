@@ -483,7 +483,8 @@ import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useCursorState } from '@/composables/observe/useCursorState'
-import { useQueryString, round, toNum, shortId, clampInt } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, clampInt, fmtSubject } from '@/composables/observe/observeUtils'
+import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -694,7 +695,7 @@ function segLabel(seg: number) {
   const t = tsMap.value.get(seg)
   if (isMultiOutput) {
     // 多产物对比：数据集名 =「被试 · 条件」，多被试时 condition 重复必须带被试区分；缺则退化数据集 N
-    const subj = t?.subject ? `sub-${t.subject}` : ''
+    const subj = fmtSubject(t?.subject)
     const combined = [subj, t?.segment_label || ''].filter(Boolean).join(' · ')
     return combined || labelCache[seg] || `数据集 ${seg + 1}`
   }
@@ -1153,7 +1154,7 @@ async function load() {
       m.set(s.value[0], s.value[1])
       if (isMultiOutput && s.value[1].segment_label) {
         const r = s.value[1]
-        const subj = r.subject ? `sub-${r.subject}` : ''
+        const subj = fmtSubject(r.subject)
         labelCache[s.value[0]] = [subj, r.segment_label].filter(Boolean).join(' · ')
       }
     }
@@ -1358,6 +1359,7 @@ onMounted(() => {
   document.title = '时域 — 念析'
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('fullscreenchange', onFsChange)
+  if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
   void load()
 })
 onUnmounted(() => {
