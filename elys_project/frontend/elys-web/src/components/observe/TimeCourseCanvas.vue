@@ -669,35 +669,30 @@ function isCanvasBlank(cv: HTMLCanvasElement): boolean {
   }
 }
 
-// 导出：用正确横版尺寸重建 uPlot，解决 facet 小格 canvas 导出比例错误。
+// 导出：把屏上这张【已渲染】的 uPlot 临时放大到横版导出尺寸、截图、再还原。
+// 全程同步（中间不上屏重绘）故不闪；复用可见实例的真实渲染，绕开「离屏新建 uPlot 偶发画成空白」。
 function getExportCanvas(): HTMLCanvasElement | null {
-  if (!props.series.length || !props.data[0]?.length) return null
+  const u = chart.value
+  if (!u || !props.series.length || !props.data[0]?.length) return null
   const dpr = window.devicePixelRatio || 1
-  // 物理像素固定 2400px 宽；CSS 尺寸按 DPR 折算
-  const targetCssW = Math.round(2400 / dpr)
+  const targetCssW = Math.round(2400 / dpr) // 物理 ≈ 2400px 宽（CSS 尺寸按 DPR 折算）
   const targetCssH = Math.round(targetCssW * 0.4)
-  const container = document.createElement('div')
-  // 用 opacity:0 + 离屏定位，不用 visibility:hidden：后者在部分引擎里会让 uPlot 首绘被跳过 → 导出空白。
-  container.style.cssText = `width:${targetCssW}px;height:${targetCssH}px;position:fixed;top:-99999px;left:-99999px;opacity:0;pointer-events:none;z-index:-1`
-  document.body.appendChild(container)
+  const prevW = u.width
+  const prevH = u.height
   let out: HTMLCanvasElement | null = null
   try {
-    const dd = buildDisplayData()
-    const u = new uPlot(buildOpts(targetCssW, targetCssH, true), dd as unknown as uPlot.AlignedData, container)
-    u.redraw(true, true) // 强制重算路径 + 重绘，规避离屏容器里偶发的首绘空白
-    const src = container.querySelector('canvas') as HTMLCanvasElement | null
-    if (src) {
+    u.setSize({ width: targetCssW, height: targetCssH }) // uPlot 同步按新尺寸重绘
+    const src = u.ctx.canvas
+    if (src?.width) {
       out = document.createElement('canvas')
       out.width = src.width
       out.height = src.height
-      const ctx = out.getContext('2d')
-      if (ctx) ctx.drawImage(src, 0, 0)
+      out.getContext('2d')?.drawImage(src, 0, 0)
     }
-    u.destroy()
   } finally {
-    document.body.removeChild(container)
+    u.setSize({ width: prevW, height: prevH }) // 还原屏上尺寸（同步，用户不可见）
   }
-  // 离屏重绘若仍全透明空白（偶发），返回 null → 调用方退回「抓屏 + 双线性放大」，保证导出永不空白。
+  // 极端情况下截到空白 → 返回 null，调用方退回「抓屏 + 双线性放大」，保证导出永不空白。
   if (out && isCanvasBlank(out)) out = null
   return out
 }
