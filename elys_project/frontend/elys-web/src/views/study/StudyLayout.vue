@@ -1,34 +1,28 @@
 <template>
-  <!-- 研究项工作区：仅「工作流(pipeline)」tab 进焦点模式——去全局 banner + 去「← 研究项列表」面包屑，
-       收成一行精致顶栏（极简 logo 回列表 + 名称 + tab），画布吃满视口；
-       「数据 / 结果」tab 维持原样（全局 banner + 面包屑）。 -->
+  <!-- 研究项工作区（数据 / 工作流 / 结果）三 tab 统一焦点模式：
+       去全局 banner + 去面包屑，收成一行精致顶栏（极简 logo 回列表 + 名称 + tab）；
+       画布满屏（study-layout--full）仅工作流 tab 需要。 -->
   <WorkbenchShell
     active-key="studies"
     active-top-key="studies"
     :show-sidebar="false"
-    :show-topbar="!isPipeline"
+    :show-topbar="false"
     :narrow="false"
     :style="shellStyle"
   >
     <div class="study-layout" :class="{ 'study-layout--full': isPipeline }">
-      <header class="study-layout__bar" :class="{ 'study-layout__bar--focus': isPipeline }">
-        <!-- 焦点模式：极简品牌 logo（替代全局 banner 与面包屑，点击回研究项列表） -->
-        <RouterLink v-if="isPipeline" class="study-brand" to="/studies" title="念析 ELYS · 返回研究项列表">
+      <header class="study-layout__bar study-layout__bar--focus">
+        <!-- 极简品牌 logo：点击回研究项列表（取代被去掉的面包屑 + 全局 banner） -->
+        <RouterLink class="study-brand" to="/studies" title="念析 ELYS · 返回研究项列表">
           <span class="study-brand__logo"><svg viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 H8.5 C9.6 19 10 21 11.2 21 C12.6 21 13 8 15.8 8 C18.6 8 19 19 20.4 19 H28"/></svg></span>
         </RouterLink>
 
         <div class="study-layout__id">
-          <!-- 常规模式（数据 / 结果）保留面包屑 -->
-          <RouterLink
-            v-if="!isPipeline"
-            class="study-layout__crumb"
-            :to="{ path: '/studies', query: { study: studyId } }"
-          >← 研究项列表</RouterLink>
           <h1>{{ studyName }}</h1>
         </div>
 
-        <!-- 焦点模式用弹性间隔把 tab 推到右侧 -->
-        <div v-if="isPipeline" class="study-layout__spacer"></div>
+        <!-- 弹性间隔把 tab 推到右侧 -->
+        <div class="study-layout__spacer"></div>
 
         <nav class="study-tabs" role="tablist" aria-label="研究项视图">
           <RouterLink
@@ -79,12 +73,8 @@ const isPipeline = computed(() => activeTab.value === 'pipeline')
 
 const studyName = computed(() => study.currentStudy?.name || (study.loading ? '加载中…' : '研究项'))
 
-// 焦点模式（工作流）清零 banner 高度与页边距让顶栏齐视口顶、画布吃满；其余 tab 用常规页边距。
-const shellStyle = computed(() =>
-  isPipeline.value
-    ? { '--page-pad-x': '0px', '--page-pad-y': '0px', '--header-h': '0px' }
-    : { '--page-pad-x': '0px', '--page-pad-y': '8px' },
-)
+// 三 tab 统一焦点模式：清零全局 banner 高度与页边距，让精致顶栏齐视口顶。
+const shellStyle = { '--page-pad-x': '0px', '--page-pad-y': '0px', '--header-h': '0px' }
 
 // studyId 事实源 = URL 路径参数。容器负责把它写进 store 并拉详情，子页面只读 route.params。
 watch(
