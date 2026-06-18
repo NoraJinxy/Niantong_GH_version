@@ -13,6 +13,7 @@
 // 性能：底图(面+轴+频段线+刺激线)缓存在 baseCv，鼠标移动只 blit 底图 + 叠十字线，不重算面。
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { buildHeatmapLut, HEATMAP_LUT_N, IS_SEQUENTIAL, type HeatmapCmap } from './heatmapColor'
+import { PX_RATIO, clamp } from './canvasUtils'
 
 interface Roi {
   t0: number
@@ -94,7 +95,6 @@ const LOCK_LINE = '#D9822B'
 const STIM_LINE = '#D43F34' // 刺激线 t=0：红
 const REGION_FILL = 'rgba(63, 94, 143, 0.10)'
 const REGION_LINE = 'rgba(63, 94, 143, 0.55)'
-const PX_RATIO = Math.min(window.devicePixelRatio || 1, 2)
 
 let lut = buildHeatmapLut(props.cmap)
 // 离屏：原始矩阵着色面（nT×nF，1px/格），按需 drawImage 拉伸
@@ -110,10 +110,6 @@ let dragRect: { x: number; y: number; w: number; h: number } | null = null
 // 游标 emit 合帧 + 跨采样去重
 let cursorRaf = 0
 let lastEmitKey: string | null | undefined = undefined
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v
-}
 
 // ---- 绘图区几何（设备像素）----
 interface Geom {

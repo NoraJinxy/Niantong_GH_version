@@ -556,7 +556,7 @@ const showTopo = ref(true)
 const topoMode = ref<'window' | 'cursor'>('cursor') // 地形图取值：区间均值 / 跟随游标时刻（默认跟随游标）
 const showLeft = ref(true) // 左栏（选择器）折叠
 const pageRef = ref<HTMLElement | null>(null) // 全屏目标（整页）
-const isFullscreen = ref(false)
+const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 // 配色：色板选择 / 下拉分组 / 取色器统一走 usePalette（与 PSD/TFR 同源）
 const { paletteKey, palOpen, currentPalette, paletteGroups, selectPalette, colorAt } = usePalette('elys')
 // 统一取色器：所有曲线/圆点/sparkline 都走它，切换色板即全站生效
@@ -1101,14 +1101,7 @@ function copyStats() {
   }
 }
 function exportCsv() {
-  const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'eeg_stats.csv'
-  a.click()
-  URL.revokeObjectURL(url)
+  triggerCsvDownload(statsMatrix(), 'eeg_stats.csv')
 }
 
 // ---------- 拉取时域数据 ----------
@@ -1346,27 +1339,14 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// ---------- 全屏 ----------
-function toggleFullscreen() {
-  const el = pageRef.value
-  if (!el) return
-  if (document.fullscreenElement) void document.exitFullscreen()
-  else void el.requestFullscreen()
-}
-function onFsChange() {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
 onMounted(() => {
   document.title = '时域 — 念析'
   window.addEventListener('keydown', onKeydown)
-  document.addEventListener('fullscreenchange', onFsChange)
   if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
   void load()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  document.removeEventListener('fullscreenchange', onFsChange)
 })
 </script>
 

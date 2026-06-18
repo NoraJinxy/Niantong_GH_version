@@ -366,7 +366,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
@@ -376,8 +376,9 @@ import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } from '@/components/observe/heatmapColor'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
-import { useQueryString, round, toNum, shortId, fmtSubject } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { useFullscreen } from '@/composables/observe/useFullscreen'
 import '@/components/observe/observePage.css'
 
 // ---------- 常量 ----------
@@ -419,8 +420,8 @@ const showStim = ref(true)
 const showTopo = ref(true)
 const showLeft = ref(true)
 const showHelp = ref(false)
-const isFullscreen = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
+const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 const cmap = ref<HeatmapCmap>('elys')
 const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, cmap: false, modules: false })
 
@@ -934,14 +935,7 @@ function copyStats() {
   }
 }
 function exportCsv() {
-  const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'tfr_stats.csv'
-  a.click()
-  URL.revokeObjectURL(url)
+  triggerCsvDownload(statsMatrix(), 'tfr_stats.csv')
 }
 function exportCell(e: MouseEvent, title: string, ci?: number) {
   const EXPORT_SCALE = 3 // 目标 3× 屏幕物理像素，约 300dpi（4 英寸宽单栏）
@@ -1102,28 +1096,15 @@ watch(
   },
 )
 
-// ---------- 左栏折叠 / 全屏 ----------
+// ---------- 左栏折叠 ----------
 function toggleSec(key: string) {
   collapsed[key] = !collapsed[key]
-}
-function toggleFullscreen() {
-  const el = pageRef.value
-  if (!el) return
-  if (document.fullscreenElement) void document.exitFullscreen()
-  else void el.requestFullscreen()
-}
-function onFsChange() {
-  isFullscreen.value = !!document.fullscreenElement
 }
 
 onMounted(() => {
   document.title = '时频分析 — 念析'
-  document.addEventListener('fullscreenchange', onFsChange)
   if (isMultiOutput.value) void loadOutputLabels(studyId, outputIds.value, labelCache)
   void bootstrap()
-})
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', onFsChange)
 })
 </script>
 

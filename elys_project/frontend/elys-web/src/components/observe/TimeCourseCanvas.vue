@@ -12,6 +12,7 @@
 import { onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
+import { PX_RATIO, clamp } from './canvasUtils'
 
 interface SeriesCfg { name: string; color: string }
 interface CursorItem { name: string; color: string; uv: number }
@@ -95,14 +96,6 @@ const REGION_FILL = 'rgba(63, 94, 143, 0.07)' // elys 主蓝低透明
 const REGION_LINE = 'rgba(63, 94, 143, 0.32)'
 const REF_LINE = '#C4CCD8'
 const LOCK_LINE = '#D9822B' // 锁定标记：琥珀色，区别于参考线/区间
-// uPlot 钩子里的 ctx 用「设备像素」坐标（bbox / valToPos(...,true) 均是），线宽/字号须按同一比例放大
-// 用真实 dpr、上限 2：不再对 1x 屏强制 2x 超采样（白白多画 4 倍像素，弱机/多格直接拖垮）；>2x 屏封顶 2x 已够清晰。
-const PX_RATIO = Math.min(window.devicePixelRatio || 1, 2)
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v
-}
-
 /** spread 归一化满量程：优先用 props.yMax，否则取数据峰值绝对值。 */
 function effYMax(): number {
   if (props.yMax != null && props.yMax > 0) return props.yMax

@@ -452,8 +452,9 @@ import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { useCursorState } from '@/composables/observe/useCursorState'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { usePalette } from '@/composables/observe/usePalette'
-import { useQueryString, round, toNum, shortId, fmtSubject } from '@/composables/observe/observeUtils'
+import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { useFullscreen } from '@/composables/observe/useFullscreen'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -498,8 +499,8 @@ const showGrid = ref(true)
 const showLeft = ref(true)
 const showHelp = ref(false)
 const displayMode = ref<'overlay' | 'spread'>('overlay')
-const isFullscreen = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
+const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 const collapsed = reactive<Record<string, boolean>>({
   dataset: false, channel: false, range: false, layout: false, modules: false,
 })
@@ -1058,14 +1059,7 @@ function copyStats() {
   }
 }
 function exportCsv() {
-  const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'psd_stats.csv'
-  a.click()
-  URL.revokeObjectURL(url)
+  triggerCsvDownload(statsMatrix(), 'psd_stats.csv')
 }
 // 导出当前子图为 PNG：优先用 getExportCanvas 在正确横版尺寸重绘（解决 facet 小格导出比例错误），降级走双线性放大
 function exportCell(e: MouseEvent, title: string, ci?: number) {
@@ -1174,26 +1168,14 @@ function onKeydown(e: KeyboardEvent) {
     if (allChanNames.value.length) chanSel.selectAll()
   }
 }
-function toggleFullscreen() {
-  const el = pageRef.value
-  if (!el) return
-  if (document.fullscreenElement) void document.exitFullscreen()
-  else void el.requestFullscreen()
-}
-function onFsChange() {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
 onMounted(() => {
   document.title = '功率谱 — 念析'
   window.addEventListener('keydown', onKeydown)
-  document.addEventListener('fullscreenchange', onFsChange)
   if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
   void load()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  document.removeEventListener('fullscreenchange', onFsChange)
 })
 </script>
 

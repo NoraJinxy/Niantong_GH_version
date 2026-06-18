@@ -45,3 +45,15 @@ export function fmtSubject(s?: string | null): string {
   if (!v) return ''
   return v.startsWith('sub-') ? v : `sub-${v}`
 }
+
+/** 把二维字符串/数字矩阵下载为 UTF-8 BOM CSV 文件。 */
+export function triggerCsvDownload(rows: (string | number)[][], filename: string): void {
+  const csv = '﻿' + rows.map((r) => r.join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
