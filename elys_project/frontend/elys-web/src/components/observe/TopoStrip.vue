@@ -35,6 +35,10 @@
               <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
               <span class="topo-modal-unit">{{ unit }}</span>
             </span>
+            <button type="button" class="topo-modal-dl" title="下载为 PNG 图片（含标题 / 标签 / 色阶）" @click="exportPng">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 11l5 5 5-5M5 20h14" /></svg>
+              <span>下载 PNG</span>
+            </button>
             <button type="button" class="topo-modal-x" title="关闭（Esc）" aria-label="关闭" @click="expanded = false">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
             </button>
@@ -324,6 +328,114 @@ watch(expanded, async (v) => {
   if (v) { await nextTick(); renderInto(modalCanvasMap, modalHitMap) }
   else { modalCanvasMap.clear(); modalHitMap.clear() }
 })
+// ── 导出 PNG：把整组大图 + 标题 / 副标题 / 色阶 / 每张条件名标签合成成一张多面板图（期刊插图式排版）──
+const EXPORT_FONT = '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+const EXPORT_MONO = '"JetBrains Mono", Consolas, Menlo, monospace'
+function sanitizeName(s: string): string {
+  return s.replace(/[\\/:*?"<>|]+/g, '').replace(/[·\s]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 48)
+}
+// 在导出画布上画一条色阶条（lo [渐变] hi 单位），颜色逐列采当前 LUT，与地形图配色完全一致
+function drawExportBar(ctx: CanvasRenderingContext2D, rightX: number, midY: number, barW: number, barH: number, d: number) {
+  const { lut, n } = activeLut()
+  const loT = props.loLabel ?? axisLabel(barLo.value)
+  const hiT = props.hiLabel ?? axisLabel(barHi.value)
+  const gap = 5 * d
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  ctx.font = `400 ${11 * d}px ${EXPORT_MONO}`
+  ctx.fillStyle = '#79859A'
+  const uW = ctx.measureText(props.unit).width
+  const hiW = ctx.measureText(hiT).width
+  const loW = ctx.measureText(loT).width
+  let cur = rightX
+  ctx.fillText(props.unit, cur - uW, midY); cur -= uW + gap
+  ctx.fillText(hiT, cur - hiW, midY); cur -= hiW + gap
+  const barLeft = cur - barW
+  for (let px = 0; px < barW; px++) {
+    const t = (px / Math.max(1, barW - 1)) * 2 - 1
+    const li = (((t + 1) * 0.5 * (n - 1)) | 0) * 3
+    ctx.fillStyle = `rgb(${lut[li]},${lut[li + 1]},${lut[li + 2]})`
+    ctx.fillRect(barLeft + px, midY - barH / 2, 1, barH)
+  }
+  ctx.strokeStyle = '#E5E9F2'; ctx.lineWidth = Math.max(1, d)
+  ctx.strokeRect(barLeft, midY - barH / 2, barW, barH)
+  ctx.fillStyle = '#79859A'
+  ctx.fillText(loT, barLeft - gap - loW, midY)
+}
+function exportPng() {
+  const list = props.cells
+  if (!list.length) return
+  renderInto(modalCanvasMap, modalHitMap) // 先刷一遍，确保大图是最新（游标 / 数据可能刚变）
+  const d = 2 // 2× 输出，导出图更锐
+  const P = 18 * d, GAP = 14 * d, titleH = 40 * d
+  const cellW = 226 * d, labelH = 28 * d, imgH = 212 * d, cellH = labelH + imgH
+  const cols = list.length <= 3 ? list.length : Math.min(4, Math.ceil(Math.sqrt(list.length)))
+  const rows = Math.ceil(list.length / cols)
+  const W = P * 2 + cols * cellW + (cols - 1) * GAP
+  const gridTop = P + titleH + 10 * d
+  const H = gridTop + rows * cellH + (rows - 1) * GAP + P
+  const cv = document.createElement('canvas')
+  cv.width = W; cv.height = H
+  const ctx = cv.getContext('2d')
+  if (!ctx) return
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
+
+  // 标题行：地形图 + 副标题（左）；色阶条（右）
+  const titleY = P + titleH / 2
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+  ctx.fillStyle = '#20293B'; ctx.font = `600 ${15 * d}px ${EXPORT_FONT}`
+  ctx.fillText('地形图', P, titleY)
+  const tW = ctx.measureText('地形图').width
+  if (props.subtitle) {
+    ctx.fillStyle = '#79859A'; ctx.font = `400 ${12 * d}px ${EXPORT_FONT}`
+    ctx.fillText(props.subtitle, P + tW + 8 * d, titleY + d)
+  }
+  if (props.vmax > 0) drawExportBar(ctx, W - P, titleY, 130 * d, 11 * d, d)
+
+  // 每格：卡片描边 + 顶部条件色条 + 条件名（含色点）+ 居中地形图
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]
+    const x = P + (i % cols) * (cellW + GAP)
+    const y = gridTop + Math.floor(i / cols) * (cellH + GAP)
+    ctx.strokeStyle = '#E5E9F2'; ctx.lineWidth = Math.max(1, d)
+    ctx.strokeRect(x + 0.5 * d, y + 0.5 * d, cellW - d, cellH - d)
+    ctx.fillStyle = c.color; ctx.fillRect(x, y, cellW, 3 * d)
+    // 标签
+    const lblY = y + 3 * d + (labelH - 3 * d) / 2
+    ctx.font = `600 ${12 * d}px ${EXPORT_FONT}`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    const lw = ctx.measureText(c.label).width
+    const cxText = x + cellW / 2
+    const dotR = 3.5 * d
+    ctx.fillStyle = c.color
+    ctx.beginPath(); ctx.arc(cxText - lw / 2 - dotR - 4 * d, lblY, dotR, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#51607A'; ctx.fillText(c.label, cxText, lblY)
+    // 地形图（等比居中贴进图区，杜绝拉伸）
+    const iy = y + labelH, iw = cellW, ih = imgH
+    const canvas = modalCanvasMap.get(c.seg)
+    if (canvas && canvas.width && canvas.height) {
+      const s = Math.min(iw / canvas.width, ih / canvas.height)
+      const dw = canvas.width * s, dh = canvas.height * s
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(canvas, x + (iw - dw) / 2, iy + (ih - dh) / 2, dw, dh)
+    } else {
+      ctx.fillStyle = '#79859A'; ctx.font = `400 ${11 * d}px ${EXPORT_FONT}`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText('无电极坐标', x + iw / 2, iy + ih / 2)
+    }
+  }
+
+  const name = '地形图' + (props.subtitle ? '_' + sanitizeName(props.subtitle) : '') + '.png'
+  cv.toBlob((blob) => {
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = name
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }, 'image/png')
+}
+
 onMounted(async () => { await nextTick(); renderAll() })
 onUnmounted(() => { worker?.terminate(); worker = null })
 </script>
@@ -356,6 +468,9 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-modal-bar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3); }
 .topo-modal-grad { width: 120px; height: 10px; border-radius: 2px; border: 1px solid var(--c-border); }
 .topo-modal-unit { margin-left: 2px; }
+.topo-modal-dl { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; font-size: 12px; font-weight: 500; color: var(--c-primary, #2E6BFF); background: var(--c-primary-soft, #E8F0FF); border: 1px solid transparent; border-radius: 999px; cursor: pointer; line-height: 1.3; }
+.topo-modal-dl:hover { filter: brightness(0.97); }
+.topo-modal-dl svg { flex-shrink: 0; }
 .topo-modal-x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; color: var(--c-text-3); background: transparent; border: none; border-radius: var(--r-sm); cursor: pointer; }
 .topo-modal-x:hover { color: var(--c-text); background: var(--c-bg-soft); }
 .topo-modal-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; padding: 16px; background: var(--c-bg-soft); }
