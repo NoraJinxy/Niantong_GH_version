@@ -51,6 +51,7 @@ def _full_reset_on_startup() -> None:
         "dataset_version_files",
         "dataset_version_references",
         "dataset_files",
+        "dataset_montages",
         "dataset_withdrawal_requests",
         "dataset_publicization_requests",
         "dataset_versions",
@@ -92,6 +93,7 @@ from app.routers import (
     dashboard_router,
     dataset_assets_router,
     dataset_files_router,
+    dataset_montages_router,
     dataset_versions_router,
     dataset_withdrawals_router,
     dataset_publicize_router,
@@ -144,6 +146,7 @@ app.include_router(dashboard_router)
 app.include_router(studies_router)
 app.include_router(dataset_assets_router)
 app.include_router(dataset_files_router)
+app.include_router(dataset_montages_router)
 app.include_router(recording_router)
 app.include_router(datasets_router)
 app.include_router(dataset_versions_router)

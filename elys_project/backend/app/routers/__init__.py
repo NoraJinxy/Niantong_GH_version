@@ -7,6 +7,7 @@ from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .dataset_assets import asset_router as dataset_assets_router
 from .dataset_files import file_router as dataset_files_router
+from .dataset_montages import router as dataset_montages_router
 from .dataset_recordings import recording_router
 from .dataset_mounts import router as datasets_router
 from .dataset_versions import admin_router as dataset_withdrawals_router
@@ -25,6 +26,7 @@ __all__ = [
     "dashboard_router",
     "dataset_assets_router",
     "dataset_files_router",
+    "dataset_montages_router",
     "datasets_router",
     "dataset_versions_router",
     "dataset_withdrawals_router",

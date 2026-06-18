@@ -239,7 +239,35 @@ class NodeDispatcher:
         return self._execute_raw_preprocess(context, run_rereference, save_descriptor="ref")
 
     def _execute_channel_location(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        return self._execute_raw_preprocess(context, run_channel_location, save_descriptor="chanloc")
+        # montage=custom 时按 custom_montage_file_id 在 DB 里解析出上传文件的绝对路径，用闭包喂给
+        # run_channel_location——保持引擎函数纯净，也不把服务器物理路径塞进参数哈希（哈希仍认 file_id）。
+        custom_montage_path = self._resolve_custom_montage_path(context)
+
+        def processor(raw: Any, params: dict[str, Any]) -> Any:
+            return run_channel_location(raw, params, custom_montage_path=custom_montage_path)
+
+        return self._execute_raw_preprocess(context, processor, save_descriptor="chanloc")
+
+    @staticmethod
+    def _resolve_custom_montage_path(context: NodeExecutionContext) -> str | None:
+        """montage=custom 时，把 custom_montage_file_id 解析成上传电极文件的绝对路径；否则 None。"""
+        params = context.params if isinstance(context.params, dict) else {}
+        if str(params.get("montage") or "").strip().lower() != "custom":
+            return None
+        file_id = params.get("custom_montage_file_id")
+        if not file_id:
+            raise ValueError("「通道定位」选择了自定义电极文件，但未指定文件（custom_montage_file_id 为空）。")
+        from app.config import get_settings  # noqa: PLC0415
+        from app.models import DatasetMontage  # noqa: PLC0415
+
+        row = context.db.query(DatasetMontage).filter(DatasetMontage.id == str(file_id)).first()
+        if row is None:
+            raise ValueError(f"找不到自定义电极文件（id={file_id}），可能已被删除，请重新上传或选择。")
+        root = Path(get_settings().DATASETS_STORAGE_ROOT) / str(row.dataset_asset_id)
+        path = root / row.relative_path
+        if not path.exists():
+            raise ValueError(f"自定义电极文件物理缺失：{path}")
+        return str(path)
 
     def _execute_bad_channels(self, context: NodeExecutionContext) -> NodeDispatchResult:
         # 仅标记 vs 插值修复用不同存储后缀（影响派生文件名）

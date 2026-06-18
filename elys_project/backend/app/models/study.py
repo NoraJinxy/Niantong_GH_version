@@ -214,6 +214,7 @@ class DatasetAsset(Base):
     current_version = relationship("DatasetVersion", foreign_keys=[current_version_id], post_update=True)
     mounts = relationship("StudyDatasetMount", back_populates="dataset_asset", passive_deletes=True)
     recordings = relationship("Recording", back_populates="dataset_asset", passive_deletes=True)
+    montages = relationship("DatasetMontage", back_populates="dataset_asset", passive_deletes=True)
     members = relationship(
         "DatasetMember",
         cascade="all, delete-orphan",
@@ -488,6 +489,37 @@ class DatasetFile(Base):
         back_populates="derived_file",
         passive_deletes=True,
     )
+    created_by_user = relationship("User", foreign_keys=[created_by])
+
+
+class DatasetMontage(Base):
+    """自定义电极位置文件（montage），数据集资产级。
+
+    用户在数据集详情页上传的电极坐标文件（.elc/.sfp/.bvef/.tsv/.csv 等），跟随 dataset_asset 走
+    （同 BIDS：电极位置属于数据集）。Pipeline「通道定位」节点 montage=custom 时按 id 引用，执行器读
+    storage 后 set_montage。物理路径 = DATASETS_STORAGE_ROOT/{dataset_asset_id}/{relative_path}。
+    """
+
+    __tablename__ = "dataset_montages"
+    __table_args__ = (
+        Index("idx_dataset_montages_asset", "dataset_asset_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    dataset_asset_id = Column(UUID(as_uuid=True), ForeignKey("dataset_assets.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(200), nullable=False)
+    original_filename = Column(String(512))
+    file_format = Column(String(16), nullable=False)
+    storage_uri = Column(String(1024), nullable=False)
+    relative_path = Column(String(512), nullable=False)
+    n_electrodes = Column(Integer)
+    file_size = Column(BigInteger)
+    sha256 = Column(String(64))
+    metadata_json = Column(JSONB, nullable=False, default=dict)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    dataset_asset = relationship("DatasetAsset", foreign_keys=[dataset_asset_id], back_populates="montages")
     created_by_user = relationship("User", foreign_keys=[created_by])
 
 

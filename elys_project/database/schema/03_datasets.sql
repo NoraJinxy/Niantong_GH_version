@@ -217,6 +217,32 @@ COMMENT ON COLUMN dataset_files.relative_path IS '相对于研究项 data_root �
 COMMENT ON COLUMN dataset_files.logical_path IS '相对于 Dataset Version 根或 Study 根的稳定逻辑路径。';
 
 -- ============================================
+-- 自定义电极位置文件（montage）：数据集资产级，供 Pipeline「通道定位」节点选用
+-- ============================================
+-- 用户上传的电极坐标文件（.elc/.sfp/.bvef/.tsv/.csv 等），跟随 dataset_asset 走（同 BIDS：电极
+-- 位置本属于数据集）。一次上传，该资产被挂到的所有研究项里「通道定位」节点都可选；删资产级联清掉。
+CREATE TABLE IF NOT EXISTS dataset_montages (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dataset_asset_id    UUID NOT NULL REFERENCES dataset_assets(id) ON DELETE CASCADE,
+    name                VARCHAR(200) NOT NULL,
+    original_filename   VARCHAR(512),
+    file_format         VARCHAR(16) NOT NULL,
+    storage_uri         VARCHAR(1024) NOT NULL,
+    relative_path       VARCHAR(512) NOT NULL,
+    n_electrodes        INTEGER,
+    file_size           BIGINT,
+    sha256              VARCHAR(64),
+    metadata_json       JSONB NOT NULL DEFAULT '{}',
+    created_by          UUID REFERENCES users(id),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_dataset_montages_asset ON dataset_montages(dataset_asset_id);
+
+COMMENT ON TABLE dataset_montages IS '自定义电极位置文件（montage），数据集资产级。供 Pipeline「通道定位」节点 montage=custom 时按 id 引用，执行器读 storage 后 set_montage。';
+COMMENT ON COLUMN dataset_montages.relative_path IS '相对 dataset_asset 根（DATASETS_STORAGE_ROOT/{asset_id}）的 POSIX 路径，形如 montages/{id}.elc。';
+COMMENT ON COLUMN dataset_montages.file_format IS '扩展名（去点小写）：elc / sfp / bvef / tsv / csv / txt / loc 等，决定 mne.read_custom_montage 解析方式。';
+
+-- ============================================
 -- 版本文件清单（version ↔ file 多对多，支持「逻辑链接」复用旧版本物理文件）
 -- ============================================
 -- 物理文件只存一份（dataset_files 一行，storage_uri 指向其真实所在目录：BIDSdata/ 或 ver{label}/）；
