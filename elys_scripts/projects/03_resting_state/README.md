@@ -3,7 +3,7 @@
 目的：跑通 `建数据集 → 上传静息态 BrainVision 数据 → 建 pipeline → 跑 → 列 PSD 产物` 这条
 静息态频谱主线，**作为 PSD / 频谱相关 bug 的最小可复现脚本。**
 
-与 01/02 的核心区别：**没有 Epoch、没有 Reject Trials**。
+与 01/02 的核心区别：**没有 Epoch**（连续数据，无试次切分）。
 静息态没有事件锚点，直接对连续 EEG 做 Welch PSD。PSD 节点 `condition` 留空，
 接收 `eeg_data`（连续信号，即 `spectral_source` 输入的一种）整段算一条功率谱。
 
@@ -20,12 +20,12 @@
 ## pipeline 链路
 
 ```
-LoadData → Bandpass(1-45 IIR) → Notch(50Hz) → Ch Loc → Bad Channels(LOF+插值)
+LoadData → Bandpass(1-45 IIR) → Notch(50Hz) → Bad Channels(LOF+插值)
          → Re-reference → PSD(Welch, 1-45Hz)
 ```
 
 - **Bandpass 1-45Hz**：高通 1Hz 去漂移，低通 45Hz 截高频（工频基频 50Hz 留给陷波处理）。
-- **Ch Loc** 在坏道修复前：球面样条插值需要标准电极坐标，上游没它插值会失败。
+- **电极坐标**由「导入转 FIF 时自动绑定 montage」提供（按通道名匹配厂家/标准帽），故球面样条插值天生有坐标，无需流水线手接 Ch Loc 节点。
 - **Bad Channels** 在 Re-reference 前：坏道不修就参与参考计算会污染全局参考。
 - **Re-reference（乳突 TP9/TP10）**：alpha 峰频和相对功率对参考敏感，静息态 PSD 通常要重参考。
 - **PSD condition 留空**：连续数据无 condition，整段算一条谱。产物 `.npz` 含各频段绝对 + 相对功率

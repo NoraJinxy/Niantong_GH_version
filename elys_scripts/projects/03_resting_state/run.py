@@ -4,7 +4,7 @@
 当前 pipeline 链路（两条，EO + EC 各一条）：
   LoadData(filter,tasks=["eo"/"ec"])
   → Bandpass(1-45 IIR) → Notch(50Hz)
-  → Ch Loc → Bad Channels [→ Re-reference（REF_CHANNELS 非空时加）]
+  → Bad Channels [→ Re-reference（REF_CHANNELS 非空时加）]   # 电极坐标在导入转 FIF 时已自动绑定（montage）
   → PSD(Welch, 1-45Hz)          # 30 被试 × 1 PSD，输出 30 个 .npz
   → Group Merge                  # N-to-1：堆叠成 (30, n_ch, n_freq) group 张量（节点未部署时自动跳过）
   → Grand Average                # mean ± SEM → 1 个 grand avg PSD（同上）
@@ -80,19 +80,15 @@ def build_definition(task: str, use_group: bool) -> dict:
     nf = node("nf", "eeg/filter/apply", "Notch 50Hz", {
         "filter_type": "notch", "notch_freq": 50.0, "notch_harmonics": 3,
     })
-    cl = node("cl", "eeg/preproc/channel_location", "Ch Loc Assign", {
-        "montage": lconfig.MONTAGE, "rename": True,
-    })
     bc = node("bc", "eeg/preproc/bad_channels", "Bad Channels", {
         "method": lconfig.BAD_CHAN_METHOD, "action": lconfig.BAD_CHAN_ACTION,
     })
 
-    nodes = [ld, bw, nf, cl, bc]
+    nodes = [ld, bw, nf, bc]
     links = [
         {"id": "l1", "from": {"node": "ld", "port": "output"}, "to": {"node": "bw", "port": "input"}},
         {"id": "l2", "from": {"node": "bw", "port": "output"}, "to": {"node": "nf", "port": "input"}},
-        {"id": "l3", "from": {"node": "nf", "port": "output"}, "to": {"node": "cl", "port": "input"}},
-        {"id": "l4", "from": {"node": "cl", "port": "output"}, "to": {"node": "bc", "port": "input"}},
+        {"id": "l3", "from": {"node": "nf", "port": "output"}, "to": {"node": "bc", "port": "input"}},
     ]
 
     prev = "bc"
