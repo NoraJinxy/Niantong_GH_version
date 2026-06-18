@@ -665,6 +665,22 @@ export interface DatasetFileListResponse {
   files: DatasetFile[]
 }
 
+/** 自定义电极位置文件（montage），数据集资产级，供「通道定位」节点选用。 */
+export interface DatasetMontage {
+  id: string
+  dataset_asset_id: string
+  name: string
+  original_filename?: string | null
+  file_format: string
+  n_electrodes?: number | null
+  file_size?: number | null
+  created_at?: string | null
+}
+
+export interface DatasetMontageListResponse {
+  montages: DatasetMontage[]
+}
+
 export interface DatasetFileTreeNode {
   name: string
   path: string
@@ -716,6 +732,7 @@ export interface NodeProperty {
     | 'tags_input'
     | 'dataset_filter'
     | 'dataset_ids'
+    | 'montage_picker'
   default?: unknown
   required?: boolean
   options?: NodePropertyOption[]

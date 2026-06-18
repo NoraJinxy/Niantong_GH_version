@@ -16,7 +16,7 @@ import type { NodeSpec, NodeProperty } from '@/types'
 export const MAX_NODE_WIDGETS = 4
 
 /** 复杂类型：没有简单控件，做成「摘要 + 编辑 ›」按钮，点开右侧检查器编辑。 */
-const COMPLEX_TYPES = new Set(['channel_list', 'event_select', 'tags_input', 'dataset_filter', 'dataset_ids'])
+const COMPLEX_TYPES = new Set(['channel_list', 'event_select', 'tags_input', 'dataset_filter', 'dataset_ids', 'montage_picker'])
 /** 不放节点的类型（文本走检查器，避开 litegraph 的浏览器 prompt）。 */
 const SKIP_TYPES = new Set(['text', 'string'])
 

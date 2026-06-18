@@ -10,6 +10,8 @@ import type {
   DatasetAssetUpdateRequest,
   DatasetFileListResponse,
   DatasetFileTreeResponse,
+  DatasetMontage,
+  DatasetMontageListResponse,
   DatasetMember,
   DatasetMemberAddRequest,
   DatasetMemberListResponse,
@@ -80,6 +82,16 @@ export const datasetAssetApi = {
     dataApi.get<DatasetFileTreeResponse>(`/dataset-assets/${assetId}/bids-tree`, { params }),
   rebuildCanonicalFif: (assetId: string, data: DatasetAssetTaskRequest = {}) =>
     api.post<AsyncTask>(`/dataset-assets/${assetId}/canonical-fif-rebuild`, data),
+  // 自定义电极位置文件（montage）。上传/列举/删除走数据服务器（文件落 storage + MNE 试解析校验）；
+  // 研究项级列举给「通道定位」节点选择器用（纯 DB 查，走入口服务器即可）。
+  uploadMontage: (assetId: string, formData: FormData) =>
+    dataApi.post<DatasetMontage>(`/dataset-assets/${assetId}/montages`, formData),
+  listMontages: (assetId: string) =>
+    dataApi.get<DatasetMontageListResponse>(`/dataset-assets/${assetId}/montages`),
+  deleteMontage: (assetId: string, montageId: string) =>
+    dataApi.delete<void>(`/dataset-assets/${assetId}/montages/${montageId}`),
+  listStudyMontages: (studyId: string) =>
+    api.get<DatasetMontageListResponse>(`/studies/${studyId}/montages`),
 }
 
 // 共享态邀请制授权（dataset_members，按用户授权）；均仅负责人

@@ -888,6 +888,32 @@
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
               </div>
 
+              <!-- montage_picker：从「本研究项数据集已上传的电极文件」里选一个（custom montage）。
+                   上传入口在数据集详情页 → 数据文件 → 电极位置文件；这里只负责选。 -->
+              <div v-else-if="prop.type === 'montage_picker'" class="field montage-picker-field" :data-param="prop.name">
+                <span>
+                  {{ prop.label }}
+                  <small v-if="prop.unit">({{ prop.unit }})</small>
+                </span>
+                <div class="montage-picker__row">
+                  <select
+                    class="control"
+                    :value="String(selectedNode.params[prop.name] ?? '')"
+                    @change="handleParamInput(prop, $event)"
+                  >
+                    <option value="">— 选择电极文件 —</option>
+                    <option v-for="m in studyMontages" :key="m.id" :value="m.id">
+                      {{ m.name }}（{{ m.n_electrodes ?? '?' }} 电极 · .{{ m.file_format }}）
+                    </option>
+                  </select>
+                  <button type="button" class="chip" title="刷新列表" @click="loadStudyMontages">↻</button>
+                </div>
+                <small v-if="!studyMontages.length" class="help-text">
+                  本研究项的数据集里还没有电极文件。去「数据集详情页 → 数据文件 → 电极位置文件」上传后点 ↻ 刷新。
+                </small>
+                <small v-else-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
+              </div>
+
               <label v-else class="field" :class="{ 'field--half': prop.type === 'number' || prop.type === 'integer' }" :data-param="prop.name">
                 <span>
                   {{ prop.label }}
@@ -1109,6 +1135,8 @@ import AppIcon from '@/components/AppIcon.vue'
 import LoadDataPanel from '@/components/LoadDataPanel.vue'
 import IconLine from '@/components/IconLine.vue'
 import { pipelineApi } from '@/api/pipelines'
+import { datasetAssetApi } from '@/api/datasetAssets'
+import type { DatasetMontage } from '@/types'
 import type {
   LoadDataDataInfo,
   NodeSpec,
@@ -1238,6 +1266,21 @@ const {
 } = usePipelineEditor()
 const pipelines = ref<Pipeline[]>([])
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
+// 自定义电极文件列表（供「通道定位」节点 montage_picker 选择器）：本研究项挂载的数据集里上传的都在这
+const studyMontages = ref<DatasetMontage[]>([])
+async function loadStudyMontages() {
+  const sid = selectedStudyId.value
+  if (!sid) {
+    studyMontages.value = []
+    return
+  }
+  try {
+    const res = await datasetAssetApi.listStudyMontages(sid)
+    studyMontages.value = res.data.montages
+  } catch {
+    studyMontages.value = []
+  }
+}
 const selectedPipelineId = ref('')
 const currentPipeline = ref<Pipeline | null>(null)
 const pipelineName = ref('未命名工作流')
@@ -1823,7 +1866,7 @@ onMounted(async () => {
   await loadNodeSpecs()
   hydrating.value = false
   if (selectedStudyId.value) {
-    await Promise.all([loadPipelines(routeTarget()), loadDatasets(selectedStudyId.value)])
+    await Promise.all([loadPipelines(routeTarget()), loadDatasets(selectedStudyId.value), loadStudyMontages()])
   }
 })
 

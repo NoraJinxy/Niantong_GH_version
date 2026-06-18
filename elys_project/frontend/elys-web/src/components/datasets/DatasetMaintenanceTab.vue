@@ -1,5 +1,8 @@
 <template>
   <section class="dataset-tab-panel dmt" aria-label="数据维护中心">
+    <!-- 电极位置文件（数据集资产级，供「通道定位」节点选用）：常驻顶部，先于采集记录列表 -->
+    <DatasetMontagePanel v-if="selectedAssetId" :asset-id="selectedAssetId" />
+
     <!-- 空 / 加载 / 错误态 -->
     <EmptyState
       v-if="!recordsStudyContext"
@@ -300,6 +303,7 @@ import { computed, inject, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import DatasetMontagePanel from '@/components/datasets/DatasetMontagePanel.vue'
 import {
   formatDate,
   formatFileSize,
@@ -312,6 +316,8 @@ import { datasetContextKey } from '@/composables/datasets/datasetContext'
 import type { DatasetRecordingRow } from '@/composables/datasets/useDatasetRecordings'
 
 const ctx = inject(datasetContextKey)!
+// 当前数据集资产 id（电极位置文件面板用；本 tab 仅在选中资产时渲染，故一般非空）
+const selectedAssetId = computed(() => ctx.catalog.selectedDatasetAssetId.value || '')
 const {
   selectedAssetRecordings,
   recordingsBySubject,
