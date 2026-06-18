@@ -90,7 +90,11 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
       group.recordings.push(recording)
       group.size += recording.fileSize || 0
     }
-    return Array.from(groups.values())
+    // 被试正序：sub-01、sub-02…（numeric 让内嵌数字按数值比，sub-2 < sub-10）。
+    // 源列表按 updatedAt 倒序，分组若沿用插入序会变成「最新上传在最前」，与直觉相反。
+    return Array.from(groups.values()).sort((a, b) =>
+      a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' }),
+    )
   })
 
   // 每条记录的文件按 2 桶 + 技术拆分（按被试视图每条记录的数据行）
