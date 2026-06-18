@@ -288,7 +288,6 @@
                     :ref-lines="false"
                     :markers="cellPsdMarkers(cell.segs)"
                     :highlight="effectiveFocus"
-                    :highlight-locked="!!lockedHighlight"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -361,7 +360,7 @@
                     'is-locked': lockedHighlight === it.name,
                     'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
                   }"
-                  @mouseenter="hoveredHighlight = it.name"
+                  @mouseenter="onLineHover(it.name)"
                   @mouseleave="hoveredHighlight = ''"
                   @click="toggleLock(it.name)"
                 >
@@ -425,7 +424,7 @@
                   <tr><th>数据集</th><th>通道</th><th>IAF</th><th>α%</th><th>θ/β</th></tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': lockedHighlight === r.chan || highlightChan === r.chan }" @click="focusChan(r.chan)">
+                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
                     <td>{{ r.segName }}</td>
                     <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
                     <td>{{ Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '—' }}</td>
@@ -753,9 +752,15 @@ const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === select
 const highlightChan = ref('')
 const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
 const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
-const effectiveFocus = computed(() => hoveredHighlight.value || lockedHighlight.value || focusChannel.value)
-function toggleLock(name: string) { lockedHighlight.value = lockedHighlight.value === name ? '' : name }
-function onLineHover(name: string) { hoveredHighlight.value = name }
+// 焦点联动：焦点关时图上零强调（鼠标移动不改线宽，只读数）；焦点开时才有 hover/锁定高亮。
+const effectiveFocus = computed(() => (focusEnabled.value ? (hoveredHighlight.value || lockedHighlight.value || focusChannel.value) : ''))
+// 点读数行/明细行：焦点关时一键开焦点并锁定该线（选项①，免去先找开关）；焦点开时切换锁定。
+function toggleLock(name: string) {
+  if (!focusEnabled.value) { focusEnabled.value = true; lockedHighlight.value = name; return }
+  lockedHighlight.value = lockedHighlight.value === name ? '' : name
+}
+// 悬停高亮仅在焦点开时生效（图线 hover / 读数行 hover 共用）。
+function onLineHover(name: string) { if (focusEnabled.value) hoveredHighlight.value = name }
 
 // 地形图频率来源：band（预设频段）| custom（自定义 Hz 区间）| cursor（跟随游标）
 const topoSource = ref<'band' | 'custom' | 'cursor'>('band')
@@ -902,9 +907,11 @@ watch(readoutKey, (k) => {
   const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
   if (hit) highlightChan.value = hit.chan
 })
-// 焦点（与时域一致，默认关）：开启时谱图加粗「读数通道」、压细其余 + 描边其子图;关时用手动高亮(点明细行)
+// 焦点（与时域一致，默认关）：开启时谱图加粗「读数通道」、压细其余 + 描边其子图;关时图上零强调
 const focusEnabled = ref(false)
 const focusChannel = computed(() => (focusEnabled.value && readoutStat.value ? readoutStat.value.chan : highlightChan.value))
+// 关焦点：连带清空悬停 / 锁定高亮，回到「纯读数」态（否则残留高亮与「焦点已关」矛盾）
+watch(focusEnabled, (on) => { if (!on) { hoveredHighlight.value = ''; lockedHighlight.value = '' } })
 const iafText = computed(() => {
   const s = readoutStat.value
   return s && Number.isFinite(s.iaf) ? s.iaf.toFixed(1) : '—'

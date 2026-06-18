@@ -61,10 +61,8 @@ const props = withDefaults(
     logX?: boolean
     /** 用 monotone cubic spline 替换默认直线段（PSD 等点稀疏场景，避免折痕）。 */
     useSpline?: boolean
-    /** 高亮是否为锁定态：true=线宽对比更强（锁定 vs 悬停有视觉差异）。 */
-    highlightLocked?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, highlightLocked: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false },
 )
 
 const emit = defineEmits<{
@@ -401,14 +399,15 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
     series: [
       {},
       ...(() => {
-        const splinePaths = props.useSpline ? uPlot.paths.spline?.() ?? undefined : undefined
+        // exportMode 里 spline 在 position:fixed 离屏容器里坐标退化为空路径 → 保持默认 linear
+        const splinePaths = (props.useSpline && !exportMode) ? uPlot.paths.spline?.() ?? undefined : undefined
         return props.series.map((s) => ({
           label: s.name,
           stroke: s.color,
           // 命中本格高亮目标：加粗、其余压细；本格无该目标则统一 1.25
           width: hlActive ? (s.name === props.highlight ? 2.6 : 0.7) : 1.25,
           points: { show: false },
-          paths: splinePaths,
+          ...(splinePaths ? { paths: splinePaths } : {}),
         }))
       })(),
     ],
@@ -488,13 +487,12 @@ function applyHighlight() {
   const u = chart.value
   if (!u) return
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
-  const strong = props.highlightLocked // 锁定态：对比更强；悬停态：轻度对比
   for (let i = 0; i < props.series.length; i++) {
     const us = u.series[i + 1] as unknown as { width?: number } | undefined
     if (!us) continue
-    us.width = hlActive
-      ? (props.series[i].name === props.highlight ? (strong ? 3.0 : 2.6) : (strong ? 0.35 : 0.7))
-      : 1.25
+    // 单一高亮档：目标 2.6、其余 0.7（与 buildOpts 初次渲染一致，消除「悬停 vs 锁定」线宽不一致）。
+    // 焦点 hover/锁定的区别交给右栏行 ● 标记与持久性表达，不再用线宽强弱区分。
+    us.width = hlActive ? (props.series[i].name === props.highlight ? 2.6 : 0.7) : 1.25
   }
   u.redraw(false) // false=不重建路径，仅用现有路径按新线宽重描，最省
 }
@@ -620,7 +618,6 @@ watch(
 )
 // 高亮 = 就地改线宽 + redraw（不重建）。
 watch(() => props.highlight, () => applyHighlight())
-watch(() => props.highlightLocked, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
   () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers],

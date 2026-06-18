@@ -319,7 +319,6 @@
                     :region="region"
                     :ref-lines="refLinesOn"
                     :highlight="effectiveFocus"
-                    :highlight-locked="!!lockedHighlight"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -392,7 +391,7 @@
                     'is-locked': lockedHighlight === it.name,
                     'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
                   }"
-                  @mouseenter="hoveredHighlight = it.name"
+                  @mouseenter="onLineHover(it.name)"
                   @mouseleave="hoveredHighlight = ''"
                   @click="toggleLock(it.name)"
                 >
@@ -451,7 +450,7 @@
                   <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': lockedHighlight === r.chan || highlightChan === r.chan }" @click="focusChan(r.chan)">
+                  <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
                     <td class="wf-dt-seg">{{ r.segName }}</td>
                     <td class="wf-dt-ch"><span class="wf-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
                     <td class="wf-dt-peak">{{ r.peak.toFixed(2) }}</td>
@@ -634,7 +633,7 @@ const cursorState = computed<'idle' | 'follow' | 'locked'>(() =>
   cursorLocked.value ? 'locked' : cursorReadout.value ? 'follow' : 'idle',
 )
 const cursorStateText = computed(() =>
-  cursorState.value === 'locked' ? '游标锁定' : cursorState.value === 'follow' ? '游标跟随' : '游标空闲',
+  cursorState.value === 'locked' ? '游标锁定' : cursorState.value === 'follow' ? '游标实时' : '游标空闲',
 )
 const cursorStateHint = computed(() =>
   cursorState.value === 'locked'
@@ -646,9 +645,15 @@ const cursorStateHint = computed(() =>
 const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
 const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
 const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
-const effectiveFocus = computed(() => hoveredHighlight.value || lockedHighlight.value || highlightChan.value)
-function toggleLock(name: string) { lockedHighlight.value = lockedHighlight.value === name ? '' : name }
-function onLineHover(name: string) { hoveredHighlight.value = name }
+// 焦点联动：焦点关时图上零强调（鼠标移动不改线宽，只读数）；焦点开时才有 hover/锁定高亮，缺省高亮 focusStat 峰值线。
+const effectiveFocus = computed(() => (focusEnabled.value ? (hoveredHighlight.value || lockedHighlight.value || focusStat.value?.chan || highlightChan.value) : ''))
+// 点读数行/明细行：焦点关时一键开焦点并锁定该线（选项①，免去先找开关）；焦点开时切换锁定。
+function toggleLock(name: string) {
+  if (!focusEnabled.value) { focusEnabled.value = true; lockedHighlight.value = name; return }
+  lockedHighlight.value = lockedHighlight.value === name ? '' : name
+}
+// 悬停高亮仅在焦点开时生效（图线 hover / 读数行 hover 共用）。
+function onLineHover(name: string) { if (focusEnabled.value) hoveredHighlight.value = name }
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
 const regionUserSet = ref(false)
@@ -1008,11 +1013,13 @@ watch(focusKey, (k) => {
   const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
   if (hit) highlightChan.value = hit.chan
 })
-// 关掉焦点开关：连带清掉曲线高亮 + 下拉选择（否则曲线一直加粗，与「焦点已关」矛盾）
+// 关掉焦点开关：连带清掉曲线高亮 + 下拉选择 + 悬停/锁定（否则曲线一直加粗，与「焦点已关」矛盾）
 watch(focusEnabled, (on) => {
   if (!on) {
     focusKey.value = ''
     highlightChan.value = ''
+    hoveredHighlight.value = ''
+    lockedHighlight.value = ''
   }
 })
 // ② 条件对比的峰值条形：按各条件峰值绝对值归一
