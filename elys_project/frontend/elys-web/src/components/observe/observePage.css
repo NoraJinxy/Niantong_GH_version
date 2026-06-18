@@ -232,5 +232,22 @@
 .ov-hover-row.is-dim { opacity: 0.32; }
 .ov-row-pin { color: var(--c-primary, #2e6bff); font-size: 9px; flex-shrink: 0; line-height: 1; }
 .ov-hover-name { font-size: 13px; color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-hover-val { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--c-text); }
+.ov-hover-val { margin-left: auto; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c-text); }
 .ov-hover-toggle { margin-top: 5px; background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 11px; padding: 2px 0; flex-shrink: 0; text-align: left; }
+
+/* ===== 时域页迁入：view-only 滤波 / 段步进 / 明细表分列着色（原 .wf-* 专属，统一为 .ov-*）===== */
+.ov-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 4px; }
+.ov-grid2.is-off { opacity: .55; }
+.ov-apply { width: 100%; padding: 5px 0; margin-top: 5px; border: none; border-radius: 3px; background: var(--c-primary); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.ov-apply:hover:not(:disabled) { opacity: .9; }
+.ov-apply:disabled { opacity: .45; cursor: default; }
+.ov-view-tag { font-size: 10px; color: var(--c-warning); background: var(--c-warning-soft); border-radius: 6px; padding: 0 4px; margin-left: 4px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.ov-seg-stepper { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.ov-seg-idx { font-size: 12px; color: var(--c-text-2); min-width: 48px; text-align: center; }
+.ov-sbar-filter { color: var(--c-warning); font-weight: 600; }
+.ov-chk.is-disabled { color: var(--c-text-3); cursor: default; }
+.ov-dt-seg { color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; }
+.ov-dt-ch { display: flex; align-items: center; gap: 4px; }
+.ov-dt-peak { color: #3F5E8F; font-weight: 600; }
+.ov-dt-trough { color: #B0544C; font-weight: 600; }
+.ov-dt-lat { color: var(--c-text-3); }
