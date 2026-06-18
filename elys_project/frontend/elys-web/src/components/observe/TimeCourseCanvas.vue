@@ -656,6 +656,19 @@ watch(
   { deep: true },
 )
 
+// 判断画布是否全透明（导出空白兜底）：命中首个非透明像素即 false，空白才扫满。
+function isCanvasBlank(cv: HTMLCanvasElement): boolean {
+  const ctx = cv.getContext('2d')
+  if (!ctx) return false
+  try {
+    const { data } = ctx.getImageData(0, 0, cv.width, cv.height)
+    for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return false
+    return true
+  } catch {
+    return false // 读不出（跨域等）就按非空走，不误退回
+  }
+}
+
 // 导出：用正确横版尺寸重建 uPlot，解决 facet 小格 canvas 导出比例错误。
 function getExportCanvas(): HTMLCanvasElement | null {
   if (!props.series.length || !props.data[0]?.length) return null
@@ -664,12 +677,14 @@ function getExportCanvas(): HTMLCanvasElement | null {
   const targetCssW = Math.round(2400 / dpr)
   const targetCssH = Math.round(targetCssW * 0.4)
   const container = document.createElement('div')
-  container.style.cssText = `width:${targetCssW}px;height:${targetCssH}px;position:fixed;top:-9999px;left:-9999px;visibility:hidden;pointer-events:none`
+  // 用 opacity:0 + 离屏定位，不用 visibility:hidden：后者在部分引擎里会让 uPlot 首绘被跳过 → 导出空白。
+  container.style.cssText = `width:${targetCssW}px;height:${targetCssH}px;position:fixed;top:-99999px;left:-99999px;opacity:0;pointer-events:none;z-index:-1`
   document.body.appendChild(container)
   let out: HTMLCanvasElement | null = null
   try {
     const dd = buildDisplayData()
     const u = new uPlot(buildOpts(targetCssW, targetCssH, true), dd as unknown as uPlot.AlignedData, container)
+    u.redraw(true, true) // 强制重算路径 + 重绘，规避离屏容器里偶发的首绘空白
     const src = container.querySelector('canvas') as HTMLCanvasElement | null
     if (src) {
       out = document.createElement('canvas')
@@ -682,6 +697,8 @@ function getExportCanvas(): HTMLCanvasElement | null {
   } finally {
     document.body.removeChild(container)
   }
+  // 离屏重绘若仍全透明空白（偶发），返回 null → 调用方退回「抓屏 + 双线性放大」，保证导出永不空白。
+  if (out && isCanvasBlank(out)) out = null
   return out
 }
 defineExpose({ getExportCanvas })
