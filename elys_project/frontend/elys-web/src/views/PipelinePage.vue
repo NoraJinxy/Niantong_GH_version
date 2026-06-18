@@ -747,7 +747,7 @@
           <div v-else-if="selectedNodeSpec.properties.length" class="property-list">
             <template v-for="prop in visibleBasicProperties" :key="prop.name">
               <!-- event_select 类型：根据上游 LoadData 的事件标签做多选 chip -->
-              <div v-if="prop.type === 'event_select'" class="field event-select">
+              <div v-if="prop.type === 'event_select'" class="field event-select" :data-param="prop.name">
                 <div class="event-select__head">
                   <span>
                     {{ prop.label }}
@@ -804,7 +804,7 @@
 
               <!-- channel_list：从上游 LoadData 推断通道，listbox 多选（单选=单通道参考 / 多选=平均参考 / 全选=共同平均参考）
                    交互：单击 toggle / Shift+点击范围加入 / Ctrl+A 全选可见 / Delete 移除已选 -->
-              <div v-else-if="prop.type === 'channel_list'" class="field channel-list-field">
+              <div v-else-if="prop.type === 'channel_list'" class="field channel-list-field" :data-param="prop.name">
                 <div class="channel-list__head">
                   <span>
                     {{ prop.label }}
@@ -859,7 +859,7 @@
               </div>
 
               <!-- tags_input：用户自由打标签的 chip 输入 -->
-              <div v-else-if="prop.type === 'tags_input'" class="field tags-input-field">
+              <div v-else-if="prop.type === 'tags_input'" class="field tags-input-field" :data-param="prop.name">
                 <span>
                   {{ prop.label }}
                   <small v-if="prop.unit">({{ prop.unit }})</small>
@@ -888,7 +888,7 @@
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
               </div>
 
-              <label v-else class="field" :class="{ 'field--half': prop.type === 'number' || prop.type === 'integer' }">
+              <label v-else class="field" :class="{ 'field--half': prop.type === 'number' || prop.type === 'integer' }" :data-param="prop.name">
                 <span>
                   {{ prop.label }}
                   <small v-if="prop.unit">({{ prop.unit }})</small>
@@ -1197,7 +1197,11 @@ import {
   type LooseLiteGraph,
   type LiteGraphLink,
 } from '@/composables/pipeline/litegraphUtils'
+import { planNodeWidgets } from '@/composables/pipeline/nodeWidgetPlan'
 import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTypes'
+
+// 节点滑块填充色（Tier 1：全站统一一种主色，不分类别色）
+const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -2008,6 +2012,7 @@ function configureLiteGraphTheme() {
   theme.WIDGET_OUTLINE_COLOR = '#D7DEE8'
   theme.WIDGET_TEXT_COLOR = '#1F2A37'
   theme.WIDGET_SECONDARY_TEXT_COLOR = '#536273'
+  theme.NODE_WIDGET_HEIGHT = 24 // 略高于默认 20，和 28px 端口行更协调
   Object.assign(LGraphCanvas.link_type_colors, pipelinePortColors(0.92))
   patchLiteGraphLinkHighlight()
 }
@@ -2693,6 +2698,7 @@ function createLiteGraphNode(node: PipelineGraphNode) {
   graphNode.bgcolor = '#FFFFFF'
   setLiteGraphNodeId(graphNode, node.id)
   applyLiteGraphNodeRunState(graphNode, node.id, spec)
+  applyNodeWidgets(graphNode)
   return graphNode
 }
 
@@ -2820,7 +2826,94 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
   }
   graphNode.pos = [...(node.position || graphNode.pos || [80, 80])]
   applyLiteGraphNodeRunState(graphNode, node.id, specForNode(node))
+  applyNodeWidgets(graphNode)
   liteGraphCanvas.setDirty(true, true)
+}
+
+// ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
+
+/** 按控件数量调整卡片高度（与 litegraph computeSize 同口径：每控件 H+4，外加 8 收尾）。 */
+function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
+  const base = spec ? graphNodeSize(spec) : [NODE_CARD_WIDTH, NODE_CARD_MIN_HEIGHT]
+  const count = (graphNode as { widgets?: unknown[] }).widgets?.length || 0
+  const rowH = (LiteGraph.NODE_WIDGET_HEIGHT || 24) + 4
+  const widgetsHeight = count > 0 ? count * rowH + 8 : 0
+  graphNode.size = [base[0], base[1] + widgetsHeight]
+}
+
+/** widget 改值 → 写回 node.properties + 同步 definition + 标脏；改的是 visible_when 控制项才重建控件。 */
+function onNodeWidgetEdited(graphNode: LiteGraphNode, name: string, value: unknown, isController: boolean) {
+  graphNode.properties = { ...(graphNode.properties || {}), [name]: value }
+  scheduleLiteGraphSync(true)
+  if (isController) window.requestAnimationFrame(() => applyNodeWidgets(graphNode))
+}
+
+/** 复杂参数按钮 → 选中节点 + 打开检查器 + 滚到对应字段（决策：跳右侧检查器对应区）。 */
+function focusInspectorParam(nodeId: string, paramName: string) {
+  if (!nodeId) return
+  selectedNodeId.value = nodeId
+  selectLiteGraphNode(nodeId, { center: false })
+  showInspector()
+  void nextTick(() => {
+    const el = document.querySelector(`.inspector [data-param="${paramName}"]`)
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('param-flash')
+      window.setTimeout(() => el.classList.remove('param-flash'), 1200)
+    }
+  })
+}
+
+/** 按 spec + 当前 params 重建节点上的就地控件（清空后重加），并按控件数调高卡片。 */
+function applyNodeWidgets(graphNode: LiteGraphNode) {
+  if (!graphNode) return
+  const nodeType = String((graphNode as { type?: unknown }).type || '')
+  const spec = nodeSpecs.value.find((item) => item.type === nodeType) || null
+  ;(graphNode as { widgets?: unknown[] }).widgets = []
+  if (spec) {
+    const params = (graphNode.properties || {}) as Record<string, unknown>
+    const plans = planNodeWidgets(spec, params)
+    // visible_when 的「控制字段」集合：只有改这些才需要重建控件（避免拖滑块时每帧重建、打断拖拽）
+    const controllerKeys = new Set<string>()
+    for (const prop of spec.properties) {
+      if (prop.visible_when) for (const key of Object.keys(prop.visible_when)) controllerKeys.add(key)
+    }
+    const addWidget = (graphNode as unknown as {
+      addWidget: (type: string, name: string, value: unknown, callback: (v: unknown) => void, options?: Record<string, unknown>) => unknown
+    }).addWidget.bind(graphNode)
+
+    for (const plan of plans) {
+      const isController = controllerKeys.has(plan.name)
+      if (plan.kind === 'combo') {
+        addWidget('combo', plan.label, plan.value, (v) => {
+          const key = String(v)
+          const mapped = Object.prototype.hasOwnProperty.call(plan.valueByLabel, key) ? plan.valueByLabel[key] : v
+          onNodeWidgetEdited(graphNode, plan.name, mapped, isController)
+        }, { values: plan.labels })
+      } else if (plan.kind === 'number') {
+        addWidget('number', plan.label, plan.value, (v) => {
+          let n = Number(v)
+          if (plan.min !== null && n < plan.min) n = plan.min
+          if (plan.max !== null && n > plan.max) n = plan.max
+          onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
+        }, { min: plan.min ?? undefined, max: plan.max ?? undefined, step: plan.step, precision: plan.precision })
+      } else if (plan.kind === 'slider') {
+        addWidget('slider', plan.label, plan.value, (v) => {
+          const n = Number(v)
+          onNodeWidgetEdited(graphNode, plan.name, plan.precision === 0 ? Math.round(n) : n, isController)
+        }, { min: plan.min, max: plan.max, precision: plan.precision, slider_color: NODE_WIDGET_SLIDER_COLOR })
+      } else if (plan.kind === 'toggle') {
+        addWidget('toggle', plan.label, plan.value, (v) => {
+          onNodeWidgetEdited(graphNode, plan.name, Boolean(v), isController)
+        }, { on: '开', off: '关' })
+      } else if (plan.kind === 'button') {
+        const nodeId = getLiteGraphNodeId(graphNode)
+        addWidget('button', `${plan.label} · ${plan.summary}`, null, () => focusInspectorParam(nodeId, plan.name))
+      }
+    }
+  }
+  sizeNodeForWidgets(graphNode, spec)
+  liteGraphCanvas?.setDirty(true, true)
 }
 
 function clonePlainObject(value: unknown): Record<string, unknown> {
@@ -5093,6 +5186,15 @@ function describeError(error: unknown, fallback: string) {
 }
 .property-list > .field--half {
   grid-column: auto;
+}
+/* 节点上复杂参数按钮点击 → 滚到对应字段并短暂高亮，引导视线 */
+.param-flash {
+  animation: param-flash 1.2s ease-out;
+  border-radius: 8px;
+}
+@keyframes param-flash {
+  0%, 30% { box-shadow: 0 0 0 2px rgba(59, 111, 176, 0.55); background: rgba(59, 111, 176, 0.08); }
+  100% { box-shadow: 0 0 0 2px rgba(59, 111, 176, 0); background: transparent; }
 }
 
 .dataset-qa-cell {
