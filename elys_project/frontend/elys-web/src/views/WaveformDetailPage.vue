@@ -297,15 +297,16 @@
             <div v-if="partialNote" class="wf-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="wf-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="wf-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
-              <section v-for="(cell, ci) in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': highlightChan && cell.title === highlightChan }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+              <section v-for="(cell, ci) in cells" :key="cell.key" class="wf-cell" :class="{ 'is-focus': effectiveFocus && cell.title === effectiveFocus }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="wf-cell-hd">
                   <span class="wf-cell-tag" :style="{ background: cellAccent(cell) }"></span>
                   <span class="wf-cell-name">{{ cell.title || (dataType === 'evoked' ? 'ERP' : '波形') }}</span>
                   <span class="wf-cell-meta text-mono">{{ cell.series.length }} 条曲线 · {{ ts ? ts.sfreq.toFixed(0) : '–' }}Hz</span>
-                  <button class="wf-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title)">⬇</button>
+                  <button class="wf-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title, ci)">⬇</button>
                 </div>
                 <div class="wf-cell-plot">
                   <TimeCourseCanvas
+                    :ref="(el: any) => { cellTimeCourseRefs[ci] = el }"
                     :data="cell.data"
                     :series="cell.series"
                     :x-label="`时间 (${xUnit})`"
@@ -317,7 +318,8 @@
                     :loading="loading"
                     :region="region"
                     :ref-lines="refLinesOn"
-                    :highlight="highlightChan"
+                    :highlight="effectiveFocus"
+                    :highlight-locked="!!lockedHighlight"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -333,6 +335,7 @@
                     @unlock="onUnlock"
                     @zoom="onZoom"
                     @amp="onAmp"
+                    @line-hover="onLineHover"
                   />
                 </div>
               </section>
@@ -373,20 +376,34 @@
           <!-- 游标读数：悬停曲线时把当前时刻各序列瞬时值带进右栏。
                固定高度常驻（空闲显示提示），避免随游标出现/消失把下方区间统计顶得上下跳。 -->
           <div class="wf-hover" :class="{ 'is-expanded': hoverExpanded }">
-            <template v-if="displayReadout">
-              <div class="wf-hover-hd">
+            <div class="wf-hover-hd">
+              <template v-if="displayReadout">
                 <span v-if="cursorLocked" class="wf-hover-lock">🔒 锁定</span>游标 <span class="text-mono">{{ fmtX(displayReadout.x) }}{{ xUnit }}</span><span v-if="cursorLocked" class="wf-hover-tip">右键解锁</span><span class="wf-hover-unit">µV</span>
-              </div>
+              </template>
+              <template v-else>游标 <span class="text-mono">–</span>{{ xUnit }}<span class="wf-hover-unit">µV</span></template>
+            </div>
+            <template v-if="hoverItems.length">
               <div class="wf-hover-list">
-                <div v-for="it in hoverItems" :key="it.name" class="wf-hover-row">
+                <div
+                  v-for="it in hoverItems" :key="it.name"
+                  class="wf-hover-row"
+                  :class="{
+                    'is-hl': effectiveFocus === it.name,
+                    'is-locked': lockedHighlight === it.name,
+                    'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
+                  }"
+                  @mouseenter="hoveredHighlight = it.name"
+                  @mouseleave="hoveredHighlight = ''"
+                  @click="toggleLock(it.name)"
+                >
                   <span class="wf-li-dot" :style="{ background: it.color }"></span>
                   <span class="wf-hover-name">{{ it.name }}</span>
-                  <span class="wf-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+                  <span v-if="lockedHighlight === it.name" class="wf-row-pin" title="已锁定 · 点击解锁">●</span>
+                  <span class="wf-hover-val text-mono">{{ displayReadout ? it.uv.toFixed(2) : '–' }}</span>
                 </div>
               </div>
-              <button v-if="displayReadout.items.length > HOVER_COLLAPSED" class="wf-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${displayReadout.items.length} 条` }}</button>
+              <button v-if="hoverItemsAll.length > HOVER_COLLAPSED" class="wf-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${hoverItemsAll.length} 条` }}</button>
             </template>
-            <div v-else class="wf-hover-idle">移动游标查看各序列瞬时值 · 双击锁定</div>
           </div>
           <div v-if="!statsRows.length" class="wf-right-empty">
             <template v-if="regionUserSet && region && hasCurves">
@@ -434,7 +451,7 @@
                   <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': highlightChan === r.chan }" @click="focusChan(r.chan)">
+                  <tr v-for="(r, i) in statsRows" :key="i" class="wf-dt-row" :class="{ 'is-focus': lockedHighlight === r.chan || highlightChan === r.chan }" @click="focusChan(r.chan)">
                     <td class="wf-dt-seg">{{ r.segName }}</td>
                     <td class="wf-dt-ch"><span class="wf-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
                     <td class="wf-dt-peak">{{ r.peak.toFixed(2) }}</td>
@@ -609,10 +626,10 @@ const displayReadout = computed<CursorReadout | null>(() => (cursorLocked.value 
 // 游标读数：默认只列前 HOVER_COLLAPSED 条，多了给「展开全部」按钮 + 内部滚动（不无限撑高右栏）
 const HOVER_COLLAPSED = 6
 const hoverExpanded = ref(false)
-const hoverItems = computed(() => {
-  const items = displayReadout.value?.items ?? []
-  return hoverExpanded.value ? items : items.slice(0, HOVER_COLLAPSED)
-})
+const lastHoverItems = ref<{ name: string; color: string; uv: number }[]>([])
+watch(displayReadout, (val) => { if (val) lastHoverItems.value = val.items })
+const hoverItemsAll = computed(() => displayReadout.value?.items ?? lastHoverItems.value)
+const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : hoverItemsAll.value.slice(0, HOVER_COLLAPSED)))
 const cursorState = computed<'idle' | 'follow' | 'locked'>(() =>
   cursorLocked.value ? 'locked' : cursorReadout.value ? 'follow' : 'idle',
 )
@@ -627,6 +644,11 @@ const cursorStateHint = computed(() =>
       : '悬停曲线查看瞬时值，双击锁定',
 )
 const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
+const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
+const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
+const effectiveFocus = computed(() => hoveredHighlight.value || lockedHighlight.value || highlightChan.value)
+function toggleLock(name: string) { lockedHighlight.value = lockedHighlight.value === name ? '' : name }
+function onLineHover(name: string) { hoveredHighlight.value = name }
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
 const regionUserSet = ref(false)
@@ -739,25 +761,36 @@ function chanValues(name: string): number[] {
 function cellAccent(cell: { series: { color: string }[] }): string {
   return cell.series[0]?.color || 'var(--c-border)'
 }
-// 导出当前子图为 PNG（一期简版）：白底合成 + 顶部标题，抓子图内 uPlot canvas
-function exportCell(e: MouseEvent, title: string) {
-  const cellEl = (e.target as HTMLElement).closest('.wf-cell')
-  const src = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
-  if (!src || !src.width) return
-  const scale = src.clientWidth ? src.width / src.clientWidth : 2
-  const headH = Math.round(20 * scale)
+// 导出当前子图为 PNG：优先用 getExportCanvas 在正确横版尺寸重绘（解决 facet 小格导出比例错误），降级走双线性放大
+function exportCell(e: MouseEvent, title: string, ci?: number) {
+  const hqCv: HTMLCanvasElement | null = ci != null ? (cellTimeCourseRefs[ci] as any)?.getExportCanvas?.() ?? null : null
+  let src: HTMLCanvasElement | null = hqCv
+  if (!src) {
+    const cellEl = (e.target as HTMLElement).closest('.wf-cell')
+    const raw = cellEl?.querySelector('canvas') as HTMLCanvasElement | null
+    if (!raw || !raw.width) return
+    const printScale = Math.max(1, Math.ceil(2400 / raw.width))
+    const fb = document.createElement('canvas')
+    fb.width = raw.width * printScale
+    fb.height = raw.height * printScale
+    const fctx = fb.getContext('2d')!
+    fctx.imageSmoothingEnabled = true
+    fctx.imageSmoothingQuality = 'high'
+    fctx.drawImage(raw, 0, 0, fb.width, fb.height)
+    src = fb
+  }
+  const headH = Math.round(src.width * 0.028)
   const out = document.createElement('canvas')
   out.width = src.width
   out.height = src.height + headH
-  const ctx = out.getContext('2d')
-  if (!ctx) return
+  const ctx = out.getContext('2d')!
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, out.width, out.height)
   if (title) {
     ctx.fillStyle = '#1F2733'
-    ctx.font = `${Math.round(11 * scale)}px sans-serif`
+    ctx.font = `${Math.round(headH * 0.55)}px sans-serif`
     ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(8 * scale), headH / 2, out.width - Math.round(16 * scale))
+    ctx.fillText(title, Math.round(headH * 0.4), headH / 2, out.width - Math.round(headH * 0.8))
   }
   ctx.drawImage(src, 0, headH)
   const a = document.createElement('a')
@@ -1080,10 +1113,18 @@ function statsMatrix(): string[][] {
 }
 function copyStats() {
   const text = statsMatrix().map((r) => r.join('\t')).join('\n')
-  navigator.clipboard?.writeText(text).then(() => {
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1200)
-  }).catch(() => {})
+  const showCopied = () => { copied.value = true; window.setTimeout(() => (copied.value = false), 1200) }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {})
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+    document.body.appendChild(el)
+    el.select()
+    try { document.execCommand('copy'); showCopied() } catch { /* ignore */ }
+    document.body.removeChild(el)
+  }
 }
 function exportCsv() {
   const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')
@@ -1382,7 +1423,7 @@ function onSelect(r: { x0: number; x1: number } | null) {
 }
 // 点右栏明细行 → 高亮该通道（再点取消）
 function focusChan(name: string) {
-  highlightChan.value = highlightChan.value === name ? '' : name
+  toggleLock(name)
 }
 
 // ---------- 左栏分区折叠 ----------
@@ -1644,7 +1685,7 @@ onUnmounted(() => {
 .wf-dtable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .wf-dtable th { position: sticky; top: 0; background: var(--c-bg-soft); color: var(--c-text-3); font-weight: 600; text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--c-border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
 .wf-dtable th:first-child, .wf-dtable th:nth-child(2) { text-align: left; }
-.wf-dtable td { padding: 3px 5px; text-align: right; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
+.wf-dtable td { padding: 3px 5px; text-align: right; vertical-align: top; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
 .wf-dtable td:first-child, .wf-dtable td:nth-child(2) { text-align: left; }
 .wf-dtable tr:hover td { background: var(--c-bg-tint); }
 .wf-dt-row { cursor: pointer; }
@@ -1656,12 +1697,16 @@ onUnmounted(() => {
 .wf-hover-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
 .wf-hover.is-expanded .wf-hover-list { max-height: 240px; overflow-y: auto; }
 .wf-hover-idle { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-3); text-align: center; }
-.wf-hover-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.wf-hover-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; transition: opacity 0.1s; border-radius: 3px; }
+.wf-hover-row:hover { background: var(--c-bg-mute); }
+.wf-hover-row.is-hl .wf-hover-name { color: var(--c-text); font-weight: 600; }
+.wf-hover-row.is-dim { opacity: 0.32; }
+.wf-row-pin { color: var(--c-primary, #2e6bff); font-size: 9px; flex-shrink: 0; line-height: 1; }
 .wf-hover-name { font-size: 13px; color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-hover-val { margin-left: auto; font-size: 16px; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
 .wf-hover-toggle { margin-top: 5px; align-self: flex-start; flex-shrink: 0; background: none; border: none; padding: 2px 0; font-size: 11px; color: var(--c-primary); cursor: pointer; }
 .wf-hover-toggle:hover { text-decoration: underline; }
-.wf-dt-seg { color: var(--c-text-2); }
+.wf-dt-seg { color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; }
 .wf-dt-ch { display: flex; align-items: center; gap: 4px; }
 .wf-dt-peak { color: #3F5E8F; font-weight: 600; }
 .wf-dt-trough { color: #B0544C; font-weight: 600; }

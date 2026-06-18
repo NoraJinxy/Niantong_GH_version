@@ -265,17 +265,19 @@
             <div v-if="partialNote" class="ov-partial">{{ partialNote }}</div>
             <div v-if="!selected.size" class="ov-state">未选择通道 —— 在左侧「通道」里勾选要绘制的通道。</div>
             <div v-else class="ov-facet" :class="{ 'is-few': cells.length <= 2 }" :style="facetStyle">
-              <section v-for="(cell, ci) in cells" :key="cell.key" class="ov-cell" :class="{ 'is-focus': focusChannel && cell.title === focusChannel }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
+              <section v-for="(cell, ci) in cells" :key="cell.key" class="ov-cell" :class="{ 'is-focus': effectiveFocus && cell.title === effectiveFocus }" :style="{ borderTopColor: cellAccent(cell), borderTopWidth: '2px' }">
                 <div class="ov-cell-hd">
                   <span class="ov-cell-tag" :style="{ background: cellAccent(cell) }"></span>
                   <span class="ov-cell-name">{{ cell.title || '功率谱' }}</span>
                   <span class="ov-cell-meta text-mono">{{ cell.series.length }} 条曲线 · {{ primaryPsd ? Math.round(primaryPsd.sfreq) : '–' }}Hz</span>
-                  <button class="ov-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title)">⬇</button>
+                  <button class="ov-cell-dl" title="导出 PNG" @click="exportCell($event, cell.title, ci)">⬇</button>
                 </div>
                 <div class="ov-cell-plot">
                   <TimeCourseCanvas
+                    :ref="(el: any) => { cellTimeCourseRefs[ci] = el }"
                     :data="cell.data"
                     :series="cell.series"
+                    :use-spline="true"
                     x-label="频率 (Hz)"
                     y-label="dB"
                     :y-domain="effectiveYDomain"
@@ -285,7 +287,8 @@
                     :region="region"
                     :ref-lines="false"
                     :markers="cellPsdMarkers(cell.segs)"
-                    :highlight="focusChannel"
+                    :highlight="effectiveFocus"
+                    :highlight-locked="!!lockedHighlight"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -301,6 +304,7 @@
                     @unlock="onUnlock"
                     @zoom="onZoom"
                     @amp="onAmp"
+                    @line-hover="onLineHover"
                   />
                 </div>
               </section>
@@ -341,20 +345,34 @@
         <div class="ov-right-scroll">
           <!-- 游标读数 -->
           <div class="ov-hover" :class="{ 'is-expanded': hoverExpanded }">
-            <template v-if="displayReadout">
-              <div class="ov-hover-hd">
+            <div class="ov-hover-hd">
+              <template v-if="displayReadout">
                 <span v-if="cursorLocked" class="ov-hover-lock">🔒 锁定</span>游标 <span class="text-mono">{{ fmtX(displayReadout.x) }}Hz</span><span v-if="cursorLocked" class="ov-hover-tip">右键解锁</span><span class="ov-hover-unit">dB</span>
-              </div>
+              </template>
+              <template v-else>游标 <span class="text-mono">–</span>Hz<span class="ov-hover-unit">dB</span></template>
+            </div>
+            <template v-if="hoverItems.length">
               <div class="ov-hover-list">
-                <div v-for="it in hoverItems" :key="it.name" class="ov-hover-row">
+                <div
+                  v-for="it in hoverItems" :key="it.name"
+                  class="ov-hover-row"
+                  :class="{
+                    'is-hl': effectiveFocus === it.name,
+                    'is-locked': lockedHighlight === it.name,
+                    'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
+                  }"
+                  @mouseenter="hoveredHighlight = it.name"
+                  @mouseleave="hoveredHighlight = ''"
+                  @click="toggleLock(it.name)"
+                >
                   <span class="ov-li-dot" :style="{ background: it.color }"></span>
                   <span class="ov-hover-name">{{ it.name }}</span>
-                  <span class="ov-hover-val text-mono">{{ it.uv.toFixed(2) }}</span>
+                  <span v-if="lockedHighlight === it.name" class="ov-row-pin" title="已锁定 · 点击解锁">●</span>
+                  <span class="ov-hover-val text-mono">{{ displayReadout ? it.uv.toFixed(2) : '–' }}</span>
                 </div>
               </div>
-              <button v-if="displayReadout.items.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${displayReadout.items.length} 条` }}</button>
+              <button v-if="hoverItemsAll.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${hoverItemsAll.length} 条` }}</button>
             </template>
-            <div v-else class="ov-hover-idle">移动游标查看各通道在该频率的功率 · 双击锁定</div>
           </div>
 
           <div v-if="!statsRows.length" class="ov-right-empty">
@@ -376,7 +394,7 @@
 
             <!-- 频段相对功率 % -->
             <div class="ov-contrast">
-              <div class="ov-sec-mini">频段相对功率 %（占总功率，跨人可比）</div>
+              <div class="ov-sec-mini">频段相对功率 %（{{ readoutStat.chan }} · {{ readoutStat.segName }}）</div>
               <div class="ov-contrast-list">
                 <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
                   <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
@@ -389,7 +407,7 @@
 
             <!-- 常用比值（描述性，不作诊断）-->
             <div class="psd-ratios">
-              <div class="ov-sec-mini">常用比值 · 描述性，不作诊断</div>
+              <div class="ov-sec-mini">常用比值（{{ readoutStat.chan }} · {{ readoutStat.segName }}）· 描述性，不作诊断</div>
               <div class="psd-ratio-cards">
                 <div class="psd-ratio-card"><div class="psd-ratio-k">θ/β (TBR)</div><div class="psd-ratio-v">{{ tbr }}</div></div>
                 <div class="psd-ratio-card"><div class="psd-ratio-k">δ/α (DAR)</div><div class="psd-ratio-v">{{ dar }}</div></div>
@@ -407,7 +425,7 @@
                   <tr><th>数据集</th><th>通道</th><th>IAF</th><th>α%</th><th>θ/β</th></tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': focusChannel === r.chan }" @click="focusChan(r.chan)">
+                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': lockedHighlight === r.chan || highlightChan === r.chan }" @click="focusChan(r.chan)">
                     <td>{{ r.segName }}</td>
                     <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
                     <td>{{ Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '—' }}</td>
@@ -720,10 +738,10 @@ type Item = { name: string; color: string; uv: number }
 const { cursorLocked, lockedReadout, displayReadout, cursorState, cursorStateText, cursorStateHint, onCursor, onLock, onUnlock } =
   useCursorState<Item>({ fmtX, xUnit: () => 'Hz' })
 const hoverExpanded = ref(false)
-const hoverItems = computed(() => {
-  const items = displayReadout.value?.items ?? []
-  return hoverExpanded.value ? items : items.slice(0, HOVER_COLLAPSED)
-})
+const lastHoverItems = ref<{ name: string; color: string; uv: number }[]>([])
+watch(displayReadout, (val) => { if (val) lastHoverItems.value = val.items })
+const hoverItemsAll = computed(() => displayReadout.value?.items ?? lastHoverItems.value)
+const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : hoverItemsAll.value.slice(0, HOVER_COLLAPSED)))
 
 // ---------- 统计区间（频率）----------
 const region = ref<{ x0: number; x1: number } | null>(null)
@@ -733,6 +751,11 @@ const statHiInput = ref<number | string>('')
 const selectedBand = ref<string>('alpha')
 const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === selectedBand.value)?.label ?? 'α')
 const highlightChan = ref('')
+const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
+const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
+const effectiveFocus = computed(() => hoveredHighlight.value || lockedHighlight.value || focusChannel.value)
+function toggleLock(name: string) { lockedHighlight.value = lockedHighlight.value === name ? '' : name }
+function onLineHover(name: string) { hoveredHighlight.value = name }
 
 // 地形图频率来源：band（预设频段）| custom（自定义 Hz 区间）| cursor（跟随游标）
 const topoSource = ref<'band' | 'custom' | 'cursor'>('band')
@@ -812,7 +835,7 @@ function onSelect(r: { x0: number; x1: number } | null) {
   statHiInput.value = round(r.x1, 1)
 }
 function focusChan(name: string) {
-  highlightChan.value = highlightChan.value === name ? '' : name
+  toggleLock(name)
 }
 
 // ---------- 临床读数（逐 数据集×通道：IAF + 频段相对功率）----------
@@ -1023,10 +1046,18 @@ function statsMatrix(): string[][] {
 const copied = ref(false)
 function copyStats() {
   const text = statsMatrix().map((r) => r.join('\t')).join('\n')
-  navigator.clipboard?.writeText(text).then(() => {
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1200)
-  }).catch(() => {})
+  const showCopied = () => { copied.value = true; window.setTimeout(() => (copied.value = false), 1200) }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {})
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+    document.body.appendChild(el)
+    el.select()
+    try { document.execCommand('copy'); showCopied() } catch { /* ignore */ }
+    document.body.removeChild(el)
+  }
 }
 function exportCsv() {
   const csv = '﻿' + statsMatrix().map((r) => r.join(',')).join('\n')

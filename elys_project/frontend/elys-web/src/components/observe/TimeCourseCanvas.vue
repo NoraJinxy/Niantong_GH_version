@@ -59,8 +59,12 @@ const props = withDefaults(
     markers?: { x: number; label?: string; color?: string }[]
     /** 对数频率轴（PSD 看 1/f）：true=x 走对数刻度（uPlot distr=3，需正值）；默认线性。 */
     logX?: boolean
+    /** 用 monotone cubic spline 替换默认直线段（PSD 等点稀疏场景，避免折痕）。 */
+    useSpline?: boolean
+    /** 高亮是否为锁定态：true=线宽对比更强（锁定 vs 悬停有视觉差异）。 */
+    highlightLocked?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, highlightLocked: false },
 )
 
 const emit = defineEmits<{
@@ -72,6 +76,8 @@ const emit = defineEmits<{
   (e: 'zoom', view: { min: number; max: number } | null): void
   /** Ctrl+滚轮调幅度：新幅度系数。 */
   (e: 'amp', scale: number): void
+  /** 最近曲线变化（overlay 模式）：name=最近序列名，''=无曲线或离开图区。 */
+  (e: 'line-hover', name: string): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -82,6 +88,7 @@ let ro: ResizeObserver | null = null
 let cursorRaf = 0
 let pendingIdx: number | null = null
 let lastEmitIdx: number | null | undefined = undefined
+let lastLineHover = '' // 最近高亮的序列名，去重避免重复 emit
 
 // 画布内是 Canvas 绘制，CSS 变量不生效，必须用具体色值（对齐 elys token）。
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
@@ -393,13 +400,17 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
     ],
     series: [
       {},
-      ...props.series.map((s) => ({
-        label: s.name,
-        stroke: s.color,
-        // 命中本格高亮目标：加粗、其余压细；本格无该目标则统一 1.25
-        width: hlActive ? (s.name === props.highlight ? 2.6 : 0.7) : 1.25,
-        points: { show: false },
-      })),
+      ...(() => {
+        const splinePaths = props.useSpline ? uPlot.paths.spline?.() ?? undefined : undefined
+        return props.series.map((s) => ({
+          label: s.name,
+          stroke: s.color,
+          // 命中本格高亮目标：加粗、其余压细；本格无该目标则统一 1.25
+          width: hlActive ? (s.name === props.highlight ? 2.6 : 0.7) : 1.25,
+          points: { show: false },
+          paths: splinePaths,
+        }))
+      })(),
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
@@ -422,6 +433,24 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
           // 只记下最新下标 + 排一帧；真正 emit 交给 flushCursor（每帧一次、下标变了才发）
           pendingIdx = (u.cursor.idx ?? null) as number | null
           if (!cursorRaf) cursorRaf = requestAnimationFrame(flushCursor)
+          // 最近曲线检测（overlay 模式）：比较游标 Y 与各序列当前值，实时 emit，去重
+          if (props.displayMode !== 'spread') {
+            const top = u.cursor.top ?? -1
+            const idx = u.cursor.idx ?? -1
+            let name = ''
+            if (top >= 0 && idx >= 0) {
+              let bestSi = -1; let bestDist = Infinity
+              for (let si = 0; si < props.series.length; si++) {
+                const yv = props.data[si + 1]?.[idx]
+                if (yv == null || !Number.isFinite(Number(yv))) continue
+                const yPos = u.valToPos(Number(yv), 'y') // CSS px（与 cursor.top 同坐标系）
+                const d = Math.abs(yPos - top)
+                if (d < bestDist) { bestDist = d; bestSi = si }
+              }
+              if (bestSi >= 0) name = props.series[bestSi].name
+            }
+            if (name !== lastLineHover) { lastLineHover = name; emit('line-hover', name) }
+          }
         },
       ],
     },
@@ -438,7 +467,11 @@ function flushCursor() {
   const idx = pendingIdx
   if (idx === lastEmitIdx) return // 下标没变 → 不重复 emit（省掉父层 topo / 右栏整轮重算）
   lastEmitIdx = idx
-  if (idx == null) { emit('cursor', null); return }
+  if (idx == null) {
+    emit('cursor', null)
+    if (lastLineHover !== '') { lastLineHover = ''; emit('line-hover', '') }
+    return
+  }
   const xv = props.data[0]?.[idx]
   if (xv == null) { emit('cursor', null); return }
   const items: CursorItem[] = props.series.map((s, si) => ({
@@ -455,10 +488,13 @@ function applyHighlight() {
   const u = chart.value
   if (!u) return
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
+  const strong = props.highlightLocked // 锁定态：对比更强；悬停态：轻度对比
   for (let i = 0; i < props.series.length; i++) {
     const us = u.series[i + 1] as unknown as { width?: number } | undefined
     if (!us) continue
-    us.width = hlActive ? (props.series[i].name === props.highlight ? 2.6 : 0.7) : 1.25
+    us.width = hlActive
+      ? (props.series[i].name === props.highlight ? (strong ? 3.0 : 2.6) : (strong ? 0.35 : 0.7))
+      : 1.25
   }
   u.redraw(false) // false=不重建路径，仅用现有路径按新线宽重描，最省
 }
@@ -470,6 +506,7 @@ function rebuild() {
   if (cursorRaf) { cancelAnimationFrame(cursorRaf); cursorRaf = 0 }
   pendingIdx = null
   lastEmitIdx = undefined
+  lastLineHover = ''
   chart.value?.destroy()
   chart.value = null
   if (!props.series.length || !props.data[0]?.length) return
@@ -493,6 +530,9 @@ function onHostDblClick() {
 function onHostContextMenu(e: MouseEvent) {
   e.preventDefault()
   emit('unlock')
+}
+function onHostMouseLeave() {
+  if (lastLineHover !== '') { lastLineHover = ''; emit('line-hover', '') }
 }
 
 // 滚轮缩放（绕游标处的时间轴）/ Ctrl+滚轮调幅度。
@@ -552,6 +592,7 @@ onMounted(async () => {
     host.addEventListener('dblclick', onHostDblClick)
     host.addEventListener('contextmenu', onHostContextMenu)
     host.addEventListener('wheel', onWheel, { passive: false }) // passive:false 才能 preventDefault 阻止页面滚动
+    host.addEventListener('mouseleave', onHostMouseLeave)
   }
 })
 
@@ -564,6 +605,7 @@ onUnmounted(() => {
     host.removeEventListener('dblclick', onHostDblClick)
     host.removeEventListener('contextmenu', onHostContextMenu)
     host.removeEventListener('wheel', onWheel)
+    host.removeEventListener('mouseleave', onHostMouseLeave)
   }
   chart.value?.destroy()
   chart.value = null
@@ -578,6 +620,7 @@ watch(
 )
 // 高亮 = 就地改线宽 + redraw（不重建）。
 watch(() => props.highlight, () => applyHighlight())
+watch(() => props.highlightLocked, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
   () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers],
