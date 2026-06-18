@@ -27,7 +27,7 @@
     <Modal v-if="expanded" @close="expanded = false">
       <div class="topo-modal" role="dialog" aria-label="地形图放大查看">
         <div class="topo-modal-hd">
-          <div class="topo-modal-ttl">地形图<span class="topo-modal-sub">{{ subtitle }}</span></div>
+          <div class="topo-modal-ttl">地形图</div>
           <div class="topo-modal-actions">
             <span v-if="vmax > 0" class="topo-modal-bar">
               <span>{{ loLabel ?? axisLabel(barLo) }}</span>
@@ -35,7 +35,7 @@
               <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
               <span class="topo-modal-unit">{{ unit }}</span>
             </span>
-            <button type="button" class="topo-modal-dl" title="下载为 PNG 图片（含标题 / 标签 / 色阶）" @click="exportPng">
+            <button type="button" class="topo-modal-dl" title="下载为 PNG 图片（每张带条件标签 + 底部色阶）" @click="exportPng">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 11l5 5 5-5M5 20h14" /></svg>
               <span>下载 PNG</span>
             </button>
@@ -457,8 +457,7 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 /* ── 放大查看弹窗：外壳沿用全站 modal 规格（surface + r-md + shadow-lg），内容铺成大网格 ── */
 .topo-modal { width: min(1080px, 92vw); max-height: 88vh; display: flex; flex-direction: column; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
 .topo-modal-hd { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 13px 16px; border-bottom: 1px solid var(--c-border); }
-.topo-modal-ttl { font-size: 14px; font-weight: 600; color: var(--c-text); display: flex; align-items: baseline; gap: 8px; }
-.topo-modal-sub { font-size: 12px; font-weight: 400; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.topo-modal-ttl { font-size: 14px; font-weight: 600; color: var(--c-text); }
 .topo-modal-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
 .topo-modal-bar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3); }
 .topo-modal-grad { width: 120px; height: 10px; border-radius: 2px; border: 1px solid var(--c-border); }
