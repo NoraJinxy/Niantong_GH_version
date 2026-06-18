@@ -2908,79 +2908,10 @@ function sizeNodeForWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   graphNode.size = [NODE_CARD_WIDTH, height]
 }
 
-/** 节点上任意可点内容（只读事实 / 复杂项胶囊）→ 选中节点 + 打开检查器 + 滚到对应字段并**聚焦输入框**。
- *  这是节点卡的唯一编辑入口：卡片只呈现，编辑一律来右栏（不再弹 litegraph 原生输入框）。paramName 空则只打开检查器。 */
-function focusInspectorParam(nodeId: string, paramName: string) {
-  if (!nodeId) return
-  selectedNodeId.value = nodeId
-  selectLiteGraphNode(nodeId, { center: false })
-  showInspector()
-  void nextTick(() => {
-    if (!paramName) return
-    const el = document.querySelector(`.inspector [data-param="${paramName}"]`)
-    if (!(el instanceof HTMLElement)) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el.classList.add('param-flash')
-    window.setTimeout(() => el.classList.remove('param-flash'), 1200)
-    // 真正把焦点落到对应输入框（用户要的「焦点移到右栏对应地方」），滚动稳定后再 focus
-    const input = el.querySelector('input, select, textarea')
-    if (input instanceof HTMLElement) {
-      window.setTimeout(() => {
-        input.focus()
-        if (input instanceof HTMLInputElement && input.type !== 'checkbox') input.select()
-      }, 80)
-    }
-  })
-}
-
-/** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截，免得撑爆撞箭头。 */
+/** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截。 */
 function truncWidgetText(text: string, max: number): string {
   const s = String(text ?? '')
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
-}
-
-/** 复杂参数的「摘要 + 编辑 ›」自绘控件：浅底圆角胶囊（不是 litegraph 原生 button 那个 #222 黑块）。
- *  点击 → onClick（跳右侧检查器对应区）。直接 push 进 node.widgets：
- *  litegraph 对非内置 type 会走 default 分支调 w.draw / w.mouse。 */
-function pushSummaryWidget(graphNode: LiteGraphNode, label: string, summary: string, onClick: () => void) {
-  const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
-  const H = LiteGraph.NODE_WIDGET_HEIGHT || 24
-  widgets.push({
-    type: 'elys_summary',
-    name: label,
-    value: null,
-    computeSize: (width: number) => [width, H],
-    draw(ctx: CanvasRenderingContext2D, _node: unknown, width: number, y: number, h: number) {
-      const margin = 15
-      const w = width - margin * 2
-      if (w <= 0) return
-      ctx.save()
-      ctx.fillStyle = '#F1F5F9'
-      ctx.strokeStyle = '#D7DEE8'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      if (typeof (ctx as unknown as { roundRect?: unknown }).roundRect === 'function') ctx.roundRect(margin, y, w, h, [h * 0.5])
-      else ctx.rect(margin, y, w, h)
-      ctx.fill()
-      ctx.stroke()
-      ctx.font = '12px "Segoe UI", Arial, sans-serif'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = '#536273'
-      ctx.textAlign = 'left'
-      ctx.fillText(truncWidgetText(label, 8), margin + 10, y + h * 0.5)
-      ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
-      ctx.textAlign = 'right'
-      ctx.fillText(`${truncWidgetText(summary, 8)}  编辑 ›`, width - margin - 10, y + h * 0.5)
-      ctx.restore()
-    },
-    mouse(event: { type?: string }) {
-      if (String(event?.type || '').endsWith('down')) {
-        onClick()
-        return true
-      }
-      return false
-    },
-  })
 }
 
 /** 数字去尾零（30.0→「30」、0.50→「0.5」）—— 只读事实自绘，能甩掉 litegraph 原生 toFixed 的尾零。 */
@@ -2999,11 +2930,10 @@ function recordingDisplayName(rec: { fif_path?: string | null; source_path?: str
   return `sub-${subj}${rec.task ? `_${rec.task}` : ''}`
 }
 
-/** 往节点塞一个只读自绘控件（不可编辑），点击 = 选中节点 + 打开检查器。drawFn 自定义内容。 */
+/** 往节点塞一个**纯只读**自绘控件（无交互）。点节点本身会选中 → 自动开检查器（litegraph 默认行为）。 */
 function pushReadonlyWidget(
   graphNode: LiteGraphNode,
   drawFn: (ctx: CanvasRenderingContext2D, width: number, y: number, h: number) => void,
-  onClick: () => void,
 ) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
   const H = LiteGraph.NODE_WIDGET_HEIGHT || 24
@@ -3018,15 +2948,11 @@ function pushReadonlyWidget(
       drawFn(ctx, width, y, h)
       ctx.restore()
     },
-    mouse: (event: { type?: string }) => {
-      if (String(event?.type || '').endsWith('down')) { onClick(); return true }
-      return false
-    },
   })
 }
 
-/** 只读「标签 …… 值」事实行（无控件框、不可编辑）。 */
-function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string, onClick: () => void) {
+/** 只读「标签 …… 值」事实行。 */
+function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
   pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
     const cy = y + h * 0.5
     if (label) {
@@ -3039,11 +2965,11 @@ function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string
     ctx.fillStyle = '#1F2A37'
     ctx.textAlign = 'right'
     ctx.fillText(truncWidgetText(value, label ? 12 : 22), width - 16, cy)
-  }, onClick)
+  })
 }
 
 /** 只读单行（左对齐）；muted=灰斜体提示，accent=蓝，否则深字加粗。 */
-function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?: boolean; accent?: boolean }, onClick: () => void) {
+function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?: boolean; accent?: boolean }) {
   pushReadonlyWidget(graphNode, (ctx, _width, y, h) => {
     if (opts.muted) {
       ctx.font = 'italic 13px "Segoe UI", Arial, sans-serif'
@@ -3057,27 +2983,27 @@ function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?
     }
     ctx.textAlign = 'left'
     ctx.fillText(truncWidgetText(text, 24), 18, y + h * 0.5)
-  }, onClick)
+  })
 }
 
 /** LoadData 专属只读摘要：选 1~2 个显文件名、更多显「N 个文件」、没选显「未选择数据」提示。 */
-function pushLoadDataSummary(graphNode: LiteGraphNode, params: Record<string, unknown>, onClick: () => void) {
+function pushLoadDataSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const rawIds = Array.isArray(params.dataset_ids) ? (params.dataset_ids as unknown[]).filter(Boolean) : []
   if (rawIds.length === 0) {
-    pushReadonlyLine(graphNode, '未选择数据', { muted: true }, onClick)
-    pushReadonlyLine(graphNode, '点击设置 →', { accent: true }, onClick)
+    pushReadonlyLine(graphNode, '未选择数据', { muted: true })
+    pushReadonlyLine(graphNode, '点击设置 →', { accent: true })
     return
   }
   if (studyDatasets.value.length === 0) {
     // 数据集列表还没加载完 → 先显数量（watch 在列表到位后会重画显文件名），别误报「数据缺失」
-    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {}, onClick)
+    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {})
     return
   }
   const byId = new Map(studyDatasets.value.map((r) => [String(r.id), r]))
   if (rawIds.length <= 2) {
-    for (const id of rawIds) pushReadonlyLine(graphNode, recordingDisplayName(byId.get(String(id))), {}, onClick)
+    for (const id of rawIds) pushReadonlyLine(graphNode, recordingDisplayName(byId.get(String(id))), {})
   } else {
-    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {}, onClick)
+    pushReadonlyLine(graphNode, `${rawIds.length} 个文件`, {})
   }
 }
 
@@ -3092,19 +3018,17 @@ function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   return ''
 }
 
-/** 重建节点就地内容：纯**只读摘要**（呈现为主），点任意行都跳右栏对应字段编辑——卡上不再有任何内联输入。
- *  标量参数 → 只读事实行；复杂参数 → 「摘要 + 编辑 ›」胶囊；LoadData → 文件名 / 未选提示。 */
+/** 重建节点就地内容：**纯只读展示，零交互**。点节点本身会选中 → 自动打开右侧检查器编辑。
+ *  标量参数 → 「标签: 值」只读行；复杂参数（通道/条件/数据集）→ 「标签: N 项」只读行；LoadData → 文件名 / 未选提示。 */
 function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (!graphNode) return
   const nodeType = String((graphNode as { type?: unknown }).type || '')
   const spec = nodeSpecs.value.find((item) => item.type === nodeType) || null
   ;(graphNode as { widgets?: unknown[] }).widgets = []
-  const nodeId = getLiteGraphNodeId(graphNode)
-  const openInspector = () => focusInspectorParam(nodeId, '')
 
   // LoadData 专属：只呈现文件名 / 未选提示，数据筛选编辑去检查器
   if (nodeType === LOAD_DATA_NODE_TYPE) {
-    pushLoadDataSummary(graphNode, (graphNode.properties || {}) as Record<string, unknown>, openInspector)
+    pushLoadDataSummary(graphNode, (graphNode.properties || {}) as Record<string, unknown>)
     sizeNodeForWidgets(graphNode, spec)
     liteGraphCanvas?.setDirty(true, true)
     return
@@ -3113,13 +3037,9 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
   if (spec) {
     const params = (graphNode.properties || {}) as Record<string, unknown>
     for (const plan of planNodeWidgets(spec, params)) {
-      if (plan.kind === 'button') {
-        // 复杂参数（通道/条件/数据集）→ 「摘要 + 编辑 ›」胶囊，点击跳检查器对应区
-        pushSummaryWidget(graphNode, plan.label, plan.summary, () => focusInspectorParam(nodeId, plan.name))
-      } else {
-        // 标量参数 → 只读事实行；点击直接跳右栏对应字段并聚焦（不弹 litegraph 输入框）
-        pushReadonlyFact(graphNode, plan.label, readonlyPlanValue(plan, spec), () => focusInspectorParam(nodeId, plan.name))
-      }
+      // 标量 → 值；复杂参数（button）→ 摘要（N 项）。一律只读，编辑去检查器。
+      const value = plan.kind === 'button' ? plan.summary : readonlyPlanValue(plan, spec)
+      pushReadonlyFact(graphNode, plan.label, value)
     }
   }
   sizeNodeForWidgets(graphNode, spec)
