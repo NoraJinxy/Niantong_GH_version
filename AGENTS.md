@@ -40,6 +40,15 @@
 - 计算服务器是阿里云按量实例、**IP 每次部署都会变**，部署后需更新 `elys_scripts/common/config.py` 的 `DATA_BASE_URL`。
 - 测试账号、密钥、服务器密码等**不写进本仓库**，找用户或看 `deploy/` 配置。
 
+## 多会话共享工作树：git 安全
+
+本仓库常有多个大模型会话**同时**在跑，它们**共用同一个工作目录和同一个 git 暂存区（index，即 `git add` 把改动暂存待提交的地方）**。“未提交的改动”是唯一不受 git 历史保护的东西——任何一个会话一次手滑的 git 操作，就能把所有会话 + 用户手改的未提交内容一并冲掉。铁律：
+
+- **勤提交。** 一小段工作就 commit 到当前分支；未提交 = 唯一有风险，已提交的永远能用 `git reflog` 捞回。
+- **共享树上禁用 `git stash` 与 `git reset --hard`。** 要干净树跑 typecheck / 测试，先把当前改动 commit 到临时分支，别 stash。`git stash && <可能失败的命令> && git stash pop` 尤其致命：中间命令返回非零会被 `&&` 短路、pop 不执行，改动滞留 stash；之后 pop 一冲突再误 `git stash drop`，整包改动就孤立丢失。
+- **只提交自己的文件。** 用 `git commit --only <显式路径>`，**绝不 `git add -A` / `git add .`**（会把别的会话已 stage 的活一并裹走）；提交前先 `git status` / `git log -1` 核实 HEAD。
+- **真丢了能救。** `git fsck --no-reflogs --dangling` 找游离的 stash/commit → `git branch <名> <hash>` 先锚住防 gc → 再 `git stash apply <hash>` 或三方合并取回。
+
 ## 不要做
 
 - 不要把规划能力写成“已实现”（状态语义见 `wiki/docs/0-00-协作规范总览.md`）。
