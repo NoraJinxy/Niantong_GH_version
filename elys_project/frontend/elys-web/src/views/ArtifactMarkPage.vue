@@ -288,7 +288,13 @@ const ovWinX = computed(() => ((winStart.value - rangeMin.value) / Math.max(1e-6
 const ovWinW = computed(() => (winLen.value / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
 
 const canApply = computed(() => jobContext.value && !applying.value)
-const applyLabel = computed(() => `应用（${badSegments.value.length} 段 / ${badChannelList.value.length} 道）并继续`)
+const applyLabel = computed(() => {
+  const ns = badSegments.value.length
+  const nc = badChannelList.value.length
+  // 0 段 0 道 = 「看过了、这段干净」→ 合法的「确认放行」，文案讲清，避免看着像不能点
+  if (ns === 0 && nc === 0) return '确认无伪迹 · 继续'
+  return `应用（${ns} 段 / ${nc} 道）并继续`
+})
 
 function toggleChannel(name: string) {
   if (!name) return
