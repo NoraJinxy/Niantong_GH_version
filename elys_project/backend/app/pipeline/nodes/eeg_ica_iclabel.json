@@ -1,0 +1,95 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/ica/iclabel",
+  "title": "ICLabel Auto-Select",
+  "category": "ica",
+  "phase": "phase1",
+  "description": "用 ICLabel 深度模型自动给每个 ICA 成分打分分类（脑 / 眼动 / 肌电 / 心电 / 工频 / 单通道噪声 / 其它），按所选类别 + 置信度阈值自动剔除伪迹成分并重建数据——全自动，无需逐个人工审阅。建议上游先做平均参考 + 1–100Hz 带通、且 Compute ICA 选 Infomax，分类最准。",
+  "tags": ["ica", "artifact", "iclabel", "auto", "automatic"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"},
+    {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA Matrix", "required": true, "cardinality": "same_as_input"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Cleaned EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {
+      "name": "action",
+      "label": "处理方式",
+      "type": "select",
+      "default": "apply",
+      "required": true,
+      "options": [
+        {"value": "apply", "label": "自动剔除并重建数据（默认）"},
+        {"value": "mark", "label": "仅标注成分类别（不改数据）"}
+      ],
+      "description": "自动剔除=按下方设置删掉伪迹成分、用其余成分重建干净 EEG；仅标注=只出一份成分分类报告，数据保持不变。"
+    },
+    {
+      "name": "prob_threshold",
+      "label": "判定置信度阈值",
+      "type": "number",
+      "default": 0.8,
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "description": "成分被判为某类伪迹的置信度高于此值才会被剔除。调高=更保守（只删很确定的），调低=更激进。"
+    },
+    {
+      "name": "remove_eye",
+      "label": "剔除眼动 / 眨眼成分",
+      "type": "boolean",
+      "default": true,
+      "description": "眨眼、眼球转动产生的成分（最常见的伪迹）。"
+    },
+    {
+      "name": "remove_muscle",
+      "label": "剔除肌电成分",
+      "type": "boolean",
+      "default": true,
+      "description": "颈部、面部肌肉张力产生的高频成分。"
+    },
+    {
+      "name": "remove_heart",
+      "label": "剔除心电成分",
+      "type": "boolean",
+      "default": true,
+      "description": "心跳（ECG）混入 EEG 的成分。"
+    },
+    {
+      "name": "remove_line_noise",
+      "label": "剔除工频（线噪）成分",
+      "type": "boolean",
+      "default": true,
+      "advanced": true,
+      "description": "50 / 60Hz 市电干扰产生的成分。"
+    },
+    {
+      "name": "remove_channel_noise",
+      "label": "剔除单通道噪声成分",
+      "type": "boolean",
+      "default": true,
+      "advanced": true,
+      "description": "集中在单个电极的接触不良 / 坏道类噪声成分。"
+    }
+  ],
+  "backend": {
+    "module": "app.engine.ica.iclabel",
+    "function": "run_iclabel",
+    "save_descriptor": "iclabel",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "ica-iclabel",
+    "auto_tags": ["step:ica-iclabel", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "moderate",
+  "output_footprint": "large",
+  "ui": {"color": "#8B5CF6", "default_size": [200, 110], "preview_type": "ica"}
+}
