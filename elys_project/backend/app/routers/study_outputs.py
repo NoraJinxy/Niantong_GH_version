@@ -43,6 +43,7 @@ from app.pipeline.previews import (
 )
 from app.pipeline.timeseries import build_timeseries
 from app.pipeline.psd_view import build_psd_lines
+from app.pipeline.stat_view import build_stat_view
 from app.pipeline.tfr_view import build_tfr_cube, build_tfr_heatmap, build_tfr_topomap
 from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail, build_ica_preview
 from app.pipeline.save_settings import retention_expiry_after_user_action
@@ -833,6 +834,42 @@ def get_study_output_psd(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "DERIVED_DATASET_PSD_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/stat")
+def get_study_output_stat(
+    study_id: str,
+    dataset_id: UUID,
+    channel: str | None = Query(default=None),
+    max_points: int = Query(default=600, ge=8, le=4000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """统计比较图(stat_map):选定通道的 t 图 + 显著掩码 + A/B 均值 + cluster 显著窗口。供统计观察页绘制。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，统计图不可用。"},
+        )
+    if str(dataset.data_type or "").lower() != "stat_map":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "DERIVED_DATASET_NOT_STAT", "message": "该结果不是统计比较(stat_map)类型。"},
+        )
+    try:
+        return build_stat_view(study, dataset, channel=channel, max_points=max_points)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DERIVED_DATASET_STAT_ENGINE_UNAVAILABLE", "message": str(exc)},
         ) from exc
 
 

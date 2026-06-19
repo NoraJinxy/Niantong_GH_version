@@ -162,6 +162,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/observe/stats',
+      name: 'ObserveStats',
+      component: () => import('@/views/StatsPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/observe/connectivity',
       name: 'ObserveConnectivity',
       component: () => import('@/views/ConnectivityPage.vue'),

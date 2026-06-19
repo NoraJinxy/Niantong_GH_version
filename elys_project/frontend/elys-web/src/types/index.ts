@@ -1163,6 +1163,54 @@ export interface StudyOutputPsd {
   channels: StudyOutputPsdChannel[]
 }
 
+export interface StudyOutputStatCluster {
+  p: number
+  significant: boolean
+  n_points: number
+  tmin?: number
+  tmax?: number
+  fmin?: number
+  fmax?: number
+}
+
+export interface StudyOutputStat {
+  data_type: string
+  base_type: string
+  study_output_id: string
+  display_name: string | null
+  contrast_label: string
+  design: string
+  method: string
+  tail: string
+  correction: string
+  alpha: number
+  n_a: number
+  n_b: number
+  n_significant: number
+  n_total: number
+  ch_names: string[]
+  default_channel: string
+  channel: string
+  tmax_abs: number
+  roi_channels: string[]
+  clusters: StudyOutputStatCluster[]
+  ch_pos: Record<string, number[]> | null
+  axis: { kind: string; values?: number[]; freqs?: number[]; times?: number[] }
+  // 1D（evoked / psd）
+  t?: number[]
+  sig?: boolean[]
+  mean_a?: number[]
+  mean_b?: number[]
+  // 2D（tfr）
+  t_grid?: number[][]
+  sig_grid?: boolean[][]
+}
+
+export interface StudyOutputStatQuery {
+  channel?: string
+  maxPoints?: number
+}
+
 export interface StudyOutputPsdQuery {
   channel?: string
   maxFreqs?: number

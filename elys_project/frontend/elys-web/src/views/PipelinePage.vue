@@ -2211,6 +2211,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const evokeds = saved.filter((item) => item.data_type === 'evoked')
   const psds = saved.filter((item) => (item.data_type || '').toLowerCase() === 'psd')
   const tfrs = saved.filter((item) => (item.data_type || '').toLowerCase() === 'tfr')
+  const stats = saved.filter((item) => (item.data_type || '').toLowerCase() === 'stat_map')
   const icas = saved.filter((item) => (item.data_type || '').toLowerCase() === 'ica')
   let href: string
   if (evokeds.length) {
@@ -2241,6 +2242,14 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
       name: tfrs.length > 1 ? '时频（多条件对比）' : tfrs[0].display_name || '时频',
     })
     href = `/observe/tfr?${params.toString()}`
+  } else if (stats.length) {
+    // stat_map 统计比较产物 → 统计观察页（t 图 + 显著掩码 + cluster 窗口）
+    const params = new URLSearchParams({
+      studyId,
+      study_output_id: stats[0].id,
+      name: stats[0].display_name || '统计比较',
+    })
+    href = `/observe/stats?${params.toString()}`
   } else if (icas.length) {
     // ICA 矩阵产物 → 成分审阅页（只读查看；选成分的决策流走 Apply ICA 暂停）
     const params = new URLSearchParams({ studyId, study_output_id: icas[0].id, name: icas[0].display_name || 'ICA 成分' })

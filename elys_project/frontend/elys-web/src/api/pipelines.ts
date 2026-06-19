@@ -8,6 +8,8 @@ import type {
   StudyOutputPreview,
   StudyOutputPsd,
   StudyOutputPsdQuery,
+  StudyOutputStat,
+  StudyOutputStatQuery,
   StudyOutputTfr,
   StudyOutputTfrQuery,
   StudyOutputTfrTopo,
@@ -191,6 +193,18 @@ export const pipelineApi = {
         channel: query.channel,
         max_freqs: query.maxFreqs,
         max_channels: query.maxChannels,
+      },
+    }),
+  /** 统计比较：选定通道 t 图 + 显著掩码 + A/B 均值 + cluster 窗口（StatsPage 用） */
+  getStudyOutputStat: (
+    studyId: string,
+    datasetId: string,
+    query: StudyOutputStatQuery = {},
+  ) =>
+    api.get<StudyOutputStat>(`/studies/${studyId}/outputs/${datasetId}/stat`, {
+      params: {
+        channel: query.channel,
+        max_points: query.maxPoints,
       },
     }),
   downloadStudyOutput: (studyId: string, datasetId: string) =>

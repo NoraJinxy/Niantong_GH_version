@@ -629,6 +629,7 @@ function observeRoute(row: { id: string; data_type?: string | null; display_name
   if (dt === 'tfr') return { path: '/observe/tfr', query }
   // psd 与 grand average 都是频域功率谱 → 频域观察页（grand average 复用 /psd，渲染均值曲线）
   if (dt === 'psd' || dt === 'psd_grandavg') return { path: '/observe/psd', query }
+  if (dt === 'stat_map') return { path: '/observe/stats', query }
   if (dt === 'ica') return { path: '/ica', query }
   return { path: '/observe/waveform', query: { ...query, type: row.data_type || '' } }
 }
