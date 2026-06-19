@@ -1357,8 +1357,19 @@ export interface PipelineInteraction {
   decision?: PipelineInteractionDecision | null
 }
 
+export interface ArtifactBadSegment {
+  onset: number
+  duration: number
+  source?: string
+}
+
 export interface PipelineInteractionDecisionRequest {
-  excluded_components: number[]
+  // ICA 成分剔除
+  excluded_components?: number[]
+  // 手动去伪迹去坏段（artifact_marking 交互）
+  bad_segments?: ArtifactBadSegment[]
+  bad_channels?: string[]
+  channel_action?: 'mark' | 'interpolate'
   decision_version: number
 }
 
