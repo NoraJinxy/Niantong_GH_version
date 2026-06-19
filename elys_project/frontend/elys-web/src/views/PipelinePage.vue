@@ -2209,7 +2209,8 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   // evoked（ERP）可能是同一节点的多个条件产物 → 一起送时域页按"数据集"对比；
   // 其余按 data_type 路由：TFR=/observe/tfr、PSD=/observe/psd、其余=/observe/waveform。
   const evokeds = saved.filter((item) => item.data_type === 'evoked')
-  const psds = saved.filter((item) => (item.data_type || '').toLowerCase() === 'psd')
+  // psd 与 grand average（psd_grandavg）都是频域功率谱 → 频域观察页（否则 grandavg 落默认时域页报错）
+  const psds = saved.filter((item) => ['psd', 'psd_grandavg'].includes((item.data_type || '').toLowerCase()))
   const tfrs = saved.filter((item) => (item.data_type || '').toLowerCase() === 'tfr')
   const stats = saved.filter((item) => (item.data_type || '').toLowerCase() === 'stat_map')
   const icas = saved.filter((item) => (item.data_type || '').toLowerCase() === 'ica')

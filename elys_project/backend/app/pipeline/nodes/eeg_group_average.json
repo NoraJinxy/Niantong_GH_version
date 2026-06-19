@@ -43,7 +43,7 @@
   },
   "save": {
     "step_label": "grandavg",
-    "name_template_default": "Grand Average · {condition}",
+    "name_template_default": "Grand Average",
     "auto_tags": ["step:grand_average", "type:grandavg"],
     "data_type": "analysis_result"
   },

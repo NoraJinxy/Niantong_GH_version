@@ -57,7 +57,7 @@
   },
   "save": {
     "step_label": "unit_stack",
-    "name_template_default": "Unit Stack · {condition}",
+    "name_template_default": "Unit Stack",
     "auto_tags": ["step:group_merge", "type:unit_stack"],
     "data_type": "unit_stack"
   },
