@@ -160,6 +160,40 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
     }
   }
 
+  // 双击暂停的 Apply ICA 节点用：拉交互拿 ica_artifact_id，在新标签开富审核台（带 job 上下文，可就地提交剔除 + 续跑）。
+  // 与 artifact_mark 的「暂停双击 → 新标签开审核台」范式一致。selectedJob 可能还没加载好交互，故这里独立 fetch 一遍。
+  async function openIcaReviewerForJob(job: PipelineJob) {
+    const studyId = selectedStudyId.value
+    const executionId = activeExecutionId.value || job.execution_id || ''
+    if (!studyId || !executionId || !job) return
+    try {
+      const res = await pipelineApi.getNodeInteraction(studyId, executionId, job.id)
+      const interaction = res.data
+      const datasets = (interaction.preview_json as { datasets?: Array<{ ica_artifact_id?: string | null }> } | null)?.datasets
+      const outputId = Array.isArray(datasets) ? datasets.find((d) => d && d.ica_artifact_id)?.ica_artifact_id || '' : ''
+      if (!outputId) {
+        statusMessage.value = 'ICA 结果不可用，无法打开审核台'
+        return
+      }
+      const query = new URLSearchParams({
+        studyId,
+        study_output_id: String(outputId),
+        executionId,
+        jobId: job.id,
+        decisionVersion: String(interaction.decision_version || 1),
+      })
+      const link = document.createElement('a')
+      link.href = `/ica?${query.toString()}`
+      link.target = '_blank'
+      link.rel = 'noopener'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (error) {
+      statusMessage.value = describeError(error, 'ICA 审核台打开失败')
+    }
+  }
+
   function icaComponentLabel(component: PipelineIcaComponentPreview) {
     return component.label || `IC${String(component.index).padStart(3, '0')}`
   }
@@ -189,6 +223,7 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
     toggleIcaComponent,
     submitIcaDecision,
     resumeIcaNode,
+    openIcaReviewerForJob,
     icaComponentLabel,
     icaComponentMetric,
   }

@@ -690,48 +690,56 @@
             <div v-if="icaInteractionLoading" class="state-text">正在读取 ICA 成分...</div>
             <div v-else-if="icaInteractionError" class="state-text state-text--error">{{ icaInteractionError }}</div>
             <template v-else>
-              <label
-                v-for="component in icaInteractionComponents"
-                :key="component.index"
-                class="ica-component-row"
+              <!-- 主路径：进入富审核台（地形图墙 + 整体去除前后实时对比 → 提交剔除 → 自动续跑） -->
+              <a
+                v-if="icaReviewerHref"
+                class="button button--primary ica-reviewer-cta"
+                :href="icaReviewerHref"
+                target="_blank"
+                rel="noopener"
+                title="在 ICA 审核台看地形图 / 频谱 / 整体去除前后对比并提交剔除"
               >
-                <input
-                  type="checkbox"
-                  :checked="icaExcludedComponents.includes(component.index)"
-                  @change="toggleIcaComponent(component.index, $event)"
-                />
-                <span>{{ icaComponentLabel(component) }}</span>
-                <small>{{ icaComponentMetric(component) }}</small>
-              </label>
-              <div v-if="!icaInteractionComponents.length" class="state-text">暂无可展示的 ICA 成分。</div>
-              <div class="ica-interaction-panel__actions">
-                <a
-                  v-if="icaReviewerHref"
-                  class="button"
-                  :href="icaReviewerHref"
-                  target="_blank"
-                  rel="noopener"
-                  title="在 ICA 审阅台查看地形图 / 时序 / 频谱并提交剔除"
+                <span>进入审核台挑选成分 ↗</span>
+                <small>看地形图 · 整体去除前后对比 · 提交后自动续跑</small>
+              </a>
+              <p v-else class="state-text">ICA 结果尚不可用，无法打开审核台。</p>
+
+              <!-- 快捷路径：不看图直接勾选（高级，默认收起） -->
+              <details class="ica-quick-pick">
+                <summary>或快速勾选（不看图）· 已选 {{ icaExcludedComponents.length }} 个</summary>
+                <label
+                  v-for="component in icaInteractionComponents"
+                  :key="component.index"
+                  class="ica-component-row"
                 >
-                  审阅台打开 ↗
-                </a>
-                <button
-                  class="button"
-                  type="button"
-                  :disabled="icaDecisionSubmitting || !icaInteraction"
-                  @click="submitIcaDecision"
-                >
-                  确认选择
-                </button>
-                <button
-                  class="button button--primary"
-                  type="button"
-                  :disabled="icaResuming || !icaInteraction?.decision"
-                  @click="resumeIcaNode"
-                >
-                  继续运行
-                </button>
-              </div>
+                  <input
+                    type="checkbox"
+                    :checked="icaExcludedComponents.includes(component.index)"
+                    @change="toggleIcaComponent(component.index, $event)"
+                  />
+                  <span>{{ icaComponentLabel(component) }}</span>
+                  <small>{{ icaComponentMetric(component) }}</small>
+                </label>
+                <div v-if="!icaInteractionComponents.length" class="state-text">暂无可展示的 ICA 成分。</div>
+                <div class="ica-interaction-panel__actions">
+                  <button
+                    class="button"
+                    type="button"
+                    :disabled="icaDecisionSubmitting || !icaInteraction"
+                    @click="submitIcaDecision"
+                  >
+                    确认选择
+                  </button>
+                  <button
+                    class="button button--primary"
+                    type="button"
+                    :disabled="icaResuming || !icaInteraction?.decision"
+                    @click="resumeIcaNode"
+                  >
+                    继续运行
+                  </button>
+                </div>
+              </details>
             </template>
           </div>
 
@@ -1474,6 +1482,7 @@ const {
   toggleIcaComponent,
   submitIcaDecision,
   resumeIcaNode,
+  openIcaReviewerForJob,
   icaComponentLabel,
   icaComponentMetric,
 } = useIcaInteraction({
@@ -2182,6 +2191,11 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const job = executionJobByNodeId.value.get(nodeId)
   if (!job) {
     statusMessage.value = '该节点本次运行没有执行记录，先运行工作流再查看'
+    return
+  }
+  // ICA 成分剔除：Apply ICA 节点在 waiting_user_input 时双击 → 打开富审核台（地形图墙 + 整体去除前后对比 → 提交剔除 → 续跑）
+  if (job.node_type === ICA_APPLY_NODE_TYPE && job.status === 'waiting_user_input') {
+    void openIcaReviewerForJob(job)
     return
   }
   // 手动去伪迹去坏段：交互节点在 waiting_user_input 时双击 → 打开波形审核台（标坏段/坏道 → 确认 → 续跑）
@@ -5896,6 +5910,39 @@ function describeError(error: unknown, fallback: string) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* 主 CTA：进入富审核台——两行（动作 + 副标题），醒目主按钮 */
+.ica-reviewer-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 12px;
+  text-align: left;
+  line-height: 1.3;
+}
+.ica-reviewer-cta small {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.82;
+}
+
+/* 快捷路径：折叠的「不看图直接勾选」——次要、安静 */
+.ica-quick-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ica-quick-pick > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--c-text-3);
+  padding: 2px 0;
+  user-select: none;
+}
+.ica-quick-pick > summary:hover {
+  color: var(--c-text-2);
 }
 
 .ica-component-row {
