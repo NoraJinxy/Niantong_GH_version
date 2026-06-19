@@ -36,45 +36,30 @@
         </div>
 
         <template v-else>
-          <!-- 成分网格 -->
+          <!-- 成分网格（插值头皮场，复用观察页 TopoStrip） -->
           <div class="card mb-3">
             <div class="card__header">
               <div>
                 <h3 class="card__title">ICA 成分 · {{ components.length }} 个</h3>
-                <div class="card__sub">点击卡片看详情；右下角按钮标记剔除。颜色为成分在各电极的权重（蓝负红正）。</div>
+                <div class="card__sub">
+                  点击成分看详情并标记剔除；地形图是该成分在各电极的权重经插值的头皮场（红正·蓝负·白≈0，各成分独立归一）。被标记剔除的成分显红框。
+                </div>
               </div>
               <span class="badge badge--primary">{{ keepCount }} 保留 / {{ removeList.length }} 剔除</span>
             </div>
 
-            <div class="ic-grid">
-              <div
-                v-for="comp in components"
-                :key="comp.index"
-                class="ic-card"
-                :class="{ 'is-remove': removeSet.has(comp.index), 'is-active': comp.index === selectedIndex }"
-                @click="selectComponent(comp.index)"
-              >
-                <svg viewBox="-1.28 -1.34 2.56 2.62" class="ic-topo">
-                  <circle cx="0" cy="0" r="1" fill="#FCFCFE" stroke="#C4CCD8" stroke-width="0.02" />
-                  <path d="M -0.13 -0.99 Q 0 -1.24 0.13 -0.99" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-                  <circle
-                    v-for="p in comp.topography"
-                    :key="p.name"
-                    :cx="p.x"
-                    :cy="-p.y"
-                    r="0.07"
-                    :fill="topoColor(p.weight, comp.vmax)"
-                    stroke="#fff"
-                    stroke-width="0.014"
-                  />
-                </svg>
-                <strong class="ic-card-id">{{ comp.label }}</strong>
-                <div class="muted text-sm">{{ comp.explained_variance != null ? comp.explained_variance.toFixed(1) + '%' : '—' }}</div>
-                <button class="ic-mark" :class="{ 'is-on': removeSet.has(comp.index) }" @click.stop="toggleRemove(comp.index)">
-                  {{ removeSet.has(comp.index) ? '剔除 ✕' : '保留' }}
-                </button>
-              </div>
-            </div>
+            <TopoStrip
+              layout="grid"
+              selectable
+              :cells="componentCells"
+              :vmax="1"
+              :active-seg="selectedIndex"
+              subtitle="成分空间模式 · 各成分独立归一"
+              unit=""
+              lo-label="−"
+              hi-label="+"
+              @cell-click="selectComponent"
+            />
           </div>
 
           <!-- 选中成分详情 -->
@@ -94,57 +79,36 @@
 
             <div class="grid grid-3">
               <div>
-                <div class="panel__title">地形图</div>
-                <svg viewBox="-1.28 -1.34 2.56 2.62" class="ic-topo-lg">
-                  <circle cx="0" cy="0" r="1" fill="#FCFCFE" stroke="#C4CCD8" stroke-width="0.02" />
-                  <path d="M -0.13 -0.99 Q 0 -1.24 0.13 -0.99" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-                  <path d="M -1 -0.2 Q -1.13 0 -1 0.2" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-                  <path d="M 1 -0.2 Q 1.13 0 1 0.2" fill="none" stroke="#C4CCD8" stroke-width="0.02" />
-                  <circle
-                    v-for="p in activeComp.topography"
-                    :key="p.name"
-                    :cx="p.x"
-                    :cy="-p.y"
-                    r="0.06"
-                    :fill="topoColor(p.weight, activeComp.vmax)"
-                    stroke="#fff"
-                    stroke-width="0.012"
-                  >
-                    <title>{{ p.name }}: {{ p.weight.toFixed(3) }}</title>
-                  </circle>
-                </svg>
+                <TopoStrip :cells="detailCells" :vmax="1" subtitle="成分空间模式" unit="" lo-label="−" hi-label="+" />
                 <div class="muted text-sm">主导通道：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
               </div>
 
               <div>
-                <div class="panel__title">时域波形</div>
-                <svg viewBox="0 0 300 90" class="ic-plot">
-                  <path :d="timecoursePath" stroke="var(--c-primary)" stroke-width="1" fill="none" />
-                </svg>
+                <div class="panel__title">时域波形（源激活）</div>
+                <div class="ic-plot-host">
+                  <TimeCourseCanvas :data="tcData" :series="tcSeries" x-label="时间 (s)" y-label="" :show-legend="false" :loading="detailLoading" />
+                </div>
                 <div class="muted text-sm">{{ detail ? detail.timecourse.values.length + ' 点 · 前 ' + maxSeconds + ' 秒' : '—' }}</div>
               </div>
 
               <div>
                 <div class="panel__title">Welch 频谱 (dB)</div>
-                <svg viewBox="0 0 300 90" class="ic-plot">
-                  <path :d="spectrumPath" stroke="var(--c-accent)" stroke-width="1.2" fill="none" />
-                </svg>
+                <div class="ic-plot-host">
+                  <TimeCourseCanvas :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline :loading="detailLoading" />
+                </div>
                 <div class="muted text-sm">{{ detail ? '0–' + detail.spectrum.fmax + ' Hz' : '—' }}</div>
               </div>
             </div>
 
             <div class="divider"></div>
 
-            <div class="panel__title">原始 vs 去除选定成分后</div>
-            <svg v-if="comparison && comparison.has_comparison" viewBox="0 0 1000 90" class="ic-wide">
-              <path :d="comparisonPath.original" stroke="var(--c-text-3)" stroke-width="1" fill="none" opacity=".6" />
-              <path :d="comparisonPath.filtered" stroke="var(--c-primary)" stroke-width="1.2" fill="none" />
-            </svg>
-            <p v-else class="muted text-sm">标记要剔除的成分后，这里显示某通道（{{ comparison?.channel_name || '首通道' }}）去除前后的对比波形。</p>
-            <div v-if="comparison && comparison.has_comparison" class="row gap-3 muted text-sm mt-2">
-              <span class="legend"><span class="swatch" style="background: var(--c-text-3)"></span>原始（{{ comparison.channel_name }}）</span>
-              <span class="legend"><span class="swatch" style="background: var(--c-primary)"></span>去除 {{ removeList.length }} 个成分后</span>
+            <div class="panel__title">
+              原始 vs 去除选定成分后<template v-if="comparison && comparison.has_comparison && comparison.channel_name">（{{ comparison.channel_name }}）</template>
             </div>
+            <div v-if="comparison && comparison.has_comparison" class="ic-plot-host ic-plot-host--wide">
+              <TimeCourseCanvas :data="cmpData" :series="cmpSeries" x-label="时间 (s)" y-label="" show-legend />
+            </div>
+            <p v-else class="muted text-sm">标记要剔除的成分后，这里显示某通道（{{ comparison?.channel_name || '首通道' }}）去除前后的对比波形。</p>
           </div>
         </template>
       </div>
@@ -168,7 +132,7 @@
         <div class="panel__title">操作</div>
         <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="applyDecision">
           <AppIcon name="check" :size="16" />
-          {{ applying ? '提交中…' : '应用去除 ' + removeList.length + ' 个成分' }}
+          {{ applying ? '提交中…' : '应用去除 ' + removeList.length + ' 个成分并继续' }}
         </button>
         <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「ICA Apply」节点处打开本页才能提交剔除决策。</p>
         <p v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
@@ -184,6 +148,8 @@ import { api, dataApi } from '@/api/client'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
+import TopoStrip from '@/components/observe/TopoStrip.vue'
+import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 
 // ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
 interface TopoPoint { name: string; x: number; y: number; weight: number }
@@ -225,6 +191,23 @@ interface IcaDetail {
   spectrum: { frequencies: number[]; power_db: number[]; fmax: number }
   comparison?: IcaComparison
 }
+
+// TopoStrip 的 cell 形状（与组件内 TopoCell 结构兼容）
+interface TopoCell {
+  seg: number
+  label: string
+  color: string
+  points: { name: string; x: number; y: number; value: number }[] | null
+  sub?: string
+  marked?: boolean
+}
+
+// 成分墙配色：中性灰=保留、红=标记剔除（选中态由 TopoStrip 自身的 active 环表达）。
+const NEUTRAL = '#C4CCD8'
+const DANGER = '#EF4444'
+const PRIMARY = '#3F5E8F' // elys 招牌蓝（画布内硬编码，与观察页一致）
+const ACCENT = '#7A5AA6' // 频谱用紫
+const GRAY = '#79859A' // 对比图"原始"用灰
 
 const route = useRoute()
 function qstr(key: string, fallback = ''): string {
@@ -269,56 +252,56 @@ function labelOf(idx: number): string {
   return components.value.find((c) => c.index === idx)?.label || `IC${String(idx).padStart(3, '0')}`
 }
 
-// 发散色：负→蓝、零→近白、正→红（与时域看图地形图条同源）
-function topoColor(w: number, vmax: number): string {
-  const m = vmax > 0 ? vmax : 1
-  const t = Math.max(-1, Math.min(1, w / m))
-  const white = [244, 246, 249]
-  const target = t < 0 ? [63, 94, 143] : [176, 84, 76]
-  const k = Math.abs(t)
-  const r = Math.round(white[0] + (target[0] - white[0]) * k)
-  const g = Math.round(white[1] + (target[1] - white[1]) * k)
-  const b = Math.round(white[2] + (target[2] - white[2]) * k)
-  return `rgb(${r}, ${g}, ${b})`
+// 单成分权重 → TopoStrip 电极点：除以该成分自身 vmax 归一到 [-1,1]，配合 TopoStrip vmax=1 实现"每成分独立归一"。
+function cellPoints(c: IcaComponent): TopoCell['points'] {
+  if (!c.has_positions) return null
+  const m = c.vmax > 0 ? c.vmax : 1
+  return c.topography.map((p) => ({ name: p.name, x: p.x, y: p.y, value: p.weight / m }))
 }
 
-// 把一维序列映射成 SVG path；可传入共享 lo/hi 让多条线同尺度
-function linePath(ys: number[], w: number, h: number, pad = 8, lo?: number, hi?: number): string {
-  if (!ys.length) return ''
-  let mn = lo ?? Infinity
-  let mx = hi ?? -Infinity
-  if (lo === undefined || hi === undefined) {
-    for (const v of ys) {
-      if (v < mn) mn = v
-      if (v > mx) mx = v
+// 成分墙：每成分一格插值地形图，颜色/标记态由 removeSet 驱动，sub 显解释方差%。
+const componentCells = computed<TopoCell[]>(() =>
+  components.value.map((c) => {
+    const removed = removeSet.value.has(c.index)
+    return {
+      seg: c.index,
+      label: `IC ${c.index}`,
+      color: removed ? DANGER : NEUTRAL,
+      marked: removed,
+      sub: c.explained_variance != null ? `${c.explained_variance.toFixed(1)}%` : '',
+      points: cellPoints(c),
     }
-  }
-  const span = mx - mn || 1
-  const n = ys.length
-  return ys
-    .map((v, i) => {
-      const x = (i / (n - 1 || 1)) * w
-      const y = h - pad - ((v - mn) / span) * (h - 2 * pad)
-      return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`
-    })
-    .join(' ')
-}
+  }),
+)
 
-const timecoursePath = computed(() => (detail.value ? linePath(detail.value.timecourse.values, 300, 90) : ''))
-const spectrumPath = computed(() => (detail.value ? linePath(detail.value.spectrum.power_db, 300, 90) : ''))
-const comparisonPath = computed(() => {
+// 详情区单成分大地形图（单元素数组喂 TopoStrip）
+const detailCells = computed<TopoCell[]>(() => {
+  const c = activeComp.value
+  if (!c) return []
+  return [
+    {
+      seg: c.index,
+      label: c.label,
+      color: removeSet.value.has(c.index) ? DANGER : PRIMARY,
+      marked: removeSet.value.has(c.index),
+      points: cellPoints(c),
+    },
+  ]
+})
+
+// 三图数据（喂 TimeCourseCanvas：data=[x, ...ys]）
+const tcSeries = [{ name: '激活', color: PRIMARY }]
+const specSeries = [{ name: '功率', color: ACCENT }]
+const cmpSeries = [
+  { name: '原始', color: GRAY },
+  { name: '去除后', color: PRIMARY },
+]
+const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
+const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectrum.frequencies, detail.value.spectrum.power_db] : [[], []]))
+const cmpData = computed<number[][]>(() => {
   const c = comparison.value
-  if (!c || !c.has_comparison || !c.original || !c.filtered) return { original: '', filtered: '' }
-  let lo = Infinity
-  let hi = -Infinity
-  for (const v of [...c.original, ...c.filtered]) {
-    if (v < lo) lo = v
-    if (v > hi) hi = v
-  }
-  return {
-    original: linePath(c.original, 1000, 90, 8, lo, hi),
-    filtered: linePath(c.filtered, 1000, 90, 8, lo, hi),
-  }
+  if (!c || !c.has_comparison || !c.times || !c.original || !c.filtered) return [[], []]
+  return [c.times, c.original, c.filtered]
 })
 
 async function load() {
@@ -383,7 +366,13 @@ async function applyDecision() {
       excluded_components: removeList.value,
       decision_version: decisionVersion,
     })
-    applyMsg.value = `已提交剔除 ${removeList.value.length} 个成分，流水线将继续执行。`
+    // 提交决策后顺势恢复运行——消除旧版"已提交但实际没续跑"的割裂/误导（职责合一：本页既能选也能续跑）。
+    try {
+      await api.post(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/resume`, {})
+      applyMsg.value = `已提交剔除 ${removeList.value.length} 个成分，流水线已继续运行。`
+    } catch {
+      applyMsg.value = `已提交剔除 ${removeList.value.length} 个成分；自动继续未成功，请回工作流点「继续运行」。`
+    }
   } catch (err: unknown) {
     applyError.value = true
     applyMsg.value = describeError(err)
@@ -437,31 +426,15 @@ onMounted(load)
 .ica-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
 .ica-empty.is-error .ica-empty-title { color: var(--c-danger); }
 
-.ic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; }
-.ic-card {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 6px 6px; border: 1px solid var(--c-border); border-radius: var(--r-sm);
-  background: var(--c-surface); cursor: pointer; transition: border-color .12s, box-shadow .12s;
-}
-.ic-card:hover { border-color: var(--c-primary); }
-.ic-card.is-active { border-color: var(--c-primary); box-shadow: 0 0 0 2px rgba(46, 107, 255, .18); }
-.ic-card.is-remove { background: rgba(239, 68, 68, .05); border-color: rgba(239, 68, 68, .4); }
-.ic-topo { width: 84px; height: 84px; }
-.ic-card-id { font-size: 12px; }
-.ic-mark { font-size: 10px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-3); cursor: pointer; }
-.ic-mark.is-on { background: var(--c-danger); color: #fff; border-color: var(--c-danger); }
-
-.ic-topo-lg { width: 100%; max-width: 180px; height: 180px; display: block; }
-.ic-plot { width: 100%; height: 90px; display: block; background: var(--c-bg-soft, #f7f9fc); border-radius: var(--r-sm); }
-.ic-wide { width: 100%; height: 90px; display: block; background: var(--c-bg-soft, #f7f9fc); border-radius: var(--r-sm); }
+/* 详情三图 / 对比图：给 TimeCourseCanvas 宿主一个明确高度（其 .tcc-host 为 100%×100%） */
+.ic-plot-host { height: 120px; position: relative; }
+.ic-plot-host--wide { height: 132px; }
 
 .ic-removelist { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ic-removelist li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .ic-removelist .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .ic-x { margin-left: auto; border: none; background: none; color: var(--c-text-3); cursor: pointer; }
 .ic-param-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; color: var(--c-text-2); }
-.legend { display: inline-flex; align-items: center; gap: 4px; }
-.swatch { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
 .ica-applymsg { font-size: 12px; margin-top: 8px; color: var(--c-success); }
 .ica-applymsg.is-error { color: var(--c-danger); }
 </style>

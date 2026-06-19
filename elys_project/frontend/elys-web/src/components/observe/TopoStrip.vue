@@ -14,12 +14,20 @@
         </button>
       </div>
     </div>
-    <div class="topo-cards" @dblclick="openExpanded">
-      <div v-for="c in cells" :key="c.seg" class="topo-card" :style="{ borderTopColor: c.color }">
+    <div class="topo-cards" :class="{ 'is-grid': layout === 'grid' }" @dblclick="openExpanded">
+      <div
+        v-for="c in cells"
+        :key="c.seg"
+        class="topo-card"
+        :class="{ 'is-sel': selectable, 'is-active': selectable && c.seg === activeSeg, 'is-marked': c.marked }"
+        :style="{ borderTopColor: c.color }"
+        @click="onCardClick(c.seg)"
+      >
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
         <!-- 单层 canvas：色面 + 头罩 + 鼻耳 + 电极点同一坐标变换绘制（杜绝分层错位）；hover 真值走动态 title -->
         <canvas v-if="c.points && c.points.length" :ref="(el) => setCanvas(c.seg, el)" class="topo-cv"></canvas>
         <div v-else class="topo-empty">无电极坐标<br />(该结果未带 montage)</div>
+        <div v-if="c.sub" class="topo-sub">{{ c.sub }}</div>
       </div>
     </div>
 
@@ -69,11 +77,15 @@ import { TOPO_RES as RES, buildTopoKernel } from './topoKernel'
 import { buildHeatmapLut, HEATMAP_LUT_N, heatmapCssGradient, type HeatmapCmap } from './heatmapColor'
 
 interface TopoPoint { name: string; x: number; y: number; value: number }
-interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null }
+// sub：标签下一行小字（ICA 成分墙用：解释方差% / 自动标签）。marked：标记态（ICA 剔除）→ 红框。
+interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null; sub?: string; marked?: boolean }
 // vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
 // domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
 // cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys' })
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; selectable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', selectable: false, activeSeg: null })
+const emit = defineEmits<{ (e: 'cell-click', seg: number): void }>()
+// 成分墙（ICA）：网格模式下点选某格上报 seg；strip 模式 / 非 selectable 不触发，三观察页零影响。
+function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg) }
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
@@ -459,6 +471,15 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .topo-cv { width: 100%; height: 96px; display: block; }
 .topo-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: var(--c-text-3); line-height: 1.4; padding: 12px 4px; }
+
+/* 成分墙（ICA 等）：网格平铺 + 可点选 + 选中/标记态。默认 strip + 非 selectable 时这些规则不命中，三观察页零影响。 */
+.topo-cards.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); overflow-x: visible; cursor: default; }
+.is-grid .topo-card { width: auto; }
+.topo-card.is-sel { cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s; }
+.topo-card.is-sel:hover { border-color: var(--c-primary); }
+.topo-card.is-active { border-color: var(--c-primary); box-shadow: 0 0 0 2px rgba(46, 107, 255, .18); }
+.topo-card.is-marked { background: rgba(239, 68, 68, .05); border-left-color: rgba(239, 68, 68, .4); border-right-color: rgba(239, 68, 68, .4); border-bottom-color: rgba(239, 68, 68, .4); }
+.topo-sub { font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 放大查看弹窗：外壳沿用全站 modal 规格（surface + r-md + shadow-lg）；宽度按卡片数自适应（fit-content），少量卡片时自然收窄、不留大白边 ── */
 .topo-modal { width: fit-content; max-width: 92vw; max-height: 88vh; display: flex; flex-direction: column; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
