@@ -758,4 +758,7 @@ defineExpose({ getExportCanvas })
 /* 锁定态：隐藏跟随鼠标的十字线（琥珀锁定标记线由 drawLocked 画在 canvas 上，不受影响） */
 .tcc-locked :deep(.u-cursor-x),
 .tcc-locked :deep(.u-cursor-y) { display: none !important; }
+/* 隐藏 uPlot 原生框选高亮（.u-select 灰矩形）：统计区间统一由自绘 region 着色带（淡蓝 + 虚线框、所有 facet 子图同步）表达。
+   拖拽时 setSelect hook 实时 emit→region 带即时跟随，原生层多余；留着会与淡蓝带两色并存、且各子图残留旧灰带（多次框选更明显）。 */
+:deep(.u-select) { display: none !important; }
 </style>
