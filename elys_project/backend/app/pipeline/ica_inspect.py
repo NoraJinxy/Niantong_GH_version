@@ -42,6 +42,22 @@ def _eeg_names(ica: Any) -> list[str]:
     return [str(name) for name in (getattr(getattr(ica, "info", None), "ch_names", []) or [])]
 
 
+def _all_component_variances(ica: Any, raw: Any, n_components: int) -> dict[int, float]:
+    """一次性批量获取所有成分的解释方差（%），替代逐成分调用。"""
+    np = _numpy()
+    try:
+        evr = ica.get_explained_variance_ratio(raw, components=list(range(n_components)))
+        if not isinstance(evr, dict):
+            return {}
+        arr = evr.get("eeg")
+        if arr is None:
+            return {}
+        arr = np.asarray(arr).ravel()
+        return {int(i): float(v) * 100 for i, v in enumerate(arr)}
+    except Exception:
+        return {}
+
+
 def _per_component_variance(ica: Any, raw: Any, index: int) -> float | None:
     try:
         evr = ica.get_explained_variance_ratio(raw, components=[index])
@@ -85,6 +101,9 @@ def component_topographies(ica: Any, raw: Any | None = None) -> list[dict[str, A
     positions = channel_positions_2d(getattr(ica, "info", None), names) or {}
     n_components = int(getattr(ica, "n_components_", 0) or 0)
 
+    # 批量获取解释方差（一次调用取代 n_components 次，大幅降低响应时间）
+    variances: dict[int, float] = _all_component_variances(ica, raw, n_components) if raw is not None else {}
+
     out: list[dict[str, Any]] = []
     for index in range(n_components):
         weights = comps[:, index] if (comps is not None and comps.ndim == 2 and index < comps.shape[1]) else None
@@ -106,7 +125,7 @@ def component_topographies(ica: Any, raw: Any | None = None) -> list[dict[str, A
             {
                 "index": index,
                 "label": f"IC{index:03d}",
-                "explained_variance": _per_component_variance(ica, raw, index) if raw is not None else None,
+                "explained_variance": variances.get(index),
                 "vmax": round(vmax, 6),
                 "topography": topo,
                 "top_channels": top_channels,

@@ -14,8 +14,16 @@
     {"name": "output", "type": "eeg_data", "label": "Cleaned EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "excluded_components", "label": "Excluded Components", "type": "text", "default": "", "required": true},
-    {"name": "decision_version", "label": "Decision Version", "type": "integer", "default": 1}
+    {
+      "name": "excluded_components",
+      "label": "剔除成分",
+      "type": "text",
+      "default": "",
+      "required": false,
+      "advanced": true,
+      "description": "逗号分隔的成分编号（如 0,3,5）。交互审核流程下由「ICA 成分审核」页自动填入，无需手动输入；留空表示不剔除任何成分。"
+    },
+    {"name": "decision_version", "label": "决策版本", "type": "integer", "default": 1, "advanced": true}
   ],
   "backend": {
     "module": "app.engine.ica.apply",
