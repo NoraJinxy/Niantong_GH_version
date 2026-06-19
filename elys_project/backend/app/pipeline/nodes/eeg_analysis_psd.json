@@ -13,7 +13,7 @@
     {"name": "output", "type": "psd", "label": "PSD", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "condition", "label": "Condition", "type": "event_select", "default": "", "required": false, "description": "仅 Epochs 输入时需要：从上游 Epoch 勾选的 condition 里选，每个 condition 单独算一条功率谱。连续数据（静息态等无事件）无需填，整段算一条。"},
+    {"name": "condition", "label": "条件", "type": "event_select", "default": "", "required": false, "description": "仅 Epochs 输入时需要：从上游 Epoch 勾选的 condition 里选，每个 condition 单独算一条功率谱。连续数据（静息态等无事件）无需填，整段算一条。"},
     {"name": "fmin", "label": "最低频率", "type": "number", "unit": "Hz", "default": 1, "min": 0, "step": 0.5},
     {"name": "fmax", "label": "最高频率", "type": "number", "unit": "Hz", "default": 40, "min": 1, "step": 1},
     {"name": "method", "label": "估计方法", "type": "select", "default": "welch",

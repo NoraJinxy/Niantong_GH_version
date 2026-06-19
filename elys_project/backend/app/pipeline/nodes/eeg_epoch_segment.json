@@ -13,9 +13,9 @@
     {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "conditions", "label": "Conditions（勾选要切分的事件分组）", "type": "event_select", "default": "", "required": true, "description": "从上游自动识别的事件分组里勾选；每个勾选项 = 一个 condition。"},
-    {"name": "tmin", "label": "Tmin", "type": "number", "unit": "s", "default": -0.2},
-    {"name": "tmax", "label": "Tmax", "type": "number", "unit": "s", "default": 1.0},
+    {"name": "conditions", "label": "条件（勾选要切分的事件分组）", "type": "event_select", "default": "", "required": true, "description": "从上游自动识别的事件分组里勾选；每个勾选项 = 一个 condition。"},
+    {"name": "tmin", "label": "时窗起点", "type": "number", "unit": "s", "default": -0.2},
+    {"name": "tmax", "label": "时窗终点", "type": "number", "unit": "s", "default": 1.0},
     {"name": "split_by", "label": "输出拆分", "type": "select", "default": "none", "options": [{"value": "none", "label": "合并 (一个数据集含所有 condition)"}, {"value": "condition", "label": "按 condition 拆分"}]}
   ],
   "backend": {

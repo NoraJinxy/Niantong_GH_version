@@ -26,7 +26,7 @@
     {"name": "reset_bads", "label": "插值后清除坏道标记", "type": "boolean", "default": true, "advanced": true,
      "visible_when": {"channel_action": ["interpolate"]},
      "description": "插值后把这些通道恢复为正常通道（MNE 默认行为，下游照常使用）；关掉则保留坏道标记，下游可继续排除它们。"},
-    {"name": "decision_version", "label": "Decision Version", "type": "integer", "default": 1, "advanced": true}
+    {"name": "decision_version", "label": "决策版本", "type": "integer", "default": 1, "advanced": true}
   ],
   "backend": {
     "module": "app.engine.preprocess.artifact_mark",

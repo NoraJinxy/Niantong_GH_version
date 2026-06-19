@@ -14,9 +14,9 @@
     {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA Matrix", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "n_components", "label": "Components", "type": "integer", "default": null, "min": 1},
-    {"name": "method", "label": "Method", "type": "select", "default": "fastica", "options": [{"value": "fastica", "label": "FastICA"}, {"value": "infomax", "label": "Infomax"}, {"value": "picard", "label": "Picard"}]},
-    {"name": "random_state", "label": "Random State", "type": "integer", "default": 42}
+    {"name": "n_components", "label": "成分数", "type": "integer", "default": null, "min": 1},
+    {"name": "method", "label": "方法", "type": "select", "default": "fastica", "options": [{"value": "fastica", "label": "FastICA"}, {"value": "infomax", "label": "Infomax"}, {"value": "picard", "label": "Picard"}]},
+    {"name": "random_state", "label": "随机种子", "type": "integer", "default": 42}
   ],
   "backend": {
     "module": "app.engine.ica.compute",

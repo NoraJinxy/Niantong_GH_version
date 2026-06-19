@@ -13,7 +13,7 @@
     {"name": "output", "type": "eeg_data", "label": "Re-referenced EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "ref_channels", "label": "Reference Channels", "type": "channel_list", "default": [], "required": true, "help": "勾选用作参考的通道。单选 = 单通道参考；多选 = 这些通道的平均做参考；全选 = 共同平均参考 (common average reference)。"}
+    {"name": "ref_channels", "label": "参考通道", "type": "channel_list", "default": [], "required": true, "help": "勾选用作参考的通道。单选 = 单通道参考；多选 = 这些通道的平均做参考；全选 = 共同平均参考 (common average reference)。"}
   ],
   "backend": {
     "module": "app.engine.preprocess.reference",

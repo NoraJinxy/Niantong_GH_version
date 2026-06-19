@@ -13,7 +13,7 @@
     {"name": "output", "type": "tfr", "label": "TFR", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "condition", "label": "Condition", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选；每个 condition 单独算一张时频图。"},
+    {"name": "condition", "label": "条件", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选；每个 condition 单独算一张时频图。"},
     {"name": "fmin", "label": "最低频率", "type": "number", "unit": "Hz", "default": 4, "min": 0.5, "step": 0.5},
     {"name": "fmax", "label": "最高频率", "type": "number", "unit": "Hz", "default": 40, "min": 1, "step": 1},
     {"name": "n_freqs", "label": "频率点数", "type": "integer", "default": 30, "min": 2, "max": 120, "description": "在频率范围内等距取多少个频点。"},
