@@ -79,36 +79,6 @@
           </section>
 
 
-          <!-- 统计范围（频率区间） -->
-          <section class="ov-sec">
-            <div class="ov-sec-head" @click="toggleSec('range')">
-              统计范围
-              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.range }">▾</span>
-            </div>
-            <div v-show="!collapsed.range" class="ov-sec-body">
-              <div class="ov-row">
-                <span class="ov-row-lbl">起始</span>
-                <input v-model="statLoInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
-                <span class="ov-sep">~</span>
-                <span class="ov-row-lbl">结束</span>
-                <input v-model="statHiInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
-              </div>
-              <div class="ov-row-end">
-                <span class="ov-unit-tag">Hz</span>
-                <button class="ov-link" @click="applyStatsRange">应用</button>
-                <button class="ov-link" @click="resetStatsRange">全频段</button>
-              </div>
-              <div v-if="presentBands.length" class="psd-bandpills" style="margin-top: 6px">
-                <button v-for="b in presentBands" :key="b.name" class="psd-bandpill"
-                  :class="{ 'is-on': region && Math.abs(region.x0 - b.lo) < 0.1 && Math.abs(region.x1 - b.hi) < 0.1 }"
-                  @click="applyStatsBand(b.lo, b.hi)">
-                  {{ b.label }} {{ b.lo }}–{{ b.hi }}
-                </button>
-              </div>
-              <p class="ov-sec-hint">在谱图上高亮该频率区间（可在子图横向拖拽改）。</p>
-            </div>
-          </section>
-
           <!-- 绘图布局 -->
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('layout')">
@@ -284,7 +254,7 @@
                     :display-mode="displayMode"
                     :show-grid="showGrid"
                     :loading="loading"
-                    :region="region"
+                    :region="statsActive ? region : null"
                     :ref-lines="false"
                     :markers="cellPsdMarkers(cell.segs)"
                     :highlight="effectiveFocus"
@@ -739,6 +709,10 @@ const region = ref<{ x0: number; x1: number } | null>(null)
 const regionUserSet = ref(false)
 const statLoInput = ref<number | string>('')
 const statHiInput = ref<number | string>('')
+// 区间统计开关（右栏）：默认关——右栏不堆明细/图上着色带；点开关或框选频率区间即开。与「焦点」同哲学。
+const statsEnabled = ref(false)
+const rangeEdit = ref(false) // 右栏内「精确范围输入 + 频段胶囊」折叠（从旧左栏面板迁来）
+const statsActive = computed(() => statsEnabled.value || regionUserSet.value)
 const selectedBand = ref<string>('alpha')
 const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === selectedBand.value)?.label ?? 'α')
 const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——焦点机制唯一选择态，取代原 hover/锁定/下拉三套
@@ -823,6 +797,20 @@ function resetStatsRange() {
     region.value = fr
     statLoInput.value = round(fr.x0, 1)
     statHiInput.value = round(fr.x1, 1)
+  }
+}
+// 右栏「区间统计」开关：关→连同框选一并撤掉、回到完全关闭；开→无框选时落到全频段
+function toggleStats() {
+  if (statsActive.value) {
+    statsEnabled.value = false
+    regionUserSet.value = false
+    rangeEdit.value = false
+  } else {
+    statsEnabled.value = true
+    if (!region.value) {
+      const fr = fullRange()
+      if (fr) { region.value = fr; statLoInput.value = round(fr.x0, 1); statHiInput.value = round(fr.x1, 1) }
+    }
   }
 }
 function onSelect(r: { x0: number; x1: number } | null) {
