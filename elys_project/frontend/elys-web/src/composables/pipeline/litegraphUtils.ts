@@ -203,7 +203,7 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
 }
 
 /**
- * 工作流自动布局：把「多为线性、偶有末端分叉」的 DAG 排成「打字机式」折行网格（每行恒从左到右）。
+ * 工作流自动布局：把「多为线性、偶有末端分叉」的 DAG 排成「居中折行」网格——每行恒从左到右、各行个数均衡、整行水平居中。
  *
  * 为什么不用蛇形（boustrophedon）：litegraph 节点端口是固定的——输入永远在左、输出永远在右，
  * 数据天然向右流。蛇形让偶数行反向（右→左），那一行的节点「出口在右却要连左边的下一个节点」，
@@ -215,12 +215,14 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
  *   1) 算每个节点的「层深 depth」= 从任一根节点到它的最长路径长度（Kahn 拓扑排序 + 松弛）。
  *      这样节点一定排在其所有上游之后；末端 ERP/TFR/PSD 这类同层分叉会聚在一起。
  *   2) 同层按节点在原数组里的先后做稳定排序，最终展平成一条线性序列。
- *   3) 序列按列数 cols 折行铺进网格，**每行一律左→右**（不反向）。
+ *   3) 序列折行铺进网格，**每行一律左→右**（不反向）；折行方式见下「方案 B 居中折行」。
  *
- * 列数 cols 按画布宽高比 aspect 自适应：让网格宽高比 ≈ 画布宽高比，fit（缩放到全部可见）后最舒服。
- *   推导：网格宽 = cols·gapX，网格高 ≈ (n/cols)·gapY；令 宽/高 = aspect
- *        → cols² = aspect·n·gapY/gapX → cols = √(aspect·n·gapY/gapX)。
- *   （调用方按节点实际宽高传 gapX/gapY，所以节点越高 cols 越多、行数越少、回扫线越少。）
+ * 折行（方案 B「居中折行」）——把旧的「左对齐打字机网格」收顺成自然居中：
+ *   · 行数 rows 按画布宽高比挑：枚举 1..n，令网格整体宽高比（cols·gapX : rows·gapY）最接近画布，
+ *     同分取更少行（偏好填满的宽行）。画布够宽时自然退化成单行顺流。
+ *   · 节点尽量均分到各行（行与行个数差 ≤1），杜绝「3-3-1」那种末行只剩一个的孤儿。
+ *   · 每行水平居中（窄行落在最宽行正中），换行回扫线短而对称，不再是左对齐时那条横跨整行的长回扫。
+ *   （调用方按节点实际宽高传 gapX/gapY，所以节点越高、行越少。）
  *
  * @returns 节点 id → [x, y] 画布坐标的 Map；空图返回空 Map。（DAG 应无环；万一有环，环上节点 depth 取 0 兜底。）
  */
@@ -277,14 +279,36 @@ export function computeFlowLayout(
     return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0)
   })
 
-  let cols = Math.round(Math.sqrt((aspect * n * gapY) / gapX))
-  cols = Math.max(2, Math.min(n, cols))
+  // 方案 B「居中折行」：① 按画布宽高比挑「行数 rows」，令网格整体宽高比最接近画布（同分取更少行、
+  // 偏好填满的宽行 → 画布够宽时自然退化成单行顺流）；② 节点尽量均分到各行（行间个数差 ≤1，杜绝
+  // 「3-3-1」那种末行只剩一个的孤儿）；③ 每行水平居中（窄行落在最宽行正中），回扫线短而对称。
+  let rows = 1
+  let bestScore = Infinity
+  for (let r = 1; r <= n; r += 1) {
+    const colsNeeded = Math.ceil(n / r)
+    const gridAspect = (colsNeeded * gapX) / (r * gapY)
+    const score = Math.abs(Math.log(gridAspect / aspect))
+    if (score < bestScore - 1e-9) {
+      bestScore = score
+      rows = r
+    }
+  }
 
-  sequence.forEach((id, i) => {
-    const row = Math.floor(i / cols)
-    const col = i % cols // 打字机式：每行一律左→右，不反向（保持流向可读）
-    layout.set(id, [marginX + col * gapX, marginY + row * gapY])
-  })
+  const base = Math.floor(n / rows)
+  const extra = n % rows
+  const rowSizes = Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
+  const maxCols = Math.max(...rowSizes)
+  const centerX = marginX + ((maxCols - 1) * gapX) / 2
+
+  let i = 0
+  for (let r = 0; r < rows; r += 1) {
+    const size = rowSizes[r]
+    const rowStartX = centerX - ((size - 1) * gapX) / 2 // 本行整体居中
+    for (let c = 0; c < size; c += 1) {
+      layout.set(sequence[i], [Math.round(rowStartX + c * gapX), marginY + r * gapY])
+      i += 1
+    }
+  }
 
   return layout
 }
