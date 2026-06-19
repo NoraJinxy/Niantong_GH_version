@@ -300,9 +300,10 @@ async function load() {
       return
     }
     // 全程降采样取数（v1：先看全程；窗口分段 + 二进制分块见 P3）
+    // 后端约束：max_points∈[50,8000]、max_channels∈[1,256]
     const { ts: data } = await fetchTimeseries(studyId, outputId.value, {
-      maxPoints: 12000,
-      maxChannels: 200,
+      maxPoints: 8000,
+      maxChannels: 256,
     })
     ts.value = data
     document.title = `伪迹审核 · ${data.channels.length} 通道 — 念析`
@@ -376,6 +377,7 @@ onMounted(load)
 .am-source.is-demo { background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
 
 .am-left {
+  grid-column: 1;
   border-right: 1px solid var(--c-border);
   background: var(--c-surface);
   padding: var(--s-4);
@@ -389,11 +391,12 @@ onMounted(load)
 .am-chan-name { flex: 1; }
 .am-chan-tag { font-size: 10px; padding: 0 5px; border-radius: 999px; background: rgba(217, 119, 111, .18); color: var(--c-danger); }
 
-.am-center { padding: var(--s-4); min-width: 0; display: flex; flex-direction: column; gap: var(--s-3); overflow: hidden; }
+.am-center { grid-column: 2; padding: var(--s-4); min-width: 0; display: flex; flex-direction: column; gap: var(--s-3); overflow: hidden; }
 .am-hint { font-size: 12px; color: var(--c-text-2); }
 .am-chart { flex: 1; min-height: 360px; position: relative; }
 
 .am-right {
+  grid-column: 3;
   border-left: 1px solid var(--c-border);
   background: var(--c-surface);
   padding: var(--s-4);
