@@ -1073,54 +1073,6 @@
               <!-- 内部保存元信息（step_label / data_type / split 等）已对临床用户隐藏；排错看 spec JSON 或 API -->
             </div>
           </details>
-
-          <div class="connections">
-            <div class="panel__title panel__title--tight">连接</div>
-
-            <div v-if="selectedNodeInputLinks.length" class="connection-list">
-              <div class="connection-list__head">已连接的上游</div>
-              <div
-                v-for="link in selectedNodeInputLinks"
-                :key="link.id"
-                class="connection-row"
-              >
-                <span class="connection-row__from">{{ upstreamNodeLabel(link.from.node) }}</span>
-                <span class="connection-row__arrow">→</span>
-                <span class="connection-row__port">{{ link.to.port }}</span>
-                <button
-                  type="button"
-                  class="icon-button"
-                  title="移除该连线"
-                  @click="removeLink(link.id)"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div v-if="connectableUpstreamCandidates.length" class="connection-pool">
-              <div class="connection-list__head">
-                可作为上游
-                <small>· 点击即可连接（也可在画布上从端口拖线）</small>
-              </div>
-              <div class="chip-row">
-                <button
-                  v-for="candidate in connectableUpstreamCandidates"
-                  :key="candidate.node.id"
-                  type="button"
-                  class="chip chip--upstream"
-                  :title="candidate.tooltip"
-                  @click="quickConnectUpstream(candidate.node.id)"
-                >
-                  {{ candidate.label }}
-                  <small v-if="candidate.outputType">· {{ candidate.outputType }}</small>
-                </button>
-              </div>
-            </div>
-            <div v-else-if="!selectedNodeInputLinks.length" class="state-text">
-              当前画布里没有可作为上游的节点。先添加一个有输出端口的节点。
-            </div>
-          </div>
         </section>
         </div><!-- /inspector-inner -->
       </aside>
@@ -3537,6 +3489,29 @@ function pushChannelLocationSummary(graphNode: LiteGraphNode, params: Record<str
   pushReadonlyFact(graphNode, '电极帽', display)
 }
 
+/** ICLabel：处理方式(自动剔除/仅标注) + 置信度阈值 + 去除成分(5 个剔除开关折成一行的启用类别)。
+ *  通用 planNodeWidgets 会把 5 个开关各占一行、还撞封顶 4 行漏掉「心电」并把 advanced 工频/坏道全藏掉——
+ *  这里专属收成 3 行：医生一眼看清「删不删、删多确定、删哪几类」。 */
+function pushIclabelSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const action = String(params.action ?? 'apply')
+  pushReadonlyFact(graphNode, '处理方式', action === 'mark' ? '仅标注' : '自动剔除')
+
+  const rawThr = params.prob_threshold
+  const thr = rawThr != null && rawThr !== '' ? Number(rawThr) : 0.8
+  pushReadonlyFact(graphNode, '置信度阈值', trimNumberText(thr))
+
+  // 5 个剔除开关折成一行：列出启用的伪迹类别(默认全开 → 眼电/肌电/心电/工频/坏道)。
+  const CATEGORIES: Array<[string, string]> = [
+    ['remove_eye', '眼电'],
+    ['remove_muscle', '肌电'],
+    ['remove_heart', '心电'],
+    ['remove_line_noise', '工频'],
+    ['remove_channel_noise', '坏道'],
+  ]
+  const on = CATEGORIES.filter(([key]) => params[key] !== false).map(([, name]) => name)
+  pushReadonlyFact(graphNode, '去除成分', on.length ? on.join('/') : '无')
+}
+
 /** 只读事实的显示值：combo→中文档位、数字→去尾零+单位、开关→开/关。 */
 function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   if (plan.kind === 'combo') return plan.value
@@ -3591,6 +3566,9 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       break
     case 'eeg/preproc/channel_location':
       pushChannelLocationSummary(graphNode, params)
+      break
+    case 'eeg/ica/iclabel':
+      pushIclabelSummary(graphNode, params)
       break
     default:
       if (spec) {
