@@ -588,7 +588,7 @@ const filters = reactive({
   data_types: [] as string[],
   bids_subject_ids: [] as string[],
   tasks: [] as string[],
-  // 来源工作流筛选：每项是 workflowKey(row) = `pipeline_name pipeline_version`，
+  // 来源工作流筛选：每项是 workflowKey(row) = `pipeline_name\u0000pipeline_version`，
   // 即「某工作流的某一版」。这样筛选直接回答「哪个工作流哪一版报出来的结果」。
   workflows: [] as string[],
   status: 'all' as StatusFilter,
@@ -677,9 +677,9 @@ const selectedObserveGroupCount = computed(() => {
 })
 
 // === 来源工作流（pipeline 名 · 版本）===
-// 一条结果的来源标识：同一工作流的不同版本视为不同来源。用   当分隔避免与名称里的字符撞。
+// 一条结果的来源标识：同一工作流的不同版本视为不同来源。用 \u0000 当分隔避免与名称里的字符撞。
 function workflowKey(row: { pipeline_name?: string | null; pipeline_version?: number | null }): string {
-  return `${row.pipeline_name || ''} ${row.pipeline_version ?? ''}`
+  return `${row.pipeline_name || ''}\u0000${row.pipeline_version ?? ''}`
 }
 
 // 行内/详情展示用：「工作流名 · v版本」。两者都缺时返回空串（调用方自行隐藏胶囊）。
