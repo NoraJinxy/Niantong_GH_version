@@ -91,7 +91,7 @@ export const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label
   { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
 ]
 export const NODE_CARD_WIDTH = 264
-export const NODE_CARD_MIN_HEIGHT = 96
+export const NODE_CARD_MIN_HEIGHT = 64
 export const NODE_TITLE_MAX_CHARS = 22
 export const NODE_GAP_X = 304
 export const NODE_GAP_Y = 168

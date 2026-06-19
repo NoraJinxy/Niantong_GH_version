@@ -87,10 +87,10 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
         }
 
         onDrawTitleBar(ctx: CanvasRenderingContext2D, titleHeight: number, size: [number, number]) {
-          const gradient = ctx.createLinearGradient(0, -titleHeight, size[0], 0)
+          // 标题栏顶部 14px 一缕类别淡色竖向晕染到白（左右对称、不留灰端色），保持整卡单一色系。
+          const gradient = ctx.createLinearGradient(0, -titleHeight, 0, -titleHeight + 14)
           gradient.addColorStop(0, softAccent)
-          gradient.addColorStop(0.64, '#FFFFFF')
-          gradient.addColorStop(1, '#F8FAFC')
+          gradient.addColorStop(1, '#FFFFFF')
           ctx.fillStyle = gradient
           ctx.beginPath()
           ctx.roundRect(0, -titleHeight, size[0] + 1, titleHeight, [6, 6, 0, 0])
@@ -107,18 +107,13 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
         }
 
         onDrawTitleBox(ctx: CanvasRenderingContext2D, titleHeight: number) {
+          // 单颗实心类别圆点（去掉原「白底 + 0.42 描边圈 + 内点」的牛眼）——与右侧状态圆点
+          // 形成「点·标题·点」的对称呼应，靠重复而非装饰出风格，且少一道 withAlpha 半透明描边、HiDPI 更利。
           const x = titleHeight * 0.5 - 1
           const y = -titleHeight * 0.5
-          ctx.fillStyle = '#FFFFFF'
-          ctx.strokeStyle = withAlpha(accent, 0.42)
-          ctx.lineWidth = 1
-          ctx.beginPath()
-          ctx.arc(x, y, 6, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.stroke()
           ctx.fillStyle = accent
           ctx.beginPath()
-          ctx.arc(x, y, 3, 0, Math.PI * 2)
+          ctx.arc(x, y, 3.2, 0, Math.PI * 2)
           ctx.fill()
         }
 
@@ -140,16 +135,10 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
           const hovered = Boolean(node.mouseOver)
 
           ctx.save()
-          if (selected) {
-            ctx.strokeStyle = withAlpha(accent, 0.22)
-            ctx.lineWidth = 3
-            ctx.beginPath()
-            ctx.roundRect(-2, -titleHeight - 2, width + 5, height + titleHeight + 5, [8])
-            ctx.stroke()
-          }
-
+          // 选中 = 边框直接转 accent 1.5px（去掉原来那圈 3px 半透明模糊光晕）——全卡都是 HiDPI 发丝线
+          // 与扁平填充，模糊光晕是唯一不锐利的元素、与临床工具的精密感相悖；一条更实的描边更静更利。
           ctx.strokeStyle = selected ? accent : hovered ? withAlpha(accent, 0.72) : '#D4DDE8'
-          ctx.lineWidth = selected ? 1.6 : hovered ? 1.25 : 1
+          ctx.lineWidth = selected ? 1.5 : hovered ? 1.25 : 1
           ctx.beginPath()
           ctx.roundRect(0.5, -titleHeight + 0.5, width, height + titleHeight, [6])
           ctx.stroke()

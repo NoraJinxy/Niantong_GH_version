@@ -1234,13 +1234,13 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
-const CARD_ROW_H = 18 // 事实行高（无胶囊纯文本值更显眼，行距放松到 18）
-const NODE_FACT_DIVIDER_H = 12 // 端口区与事实区之间的发丝分隔线所占高度（含上下留白）
-const NODE_BOTTOM_PAD = 12 // 卡片底部固定留白，给保存指示胶囊让位、且各卡底部节奏一致
-// 只读事实行的「双层排版」字体（无框纯文本）：数字醒目(600/12)、单位弱化(500/11)、运算符更轻(400/11)
+// litegraph 每个 widget 实际行距 = computeSize 高 + 4（源码强加）。此处 14 → 有效行距 18px。
+const CARD_ROW_H = 14
+const NODE_FACT_DIVIDER_H = 8 // 端口区与事实区之间的发丝分隔线高（有效占 8+4=12px）
+// 只读事实行字体：测量数字 = 全卡唯一的粗体(600/12)；档位词同字号低一档(500/12，秀气不墩)；单位/运算符 500/11 弱化
 const FACT_NUM_FONT = '600 12px "Segoe UI", Arial, sans-serif'
+const FACT_CAT_FONT = '500 12px "Segoe UI", Arial, sans-serif'
 const FACT_UNIT_FONT = '500 11px "Segoe UI", Arial, sans-serif'
-const FACT_OP_FONT = '400 11px "Segoe UI", Arial, sans-serif'
 type FactRun = { text: string; font: string; fill: string; w: number }
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
@@ -2062,7 +2062,7 @@ function configureLiteGraphTheme() {
   const theme = LiteGraph as LooseLiteGraphTheme
   theme.NODE_TITLE_HEIGHT = 30
   theme.NODE_TITLE_TEXT_Y = 20
-  theme.NODE_SLOT_HEIGHT = 28
+  theme.NODE_SLOT_HEIGHT = 22
   theme.DEFAULT_SHADOW_COLOR = 'rgba(0,0,0,0.04)'
   theme.NODE_COLLAPSED_RADIUS = 12
   // 端口命中半径 — 默认 6，调大让端口更容易点中和拖线
@@ -3143,19 +3143,20 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
-  const slotH = LiteGraph.NODE_SLOT_HEIGHT || 28
-  const portsHeight = portRows * slotH
+  const slotH = LiteGraph.NODE_SLOT_HEIGHT || 22
   const factCount = widgets.length
+  const isLoadData = String((graphNode as { type?: unknown }).type || '') === LOAD_DATA_NODE_TYPE
+  // LoadData 的内容是文件名行（语义上不需要「端口/方法学」分隔线）；其余事实卡才插发丝线。
+  const hasDivider = factCount > 0 && !isLoadData
 
-  // 事实之上插一条极淡发丝线（分隔端口区与方法学事实区）；顶部对齐 = 不再补沉底 spacer。
-  if (factCount > 0) {
+  if (hasDivider) {
     widgets.unshift({
       type: 'elys_divider',
       name: '',
       value: null,
       computeSize: (w: number) => [w, NODE_FACT_DIVIDER_H],
       draw: (ctx: CanvasRenderingContext2D, _node: unknown, w: number, y: number, _h: number) => {
-        const lineY = Math.round(y + NODE_FACT_DIVIDER_H - 5) + 0.5
+        const lineY = Math.round(y + 6) + 0.5 // 1px 描边居中在 8+4=12px 预留带里
         ctx.save()
         ctx.strokeStyle = '#E0E6EE'
         ctx.lineWidth = 1
@@ -3168,9 +3169,18 @@ function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
     } as unknown)
   }
 
-  const bodyHeight = portsHeight + (factCount > 0 ? NODE_FACT_DIVIDER_H + factCount * CARD_ROW_H : 0) + NODE_BOTTOM_PAD
-  const totalHeight = Math.max(NODE_CARD_MIN_HEIGHT, bodyHeight)
-  graphNode.size = [NODE_CARD_WIDTH, totalHeight]
+  // 高度严格对齐 litegraph 的 widget 布局：起点 = 钉死的 widgets_start_y（避开 max_y 漂移），
+  // 之后 drawNodeWidgets 先 posY+=2，再每个 widget posY += computeSize高 + 4。把这「一次性 +2」「每行 +4」
+  // 全算进来，卡片高度才恰好罩住最后一行、不溢出（旧公式漏算致 3 行卡的末行冲出底边）。
+  const PORT_GUTTER = 6
+  const widgetsStartY = portRows * slotH + PORT_GUTTER
+  ;(graphNode as { widgets_start_y?: number }).widgets_start_y = widgetsStartY
+  const stackHeight = 2 + (hasDivider ? NODE_FACT_DIVIDER_H + 4 : 0) + factCount * (CARD_ROW_H + 4)
+  // 末行与底部保存胶囊（画在 height-7）之间留净空：有保存条的卡留 11，无的留 7。
+  // 保存条只出现在「非 LoadData」事实卡，LoadData 恒无 → 取 7。
+  const bottomBand = factCount > 0 && !isLoadData ? 11 : 7
+  const bodyHeight = widgetsStartY + stackHeight + bottomBand
+  graphNode.size = [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, bodyHeight)]
 }
 
 /** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截。 */
@@ -3235,7 +3245,7 @@ function factValueRuns(value: string, textColor: string, mutedColor: string): Fa
   // 先剥掉已知单位再判字母：'dB'/'30 Hz' 的单位不算字母，但 'LOF'/'带通' 的字母/中文要拦住。
   const unitStripped = value.replace(/Hz|kHz|ms|µV|uV|dB|%|项|个|通道|s/g, '')
   const isNumericFact = /\d/.test(value) && !/[/A-Za-z一-鿿]/.test(unitStripped)
-  if (!isNumericFact) return [{ text: value, font: FACT_NUM_FONT, fill: textColor, w: 0 }]
+  if (!isNumericFact) return [{ text: value, font: FACT_CAT_FONT, fill: textColor, w: 0 }]
 
   const runs: FactRun[] = []
   const push = (text: string, font: string, fill: string) => {
@@ -3248,7 +3258,7 @@ function factValueRuns(value: string, textColor: string, mutedColor: string): Fa
   while ((m = re.exec(value))) {
     if (m.index > last) push(value.slice(last, m.index), FACT_UNIT_FONT, mutedColor)
     if (m[1] !== undefined) push(m[1], FACT_NUM_FONT, textColor)
-    else if (m[2] !== undefined) push(m[2], FACT_OP_FONT, mutedColor)
+    else if (m[2] !== undefined) push(m[2], FACT_UNIT_FONT, mutedColor)
     else push(m[0], FACT_UNIT_FONT, mutedColor) // 空白：用单位字体测宽留白
     last = re.lastIndex
   }
