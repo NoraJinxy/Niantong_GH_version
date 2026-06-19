@@ -46,11 +46,12 @@
       </header>
 
       <!-- 未选研究项：大空状态 -->
-      <section v-if="!selectedStudyId" class="empty results-empty-stage">
-        <div class="empty__icon"><AppIcon name="figure" :size="26" /></div>
-        <strong>先选择一个研究项</strong>
-        <p>结果按研究项组织。选择右上角的研究项就能浏览它产出的所有结果。</p>
-      </section>
+      <EmptyState
+        v-if="!selectedStudyId"
+        icon="figure"
+        title="先选择一个研究项"
+        description="结果按研究项组织。选择右上角的研究项就能浏览它产出的所有结果。"
+      />
 
       <template v-else>
         <!-- ❷ Summary Strip - 可点击筛选 -->
@@ -77,14 +78,14 @@
             @click="filters.data_types = []"
           >
             <span class="type-chip__icon"><AppIcon name="dashboard" :size="14" /></span>
-            全部 <small>{{ datasets.length }}</small>
+            全部 <small>{{ studyOutputs.length }}</small>
           </button>
           <button
             v-for="opt in dataTypeOptions"
             :key="'tc-' + opt"
             type="button"
             class="type-chip"
-            :class="[{ 'is-active': filters.data_types.includes(opt) }, dataTypeClass(opt)]"
+            :class="{ 'is-active': filters.data_types.includes(opt) }"
             @click="toggleFilter('data_types', opt)"
           >
             <span class="type-chip__icon"><AppIcon :name="dataTypeIcon(opt)" :size="14" /></span>
@@ -122,7 +123,7 @@
               <div v-if="!dataTypeOptions.length" class="filter-dd__empty">无可筛选项</div>
               <label v-for="opt in dataTypeOptions" :key="'dd-dt-' + opt" class="filter-dd__opt">
                 <input type="checkbox" :checked="filters.data_types.includes(opt)" @change="toggleFilter('data_types', opt)" />
-                <span class="data-type-tag" :class="dataTypeClass(opt)">
+                <span class="data-type-tag">
                   {{ formatDataType(opt) }}
                 </span>
               </label>
@@ -206,10 +207,10 @@
         <section class="results-toolbar">
           <div class="results-toolbar__count">
             <strong>{{ filtered.length }}</strong>
-            <span class="muted">/ 共 {{ datasets.length }} 条</span>
+            <span class="muted">/ 共 {{ studyOutputs.length }} 条</span>
             <span v-if="loading" class="muted">· 读取中…</span>
             <span v-if="error" class="results-toolbar__error">· {{ error }}</span>
-            <span v-if="datasets.length >= 1000" class="muted">· 仅展示前 1000 条</span>
+            <span v-if="studyOutputs.length >= 1000" class="muted">· 仅展示前 1000 条</span>
           </div>
 
           <div class="results-toolbar__right">
@@ -254,7 +255,7 @@
         <section class="results-body" :class="{ 'has-detail': activeRow }">
           <div class="results-list" @keydown="onListKeydown">
             <!-- Loading skeleton -->
-            <div v-if="loading && !datasets.length" class="results-skeleton">
+            <div v-if="loading && !studyOutputs.length" class="results-skeleton">
               <div v-for="i in 5" :key="'sk-' + i" class="results-skeleton-row">
                 <div class="results-skeleton-row__check"></div>
                 <div class="results-skeleton-row__tag"></div>
@@ -266,23 +267,27 @@
             </div>
 
             <!-- Empty: no data at all -->
-            <div v-else-if="!datasets.length" class="results-empty-inline">
-              <div class="results-empty-inline__icon"><AppIcon name="figure" :size="28" /></div>
-              <strong>这个研究项还没有结果</strong>
-              <p>执行一个工作流试试，输出结果会在这里汇总。</p>
+            <EmptyState
+              v-else-if="!studyOutputs.length"
+              icon="figure"
+              title="这个研究项还没有结果"
+              description="执行一个工作流试试，输出结果会在这里汇总。"
+            >
               <RouterLink class="btn btn--primary btn--sm" :to="`/studies/${selectedStudyId}/pipeline`" target="_blank" rel="noopener">
                 <AppIcon name="pipeline" :size="14" />
                 进入工作流
               </RouterLink>
-            </div>
+            </EmptyState>
 
             <!-- Empty: no match -->
-            <div v-else-if="!filtered.length" class="results-empty-inline">
-              <div class="results-empty-inline__icon"><AppIcon name="search" :size="28" /></div>
-              <strong>没有符合条件的结果</strong>
-              <p>试着调整筛选条件，或清空当前筛选。</p>
+            <EmptyState
+              v-else-if="!filtered.length"
+              icon="search"
+              title="没有符合条件的结果"
+              description="试着调整筛选条件，或清空当前筛选。"
+            >
               <button class="btn btn--sm" type="button" @click="resetFilters">重置筛选</button>
-            </div>
+            </EmptyState>
 
             <!-- 工作流文件夹树：filtered 之后按「工作流·版本」分组；单组退化为非折叠面包屑 -->
             <template v-else>
@@ -340,7 +345,7 @@
                     @keydown.enter="openObserve(row)"
                   >
                     <span class="rtree-row__indent" aria-hidden="true"></span>
-                    <span class="data-type-tag" :class="dataTypeClass(row.data_type)">
+                    <span class="data-type-tag">
                       {{ formatDataType(row.data_type) }}
                     </span>
                     <strong class="rtree-row__name" :title="rowDisplayName(row)">{{ rowDisplayName(row) }}</strong>
@@ -368,7 +373,7 @@
           <aside v-if="activeRow" class="result-detail">
             <header class="result-detail__hero">
               <div class="result-detail__hero-top">
-                <span class="data-type-tag data-type-tag--lg" :class="dataTypeClass(activeRow.data_type)">
+                <span class="data-type-tag data-type-tag--lg">
                   <AppIcon :name="dataTypeIcon(activeRow.data_type)" :size="12" />
                   {{ formatDataType(activeRow.data_type) }}
                 </span>
@@ -511,7 +516,7 @@
     </div>
 
     <!-- 批量加标签弹层 -->
-    <div v-if="bulkTagOpen" class="modal-overlay" @click.self="bulkTagOpen = false">
+    <Modal v-if="bulkTagOpen" @close="bulkTagOpen = false">
       <section class="bulk-tag-dialog" role="dialog">
         <header class="bulk-tag-dialog__head">
           <strong>给 {{ selectedIds.size }} 条结果加标签</strong>
@@ -530,7 +535,7 @@
           <button class="btn btn--primary" type="button" :disabled="!bulkTagDraft.trim()" @click="commitBulkTag">应用</button>
         </footer>
       </section>
-    </div>
+    </Modal>
 </template>
 
 <script setup lang="ts">
@@ -538,6 +543,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import TechnicalFold from '@/components/TechnicalFold.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import Modal from '@/components/common/Modal.vue'
 import { pipelineApi } from '@/api/pipelines'
 import { formatDataType } from '@/composables/pipeline/pipelineFormatters'
 import type {
@@ -555,10 +562,10 @@ const keepOptions: Array<{ value: 'keep' | 'discard'; label: string }> = [
 const route = useRoute()
 const router = useRouter()
 const selectedStudyId = computed(() => String(route.params.studyId || ''))
-const datasets = ref<StudyOutput[]>([])
+const studyOutputs = ref<StudyOutput[]>([])
 // 结果页只展示有意义的输出：保存 / 缓存 / 回收站；滤掉「纯临时」（不保存、系统也不缓存的跑完即清中间废料）
-const visibleDatasets = computed(() =>
-  datasets.value.filter((d) => d.keep || d.cache_eligible || Boolean(d.deleted_at)),
+const visibleOutputs = computed(() =>
+  studyOutputs.value.filter((d) => d.keep || d.cache_eligible || Boolean(d.deleted_at)),
 )
 const loading = ref(false)
 const error = ref('')
@@ -566,7 +573,7 @@ const error = ref('')
 const searchText = ref('')
 
 function countByType(typeName: string): number {
-  return visibleDatasets.value.filter((d) => d.data_type === typeName).length
+  return visibleOutputs.value.filter((d) => d.data_type === typeName).length
 }
 
 // 从 preview_json 里抽几个关键数字作占位预览描述
@@ -609,7 +616,7 @@ const moreOpen = ref(false)
 const copyHint = ref('')
 
 // === computed ===
-const activeRow = computed(() => datasets.value.find((d) => d.id === activeId.value) || null)
+const activeRow = computed(() => studyOutputs.value.find((d) => d.id === activeId.value) || null)
 
 // 按 data_type 路由到对应观察页（参数统一 studyId + study_output_id）
 function observeRoute(row: { id: string; data_type?: string | null; display_name?: string | null }) {
@@ -647,7 +654,7 @@ function openObserve(row: { id: string; data_type?: string | null; display_name?
 // 多选「一起观察」：把勾选的结果按观察页（模态）分组——同模态的拼成逗号串
 // study_output_id 叠加进同一页（观察页原生支持多产物对比）；跨模态则各开一页。
 function observeSelected() {
-  const rows = datasets.value.filter((d) => selectedIds.has(d.id) && !d.deleted_at)
+  const rows = studyOutputs.value.filter((d) => selectedIds.has(d.id) && !d.deleted_at)
   if (!rows.length) return
   const groups = new Map<string, StudyOutput[]>()
   for (const row of rows) {
@@ -670,7 +677,7 @@ function observeSelected() {
 // 勾选里横跨几种观察模态（>1 时「一起观察」会分多页打开，按钮上给出提示）。
 const selectedObserveGroupCount = computed(() => {
   const paths = new Set<string>()
-  for (const d of datasets.value) {
+  for (const d of studyOutputs.value) {
     if (selectedIds.has(d.id) && !d.deleted_at) paths.add(observeRoute(d).path)
   }
   return paths.size
@@ -694,7 +701,7 @@ function workflowLabel(row: { pipeline_name?: string | null; pipeline_version?: 
 // 筛选下拉的工作流选项：去重的 (名, 版本) 对，带计数；按名升序、同名版本降序（新版本在前）。
 const workflowOptions = computed(() => {
   const map = new Map<string, { key: string; label: string; name: string; version: number | null; count: number }>()
-  for (const d of visibleDatasets.value) {
+  for (const d of visibleOutputs.value) {
     if (!d.pipeline_name && d.pipeline_version == null) continue
     const key = workflowKey(d)
     const existing = map.get(key)
@@ -712,18 +719,18 @@ const workflowOptions = computed(() => {
   )
 })
 
-const dataTypeOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.data_type)))
-const subjectOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.bids_subject_id || '').filter(Boolean)))
-const taskOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.task || '').filter(Boolean)))
+const dataTypeOptions = computed(() => uniqueSorted(visibleOutputs.value.map((d) => d.data_type)))
+const subjectOptions = computed(() => uniqueSorted(visibleOutputs.value.map((d) => d.bids_subject_id || '').filter(Boolean)))
+const taskOptions = computed(() => uniqueSorted(visibleOutputs.value.map((d) => d.task || '').filter(Boolean)))
 const tagOptions = computed(() => {
   const set = new Set<string>()
-  for (const d of visibleDatasets.value) for (const t of d.tags || []) set.add(t)
+  for (const d of visibleOutputs.value) for (const t of d.tags || []) set.add(t)
   return Array.from(set).sort()
 })
 
 const filtered = computed(() => {
   const q = searchText.value.trim().toLowerCase()
-  return visibleDatasets.value.filter((d) => {
+  return visibleOutputs.value.filter((d) => {
     if (filters.data_types.length && !filters.data_types.includes(d.data_type)) return false
     if (filters.workflows.length && !filters.workflows.includes(workflowKey(d))) return false
     if (filters.bids_subject_ids.length && !filters.bids_subject_ids.includes(d.bids_subject_id || '')) return false
@@ -761,7 +768,7 @@ const filtered = computed(() => {
 
 const summaryCards = computed(() => {
   let all = 0, kept = 0, transient = 0, deleted = 0
-  for (const d of visibleDatasets.value) {
+  for (const d of visibleOutputs.value) {
     all++
     if (d.deleted_at) deleted++
     else if (d.keep) kept++
@@ -958,7 +965,7 @@ function onGlobalClick(event: MouseEvent) {
 // === actions ===
 async function reload() {
   if (!selectedStudyId.value) {
-    datasets.value = []
+    studyOutputs.value = []
     return
   }
   loading.value = true
@@ -973,9 +980,9 @@ async function reload() {
       offset: 0,
     }
     const res = await pipelineApi.listStudyOutputs(selectedStudyId.value, query)
-    datasets.value = res.data.study_outputs
+    studyOutputs.value = res.data.study_outputs
   } catch (err) {
-    datasets.value = []
+    studyOutputs.value = []
     error.value = describeError(err, '结果读取失败')
   } finally {
     loading.value = false
@@ -1086,7 +1093,7 @@ async function bulkSetKeep(keep: boolean) {
       update: { keep, reason: 'results_page_bulk' },
     })
     const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
-    datasets.value = datasets.value.map((d) => map.get(d.id) || d)
+    studyOutputs.value = studyOutputs.value.map((d) => map.get(d.id) || d)
     selectedIds.clear()
   } catch (err) {
     error.value = describeError(err, '批量操作失败')
@@ -1101,7 +1108,7 @@ async function bulkDelete() {
       update: { deleted: true, reason: 'results_page_bulk' },
     })
     const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
-    datasets.value = datasets.value.map((d) => map.get(d.id) || d)
+    studyOutputs.value = studyOutputs.value.map((d) => map.get(d.id) || d)
     selectedIds.clear()
   } catch (err) {
     error.value = describeError(err, '批量删除失败')
@@ -1123,7 +1130,7 @@ async function commitBulkTag() {
       update: { tags, reason: 'results_page_bulk_tag' },
     })
     const map = new Map(res.data.study_outputs.map((d) => [d.id, d]))
-    datasets.value = datasets.value.map((d) => map.get(d.id) || d)
+    studyOutputs.value = studyOutputs.value.map((d) => map.get(d.id) || d)
     bulkTagOpen.value = false
   } catch (err) {
     error.value = describeError(err, '批量加标签失败')
@@ -1134,7 +1141,7 @@ async function setRowKeep(row: StudyOutput, keep: boolean) {
   if (!selectedStudyId.value) return
   try {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { keep })
-    datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
+    studyOutputs.value = studyOutputs.value.map((d) => (d.id === row.id ? res.data : d))
   } catch (err) {
     error.value = describeError(err, '保存设置修改失败')
   }
@@ -1144,7 +1151,7 @@ async function setRowDeleted(row: StudyOutput, deleted: boolean) {
   if (!selectedStudyId.value) return
   try {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { deleted })
-    datasets.value = datasets.value.map((d) => (d.id === row.id ? res.data : d))
+    studyOutputs.value = studyOutputs.value.map((d) => (d.id === row.id ? res.data : d))
   } catch (err) {
     error.value = describeError(err, deleted ? '删除失败' : '恢复失败')
   }
@@ -1172,7 +1179,7 @@ async function commitRename() {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, activeRow.value.id, {
       display_name: next || null,
     })
-    datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
+    studyOutputs.value = studyOutputs.value.map((d) => (d.id === res.data.id ? res.data : d))
   } catch (err) {
     error.value = describeError(err, '改名失败')
   }
@@ -1189,7 +1196,7 @@ async function commitTagDraft() {
   const next = [...(activeRow.value.tags || []), draft]
   try {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, activeRow.value.id, { tags: next })
-    datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
+    studyOutputs.value = studyOutputs.value.map((d) => (d.id === res.data.id ? res.data : d))
     tagDraft.value = ''
   } catch (err) {
     error.value = describeError(err, '加标签失败')
@@ -1201,7 +1208,7 @@ async function removeTag(row: StudyOutput, tag: string) {
   const next = (row.tags || []).filter((t) => t !== tag)
   try {
     const res = await pipelineApi.updateStudyOutput(selectedStudyId.value, row.id, { tags: next })
-    datasets.value = datasets.value.map((d) => (d.id === res.data.id ? res.data : d))
+    studyOutputs.value = studyOutputs.value.map((d) => (d.id === res.data.id ? res.data : d))
   } catch (err) {
     error.value = describeError(err, '移除标签失败')
   }
@@ -1307,19 +1314,6 @@ function retentionLabel(row: StudyOutput): string {
   return '不保存'
 }
 
-function dataTypeClass(type?: string | null): string {
-  const t = String(type || '').toLowerCase()
-  if (t.includes('ica')) return 'is-ica'
-  if (t.includes('psd')) return 'is-psd'
-  if (t.includes('tfr')) return 'is-tfr'
-  if (t.includes('source')) return 'is-source'
-  if (t.includes('micro')) return 'is-microstate'
-  if (t.includes('connect')) return 'is-connectivity'
-  if (t.includes('erp')) return 'is-erp'
-  if (t.includes('ml') || t.includes('model')) return 'is-ml'
-  return 'is-default'
-}
-
 function dataTypeIcon(type?: string | null): string {
   const t = String(type || '').toLowerCase()
   if (t.includes('ica') || t.includes('component')) return 'brain'
@@ -1396,33 +1390,6 @@ function describeError(err: unknown, fallback: string): string {
   gap: 10px;
 }
 
-.results-study-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--c-text-2);
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  background: var(--c-surface);
-  transition: border-color var(--t-fast);
-}
-.results-study-select:hover {
-  border-color: var(--c-border-strong);
-}
-.results-study-select select {
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--c-text);
-  font-size: 13px;
-  font-weight: 500;
-  min-width: 180px;
-  cursor: pointer;
-}
-
 .results-more {
   position: relative;
 }
@@ -1460,28 +1427,11 @@ function describeError(err: unknown, fallback: string): string {
   cursor: not-allowed;
 }
 
-/* ===== Empty stage (no study) ===== */
-.results-empty-stage {
-  min-height: 280px;
-  padding: var(--s-6) var(--s-5);
-}
-.results-empty-stage strong {
-  color: var(--c-text);
-  font-size: 15px;
-  font-weight: 800;
-}
-.results-empty-stage p {
-  max-width: 360px;
-  margin: 0;
-  color: var(--c-text-3);
-  font-size: 13px;
-  line-height: 1.6;
-}
 
 /* ===== ❷ Summary Strip ===== */
 .results-summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 @media (max-width: 960px) {
@@ -1519,9 +1469,7 @@ function describeError(err: unknown, fallback: string): string {
 }
 
 .results-summary-card.is-neutral { --card-tone: var(--c-text-3); }
-.results-summary-card.is-primary { --card-tone: var(--c-primary); }
 .results-summary-card.is-success { --card-tone: var(--c-success); }
-.results-summary-card.is-warning { --card-tone: var(--c-warning); }
 .results-summary-card.is-danger { --card-tone: var(--c-danger); }
 .results-summary-card.is-muted { --card-tone: var(--c-border-strong); }
 
@@ -1934,11 +1882,6 @@ function describeError(err: unknown, fallback: string): string {
 @keyframes results-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: .55; }
-}
-
-/* inline empty */
-.results-empty-inline {
-  min-height: 200px;
 }
 
 /* 来源工作流胶囊：折叠头一眼看清「哪个工作流 · 哪一版」。中性底色 + 主色文字，不抢标题。 */
@@ -2413,17 +2356,6 @@ function describeError(err: unknown, fallback: string): string {
 }
 
 /* ===== Bulk tag dialog ===== */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(20, 32, 52, .42);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(2px);
-}
-
 .bulk-tag-dialog {
   width: min(440px, 92vw);
   background: var(--c-surface);
