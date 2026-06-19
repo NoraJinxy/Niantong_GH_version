@@ -2259,6 +2259,7 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const evokeds = saved.filter((item) => item.data_type === 'evoked')
   const psds = saved.filter((item) => (item.data_type || '').toLowerCase() === 'psd')
   const tfrs = saved.filter((item) => (item.data_type || '').toLowerCase() === 'tfr')
+  const icas = saved.filter((item) => (item.data_type || '').toLowerCase() === 'ica')
   let href: string
   if (evokeds.length) {
     const ids = evokeds.map((e) => e.id).join(',')
@@ -2288,6 +2289,10 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
       name: tfrs.length > 1 ? '时频（多条件对比）' : tfrs[0].display_name || '时频',
     })
     href = `/observe/tfr?${params.toString()}`
+  } else if (icas.length) {
+    // ICA 矩阵产物 → 成分审阅页（只读查看；选成分的决策流走 Apply ICA 暂停）
+    const params = new URLSearchParams({ studyId, study_output_id: icas[0].id, name: icas[0].display_name || 'ICA 成分' })
+    href = `/ica?${params.toString()}`
   } else {
     const target = saved[0]
     const base = {
