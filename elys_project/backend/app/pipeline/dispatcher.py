@@ -16,6 +16,7 @@ from app.engine.analysis.psd import run_psd
 from app.engine.analysis.reject import run_reject_trials
 from app.engine.analysis.tfr import run_tfr
 from app.engine.group.average import build_grandavg_payload, run_group_average
+from app.engine.group.compare import run_group_compare
 from app.engine.group.merge import run_group_merge
 from app.engine.io import (
     read_epochs_from_data_info,
@@ -26,12 +27,14 @@ from app.engine.io import (
     save_ica_fif,
     save_psd_npz,
     save_raw_fif,
+    save_stat_map_npz,
     save_tfr_h5,
     save_unit_stack_npz,
     summarize_epochs,
     summarize_evoked,
     summarize_psd,
     summarize_raw,
+    summarize_stat_map,
     summarize_tfr,
     summarize_unit_stack,
 )
@@ -100,6 +103,7 @@ class NodeDispatcher:
             "eeg/analysis/psd": self._execute_psd_average,
             "eeg/group/merge": self._execute_group_merge,
             "eeg/group/average": self._execute_group_average,
+            "eeg/group/compare": self._execute_group_compare,
         }
 
     def supported_node_types(self) -> set[str]:
@@ -1040,6 +1044,130 @@ class NodeDispatcher:
             output_ports=["output"],
             errors=errors,
         )
+
+    def _execute_group_compare(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """N-to-1(双口): 收 A/B 两组 unit_stack，沿 unit 轴做统计比较，输出一个 stat_map artifact。"""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        a_infos = self._input_data_infos(context, "a")
+        b_infos = self._input_data_infos(context, "b")
+
+        if not a_infos or not b_infos:
+            missing = "a" if not a_infos else "b"
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message=f"Group Compare 缺少上游输入（端口 {missing} 为空，需 A/B 各接一组 unit_stack）。",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(
+            context.db, context.study, context.execution, context.job
+        )
+        params = context.params if isinstance(context.params, dict) else {}
+
+        try:
+            result = run_group_compare(a_infos, b_infos, params)
+            summary = summarize_stat_map(result)
+            contrast = str(result.get("contrast_label") or "")
+            base_type = str(result.get("base_type") or "")
+
+            safe_label = "".join(
+                c if c.isalnum() or c in {"-", "_"} else "_" for c in contrast
+            ).strip("_") or "compare"
+            filename = f"{safe_label}_statmap.npz"
+
+            upstream_ids = [
+                str(di.get("artifact_id") or di.get("study_output_id") or "")
+                for di in (a_infos + b_infos)
+                if di.get("artifact_id") or di.get("study_output_id")
+            ]
+
+            save_meta = self._save_settings_metadata(
+                context,
+                data_info={"condition": contrast, "task": contrast},
+                index=0,
+                split_value=contrast or None,
+            )
+
+            artifact = study_output_store.save_file_from_writer(
+                filename,
+                lambda path, r=result: save_stat_map_npz(r, path),
+                kind="analysis_result",
+                data_type="stat_map",
+                metadata={
+                    "node_id": node_id,
+                    "node_type": node_type,
+                    "params": params,
+                    "mne_summary": summary,
+                    "upstream_dataset_ids": upstream_ids,
+                    "upstream_recording_ids": [],
+                    "base_type": base_type,
+                    "contrast_label": contrast,
+                    **save_meta,
+                },
+                preview=summary,
+                source_dataset_id=None,
+                node_id=node_id,
+            )
+
+            storage_path = str(artifact.get("storage_path") or "")
+            artifact_path = self._artifact_path(context.study, artifact)
+            fif_abs_path = str(artifact_path) if artifact_path else None
+
+            stat_data_info: dict[str, Any] = {
+                "data_type": "stat_map",
+                "base_type": base_type,
+                "file_role": "pipeline_artifact",
+                "artifact_id": artifact.get("artifact_id"),
+                "study_output_id": artifact.get("study_output_id"),
+                "study_id": str(getattr(context.study, "id", "")),
+                "study_root": str(
+                    getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
+                ),
+                "storage_path": storage_path,
+                "storage_uri": artifact.get("storage_uri"),
+                "logical_path": storage_path,
+                "artifact_storage_path": storage_path,
+                "artifact_storage_uri": artifact.get("storage_uri"),
+                "fif_path": storage_path,
+                "fif_abs_path": fif_abs_path,
+                "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
+                "pipeline_execution_id": str(getattr(context.execution, "id", "")),
+                "job_id": str(getattr(context.job, "id", "")),
+                "file_size": artifact.get("file_size"),
+                "checksum": artifact.get("checksum"),
+                "sha256": artifact.get("sha256") or artifact.get("checksum"),
+                "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
+                "contrast_label": contrast,
+                **summary,
+            }
+
+            output = NodeOutput(
+                node_id=node_id,
+                node_type=node_type,
+                outputs={"output": [stat_data_info]},
+                data_infos=[stat_data_info],
+                artifacts=[artifact],
+                metadata={"dataset_count": 1, "base_type": base_type, "contrast": contrast},
+            )
+            return NodeDispatchResult(
+                output=output,
+                status="success",
+                dataset_count=1,
+                output_ports=["output"],
+            )
+        except Exception as exc:
+            error = self._issue(
+                code="PIPELINE_NODE_DATASET_FAILED",
+                message=f"Group Compare 失败：{exc}",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[error], output_ports=["output"])
 
     def _execute_raw_preprocess(
         self,

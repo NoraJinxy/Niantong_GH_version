@@ -446,6 +446,137 @@ def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+# ========== 通用 stat_map(两组 unit_stack 的统计比较结果,通吃 evoked/psd/tfr) ==========
+# compare 保留 unit 轴在其上做检验:逐点 t(全通道×feature)+ none/FDR 校正,可选 ROI cluster permutation。
+# 形状:tmap/pmap/sig/mean_a/mean_b 均 (n_ch, *feature);cluster_masks (n_clusters, *continuous)。
+
+def ensure_stat_map_npz_path(path: str | Path) -> Path:
+    target = Path(path).expanduser()
+    if target.name.lower().endswith(".npz"):
+        return target
+    return target.with_name(f"{target.name}_statmap.npz")
+
+
+def save_stat_map_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
+    """保存 stat_map 为 .npz。sig / cluster_masks 用 int8 存(读回转 bool)。"""
+    import numpy as np  # noqa: PLC0415
+
+    target = ensure_stat_map_npz_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    times = result.get("times")
+    freqs = result.get("freqs")
+    cmasks = result.get("cluster_masks")
+    cmasks_arr = (
+        np.asarray(cmasks, dtype=np.int8)
+        if cmasks is not None and len(cmasks) > 0
+        else np.zeros((0,), dtype=np.int8)
+    )
+    np.savez(
+        str(target),
+        base_type=np.asarray(str(result.get("base_type") or ""), dtype="U16"),
+        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
+        ch_types=np.asarray(list(result.get("ch_types") or []), dtype="U16"),
+        times=np.asarray(list(times) if times is not None else [], dtype=float),
+        freqs=np.asarray(list(freqs) if freqs is not None else [], dtype=float),
+        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
+        tmap=np.asarray(result["tmap"], dtype=float),
+        pmap=np.asarray(result["pmap"], dtype=float),
+        sig=np.asarray(result["sig"], dtype=np.int8),
+        mean_a=np.asarray(result["mean_a"], dtype=float),
+        mean_b=np.asarray(result["mean_b"], dtype=float),
+        design=np.asarray(str(result.get("design") or ""), dtype="U16"),
+        method=np.asarray(str(result.get("method") or ""), dtype="U16"),
+        tail=np.asarray(str(result.get("tail") or "two-sided"), dtype="U16"),
+        correction=np.asarray(str(result.get("correction") or "none"), dtype="U16"),
+        alpha=np.asarray(float(result.get("alpha") or 0.05), dtype=float),
+        contrast_label=np.asarray(str(result.get("contrast_label") or ""), dtype="U256"),
+        n_a=np.asarray(int(result.get("n_a") or 0), dtype=int),
+        n_b=np.asarray(int(result.get("n_b") or 0), dtype=int),
+        roi_channels=np.asarray(list(result.get("roi_channels") or []), dtype="U64"),
+        roi_axis=np.asarray(str(result.get("roi_axis") or ""), dtype="U16"),
+        cluster_masks=cmasks_arr,
+        cluster_pvals=np.asarray(list(result.get("cluster_pvals") or []), dtype=float),
+    )
+    return target
+
+
+def load_stat_map_npz(path: str | Path) -> dict[str, Any]:
+    """读 stat_map .npz → dict(sig / cluster_masks 还原 bool,空 times/freqs 还原 None)。"""
+    import numpy as np  # noqa: PLC0415
+
+    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
+    times = data["times"]
+    freqs = data["freqs"]
+    cmasks = data["cluster_masks"]
+    return {
+        "base_type": str(data["base_type"]),
+        "ch_names": [str(c) for c in data["ch_names"]],
+        "ch_types": [str(c) for c in data["ch_types"]],
+        "times": times if times.size else None,
+        "freqs": freqs if freqs.size else None,
+        "sfreq": float(data["sfreq"]),
+        "tmap": data["tmap"],
+        "pmap": data["pmap"],
+        "sig": data["sig"].astype(bool),
+        "mean_a": data["mean_a"],
+        "mean_b": data["mean_b"],
+        "design": str(data["design"]),
+        "method": str(data["method"]),
+        "tail": str(data["tail"]),
+        "correction": str(data["correction"]),
+        "alpha": float(data["alpha"]),
+        "contrast_label": str(data["contrast_label"]),
+        "n_a": int(data["n_a"]),
+        "n_b": int(data["n_b"]),
+        "roi_channels": [str(c) for c in data["roi_channels"]],
+        "roi_axis": str(data["roi_axis"]),
+        "cluster_masks": cmasks.astype(bool) if cmasks.size else None,
+        "cluster_pvals": [float(x) for x in data["cluster_pvals"]],
+    }
+
+
+def summarize_stat_map(result: dict[str, Any]) -> dict[str, Any]:
+    """stat_map 的轻量摘要(不含完整 t 图;含显著点数 + 显著 cluster 窗口,供 preview)。"""
+    import numpy as np  # noqa: PLC0415
+
+    ch_names = list(result.get("ch_names") or [])
+    times = result.get("times")
+    freqs = result.get("freqs")
+    sig = result.get("sig")
+    sig_arr = np.asarray(sig, dtype=bool) if sig is not None else np.zeros((0,), dtype=bool)
+    n_total = int(sig_arr.size)
+    n_sig = int(sig_arr.sum()) if n_total else 0
+    summary: dict[str, Any] = {
+        "data_type": "stat_map",
+        "base_type": str(result.get("base_type") or ""),
+        "design": str(result.get("design") or ""),
+        "method": str(result.get("method") or ""),
+        "tail": str(result.get("tail") or "two-sided"),
+        "correction": str(result.get("correction") or "none"),
+        "alpha": float(result.get("alpha") or 0.05),
+        "contrast_label": str(result.get("contrast_label") or ""),
+        "n_channels": len(ch_names),
+        "ch_names": ch_names,
+        "n_a": int(result.get("n_a") or 0),
+        "n_b": int(result.get("n_b") or 0),
+        "n_significant": n_sig,
+        "n_total": n_total,
+        "sig_fraction": round(n_sig / n_total, 4) if n_total else 0.0,
+        "roi_channels": list(result.get("roi_channels") or []),
+        "roi_axis": str(result.get("roi_axis") or ""),
+        "clusters": list(result.get("cluster_summary") or []),
+    }
+    if times is not None and len(times) > 0:
+        summary["n_times"] = int(len(times))
+        summary["tmin"] = float(times[0])
+        summary["tmax"] = float(times[-1])
+    if freqs is not None and len(freqs) > 0:
+        summary["n_freqs"] = int(len(freqs))
+        summary["fmin"] = float(freqs[0])
+        summary["fmax"] = float(freqs[-1])
+    return summary
+
+
 def _get_reference_value(reference: Any, key: str) -> Any:
     if isinstance(reference, dict):
         return reference.get(key)

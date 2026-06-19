@@ -1,0 +1,149 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/group/compare",
+  "title": "Group Compare",
+  "category": "group",
+  "phase": "phase2",
+  "description": "对两组 unit_stack（A / B）沿 unit 轴做统计比较 → 统计图（stat_map）。通吃 ERP / PSD / TFR：统计只对 unit 轴动手、与形态无关。逐点 t（全通道×feature，none/FDR 校正）给完整 t 图；可选 cluster permutation（选定通道 ROI 上沿连续轴聚类，publication 级、可复现）。典型：睁眼 vs 闭眼（配对）、患者 vs 对照（独立）。",
+  "tags": ["group", "compare", "statistics", "t-test", "cluster", "permutation"],
+  "inputs": [
+    {
+      "name": "a",
+      "type": "unit_stack",
+      "label": "组 A（条件 / 组别 1）",
+      "required": true,
+      "cardinality": "one_or_many"
+    },
+    {
+      "name": "b",
+      "type": "unit_stack",
+      "label": "组 B（条件 / 组别 2）",
+      "required": true,
+      "cardinality": "one_or_many"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "type": "stat_map",
+      "label": "统计图（t / 显著性）",
+      "cardinality": "one"
+    }
+  ],
+  "properties": [
+    {
+      "name": "design",
+      "label": "设计",
+      "type": "select",
+      "default": "independent",
+      "required": true,
+      "options": [
+        {"value": "independent", "label": "独立（两组不同被试，如患者 vs 对照）"},
+        {"value": "paired", "label": "配对（同一批被试两条件，如睁眼 vs 闭眼）"}
+      ],
+      "description": "配对要求两组 unit 数相等且一一对应（按 unit 顺序配对）。"
+    },
+    {
+      "name": "method",
+      "label": "方法",
+      "type": "select",
+      "default": "pointwise",
+      "required": true,
+      "options": [
+        {"value": "pointwise", "label": "逐点 t（全通道，FDR 校正）"},
+        {"value": "cluster", "label": "Cluster permutation（ROI，置换检验）"}
+      ],
+      "description": "逐点 t 给完整 t 图；cluster 在选定通道 ROI 上做置换聚类检验、控制多重比较，给显著时窗 / 频窗 + p 值。"
+    },
+    {
+      "name": "tail",
+      "label": "方向",
+      "type": "select",
+      "default": "two-sided",
+      "options": [
+        {"value": "two-sided", "label": "双侧（A≠B）"},
+        {"value": "greater", "label": "单侧 A>B"},
+        {"value": "less", "label": "单侧 A<B"}
+      ],
+      "description": "独立设计的 cluster 用 F 统计（恒双侧含义），tail 仅作用于逐点 t 与配对 cluster。"
+    },
+    {
+      "name": "alpha",
+      "label": "显著性水平 α",
+      "type": "number",
+      "default": 0.05,
+      "description": "判显著的阈值（逐点校正后 p<α；cluster 的 p<α）。"
+    },
+    {
+      "name": "correction",
+      "label": "多重比较校正",
+      "type": "select",
+      "default": "fdr",
+      "visible_when": {"method": ["pointwise"]},
+      "options": [
+        {"value": "fdr", "label": "FDR（Benjamini-Hochberg）"},
+        {"value": "none", "label": "不校正（逐点裸 p）"}
+      ],
+      "description": "逐点 t 的全图多重比较校正。"
+    },
+    {
+      "name": "cluster_channels",
+      "label": "ROI 通道",
+      "type": "string",
+      "default": "",
+      "visible_when": {"method": ["cluster"]},
+      "description": "cluster 检验的 ROI（逗号分隔通道名，如 \"Pz,POz,Oz\"）；留空=全通道平均。"
+    },
+    {
+      "name": "n_permutations",
+      "label": "置换次数",
+      "type": "number",
+      "default": 1000,
+      "advanced": true,
+      "visible_when": {"method": ["cluster"]},
+      "description": "cluster permutation 的置换次数（越多越稳、越慢）。"
+    },
+    {
+      "name": "cluster_threshold",
+      "label": "成簇阈值",
+      "type": "number",
+      "default": "",
+      "advanced": true,
+      "visible_when": {"method": ["cluster"]},
+      "description": "形成 cluster 的逐点统计阈值（留空=按 α 自动算 t/F 阈值）。"
+    },
+    {
+      "name": "label_a",
+      "label": "组 A 标签",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "对比命名用（如 \"EO\"）；留空取上游 group 标签。"
+    },
+    {
+      "name": "label_b",
+      "label": "组 B 标签",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "description": "对比命名用（如 \"EC\"）；留空取上游 group 标签。"
+    }
+  ],
+  "backend": {
+    "module": "app.engine.group.compare",
+    "function": "run_group_compare",
+    "save_descriptor": "statmap",
+    "output_kind": "npz",
+    "supports_batch": false,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "stat_map",
+    "name_template_default": "Group Compare · {condition}",
+    "auto_tags": ["step:group_compare", "type:stat_map"],
+    "data_type": "stat_map"
+  },
+  "compute_cost": "moderate",
+  "output_footprint": "medium",
+  "ui": {"color": "#B42318", "default_size": [210, 130], "preview_type": "stat_map"}
+}
