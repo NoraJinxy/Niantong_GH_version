@@ -3512,6 +3512,64 @@ function pushIclabelSummary(graphNode: LiteGraphNode, params: Record<string, unk
   pushReadonlyFact(graphNode, '去除成分', on.length ? on.join('/') : '无')
 }
 
+/** Reject Trials：方法 + 阈值收成一行，仿 ICA Compute 的「方法 · 数」风格，避免整句选项标签搬上卡被截。 */
+function pushRejectSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const method = String(params.method ?? 'threshold')
+  if (method === 'autoreject') {
+    pushReadonlyFact(graphNode, '剔除', 'AutoReject')
+    return
+  }
+  const ptp = params.reject_peak_to_peak
+  const ptpNum = ptp != null && ptp !== '' ? Number(ptp) : 150
+  pushReadonlyFact(graphNode, '剔除', `阈值法 · ${trimNumberText(ptpNum)} µV`)
+}
+
+/** Baseline：把孤零零的「基线窗结束」点明成「起点 → X s」的窗范围（窗 = [epoch 起点, 此值]）。 */
+function pushBaselineSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const raw = params.baseline_tmax
+  const tmax = raw != null && raw !== '' ? Number(raw) : 0
+  pushReadonlyFact(graphNode, '基线窗', `起点 → ${trimNumberText(tmax)} s`)
+}
+
+/** Grand Average PSD：无参数，补一行方法学说明避免空卡。 */
+function pushGroupAverageSummary(graphNode: LiteGraphNode) {
+  pushReadonlyFact(graphNode, '运算', '被试平均 ±SEM')
+}
+
+/** Group Merge：有组标签显标签，否则补一行说明（唯一参数是 string、通用渲染会跳过 → 否则空卡）。 */
+function pushGroupMergeSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const label = String(params.label ?? '').trim()
+  if (label) pushReadonlyFact(graphNode, '组标签', label)
+  else pushReadonlyFact(graphNode, '合并', '多被试 PSD')
+}
+
+/** 数一个「标记字段」里有几项：优先按 JSON 数组(坏段 [{onset,…}])，否则按逗号/空白分隔(坏道名列表)。 */
+function countMarkEntries(raw: unknown): number {
+  if (typeof raw !== 'string') return Array.isArray(raw) ? raw.length : 0
+  const s = raw.trim()
+  if (!s) return 0
+  try {
+    const parsed = JSON.parse(s)
+    if (Array.isArray(parsed)) return parsed.length
+  } catch {
+    /* 非 JSON，按分隔符数 */
+  }
+  return s.split(/[,\s]+/).filter(Boolean).length
+}
+
+/** Artifact Mark：显已标记的坏段 / 坏道计数（text 字段通用渲染会跳过 → 否则只剩啰嗦的处理方式一行）+ 坏道处理方式。 */
+function pushArtifactMarkSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const segCount = countMarkEntries(params.bad_segments)
+  const chanCount = countMarkEntries(params.bad_channels)
+  if (segCount === 0 && chanCount === 0) {
+    pushReadonlyLine(graphNode, '待审核（双击打开）', { muted: true })
+  } else {
+    pushReadonlyFact(graphNode, '标记', `坏段 ${segCount} · 坏道 ${chanCount}`)
+  }
+  const action = String(params.channel_action ?? 'mark')
+  pushReadonlyFact(graphNode, '坏道', action === 'interpolate' ? '插值修复' : '仅标记')
+}
+
 /** 只读事实的显示值：combo→中文档位、数字→去尾零+单位、开关→开/关。 */
 function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   if (plan.kind === 'combo') return plan.value
@@ -3569,6 +3627,21 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       break
     case 'eeg/ica/iclabel':
       pushIclabelSummary(graphNode, params)
+      break
+    case 'eeg/epoch/reject':
+      pushRejectSummary(graphNode, params)
+      break
+    case 'eeg/epoch/baseline':
+      pushBaselineSummary(graphNode, params)
+      break
+    case 'eeg/group/average':
+      pushGroupAverageSummary(graphNode)
+      break
+    case 'eeg/group/merge':
+      pushGroupMergeSummary(graphNode, params)
+      break
+    case 'eeg/preproc/artifact_mark':
+      pushArtifactMarkSummary(graphNode, params)
       break
     default:
       if (spec) {
