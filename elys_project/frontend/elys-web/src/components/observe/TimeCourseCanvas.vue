@@ -384,7 +384,9 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
   // 广播到每个子图、各自再处理一遍，踩坏框选（见排查：filters.pub 默认 retTrue）。
   // 游标常驻（show:true）：锁定态不再靠重建关游标，改用 CSS 隐藏十字线（.tcc-locked）+ 锁定时 setCursor 不再 emit。
   // points.show:false：关掉每条 series 跟随鼠标的游标点（54 条 = 54 个 DOM 每帧重定位，既卡又乱；读数本就走 setCursor 钩子）。
-  const cursor: uPlot.Cursor = { show: true, points: { show: false }, drag: { x: true, y: false, setScale: false }, focus: { prox: 16 } }
+  // 不开 focus（uPlot 原生 prox 聚焦）：它会在鼠标靠近某线时自动高亮该线、按 focus.alpha 淡化其余——
+  // 这套 hover 强化已统一收到「焦点 + 单击选线」机制（applyHighlight 改线宽），原生 focus 留着会与之打架，去掉。
+  const cursor: uPlot.Cursor = { show: true, points: { show: false }, drag: { x: true, y: false, setScale: false } }
 
   const opts: uPlot.Options = {
     width: w,
