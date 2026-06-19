@@ -38,6 +38,8 @@ const props = withDefaults(
     refLines?: boolean
     /** 高亮某条序列（按名）：匹配的加粗、其余压细——点右栏行定位用。 */
     highlight?: string
+    /** 可点选：贴近某条曲线时光标变手型、单击 emit line-pick（焦点模式 + 信号重叠时父层才开）。 */
+    pickable?: boolean
     /** 密集坐标轴：多子图时去掉 μV/时间 标题、缩小刻度区，省空间。 */
     denseAxes?: boolean
     /** 共享 facet 轴：隐藏本格 x / y 刻度标签（保留刻度区宽度以对齐），只在边缘格显示。 */
@@ -63,20 +65,23 @@ const props = withDefaults(
     /** 用 monotone cubic spline 替换默认直线段（PSD 等点稀疏场景，避免折痕）。 */
     useSpline?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false },
 )
 
 const emit = defineEmits<{
   (e: 'cursor', payload: { x: number; items: CursorItem[] } | null): void
   (e: 'select', region: { x0: number; x1: number } | null): void
   (e: 'lock', payload: { x: number; items: CursorItem[] }): void
-  (e: 'unlock'): void
+  /** 右键：上报落点的数据 x（落在图区外/无法定位时为 null），由父层决定撤区间还是解锁游标。 */
+  (e: 'unlock', x: number | null): void
   /** 滚轮缩放时间轴：新可见范围（显示单位），null=退回全幅。父层广播给所有子图。 */
   (e: 'zoom', view: { min: number; max: number } | null): void
   /** Ctrl+滚轮调幅度：新幅度系数。 */
   (e: 'amp', scale: number): void
   /** 最近曲线变化（overlay 模式）：name=最近序列名，''=无曲线或离开图区。 */
   (e: 'line-hover', name: string): void
+  /** 单击选线（pickable + overlay）：name=点中的序列名，''=点空白处（取消选择）。 */
+  (e: 'line-pick', name: string): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -88,6 +93,11 @@ let cursorRaf = 0
 let pendingIdx: number | null = null
 let lastEmitIdx: number | null | undefined = undefined
 let lastLineHover = '' // 最近高亮的序列名，去重避免重复 emit
+// 单击选线（pickable）：记最近可点序列 + 区分单击/双击/拖拽
+let lastNearName = '' // 当前游标贴近、可点选的序列名（超阈值为 ''）
+let clickTimer = 0 // 单击去抖：等过双击窗口再 emit line-pick，dblclick 来了就取消
+let downX = 0; let downY = 0; let dragMoved = false // mousedown→up 位移，判定是否拖拽（拖拽不选线）
+const PICK_THRESHOLD = 24 // 游标距最近曲线 ≤24px(CSS) 视为点中该线，否则点空白=取消选择
 
 // 画布内是 Canvas 绘制，CSS 变量不生效，必须用具体色值（对齐 elys token）。
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
@@ -430,6 +440,7 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
             const top = u.cursor.top ?? -1
             const idx = u.cursor.idx ?? -1
             let name = ''
+            let nearDist = Infinity
             if (top >= 0 && idx >= 0) {
               let bestSi = -1; let bestDist = Infinity
               for (let si = 0; si < props.series.length; si++) {
@@ -439,9 +450,15 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
                 const d = Math.abs(yPos - top)
                 if (d < bestDist) { bestDist = d; bestSi = si }
               }
-              if (bestSi >= 0) name = props.series[bestSi].name
+              if (bestSi >= 0) { name = props.series[bestSi].name; nearDist = bestDist }
             }
             if (name !== lastLineHover) { lastLineHover = name; emit('line-hover', name) }
+            // 单击选线：记下贴近阈值内的序列名，贴近时光标变手型（仅 pickable）
+            lastNearName = nearDist <= PICK_THRESHOLD ? name : ''
+            if (props.pickable) {
+              const ov = u.over as HTMLElement | undefined
+              if (ov) ov.style.cursor = lastNearName ? 'pointer' : ''
+            }
           }
         },
       ],
@@ -507,8 +524,19 @@ function rebuild() {
   chart.value = new uPlot(buildOpts(w, h), dd as unknown as uPlot.AlignedData, host)
 }
 
+// 单击选线（pickable + overlay）：去抖等过双击窗口；拖拽（框选）不算；点空白处 emit '' 取消选择。
+function onHostMouseDown(e: MouseEvent) { downX = e.clientX; downY = e.clientY; dragMoved = false }
+function onHostMouseUp(e: MouseEvent) { if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) dragMoved = true }
+function onHostClick() {
+  if (!props.pickable || props.displayMode === 'spread') return
+  if (dragMoved) { dragMoved = false; return } // 拖拽框选，不选线
+  if (clickTimer) return // 双击的第二次 click：忽略（dblclick 处理）
+  clickTimer = window.setTimeout(() => { clickTimer = 0; emit('line-pick', lastNearName) }, 200)
+}
+
 // 双击锁定游标 / 右键解锁（锁定 state 由父层持有，本组件只发事件 + 收 locked/lockedX 入参）
 function onHostDblClick() {
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = 0 } // 取消 pending 的单击选线
   const u = chart.value
   if (!u || props.locked) return
   const idx = u.cursor.idx
@@ -520,10 +548,22 @@ function onHostDblClick() {
 }
 function onHostContextMenu(e: MouseEvent) {
   e.preventDefault()
-  emit('unlock')
+  const u = chart.value
+  let x: number | null = null
+  if (u) {
+    const left = u.cursor.left // 最近游标位置（CSS px，相对绘图区）；锁定态 uPlot 仍内部跟踪
+    if (left != null && left >= 0) {
+      const v = u.posToVal(left, 'x')
+      if (Number.isFinite(v)) x = v
+    }
+  }
+  emit('unlock', x)
 }
 function onHostMouseLeave() {
   if (lastLineHover !== '') { lastLineHover = ''; emit('line-hover', '') }
+  lastNearName = ''
+  const ov = chart.value?.over as HTMLElement | undefined
+  if (ov) ov.style.cursor = ''
 }
 
 // 滚轮缩放（绕游标处的时间轴）/ Ctrl+滚轮调幅度。
@@ -584,6 +624,9 @@ onMounted(async () => {
     host.addEventListener('contextmenu', onHostContextMenu)
     host.addEventListener('wheel', onWheel, { passive: false }) // passive:false 才能 preventDefault 阻止页面滚动
     host.addEventListener('mouseleave', onHostMouseLeave)
+    host.addEventListener('mousedown', onHostMouseDown)
+    host.addEventListener('mouseup', onHostMouseUp)
+    host.addEventListener('click', onHostClick)
   }
 })
 
@@ -597,7 +640,11 @@ onUnmounted(() => {
     host.removeEventListener('contextmenu', onHostContextMenu)
     host.removeEventListener('wheel', onWheel)
     host.removeEventListener('mouseleave', onHostMouseLeave)
+    host.removeEventListener('mousedown', onHostMouseDown)
+    host.removeEventListener('mouseup', onHostMouseUp)
+    host.removeEventListener('click', onHostClick)
   }
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = 0 }
   chart.value?.destroy()
   chart.value = null
 })
@@ -663,7 +710,9 @@ function isCanvasBlank(cv: HTMLCanvasElement): boolean {
 }
 
 // 导出：把屏上这张【已渲染】的 uPlot 临时放大到横版导出尺寸、截图、再还原。
-// 全程同步（中间不上屏重绘）故不闪；复用可见实例的真实渲染，绕开「离屏新建 uPlot 偶发画成空白」。
+// 关键：uPlot 的 setSize 重绘(_commit)默认排进【微任务】，同步栈里直接截 canvas 截到的还是
+// 放大前的旧小图（facet 小格导出糊的根因）；故用 u.batch() 包住强制 _commit 当场同步跑，
+// 截到的才是真 2400px。全程同步不闪、复用可见实例（避开离屏新建 uPlot 偶发画空白）。
 function getExportCanvas(): HTMLCanvasElement | null {
   const u = chart.value
   if (!u || !props.series.length || !props.data[0]?.length) return null
@@ -674,7 +723,7 @@ function getExportCanvas(): HTMLCanvasElement | null {
   const prevH = u.height
   let out: HTMLCanvasElement | null = null
   try {
-    u.setSize({ width: targetCssW, height: targetCssH }) // uPlot 同步按新尺寸重绘
+    u.batch(() => u.setSize({ width: targetCssW, height: targetCssH })) // batch 强制 _commit 当场同步 → 截到真 2400px
     const src = u.ctx.canvas
     if (src?.width) {
       out = document.createElement('canvas')
@@ -683,7 +732,7 @@ function getExportCanvas(): HTMLCanvasElement | null {
       out.getContext('2d')?.drawImage(src, 0, 0)
     }
   } finally {
-    u.setSize({ width: prevW, height: prevH }) // 还原屏上尺寸（同步，用户不可见）
+    u.batch(() => u.setSize({ width: prevW, height: prevH })) // 同步还原屏上尺寸（用户不可见）
   }
   // 极端情况下截到空白 → 返回 null，调用方退回「抓屏 + 双线性放大」，保证导出永不空白。
   if (out && isCanvasBlank(out)) out = null
