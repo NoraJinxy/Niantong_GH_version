@@ -13,7 +13,7 @@
     {"name": "output", "type": "eeg_data", "label": "Resampled EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "sfreq", "label": "Target Sampling Rate", "type": "number", "unit": "Hz", "default": 250, "min": 1, "required": true}
+    {"name": "sfreq", "label": "采样率", "type": "number", "unit": "Hz", "default": 250, "min": 1, "required": true}
   ],
   "backend": {
     "module": "app.engine.preprocess.resample",

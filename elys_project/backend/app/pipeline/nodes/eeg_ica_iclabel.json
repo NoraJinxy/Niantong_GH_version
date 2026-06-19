@@ -28,7 +28,7 @@
     },
     {
       "name": "prob_threshold",
-      "label": "判定置信度阈值",
+      "label": "置信度阈值",
       "type": "number",
       "default": 0.8,
       "min": 0,
