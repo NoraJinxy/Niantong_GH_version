@@ -49,13 +49,8 @@ export function useIcaComparison(studyId: Ref<string>, outputId: Ref<string>, is
 
   async function fetchPreview() {
     if (!isLive()) return
-    // 空剔除集 → 不请求，清空预览（中心视图显示占位提示，而非报错）
-    if (!excludedSet.value.size) {
-      preview.value = null
-      previewLoading.value = false
-      reqSeq++ // 让任何在途请求作废
-      return
-    }
+    // 空剔除集也请求：后端返回该通道的原始信号（去除后=原始，蓝灰重合），
+    // 让用户一进来就看到原始波形作参照，而非空白。勾选成分后蓝线才分离。
     const seq = ++reqSeq
     previewLoading.value = true
     try {

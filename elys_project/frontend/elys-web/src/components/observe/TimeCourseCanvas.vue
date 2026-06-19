@@ -70,8 +70,10 @@ const props = withDefaults(
     markedChannels?: string[]
     /** spread 模式可点波形标坏道：贴近某泳道时光标变手型、单击 emit channel-pick（伪迹审核专用，不影响时域焦点选线）。 */
     channelPickable?: boolean
+    /** 按住拖动 = 平移时间轴（替代默认的「拖动框选区间」）。ICA 审核页用；观察页默认 false 保留框选统计。 */
+    panOnDrag?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false },
 )
 
 const emit = defineEmits<{
@@ -107,6 +109,8 @@ let lastNearChannel = '' // spread 模式下游标最近泳道的通道名（cha
 let clickTimer = 0 // 单击去抖：等过双击窗口再 emit line-pick，dblclick 来了就取消
 let downX = 0; let downY = 0; let dragMoved = false // mousedown→up 位移，判定是否拖拽（拖拽不选线）
 const PICK_THRESHOLD = 24 // 游标距最近曲线 ≤24px(CSS) 视为点中该线，否则点空白=取消选择
+// panOnDrag：按住拖动平移时间轴的临时状态（基于按下时的 x 量程做线性位移，稳定不抖）
+let panning = false; let panStartPx = 0; let panStartMin = 0; let panStartMax = 0
 
 // 画布内是 Canvas 绘制，CSS 变量不生效，必须用具体色值（对齐 elys token）。
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
@@ -413,7 +417,8 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
   // points.show:false：关掉每条 series 跟随鼠标的游标点（54 条 = 54 个 DOM 每帧重定位，既卡又乱；读数本就走 setCursor 钩子）。
   // 不开 focus（uPlot 原生 prox 聚焦）：它会在鼠标靠近某线时自动高亮该线、按 focus.alpha 淡化其余——
   // 这套 hover 强化已统一收到「焦点 + 单击选线」机制（applyHighlight 改线宽），原生 focus 留着会与之打架，去掉。
-  const cursor: uPlot.Cursor = { show: true, points: { show: false }, drag: { x: true, y: false, setScale: false } }
+  // panOnDrag：关掉原生框选 drag（改由自定义平移接管）；否则保留 setScale:false 的 X 框选（观察页统计区间）。
+  const cursor: uPlot.Cursor = { show: true, points: { show: false }, drag: props.panOnDrag ? { x: false, y: false } : { x: true, y: false, setScale: false } }
 
   const opts: uPlot.Options = {
     width: w,
@@ -566,8 +571,44 @@ function rebuild() {
 }
 
 // 单击选线（pickable + overlay）：去抖等过双击窗口；拖拽（框选）不算；点空白处 emit '' 取消选择。
-function onHostMouseDown(e: MouseEvent) { downX = e.clientX; downY = e.clientY; dragMoved = false }
+function onHostMouseDown(e: MouseEvent) {
+  downX = e.clientX; downY = e.clientY; dragMoved = false
+  // panOnDrag：按下即进入平移——记下起点像素 + 当时的 x 量程，移动时按比例位移（window 级监听，拖出画布也跟手）
+  const u = chart.value
+  if (props.panOnDrag && u && u.scales.x.min != null && u.scales.x.max != null) {
+    panning = true
+    panStartPx = e.clientX
+    panStartMin = u.scales.x.min as number
+    panStartMax = u.scales.x.max as number
+    window.addEventListener('mousemove', onPanMove)
+    window.addEventListener('mouseup', onPanEnd)
+  }
+}
 function onHostMouseUp(e: MouseEvent) { if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) dragMoved = true }
+// 平移：像素位移 → x 量程位移（按按下时的 span 换算，稳定），就地 setScale + emit zoom 让兄弟图同步；夹到数据范围内。
+function onPanMove(e: MouseEvent) {
+  const u = chart.value
+  if (!panning || !u || !u.over) return
+  const rectW = u.over.getBoundingClientRect().width
+  const span = panStartMax - panStartMin
+  if (rectW <= 0 || !(span > 0)) return
+  const dVal = ((e.clientX - panStartPx) / rectW) * span
+  let nmin = panStartMin - dVal
+  let nmax = panStartMax - dVal
+  const xs = props.data?.[0]
+  if (xs && xs.length >= 2) {
+    const lo = xs[0]; const hi = xs[xs.length - 1]; const width = nmax - nmin
+    if (nmin < lo) { nmin = lo; nmax = lo + width }
+    if (nmax > hi) { nmax = hi; nmin = hi - width }
+  }
+  u.setScale('x', { min: nmin, max: nmax })
+  emit('zoom', { min: nmin, max: nmax })
+}
+function onPanEnd() {
+  panning = false
+  window.removeEventListener('mousemove', onPanMove)
+  window.removeEventListener('mouseup', onPanEnd)
+}
 function onHostClick() {
   if (dragMoved) { dragMoved = false; return } // 拖拽框选，不选线 / 不标坏道
   if (clickTimer) return // 双击的第二次 click：忽略（dblclick 处理）
@@ -692,6 +733,7 @@ onUnmounted(() => {
     host.removeEventListener('click', onHostClick)
   }
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = 0 }
+  if (panning) onPanEnd() // 卸载时若仍在平移，摘掉 window 级监听
   chart.value?.destroy()
   chart.value = null
 })

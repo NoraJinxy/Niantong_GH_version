@@ -66,6 +66,55 @@ def _per_component_variance(ica: Any, raw: Any, index: int) -> float | None:
         return None
 
 
+# ICLabel 七分类标签 → (类别键, 中文名)；与 engine/ica/iclabel.py 同源七分类（此处仅展示用）。
+_ICLABEL_CATEGORY: dict[str, tuple[str, str]] = {
+    "brain": ("brain", "脑"),
+    "muscle artifact": ("muscle", "肌电"),
+    "eye blink": ("eye", "眼动"),
+    "heart beat": ("heart", "心电"),
+    "line noise": ("line_noise", "工频"),
+    "channel noise": ("channel_noise", "坏导"),
+    "other": ("other", "其它"),
+}
+# 可剔除的五类伪迹（brain / other 永不建议剔除）
+_ICLABEL_ARTIFACT = {"muscle", "eye", "heart", "line_noise", "channel_noise"}
+
+
+def classify_iclabel(ica: Any, raw: Any, *, threshold: float = 0.8) -> dict[int, dict[str, Any]]:
+    """best-effort ICLabel 分类：复用 mne-icalabel 的 label_components（仅分类、不清洗），
+    返回 {成分序号: {category, label_cn, probability, suggested}}。
+
+    suggested=该成分是伪迹类且置信度≥阈值（默认 0.8）→ 建议剔除（auto-flag 不 auto-delete）。
+    任何失败（缺 mne-icalabel / 无 montage / 非 EEG / 模型加载失败）都吞掉返回 {}，
+    页面照常出（只是没有自动标签），不因辅助功能拖垮主流程。
+    """
+    if raw is None:
+        return {}
+    try:
+        from mne_icalabel import label_components  # noqa: PLC0415
+    except Exception:
+        return {}
+    try:
+        result = label_components(raw, ica, method="iclabel")
+    except Exception:
+        return {}
+    labels = list(result.get("labels") or [])
+    proba = result.get("y_pred_proba")
+    probs = [float(p) for p in proba] if proba is not None else []
+    out: dict[int, dict[str, Any]] = {}
+    for i, raw_label in enumerate(labels):
+        category, label_cn = _ICLABEL_CATEGORY.get(str(raw_label).strip().lower(), ("other", "其它"))
+        p = probs[i] if i < len(probs) else None
+        suggested = category in _ICLABEL_ARTIFACT and p is not None and p >= threshold
+        out[i] = {
+            "category": category,
+            "label_cn": label_cn,
+            "probability": round(p, 4) if p is not None else None,
+            "suggested": suggested,
+        }
+    return out
+
+
 def ica_overview(ica: Any, raw: Any | None = None) -> dict[str, Any]:
     """ICA 总览：成分数 / 方法 / 已排除 / 通道名 / 总解释方差。"""
     n_components = int(getattr(ica, "n_components_", 0) or 0)
@@ -196,11 +245,13 @@ def spatial_comparison(
     seconds: float = 5.0,
     max_points: int = 2000,
 ) -> dict[str, Any]:
-    """去除前后对比：在某通道上画"原始 vs 排除选定成分后"的波形，让用户确认清洗效果。"""
+    """去除前后对比：在某通道上画"原始 vs 排除选定成分后"的波形，让用户确认清洗效果。
+
+    excluded 为空 → 去除后 = 原始（让初始 / 未勾选成分时也显示原始信号，蓝线与灰线重合），
+    而不是返回空白——用户一进来就能看到该通道的原始波形作参照。
+    """
     np = _numpy()
     excluded = sorted({int(i) for i in (excluded or []) if int(i) >= 0})
-    if not excluded:
-        return {"has_comparison": False, "message": "未选择要去除的成分"}
 
     ch_names = list(raw.ch_names)
     if not ch_names:
@@ -210,11 +261,14 @@ def spatial_comparison(
     sfreq = float(raw.info["sfreq"])
     original = np.asarray(raw.get_data(picks=[ch_idx])[0], dtype="float64")
 
-    ica_copy = ica.copy()
-    ica_copy.exclude = excluded
-    clean_raw = raw.copy()
-    ica_copy.apply(clean_raw, verbose="ERROR")
-    filtered = np.asarray(clean_raw.get_data(picks=[ch_idx])[0], dtype="float64")
+    if excluded:
+        ica_copy = ica.copy()
+        ica_copy.exclude = excluded
+        clean_raw = raw.copy()
+        ica_copy.apply(clean_raw, verbose="ERROR")
+        filtered = np.asarray(clean_raw.get_data(picks=[ch_idx])[0], dtype="float64")
+    else:
+        filtered = original.copy()
 
     keep = min(int(seconds * sfreq), original.shape[0]) if seconds and seconds > 0 else original.shape[0]
     times = np.asarray(raw.times[:keep], dtype="float64")
@@ -267,11 +321,25 @@ def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
     ica = mne.preprocessing.read_ica(str(ica_path), verbose="ERROR")
     raw = _load_source_raw(study, artifact)
     overview = ica_overview(ica, raw)
+    components = component_topographies(ica, raw)
+
+    # ICLabel 自动分类（best-effort）：给每成分附 {类别 / 中文名 / 置信度 / 是否建议剔除}，
+    # 并汇总 suggested_exclude 作为前端默认勾选（auto-flag + human-confirm）。失败则无标签、不影响主流程。
+    iclabel = classify_iclabel(ica, raw)
+    suggested_exclude: list[int] = []
+    for comp in components:
+        info = iclabel.get(comp["index"])
+        comp["iclabel"] = info
+        if info and info.get("suggested"):
+            suggested_exclude.append(comp["index"])
+
     return {
         **overview,
         "study_output_id": str(getattr(artifact, "id", "") or ""),
         "has_source_raw": raw is not None,
-        "components": component_topographies(ica, raw),
+        "iclabel_available": bool(iclabel),
+        "suggested_exclude": sorted(suggested_exclude),
+        "components": components,
     }
 
 
