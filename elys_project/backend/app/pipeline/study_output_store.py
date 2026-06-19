@@ -605,20 +605,6 @@ class StudyOutputStore:
             raise ValueError("node_id or job.node_id is required")
         return self._safe_name(str(resolved))
 
-    def _final_path(self, filename: str, node_id: str | None) -> Path:
-        target_dir = self.node_dir(node_id)
-        base_name = self._safe_name(filename)
-        candidate = target_dir / base_name
-        if not candidate.exists():
-            return candidate
-        stem = candidate.stem
-        suffix = candidate.suffix
-        for index in range(1, 1000):
-            next_candidate = target_dir / f"{stem}-{index}{suffix}"
-            if not next_candidate.exists():
-                return next_candidate
-        raise FileExistsError(f"Could not allocate derived dataset filename for {filename}")
-
     def _content_addressed_path(self, checksum: str, filename: str) -> Path:
         digest = str(checksum or "").strip().lower()
         if len(digest) < 8:

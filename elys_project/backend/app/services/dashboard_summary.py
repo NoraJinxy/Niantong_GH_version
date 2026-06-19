@@ -580,7 +580,7 @@ def build_bootstrap_card(
 def activity_object_kind(resource_kind: str | None, action: str) -> str | None:
     if (resource_kind or "").startswith("dataset") or action.startswith("dataset"):
         return "dataset"
-    if resource_kind in {"study", "study", "study_settings"} or action.startswith(("study", "study")):
+    if resource_kind in {"study", "study_settings"} or action.startswith("study"):
         return "study"
     if resource_kind == "pipeline" or action.startswith("pipeline."):
         if action.startswith("pipeline.execution") or resource_kind == "pipeline_execution":

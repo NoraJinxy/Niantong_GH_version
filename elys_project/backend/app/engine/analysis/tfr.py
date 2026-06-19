@@ -119,11 +119,3 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
     # comment 携带 condition,供下游 / 预览标注(与 evoked.comment 同口径)
     power.comment = labels[0] if len(labels) == 1 else ",".join(labels)
     return power
-
-
-def _mne():
-    try:
-        import mne
-    except ImportError as exc:
-        raise RuntimeError("MNE is required for time-frequency analysis.") from exc
-    return mne

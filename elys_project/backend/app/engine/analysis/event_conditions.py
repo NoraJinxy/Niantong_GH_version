@@ -39,52 +39,6 @@ class ConditionRule:
         return self.pattern in description  # contains(默认)
 
 
-def parse_condition_rules(spec: Any, default_mode: str = "exact") -> list[ConditionRule]:
-    """解析为规则列表。支持:
-    - 文本框字符串:一行一条(也容忍 `;` 分隔),每条 `名字=匹配串` 或裸串(name=pattern);
-    - [{"name","pattern","mode"?}, ...]:显式分组(API/程序化);
-    - ["S1","S2"]:裸串列表。
-    未显式给 mode 的,用 default_mode(节点级「匹配方式」,默认 exact)。
-    """
-    if spec is None:
-        return []
-    if isinstance(spec, str):
-        text = spec.strip()
-        if not text:
-            return []
-        raw_items: list[Any] = [seg.strip() for seg in re.split(r"[\n;]+", text) if seg.strip()]
-    elif isinstance(spec, (list, tuple)):
-        raw_items = list(spec)
-    else:
-        raw_items = [spec]
-
-    rules: list[ConditionRule] = []
-    seen: set[tuple[str, str, str]] = set()
-    for item in raw_items:
-        if isinstance(item, dict):
-            name = str(item.get("name") or item.get("pattern") or "").strip()
-            pattern = str(item.get("pattern") or item.get("name") or "").strip()
-            mode = str(item.get("mode") or default_mode).strip().lower()
-        else:
-            text = str(item).strip()
-            if "=" in text:
-                left, right = text.split("=", 1)
-                name, pattern = left.strip(), right.strip()
-            else:
-                name = pattern = text
-            mode = default_mode
-        if mode not in ("exact", "contains", "regex", "template"):
-            mode = "contains"
-        if not name or not pattern:
-            continue
-        key = (name, pattern, mode)
-        if key in seen:
-            continue
-        seen.add(key)
-        rules.append(ConditionRule(name=name, pattern=pattern, mode=mode))
-    return rules
-
-
 def match_conditions(
     onsets: Sequence[float],
     descriptions: Sequence[str],

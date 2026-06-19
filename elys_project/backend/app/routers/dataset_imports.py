@@ -297,7 +297,7 @@ def get_next_upload_seq(
             .filter(RecordingVersion.recording_id == dataset.id)
             .scalar()
         )
-        seq = (max_seq + 1) if max_seq else (2 if dataset.source_path else 1)
+        seq = (max_seq + 1) if max_seq is not None else (2 if dataset.source_path else 1)
     else:
         seq = 1
 

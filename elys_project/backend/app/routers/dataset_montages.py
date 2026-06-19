@@ -81,7 +81,7 @@ async def upload_dataset_montage(
     asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-    if not can_write_dataset_asset(asset, current_user):
+    if not can_write_dataset_asset(current_user, asset):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前用户没有写该 Dataset 资产的权限")
 
     raw_name = (file.filename or "montage").replace("\\", "/").split("/")[-1]
@@ -176,7 +176,7 @@ def delete_dataset_montage(
     asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-    if not can_write_dataset_asset(asset, current_user):
+    if not can_write_dataset_asset(current_user, asset):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前用户没有写该 Dataset 资产的权限")
     row = (
         db.query(DatasetMontage)

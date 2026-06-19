@@ -100,12 +100,6 @@ def bootstrap_dataset_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    import sys
-    sys.stderr.write(
-        f"[ELYS-TRACE] bootstrap_dataset_asset ENTERED user={current_user.username} "
-        f"dataset_code={payload.dataset.code} paired_mode={payload.paired_study.mode}\n"
-    )
-    sys.stderr.flush()
     require_system_permission(current_user, "data:write", "当前用户没有创建 Dataset 资产权限")
     paired_study = None
     if payload.paired_study.mode == "create":
@@ -323,7 +317,7 @@ def create_canonical_fif_rebuild_task(
     asset = get_dataset_asset_for_user(db, asset_id=asset_id, user=current_user)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset 资产不存在或无权访问")
-    if not can_write_dataset_asset(asset, current_user):
+    if not can_write_dataset_asset(current_user, asset):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权写入该 Dataset 资产")
     payload = payload or DatasetAssetTaskRequest()
     return create_and_dispatch_file_task(

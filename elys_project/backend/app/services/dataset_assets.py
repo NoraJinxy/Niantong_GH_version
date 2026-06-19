@@ -96,19 +96,6 @@ def compute_asset_stats(db: Session, asset_ids: list) -> dict:
     return result
 
 
-_EMPTY_ASSET_STATS = {
-    "subject_count": 0,
-    "recording_count": 0,
-    "task_codes": [],
-    "total_duration_seconds": 0.0,
-    "last_imported_at": None,
-}
-
-
-def empty_asset_stats() -> dict:
-    return dict(_EMPTY_ASSET_STATS)
-
-
 def create_dataset_asset(
     db: Session,
     *,
@@ -253,7 +240,7 @@ def can_read_dataset_asset(db: Session, user: User, asset: DatasetAsset) -> bool
     return False
 
 
-def can_write_dataset_asset(user: User, asset: DatasetAsset) -> bool:
+def can_write_dataset_asset(user: User, asset: DatasetAsset, /) -> bool:
     if asset.status != "working":
         return False
     if user.has_role("admin"):

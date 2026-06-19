@@ -46,7 +46,6 @@ const router = createRouter({
     },
     {
       path: '/studies',
-      alias: '/studies',
       name: 'Studies',
       component: () => import('@/views/StudiesPage.vue'),
       meta: { requiresAuth: true },
