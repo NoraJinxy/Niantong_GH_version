@@ -78,7 +78,8 @@ const emit = defineEmits<{
   (e: 'cursor', payload: { t: number; f: number; value: number } | null): void
   (e: 'select', region: Roi | null): void
   (e: 'lock', payload: { t: number; f: number; value: number }): void
-  (e: 'unlock'): void
+  /** 右键：上报落点 (t,f)（落在图区外时为 null），由父层决定撤 ROI 还是解锁游标。 */
+  (e: 'unlock', at: { t: number; f: number } | null): void
   /** 滚轮缩放时间轴：新可见范围（s），null=退回全幅。父层广播给所有格。 */
   (e: 'zoom', view: { min: number; max: number } | null): void
   /** Ctrl+滚轮调色阶：相对倍率（>1=向上滚），父层据此收/放 zmax；与 1D 图 Ctrl+滚轮调幅同契约。 */
@@ -536,7 +537,13 @@ function onDblClick(e: MouseEvent) {
 }
 function onContextMenu(e: MouseEvent) {
   e.preventDefault()
-  emit('unlock')
+  const g = computeGeom()
+  const px = evtToDevice(e)
+  let at: { t: number; f: number } | null = null
+  if (g && px && px.x >= g.left && px.x <= g.left + g.pw && px.y >= g.top && px.y <= g.top + g.ph) {
+    at = { t: xToT(g, px.x), f: yToF(g, px.y) }
+  }
+  emit('unlock', at)
 }
 // 滚轮缩放时间轴（保持游标下的时刻不动），与时域/PSD 一致
 function onWheel(e: WheelEvent) {

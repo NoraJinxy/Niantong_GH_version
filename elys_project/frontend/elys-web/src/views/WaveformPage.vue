@@ -30,7 +30,7 @@
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
             </div>
             <div v-show="!collapsed.dataset" class="ov-sec-body">
-              <template v-if="isMultiOutput">
+              <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
                   v-for="(oid, i) in outputIds"
                   :key="oid"
@@ -41,7 +41,7 @@
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
                 </div>
-              </template>
+              </div>
               <div v-else class="ov-li is-static">
                 <span class="ov-li-dot" :style="{ background: typeColor }"></span>
                 <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
@@ -115,29 +115,6 @@
             </section>
           </div>
 
-          <!-- 统计范围 -->
-          <section class="ov-sec">
-            <div class="ov-sec-head" @click="toggleSec('range')">
-              统计范围
-              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.range }">▾</span>
-            </div>
-            <div v-show="!collapsed.range" class="ov-sec-body">
-              <div class="ov-row">
-                <span class="ov-row-lbl">起始</span>
-                <input v-model="statLoInput" class="ov-inp" type="number" :step="xStep" @keydown.enter="applyStatsRange" />
-                <span class="ov-sep">~</span>
-                <span class="ov-row-lbl">结束</span>
-                <input v-model="statHiInput" class="ov-inp" type="number" :step="xStep" @keydown.enter="applyStatsRange" />
-              </div>
-              <div class="ov-row-end">
-                <span class="ov-unit-tag">{{ xUnit }}</span>
-                <button class="ov-link" @click="applyStatsRange">应用</button>
-                <button class="ov-link" @click="resetStatsRange">跟随窗口</button>
-              </div>
-              <p class="ov-sec-hint">右栏统计基于此区间；也可在子图上横向拖拽框选。</p>
-            </div>
-          </section>
-
           <!-- 滤波设置（view-only） -->
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('filter')">
@@ -178,7 +155,7 @@
               </div>
               <p class="ov-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图（按行 / 列）。</p>
               <div class="ov-grid2-lbl" style="margin-top: 6px">配色</div>
-              <div class="ov-pal">
+              <div class="ov-pal" ref="palRef">
                 <!-- 当前色板：名字 + 色卡条，点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
                 <button type="button" class="ov-pal-cur" :class="{ 'is-open': palOpen }" @click="palOpen = !palOpen">
                   <span class="ov-pal-sw">
@@ -265,7 +242,7 @@
               <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调幅度</span></div>
               <div class="ov-help-row"><kbd>拖拽</kbd><span>选统计区间</span></div>
               <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标</span></div>
+              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤区间 · 框外解锁游标</span></div>
               <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
             </div>
           </div>
@@ -317,9 +294,10 @@
                     :display-mode="displayMode"
                     :show-grid="showGrid"
                     :loading="loading"
-                    :region="region"
+                    :region="statsActive ? region : null"
                     :ref-lines="refLinesOn"
                     :highlight="effectiveFocus"
+                    :pickable="hasOverlap"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -332,10 +310,10 @@
                     @cursor="onCursor"
                     @select="onSelect"
                     @lock="onLock"
-                    @unlock="onUnlock"
+                    @unlock="onContextUnlock"
                     @zoom="onZoom"
                     @amp="onAmp"
-                    @line-hover="onLineHover"
+                    @line-pick="onLinePick"
                   />
                 </div>
               </section>
@@ -367,7 +345,7 @@
         <div class="ov-right-head">
           <strong><span class="ov-right-dot"></span>统计结果</strong>
           <div class="ov-right-btns">
-            <button class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="焦点：突出某一根曲线的峰值 / 潜伏">◎ 焦点</button>
+            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条曲线重叠时可用）：直接单击图中某条曲线即进入——加粗它、淡化其余、右栏显示其峰/谷与潜伏；点此开关可一键退出聚焦">◎ 焦点</button>
             <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
@@ -389,81 +367,101 @@
                   class="ov-hover-row"
                   :class="{
                     'is-hl': effectiveFocus === it.name,
-                    'is-locked': lockedHighlight === it.name,
-                    'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
+                    'is-dim': effectiveFocus && effectiveFocus !== it.name,
+                    'is-pick': hasOverlap,
                   }"
-                  @mouseenter="onLineHover(it.name)"
-                  @mouseleave="hoveredHighlight = ''"
-                  @click="toggleLock(it.name)"
+                  @click="onLinePick(it.name)"
                 >
                   <span class="ov-li-dot" :style="{ background: it.color }"></span>
                   <span class="ov-hover-name">{{ it.name }}</span>
-                  <span v-if="lockedHighlight === it.name" class="ov-row-pin" title="已锁定 · 点击解锁">●</span>
+                  <span v-if="effectiveFocus === it.name" class="ov-row-pin" title="当前聚焦 · 点击取消">●</span>
                   <span class="ov-hover-val text-mono">{{ displayReadout ? it.uv.toFixed(2) : '–' }}</span>
                 </div>
               </div>
               <button v-if="hoverItemsAll.length > HOVER_COLLAPSED" class="ov-hover-toggle" type="button" @click="hoverExpanded = !hoverExpanded">{{ hoverExpanded ? '收起' : `展开全部 ${hoverItemsAll.length} 条` }}</button>
             </template>
           </div>
-          <div v-if="!statsRows.length" class="ov-right-empty">
-            <template v-if="regionUserSet && region && hasCurves">
-              统计区间（{{ fmtX(region.x0) }}–{{ fmtX(region.x1) }} {{ xUnit }}）不在当前时间窗内。<button class="ov-link" @click="resetStatsRange">跟随窗口</button>
-            </template>
-            <template v-else>设定统计范围或框选区间后，这里显示峰/谷/均值与潜伏期。</template>
+          <!-- ① 焦点卡：单击曲线后显示该曲线峰/谷/潜伏；独立于下方「区间统计」开关（统计区间默认满窗，焦点只读取、不画着色带）。focusStat 自带空守卫，无数据时不显示。 -->
+          <div v-if="focusStat" class="ov-focus">
+            <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: focusStat.color }"></span>{{ focusStat.chan }} · {{ focusStat.segName }}</div>
+            <div class="ov-focus-row">
+              <span class="ov-focus-k">最大</span>
+              <span class="ov-focus-v text-mono">{{ focusStat.peak.toFixed(2) }}</span><span class="ov-focus-uu">µV</span>
+              <span class="ov-focus-lat text-mono">@ {{ fmtX(focusStat.peakLat) }} {{ xUnit }}</span>
+            </div>
+            <div class="ov-focus-row">
+              <span class="ov-focus-k">最小</span>
+              <span class="ov-focus-v text-mono">{{ focusStat.trough.toFixed(2) }}</span><span class="ov-focus-uu">µV</span>
+              <span class="ov-focus-lat text-mono">@ {{ fmtX(focusStat.troughLat) }} {{ xUnit }}</span>
+            </div>
           </div>
-          <template v-else>
-            <!-- ① 焦点：当前关注通道·条件的峰值(英雄数字)+峰潜伏；谷/均/区间降为次级小字 -->
-            <div v-if="focusEnabled && focusStat" class="ov-focus">
-              <select v-model="focusKey" class="ov-focus-pick">
-                <option value="">自动 · 峰值最大</option>
-                <option v-for="o in focusOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
-              </select>
-              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: focusStat.color }"></span>焦点 · {{ focusStat.chan }} · {{ focusStat.segName }}</div>
-              <div class="ov-focus-main">
-                <div class="ov-focus-cell"><span class="ov-focus-num">{{ focusStat.peak.toFixed(2) }}</span><span class="ov-focus-u">µV 峰值</span></div>
-                <div class="ov-focus-cell"><span class="ov-focus-num2">{{ fmtX(focusStat.peakLat) }}</span><span class="ov-focus-u">{{ xUnit }} 峰潜伏</span></div>
-              </div>
-              <div class="ov-focus-sub">谷 {{ focusStat.trough.toFixed(1) }} · 均 {{ focusStat.mean.toFixed(1) }} µV · 区间 {{ fmtX(region!.x0) }}–{{ fmtX(region!.x1) }} {{ xUnit }}</div>
-            </div>
+          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条曲线，即可聚焦查看其最大 / 最小与潜伏。</div>
 
-            <!-- ② 条件对比（≥2 段）：每条件一行，峰值条形可扫读；多了折叠 + 限高滚动（同上方游标读数） -->
-            <div v-if="condCards.length" class="ov-contrast">
-              <div class="ov-sec-mini">条件对比 · 峰值 µV</div>
-              <div class="ov-contrast-list">
-                <div v-for="c in visibleCondCards" :key="c.seg" class="ov-contrast-row" @click="focusChan(c.peakChan)">
-                  <span class="ov-li-dot" :style="{ background: c.color }"></span>
-                  <span class="ov-contrast-lbl">{{ c.label }}</span>
-                  <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: barPct(c.peak) + '%', background: c.color }"></span></span>
-                  <span class="ov-contrast-val text-mono">{{ c.peak.toFixed(1) }}</span>
-                </div>
-              </div>
-              <button v-if="condCards.length > CONTRAST_COLLAPSED" class="ov-hover-toggle" type="button" @click="contrastExpanded = !contrastExpanded">{{ contrastExpanded ? '收起' : `展开全部 ${condCards.length} 条` }}</button>
-            </div>
-
-            <!-- ③ 明细表：默认折叠，导出 / 逐通道核对再展开 -->
-            <div class="ov-detail">
-              <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
-                <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
-                明细表 · {{ statsRows.length }} 行
+          <!-- ② 区间统计：默认关——点开关或图上横向框选才出条件对比 + 明细表 + 图上着色带；精确范围输入收纳于此（从旧左栏面板迁来）。三页（时域/频域/时频）统一为此「默认关、按需开」模式。 -->
+          <div class="ov-stat-block">
+            <div class="ov-stat-head">
+              <button class="ov-stat-toggle" :class="{ 'is-on': statsActive }" type="button" @click="toggleStats" title="区间统计：选一段时间窗，量该窗内各条件 / 通道的峰谷与潜伏。点此用满窗，或直接在图上横向拖拽框选一段。再点关闭。">
+                <span class="ov-stat-ico">∑</span>区间统计
               </button>
-              <table v-if="showDetailTable" class="ov-dtable">
-                <thead>
-                  <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
-                    <td class="ov-dt-seg">{{ r.segName }}</td>
-                    <td class="ov-dt-ch"><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
-                    <td class="ov-dt-peak">{{ r.peak.toFixed(2) }}</td>
-                    <td class="ov-dt-trough">{{ r.trough.toFixed(2) }}</td>
-                    <td>{{ r.mean.toFixed(2) }}</td>
-                    <td class="ov-dt-lat">{{ fmtX(r.peakLat) }}</td>
-                    <td class="ov-dt-lat">{{ fmtX(r.troughLat) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <span v-if="statsActive && region" class="ov-stat-rng text-mono">{{ fmtX(region.x0) }}–{{ fmtX(region.x1) }} {{ xUnit }}</span>
             </div>
-          </template>
+            <template v-if="statsActive">
+              <button class="ov-stat-edit" type="button" @click="rangeEdit = !rangeEdit">
+                <span class="ov-detail-arr" :class="{ 'is-open': rangeEdit }">▸</span>调整范围
+              </button>
+              <div v-if="rangeEdit" class="ov-stat-inps">
+                <input v-model="statLoInput" class="ov-inp" type="number" :step="xStep" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
+                <span class="ov-sep">~</span>
+                <input v-model="statHiInput" class="ov-inp" type="number" :step="xStep" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
+                <span class="ov-unit-tag">{{ xUnit }}</span>
+                <button class="ov-link" @click="applyStatsRange">应用</button>
+                <button class="ov-link" @click="resetStatsRange">满窗</button>
+              </div>
+              <div v-if="!statsRows.length" class="ov-stat-note">
+                <template v-if="regionUserSet && region && hasCurves">统计区间（{{ fmtX(region.x0) }}–{{ fmtX(region.x1) }} {{ xUnit }}）不在当前时间窗内。<button class="ov-link" @click="resetStatsRange">满窗</button></template>
+                <template v-else>当前窗口内没有可统计的通道。</template>
+              </div>
+              <template v-else>
+                <!-- 条件对比（≥2 段）：每条件一行，峰值条形可扫读；多了折叠 + 限高滚动 -->
+                <div v-if="condCards.length" class="ov-contrast">
+                  <div class="ov-sec-mini">条件对比 · 峰值 µV</div>
+                  <div class="ov-contrast-list">
+                    <div v-for="c in visibleCondCards" :key="c.seg" class="ov-contrast-row" @click="focusChan(c.peakChan)">
+                      <span class="ov-li-dot" :style="{ background: c.color }"></span>
+                      <span class="ov-contrast-lbl">{{ c.label }}</span>
+                      <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: barPct(c.peak) + '%', background: c.color }"></span></span>
+                      <span class="ov-contrast-val text-mono">{{ c.peak.toFixed(1) }}</span>
+                    </div>
+                  </div>
+                  <button v-if="condCards.length > CONTRAST_COLLAPSED" class="ov-hover-toggle" type="button" @click="contrastExpanded = !contrastExpanded">{{ contrastExpanded ? '收起' : `展开全部 ${condCards.length} 条` }}</button>
+                </div>
+                <!-- 明细表：默认折叠，导出 / 逐通道核对再展开 -->
+                <div class="ov-detail">
+                  <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                    <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                    明细表 · {{ statsRows.length }} 行
+                  </button>
+                  <table v-if="showDetailTable" class="ov-dtable">
+                    <thead>
+                      <tr><th>{{ segKindLabel }}</th><th>通道</th><th>峰值</th><th>谷值</th><th>均值</th><th>峰潜伏</th><th>谷潜伏</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
+                        <td class="ov-dt-seg">{{ r.segName }}</td>
+                        <td class="ov-dt-ch"><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
+                        <td class="ov-dt-peak">{{ r.peak.toFixed(2) }}</td>
+                        <td class="ov-dt-trough">{{ r.trough.toFixed(2) }}</td>
+                        <td>{{ r.mean.toFixed(2) }}</td>
+                        <td class="ov-dt-lat">{{ fmtX(r.peakLat) }}</td>
+                        <td class="ov-dt-lat">{{ fmtX(r.troughLat) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+            </template>
+            <div v-else class="ov-stat-off">在图上横向拖拽框选一段，或点「区间统计」，查看条件对比与逐通道明细。</div>
+          </div>
         </div>
       </aside>
     </div>
@@ -485,8 +483,11 @@ import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useCursorState } from '@/composables/observe/useCursorState'
 import { useQueryString, round, toNum, shortId, clampInt, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
+import { composeLineExport, triggerPngDownload, sanitizeExportName } from '@/composables/observe/useObserveExport'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
+import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
+import { useClickOutside } from '@/composables/observe/useClickOutside'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -557,8 +558,11 @@ const topoMode = ref<'window' | 'cursor'>('cursor') // 地形图取值：区间�
 const showLeft = ref(true) // 左栏（选择器）折叠
 const pageRef = ref<HTMLElement | null>(null) // 全屏目标（整页）
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
+useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 // 配色：色板选择 / 下拉分组 / 取色器统一走 usePalette（与 PSD/TFR 同源）
 const { paletteKey, palOpen, currentPalette, paletteGroups, selectPalette, colorAt } = usePalette('elys')
+const palRef = ref<HTMLElement | null>(null) // 配色下拉容器：点击外部收起
+useClickOutside(palRef, () => { palOpen.value = false })
 // 统一取色器：所有曲线/圆点/sparkline 都走它，切换色板即全站生效
 function chColor(i: number) {
   // 按通道总数取色：连续色板铺满渐变、离散色板超长循环复用，全选都吃到色板
@@ -620,23 +624,29 @@ watch(displayReadout, (val) => { if (val) lastHoverItems.value = val.items })
 const hoverItemsAll = computed(() => displayReadout.value?.items ?? lastHoverItems.value)
 const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : hoverItemsAll.value.slice(0, HOVER_COLLAPSED)))
 // cursorState / cursorStateText / cursorStateHint 由 useCursorState 提供
-const highlightChan = ref('') // 点右栏行定位：高亮该通道（曲线加粗 / 对应子图加框）
-const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
-const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
-// 焦点联动：焦点关时图上零强调（鼠标移动不改线宽，只读数）；焦点开时才有 hover/锁定高亮，缺省高亮 focusStat 峰值线。
-const effectiveFocus = computed(() => (focusEnabled.value ? (hoveredHighlight.value || lockedHighlight.value || focusStat.value?.chan || highlightChan.value) : ''))
-// 点读数行/明细行：焦点关时一键开焦点并锁定该线（选项①，免去先找开关）；焦点开时切换锁定。
-function toggleLock(name: string) {
-  if (!focusEnabled.value) { focusEnabled.value = true; lockedHighlight.value = name; return }
-  lockedHighlight.value = lockedHighlight.value === name ? '' : name
+const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——焦点机制唯一选择态，取代原 hover/锁定/下拉三套
+// 信号重叠：任一子图画了 ≥2 条曲线时，「突出一条、压细其余」才有意义；单线时焦点自动隐身（按钮藏起）。
+const hasOverlap = computed(() => cells.value.some((c) => c.series.length >= 2))
+// 画布高亮（按通道名）：仅「重叠 + 焦点开」生效；选中谁高亮谁，未选则取自动主角（focusStat=峰值最大）。鼠标悬停不再参与。
+const effectiveFocus = computed(() => (hasOverlap.value && focusEnabled.value ? (selectedCurve.value || focusStat.value?.chan || '') : ''))
+// 单击曲线 / 读数行 / 明细行：重叠时即可单击——单击某条即【进入聚焦（自动开焦点开关）+ 选中它】；
+// 再点同一条 / 点空白 = 取消选中（回自动主角，仍在聚焦态）；彻底退出聚焦走 ◎ 焦点开关。
+function onLinePick(name: string) {
+  if (!hasOverlap.value) return
+  if (!name) { selectedCurve.value = ''; return }
+  if (!focusEnabled.value) focusEnabled.value = true
+  selectedCurve.value = selectedCurve.value === name ? '' : name
 }
-// 悬停高亮仅在焦点开时生效（图线 hover / 读数行 hover 共用）。
-function onLineHover(name: string) { if (focusEnabled.value) hoveredHighlight.value = name }
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
 const region = ref<{ x0: number; x1: number } | null>(null)
 const regionUserSet = ref(false)
 const statLoInput = ref<number | string>('')
 const statHiInput = ref<number | string>('')
+// 区间统计开关（右栏）：默认关——右栏不堆对比/明细/图上着色带；点开关或框选区间即开。与「焦点」同哲学，按需出现。
+const statsEnabled = ref(false)
+const rangeEdit = ref(false) // 右栏内「精确范围输入」折叠（从旧左栏面板迁来）
+// 实际生效：开关开 或 用户框选过 → 区间统计可见
+const statsActive = computed(() => statsEnabled.value || regionUserSet.value)
 const copied = ref(false)
 const partialNote = ref('') // 部分产物加载失败时的非致命提示
 // 左栏分区折叠
@@ -751,24 +761,20 @@ function exportCell(e: MouseEvent, title: string, ci?: number) {
     fctx.drawImage(raw, 0, 0, fb.width, fb.height)
     src = fb
   }
-  const headH = Math.round(src.width * 0.028)
-  const out = document.createElement('canvas')
-  out.width = src.width
-  out.height = src.height + headH
-  const ctx = out.getContext('2d')!
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, out.width, out.height)
-  if (title) {
-    ctx.fillStyle = '#1F2733'
-    ctx.font = `${Math.round(headH * 0.55)}px sans-serif`
-    ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(headH * 0.4), headH / 2, out.width - Math.round(headH * 0.8))
-  }
-  ctx.drawImage(src, 0, headH)
-  const a = document.createElement('a')
-  a.href = out.toDataURL('image/png')
-  a.download = `waveform_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
-  a.click()
+  const t = ts.value
+  const footerLeft = [
+    t ? `fs ${Math.round(t.sfreq)} Hz` : '',
+    `${selectedChans.value.size}/${allChanNames.value.length} ch`,
+    t ? `${fmtX(t.tmin * xFactor.value)}~${fmtX(t.tmax * xFactor.value)} ${xUnit.value}` : '',
+    filterDesc.value,
+  ].filter(Boolean).join(' · ')
+  const out = composeLineExport(src, {
+    title,
+    subtitle: displayName.value,
+    badge: typeShort.value,
+    footerLeft,
+  })
+  triggerPngDownload(out, `waveform_${sanitizeExportName(title)}.png`)
 }
 
 function xsFor(t: StudyOutputTimeseries) {
@@ -956,39 +962,26 @@ const condCards = computed<CondCard[]>(() => {
   return out
 })
 
-// ---------- 右栏重设计：① 焦点 / ② 对比条形 / ③ 折叠明细表 ----------
+// ---------- 右栏重设计：① 焦点卡（以选中曲线为主） / ② 对比条形 / ③ 折叠明细表 ----------
 const showDetailTable = ref(false)
-// ① 焦点：可开关（默认关）；开后可在下拉选某一根重叠曲线，未选则自动取峰值最大
+// ① 焦点：开关默认关，且仅「信号重叠」时才有意义（按钮 v-if=hasOverlap）；失去重叠自动收起。
 const focusEnabled = ref(false)
-const focusKey = ref('') // `${seg}::${chan}` 选中的曲线；'' = 自动（峰值最大）
-const focusOptions = computed(() => statsRows.value.map((r) => ({ key: `${r.seg}::${r.chan}`, label: `${r.chan} · ${r.segName}` })))
+// 焦点主角行：①单根曲线(statsRows 仅 1 行)直接显示它——无重叠焦点无意义但仍给详情；
+// ②重叠 + 焦点开：选中通道(跨条件取峰值最大那条)，未选取全局峰值最大；③重叠但焦点关 → null，右栏走总览/提示。
 const focusStat = computed<StatRow | null>(() => {
-  if (!focusEnabled.value) return null
   const rows = statsRows.value
   if (!rows.length) return null
-  if (focusKey.value) {
-    const hit = rows.find((r) => `${r.seg}::${r.chan}` === focusKey.value)
-    if (hit) return hit
+  if (rows.length === 1) return rows[0]
+  if (!(hasOverlap.value && focusEnabled.value)) return null
+  if (selectedCurve.value) {
+    const cand = rows.filter((r) => r.chan === selectedCurve.value)
+    if (cand.length) return cand.reduce((a, b) => (b.peak > a.peak ? b : a))
   }
-  let pk = rows[0]
-  for (const r of rows) if (r.peak > pk.peak) pk = r
-  return pk
+  return rows.reduce((a, b) => (b.peak > a.peak ? b : a))
 })
-// 选了具体曲线 → 顺带在图里高亮它的通道
-watch(focusKey, (k) => {
-  if (!k) return
-  const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
-  if (hit) highlightChan.value = hit.chan
-})
-// 关掉焦点开关：连带清掉曲线高亮 + 下拉选择 + 悬停/锁定（否则曲线一直加粗，与「焦点已关」矛盾）
-watch(focusEnabled, (on) => {
-  if (!on) {
-    focusKey.value = ''
-    highlightChan.value = ''
-    hoveredHighlight.value = ''
-    lockedHighlight.value = ''
-  }
-})
+// 关焦点 / 失去重叠：清掉选中，回纯读数态
+watch(focusEnabled, (on) => { if (!on) selectedCurve.value = '' })
+watch(hasOverlap, (ov) => { if (!ov) { focusEnabled.value = false; selectedCurve.value = '' } })
 // ② 条件对比的峰值条形：按各条件峰值绝对值归一
 const maxCondPeak = computed(() => {
   let m = 0
@@ -1273,6 +1266,20 @@ function resetStatsRange() {
     statHiInput.value = round(fw.x1, xPrec.value)
   }
 }
+// 右栏「区间统计」开关：关→连同框选一并撤掉、回到完全关闭；开→无框选时落到满窗
+function toggleStats() {
+  if (statsActive.value) {
+    statsEnabled.value = false
+    regionUserSet.value = false
+    rangeEdit.value = false
+  } else {
+    statsEnabled.value = true
+    if (!region.value) {
+      const fw = fullWindow()
+      if (fw) { region.value = fw; statLoInput.value = round(fw.x0, xPrec.value); statHiInput.value = round(fw.x1, xPrec.value) }
+    }
+  }
+}
 
 // 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配是客户端过滤，不触发）
 watch([() => sortedSegs.value.join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
@@ -1319,9 +1326,19 @@ function onSelect(r: { x0: number; x1: number } | null) {
   statLoInput.value = round(r.x0, xPrec.value)
   statHiInput.value = round(r.x1, xPrec.value)
 }
-// 点右栏明细行 → 高亮该通道（再点取消）
+// 右键（三页统一）：落点在「用户框选的统计区间」内 → 撤掉该区间（回到跟随窗口）；否则 → 解锁游标。
+// 默认满窗带（regionUserSet=false）不算可撤的 ROI，故此时右键一律解锁游标，保证游标解锁始终可达。
+function onContextUnlock(x: number | null) {
+  const r = region.value
+  if (regionUserSet.value && r && x != null && x >= r.x0 && x <= r.x1) {
+    resetStatsRange()
+    return
+  }
+  onUnlock()
+}
+// 点右栏对比条 / 明细行 → 选中该通道（等价于单击曲线）
 function focusChan(name: string) {
-  toggleLock(name)
+  onLinePick(name)
 }
 
 // ---------- 左栏分区折叠 ----------

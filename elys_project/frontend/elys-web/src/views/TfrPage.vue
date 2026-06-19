@@ -30,7 +30,7 @@
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
             </div>
             <div v-show="!collapsed.dataset" class="ov-sec-body">
-              <template v-if="isMultiOutput">
+              <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
                   v-for="(oid, i) in outputIds"
                   :key="oid"
@@ -41,7 +41,7 @@
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ segLabel(i) }}</span>
                 </div>
-              </template>
+              </div>
               <div v-else class="ov-li is-static">
                 <span class="ov-li-dot" :style="{ background: TYPE_COLOR }"></span>
                 <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
@@ -86,7 +86,7 @@
             </div>
             <div v-show="!collapsed.cmap" class="ov-sec-body">
               <!-- 色卡下拉：当前色卡(渐变条+名字)点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
-              <div class="tfr-cmap">
+              <div class="tfr-cmap" ref="cmapRef">
                 <button type="button" class="tfr-cmap-cur" :class="{ 'is-open': cmapOpen }" @click="cmapOpen = !cmapOpen">
                   <span class="tfr-cmap-sw" :style="{ background: heatmapCssGradient(cmap, 'to right') }"></span>
                   <span class="tfr-cmap-name">{{ currentCmapLabel }}</span>
@@ -172,7 +172,7 @@
               <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调色阶</span></div>
               <div class="ov-help-row"><kbd>拖拽</kbd><span>框选时频 ROI</span></div>
               <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标 (t,f)</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标 / 清 ROI</span></div>
+              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤 ROI · 框外解锁游标</span></div>
               <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
             </div>
           </div>
@@ -243,7 +243,7 @@
                     @cursor="onCursor"
                     @select="onSelect"
                     @lock="onLock"
-                    @unlock="onUnlock"
+                    @unlock="onContextUnlock"
                     @zoom="onZoom"
                     @amp="onAmp"
                   />
@@ -379,6 +379,8 @@ import { usePalette } from '@/composables/observe/usePalette'
 import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
+import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
+import { useClickOutside } from '@/composables/observe/useClickOutside'
 import '@/components/observe/observePage.css'
 
 // ---------- 常量 ----------
@@ -422,6 +424,7 @@ const showLeft = ref(true)
 const showHelp = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
+useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 const cmap = ref<HeatmapCmap>('elys')
 const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, cmap: false, modules: false })
 
@@ -572,6 +575,8 @@ const cbarGradient = computed(() => heatmapCssGradient(cmap.value))
 const isDivergingCmap = computed(() => !IS_SEQUENTIAL[cmap.value])
 // 色卡下拉（与时域/频域「配色」同款交互；不暴露发散/顺序等术语，靠渐变色卡自解释 + 下方一句人话提示）
 const cmapOpen = ref(false)
+const cmapRef = ref<HTMLElement | null>(null) // 色卡下拉容器：点击外部收起
+useClickOutside(cmapRef, () => { cmapOpen.value = false })
 const currentCmapLabel = computed(() => HEATMAP_CMAPS.find((c) => c.key === cmap.value)?.label ?? cmap.value)
 function selectCmap(k: HeatmapCmap) {
   cmap.value = k
@@ -677,7 +682,19 @@ function onUnlock() {
   cursorLocked.value = false
   lockedTF.value = null
   hoveredTF.value = null
-  region.value = null
+}
+// 右键（三页统一）：落点在 ROI 框内 → 只撤 ROI；框外（或无 ROI）→ 只解锁游标。两者不再绑死。
+function onContextUnlock(at: { t: number; f: number } | null) {
+  const r = region.value
+  if (
+    r && at &&
+    at.t >= Math.min(r.t0, r.t1) && at.t <= Math.max(r.t0, r.t1) &&
+    at.f >= Math.min(r.f0, r.f1) && at.f <= Math.max(r.f0, r.f1)
+  ) {
+    region.value = null
+    return
+  }
+  onUnlock()
 }
 
 // 各格在 displayTF 处的功率

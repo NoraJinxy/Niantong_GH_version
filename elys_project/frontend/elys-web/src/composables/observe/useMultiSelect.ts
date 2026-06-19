@@ -26,16 +26,25 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
     const k = arr[index]
     if (k === undefined) return
     // Shift 连选：锚点到当前的闭区间
-    if (e.shiftKey && anchor.value != null) {
-      const lo = Math.min(anchor.value, index)
-      const hi = Math.max(anchor.value, index)
-      const s = new Set<K>()
-      for (let j = lo; j <= hi; j++) {
-        const kk = arr[j]
-        if (kk !== undefined) s.add(kk)
+    if (e.shiftKey) {
+      let anchorIdx = anchor.value
+      // anchor 未设置时（页面刚打开、首次 shift+click），从当前选中集里取第一个选中项的索引作为 fallback 锚点
+      if (anchorIdx == null && selected.value.size > 0) {
+        const firstSel = [...selected.value][0]
+        const fi = arr.findIndex((k) => k === firstSel)
+        if (fi >= 0) anchorIdx = fi
       }
-      selected.value = s
-      return
+      if (anchorIdx != null) {
+        const lo = Math.min(anchorIdx, index)
+        const hi = Math.max(anchorIdx, index)
+        const s = new Set<K>()
+        for (let j = lo; j <= hi; j++) {
+          const kk = arr[j]
+          if (kk !== undefined) s.add(kk)
+        }
+        selected.value = s
+        return
+      }
     }
     // Ctrl/⌘ 加选切换：至少留一个
     if (e.ctrlKey || e.metaKey) {

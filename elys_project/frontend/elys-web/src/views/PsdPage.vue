@@ -30,7 +30,7 @@
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
             </div>
             <div v-show="!collapsed.dataset" class="ov-sec-body">
-              <template v-if="isMultiOutput">
+              <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
                   v-for="(oid, i) in outputIds"
                   :key="oid"
@@ -41,7 +41,7 @@
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ segLabel(i) }}</span>
                 </div>
-              </template>
+              </div>
               <div v-else class="ov-li is-static">
                 <span class="ov-li-dot" :style="{ background: TYPE_COLOR }"></span>
                 <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
@@ -88,10 +88,10 @@
             <div v-show="!collapsed.range" class="ov-sec-body">
               <div class="ov-row">
                 <span class="ov-row-lbl">起始</span>
-                <input v-model="statLoInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" />
+                <input v-model="statLoInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
                 <span class="ov-sep">~</span>
                 <span class="ov-row-lbl">结束</span>
-                <input v-model="statHiInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" />
+                <input v-model="statHiInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
               </div>
               <div class="ov-row-end">
                 <span class="ov-unit-tag">Hz</span>
@@ -131,7 +131,7 @@
               </div>
               <p class="ov-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图。</p>
               <div class="ov-grid2-lbl" style="margin-top: 6px">配色</div>
-              <div class="ov-pal">
+              <div class="ov-pal" ref="palRef">
                 <button type="button" class="ov-pal-cur" :class="{ 'is-open': palOpen }" @click="palOpen = !palOpen">
                   <span class="ov-pal-sw"><i v-for="(c, i) in currentPalette.colors" :key="i" :style="{ background: c }" /></span>
                   <span class="ov-pal-name">{{ currentPalette.label }}</span>
@@ -233,7 +233,7 @@
               <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调 dB 范围</span></div>
               <div class="ov-help-row"><kbd>拖拽</kbd><span>选频段区间</span></div>
               <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>解锁游标</span></div>
+              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤区间 · 框外解锁游标</span></div>
               <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
             </div>
           </div>
@@ -288,6 +288,7 @@
                     :ref-lines="false"
                     :markers="cellPsdMarkers(cell.segs)"
                     :highlight="effectiveFocus"
+                    :pickable="hasOverlap"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -300,10 +301,10 @@
                     @cursor="onCursor"
                     @select="onSelect"
                     @lock="onLock"
-                    @unlock="onUnlock"
+                    @unlock="onContextUnlock"
                     @zoom="onZoom"
                     @amp="onAmp"
-                    @line-hover="onLineHover"
+                    @line-pick="onLinePick"
                   />
                 </div>
               </section>
@@ -336,7 +337,7 @@
         <div class="ov-right-head">
           <strong><span class="ov-right-dot"></span>统计结果</strong>
           <div class="ov-right-btns">
-            <button class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="焦点：谱图加粗读数通道、压细其余">◎ 焦点</button>
+            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条谱线重叠时可用）：直接单击图中某条谱线即进入——加粗它、淡化其余、右栏显示其 IAF / 相对功率 / 比值；点此开关可一键退出聚焦">◎ 焦点</button>
             <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
@@ -357,16 +358,14 @@
                   class="ov-hover-row"
                   :class="{
                     'is-hl': effectiveFocus === it.name,
-                    'is-locked': lockedHighlight === it.name,
-                    'is-dim': effectiveFocus && effectiveFocus !== it.name && lockedHighlight !== it.name,
+                    'is-dim': effectiveFocus && effectiveFocus !== it.name,
+                    'is-pick': hasOverlap,
                   }"
-                  @mouseenter="onLineHover(it.name)"
-                  @mouseleave="hoveredHighlight = ''"
-                  @click="toggleLock(it.name)"
+                  @click="onLinePick(it.name)"
                 >
                   <span class="ov-li-dot" :style="{ background: it.color }"></span>
                   <span class="ov-hover-name">{{ it.name }}</span>
-                  <span v-if="lockedHighlight === it.name" class="ov-row-pin" title="已锁定 · 点击解锁">●</span>
+                  <span v-if="effectiveFocus === it.name" class="ov-row-pin" title="当前聚焦 · 点击取消">●</span>
                   <span class="ov-hover-val text-mono">{{ displayReadout ? it.uv.toFixed(2) : '–' }}</span>
                 </div>
               </div>
@@ -377,41 +376,36 @@
           <div v-if="!statsRows.length" class="ov-right-empty">
             选择通道后，这里显示主频 (IAF)、频段相对功率与常用比值。
           </div>
-          <template v-else-if="readoutStat">
-            <!-- 主频 IAF 英雄 + 通道选择 -->
-            <div class="ov-focus">
-              <select v-model="readoutKey" class="ov-focus-pick">
-                <option value="">自动 · α 最强通道</option>
-                <option v-for="o in readoutOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
-              </select>
-              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: readoutStat.color }"></span>{{ readoutStat.chan }} · {{ readoutStat.segName }}</div>
-              <div class="ov-focus-main">
-                <div class="ov-focus-cell"><span class="ov-focus-num">{{ iafText }}</span><span class="ov-focus-u">Hz · 主频 / IAF</span></div>
-                <div class="ov-focus-cell"><span class="ov-focus-num2">{{ (readoutStat.bandRel.alpha ?? 0).toFixed(0) }}%</span><span class="ov-focus-u">α 相对功率</span></div>
-              </div>
-            </div>
-
-            <!-- 频段相对功率 % -->
-            <div class="ov-contrast">
-              <div class="ov-sec-mini">频段相对功率 %（{{ readoutStat.chan }} · {{ readoutStat.segName }}）</div>
-              <div class="ov-contrast-list">
-                <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
-                  <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
-                  <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
-                  <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: (readoutStat.bandRel[b.name] ?? 0) + '%', background: bandColor(b.name) }"></span></span>
-                  <span class="ov-contrast-val text-mono">{{ (readoutStat.bandRel[b.name] ?? 0).toFixed(0) }}%</span>
+          <template v-else>
+            <!-- ① 焦点卡：以选中谱线为主——IAF + α 一行、θ/β + δ/α 一行（B 风格，曲线本色圆点·克制深灰） -->
+            <template v-if="readoutStat">
+              <div class="ov-focus">
+                <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: readoutStat.color }"></span>{{ readoutStat.chan }} · {{ readoutStat.segName }}</div>
+                <div class="ov-focus-row">
+                  <span class="ov-focus-k">IAF</span><span class="ov-focus-v text-mono">{{ iafText }}</span><span class="ov-focus-uu">Hz</span>
+                  <span class="ov-focus-k2">α</span><span class="ov-focus-v text-mono">{{ (readoutStat.bandRel.alpha ?? 0).toFixed(0) }}</span><span class="ov-focus-uu">%</span>
+                </div>
+                <div class="ov-focus-row">
+                  <span class="ov-focus-k">θ/β</span><span class="ov-focus-v text-mono">{{ tbr }}</span>
+                  <span class="ov-focus-k2">δ/α</span><span class="ov-focus-v text-mono">{{ dar }}</span>
                 </div>
               </div>
-            </div>
 
-            <!-- 常用比值（描述性，不作诊断）-->
-            <div class="psd-ratios">
-              <div class="ov-sec-mini">常用比值（{{ readoutStat.chan }} · {{ readoutStat.segName }}）· 描述性，不作诊断</div>
-              <div class="psd-ratio-cards">
-                <div class="psd-ratio-card"><div class="psd-ratio-k">θ/β (TBR)</div><div class="psd-ratio-v">{{ tbr }}</div></div>
-                <div class="psd-ratio-card"><div class="psd-ratio-k">δ/α (DAR)</div><div class="psd-ratio-v">{{ dar }}</div></div>
+              <!-- 频段相对功率 % -->
+              <div class="ov-contrast">
+                <div class="ov-sec-mini">频段相对功率 %（{{ readoutStat.chan }} · {{ readoutStat.segName }}）</div>
+                <div class="ov-contrast-list">
+                  <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
+                    <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
+                    <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
+                    <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: (readoutStat.bandRel[b.name] ?? 0) + '%', background: bandColor(b.name) }"></span></span>
+                    <span class="ov-contrast-val text-mono">{{ (readoutStat.bandRel[b.name] ?? 0).toFixed(0) }}%</span>
+                  </div>
+                </div>
               </div>
-            </div>
+            </template>
+            <!-- 重叠但焦点关：引导开启 + 单击选线 -->
+            <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条谱线，即可聚焦查看其主频 IAF / 相对功率 / 比值。</div>
 
             <!-- 明细表（相对功率 %）-->
             <div class="ov-detail">
@@ -453,8 +447,11 @@ import { useCursorState } from '@/composables/observe/useCursorState'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
+import { composeLineExport, triggerPngDownload, sanitizeExportName } from '@/composables/observe/useObserveExport'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
+import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
+import { useClickOutside } from '@/composables/observe/useClickOutside'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -501,12 +498,15 @@ const showHelp = ref(false)
 const displayMode = ref<'overlay' | 'spread'>('overlay')
 const pageRef = ref<HTMLElement | null>(null)
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
+useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 const collapsed = reactive<Record<string, boolean>>({
   dataset: false, channel: false, range: false, layout: false, modules: false,
 })
 
 // 配色
 const { paletteKey, palOpen, currentPalette, paletteGroups, selectPalette, colorAt } = usePalette('elys')
+const palRef = ref<HTMLElement | null>(null) // 配色下拉容器：点击外部收起
+useClickOutside(palRef, () => { palOpen.value = false })
 
 // ---------- 段（=数据集/条件输出）与通道选择 ----------
 const segKeys = computed(() => outputIds.map((_, i) => i))
@@ -741,18 +741,19 @@ const statLoInput = ref<number | string>('')
 const statHiInput = ref<number | string>('')
 const selectedBand = ref<string>('alpha')
 const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === selectedBand.value)?.label ?? 'α')
-const highlightChan = ref('')
-const lockedHighlight = ref('') // 用户主动锁定（点读数行/明细行），持久
-const hoveredHighlight = ref('') // 鼠标悬停（读数行/图线），瞬态
-// 焦点联动：焦点关时图上零强调（鼠标移动不改线宽，只读数）；焦点开时才有 hover/锁定高亮。
-const effectiveFocus = computed(() => (focusEnabled.value ? (hoveredHighlight.value || lockedHighlight.value || focusChannel.value) : ''))
-// 点读数行/明细行：焦点关时一键开焦点并锁定该线（选项①，免去先找开关）；焦点开时切换锁定。
-function toggleLock(name: string) {
-  if (!focusEnabled.value) { focusEnabled.value = true; lockedHighlight.value = name; return }
-  lockedHighlight.value = lockedHighlight.value === name ? '' : name
+const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——焦点机制唯一选择态，取代原 hover/锁定/下拉三套
+// 信号重叠：任一子图画了 ≥2 条谱线时，「突出一条、压细其余」才有意义；单线时焦点自动隐身（按钮藏起）。
+const hasOverlap = computed(() => cells.value.some((c) => c.series.length >= 2))
+// 画布高亮（按通道名）：仅「重叠 + 焦点开」生效；选中谁高亮谁，未选取自动主角（readoutStat=α 最强）。鼠标悬停不再参与。
+const effectiveFocus = computed(() => (hasOverlap.value && focusEnabled.value ? (selectedCurve.value || readoutStat.value?.chan || '') : ''))
+// 单击谱线 / 读数行 / 明细行：重叠时即可单击——单击某条即【进入聚焦（自动开焦点开关）+ 选中它】；
+// 再点同一条 / 点空白 = 取消选中（回自动主角，仍在聚焦态）；彻底退出聚焦走 ◎ 焦点开关。
+function onLinePick(name: string) {
+  if (!hasOverlap.value) return
+  if (!name) { selectedCurve.value = ''; return }
+  if (!focusEnabled.value) focusEnabled.value = true
+  selectedCurve.value = selectedCurve.value === name ? '' : name
 }
-// 悬停高亮仅在焦点开时生效（图线 hover / 读数行 hover 共用）。
-function onLineHover(name: string) { if (focusEnabled.value) hoveredHighlight.value = name }
 
 // 地形图频率来源：band（预设频段）| custom（自定义 Hz 区间）| cursor（跟随游标）
 const topoSource = ref<'band' | 'custom' | 'cursor'>('band')
@@ -831,8 +832,19 @@ function onSelect(r: { x0: number; x1: number } | null) {
   statLoInput.value = round(r.x0, 1)
   statHiInput.value = round(r.x1, 1)
 }
+// 右键（三页统一）：落点在「用户框选的频率区间」内 → 撤掉该区间（回到全频段）；否则 → 解锁游标。
+// 默认满窗带（regionUserSet=false）不算可撤的 ROI，故此时右键一律解锁游标，保证游标解锁始终可达。
+function onContextUnlock(x: number | null) {
+  const r = region.value
+  if (regionUserSet.value && r && x != null && x >= r.x0 && x <= r.x1) {
+    resetStatsRange()
+    return
+  }
+  onUnlock()
+}
+// 点右栏明细行 → 选中该通道（等价于单击谱线）
 function focusChan(name: string) {
-  toggleLock(name)
+  onLinePick(name)
 }
 
 // ---------- 临床读数（逐 数据集×通道：IAF + 频段相对功率）----------
@@ -879,31 +891,23 @@ const statsRows = computed<PsdStatRow[]>(() => {
   return out.slice(0, 500)
 })
 
-// 主读数行：选定通道(readoutKey) 或默认 α 相对功率最强（后部 / IAF 源）
+// 焦点主角行：①单根谱线(statsRows 仅 1 行)直接显示它；②重叠 + 焦点开：选中通道(跨条件取 α 最强那条)，未选取全局 α 最强；③重叠但焦点关 → null，右栏走引导。
 const showDetailTable = ref(false)
-const readoutKey = ref('')
-const readoutOptions = computed(() => statsRows.value.map((r) => ({ key: `${r.seg}::${r.chan}`, label: `${r.chan} · ${r.segName}` })))
 const readoutStat = computed<PsdStatRow | null>(() => {
   const rows = statsRows.value
   if (!rows.length) return null
-  if (readoutKey.value) {
-    const hit = rows.find((r) => `${r.seg}::${r.chan}` === readoutKey.value)
-    if (hit) return hit
+  if (rows.length === 1) return rows[0]
+  if (!(hasOverlap.value && focusEnabled.value)) return null
+  if (selectedCurve.value) {
+    const cand = rows.filter((r) => r.chan === selectedCurve.value)
+    if (cand.length) return cand.reduce((a, b) => ((b.bandRel.alpha ?? 0) > (a.bandRel.alpha ?? 0) ? b : a))
   }
-  let pk = rows[0]
-  for (const r of rows) if ((r.bandRel.alpha ?? 0) > (pk.bandRel.alpha ?? 0)) pk = r
-  return pk
+  return rows.reduce((a, b) => ((b.bandRel.alpha ?? 0) > (a.bandRel.alpha ?? 0) ? b : a))
 })
-watch(readoutKey, (k) => {
-  if (!k) return
-  const hit = statsRows.value.find((r) => `${r.seg}::${r.chan}` === k)
-  if (hit) highlightChan.value = hit.chan
-})
-// 焦点（与时域一致，默认关）：开启时谱图加粗「读数通道」、压细其余 + 描边其子图;关时图上零强调
+// 焦点：开关默认关，仅「信号重叠」时才有意义（按钮 v-if=hasOverlap）；失去重叠自动收起。
 const focusEnabled = ref(false)
-const focusChannel = computed(() => (focusEnabled.value && readoutStat.value ? readoutStat.value.chan : highlightChan.value))
-// 关焦点：连带清空悬停 / 锁定高亮，回到「纯读数」态（否则残留高亮与「焦点已关」矛盾）
-watch(focusEnabled, (on) => { if (!on) { hoveredHighlight.value = ''; lockedHighlight.value = '' } })
+watch(focusEnabled, (on) => { if (!on) selectedCurve.value = '' })
+watch(hasOverlap, (ov) => { if (!ov) { focusEnabled.value = false; selectedCurve.value = '' } })
 const iafText = computed(() => {
   const s = readoutStat.value
   return s && Number.isFinite(s.iaf) ? s.iaf.toFixed(1) : '—'
@@ -1079,24 +1083,20 @@ function exportCell(e: MouseEvent, title: string, ci?: number) {
     fctx.drawImage(raw, 0, 0, fb.width, fb.height)
     src = fb
   }
-  const headH = Math.round(src.width * 0.028)
-  const out = document.createElement('canvas')
-  out.width = src.width
-  out.height = src.height + headH
-  const ctx = out.getContext('2d')!
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, out.width, out.height)
-  if (title) {
-    ctx.fillStyle = '#1F2733'
-    ctx.font = `${Math.round(headH * 0.55)}px sans-serif`
-    ctx.textBaseline = 'middle'
-    ctx.fillText(title, Math.round(headH * 0.4), headH / 2, out.width - Math.round(headH * 0.8))
-  }
-  ctx.drawImage(src, 0, headH)
-  const a = document.createElement('a')
-  a.href = out.toDataURL('image/png')
-  a.download = `psd_${(title || 'plot').replace(/[^\w-]+/g, '_')}.png`
-  a.click()
+  const p = primaryPsd.value
+  const footerLeft = [
+    p ? `fs ${Math.round(p.sfreq)} Hz` : '',
+    `${selectedChans.value.size}/${p?.n_channels_total ?? allChanNames.value.length} ch`,
+    `${fmtX(winLo.value)}~${fmtX(winHi.value)} Hz`,
+    p ? `PSD · ${p.method}` : '',
+  ].filter(Boolean).join(' · ')
+  const out = composeLineExport(src, {
+    title,
+    subtitle: displayName.value,
+    badge: 'PSD',
+    footerLeft,
+  })
+  triggerPngDownload(out, `psd_${sanitizeExportName(title)}.png`)
 }
 
 // ---------- 取数 ----------
