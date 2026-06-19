@@ -1579,6 +1579,11 @@ const { registerLiteGraphNodeSpecs } = useLiteGraphNodeTypes({
 })
 let draggedNodeType = ''
 let liteGraphPixelRatio = 1
+// 「加载适应窗口」：加载后短时间内让 resize 改为重新 fit（而非保留旧缩放），用于应对右侧检查器
+// 抽屉 0.22s CSS 过渡逐帧挤窄画布——否则 fit 按过渡前的过宽画布算、之后 resize 只保留不重 fit 致溢出。
+// 窗口内每次 resize→重 fit；360ms 超时或用户手动复位即退出，绝不覆盖用户手动缩放/摆放。
+let pendingFitOnLoad = false
+let pendingFitClearTimer = 0
 const pipelineContextMenu = reactive<{
   open: boolean
   x: number
@@ -2369,6 +2374,7 @@ function centerLiteGraphView() {
 
 function resetLiteGraphZoom() {
   if (!liteGraphCanvas) return
+  pendingFitOnLoad = false // 用户手动复位 → 退出加载适应窗口，别被随后的 resize 重新 fit 覆盖
   liteGraphCanvas.ds.scale = liteGraphPixelRatio
   liteGraphCanvas.ds.offset = [24, 64]
   liteGraphCanvas.setDirty(true, true)
@@ -2662,6 +2668,11 @@ function graphLayoutIsDegenerate(): boolean {
 function normalizeGraphViewOnLoad() {
   if (!liteGraph || !liteGraphCanvas) return
   if (definition.value.graph.nodes.length === 0) return
+  // 开「加载适应窗口」：随后 ~360ms 内每次 resize（含检查器抽屉 0.22s 过渡逐帧挤窄画布）都重新 fit。
+  // 抽屉已开（无过渡）时，下面这次 rAF fit 即按稳定宽度一次到位；有过渡则靠窗口内 resize 逐帧重 fit 收敛。
+  pendingFitOnLoad = true
+  if (pendingFitClearTimer) window.clearTimeout(pendingFitClearTimer)
+  pendingFitClearTimer = window.setTimeout(() => { pendingFitOnLoad = false }, 360)
   let tries = 0
   const attempt = () => {
     if (!liteGraph || !liteGraphCanvas) return
@@ -2711,8 +2722,14 @@ function resizeLiteGraphCanvas() {
   liteGraphCanvas.resize(bitmapWidth, bitmapHeight)
   liteGraphCanvas.ds.min_scale = LITEGRAPH_MIN_ZOOM * liteGraphPixelRatio
   liteGraphCanvas.ds.max_scale = LITEGRAPH_MAX_ZOOM * liteGraphPixelRatio
-  liteGraphCanvas.ds.scale = clampLiteGraphUiScale(previousUiScale) * liteGraphPixelRatio
-  liteGraphCanvas.setDirty(true, true)
+  // 加载适应窗口内（检查器抽屉过渡逐帧挤窄画布期间）按最新窄宽重新 fit，而非保留过渡前算出的过大缩放；
+  // 窗口外（用户交互态）维持原逻辑：保留用户当前缩放，不打断手动缩放/平移。
+  if (pendingFitOnLoad) {
+    fitGraphToView() // 内部已 setDirty
+  } else {
+    liteGraphCanvas.ds.scale = clampLiteGraphUiScale(previousUiScale) * liteGraphPixelRatio
+    liteGraphCanvas.setDirty(true, true)
+  }
 }
 
 function getLiteGraphPixelRatio() {
