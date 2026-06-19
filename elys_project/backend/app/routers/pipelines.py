@@ -578,19 +578,46 @@ def apply_interaction_decision(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "DECISION_CONFLICT",
-                "message": "ICA decision version has changed. Refresh the waiting node before submitting again.",
+                "message": "Pipeline decision version has changed. Refresh the waiting node before submitting again.",
                 "expected_version": expected_version,
                 "received_version": payload.decision_version,
             },
         )
 
-    excluded_components = sorted({int(item) for item in payload.excluded_components if int(item) >= 0})
-    decision = {
-        "excluded_components": excluded_components,
-        "decision_version": expected_version,
+    interaction_type = str(interaction.get("type") or "ica_component_selection")
+    submitted = {
         "submitted_by": str(current_user.id),
         "submitted_at": datetime.utcnow().isoformat() + "Z",
     }
+    if interaction_type == "artifact_marking":
+        # 手动去伪迹去坏段：坏段(list[{onset,duration,source}]) / 坏道(通道名) / 处理方式 原样存，
+        # 由执行器 run_artifact_mark 归一化（parse_bad_segments / parse_bad_channels）。
+        channel_action = payload.channel_action if payload.channel_action in ("mark", "interpolate") else "mark"
+        decision = {
+            "type": interaction_type,
+            "bad_segments": payload.bad_segments,
+            "bad_channels": payload.bad_channels,
+            "channel_action": channel_action,
+            "decision_version": expected_version,
+            **submitted,
+        }
+        params_update = {
+            "bad_segments": payload.bad_segments,
+            "bad_channels": payload.bad_channels,
+            "channel_action": channel_action,
+            "decision_version": expected_version,
+        }
+    else:
+        excluded_components = sorted({int(item) for item in payload.excluded_components if int(item) >= 0})
+        decision = {
+            "excluded_components": excluded_components,
+            "decision_version": expected_version,
+            **submitted,
+        }
+        params_update = {
+            "excluded_components": excluded_components,
+            "decision_version": expected_version,
+        }
     interaction = {
         **interaction,
         "status": "decision_submitted",
@@ -600,8 +627,7 @@ def apply_interaction_decision(
     set_job_interaction(job, interaction)
     job.params_json = {
         **(job.params_json or {}),
-        "excluded_components": excluded_components,
-        "decision_version": expected_version,
+        **params_update,
     }
 
 
@@ -2320,7 +2346,7 @@ def resume_pipeline_node(
     if not isinstance(interaction.get("decision"), dict):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "PIPELINE_DECISION_REQUIRED", "message": "Submit an ICA decision before resuming the execution."},
+            detail={"code": "PIPELINE_DECISION_REQUIRED", "message": "Submit the node decision before resuming the execution."},
         )
     run_pipeline_execution_sync(db, execution.id, commit_progress=False, start_topo_index=job.topo_index)
     db.commit()

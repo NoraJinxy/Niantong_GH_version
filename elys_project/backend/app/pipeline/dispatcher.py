@@ -39,6 +39,8 @@ from app.engine.io import (
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
+from app.engine.ica.iclabel import run_iclabel
+from app.engine.preprocess.artifact_mark import run_artifact_mark
 from app.engine.preprocess.bad_channels import run_bad_channels
 from app.engine.preprocess.channel_location import run_channel_location
 from app.engine.preprocess.filters import run_filter
@@ -88,8 +90,10 @@ class NodeDispatcher:
             "eeg/preproc/rereference": self._execute_rereference,
             "eeg/preproc/channel_location": self._execute_channel_location,
             "eeg/preproc/bad_channels": self._execute_bad_channels,
+            "eeg/preproc/artifact_mark": self._execute_artifact_mark,
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
+            "eeg/ica/iclabel": self._execute_ica_iclabel,
             "eeg/epoch/segment": self._execute_epoch_segment,
             "eeg/epoch/baseline": self._execute_baseline,
             "eeg/epoch/reject": self._execute_reject_trials,
@@ -275,6 +279,55 @@ class NodeDispatcher:
         action = str(params.get("action") or "interpolate").strip().lower()
         save_descriptor = "interp" if action == "interpolate" else "badchan"
         return self._execute_raw_preprocess(context, run_bad_channels, save_descriptor=save_descriptor)
+
+    def _execute_artifact_mark(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """人工去伪迹去坏段（交互节点，与 Apply ICA 同款回环）：
+        无 decision → 返回 waiting_user_input + 审核 payload（前端双击开页框选/点选）；
+        有 decision → 把人工标记合进 params，复用 raw→raw 保存循环落 BAD_ 标注 / info['bads'] / 可选插值。
+        """
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Artifact Mark has no upstream data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        decision = self._artifact_decision(context)
+        if decision is None:
+            interaction = self._artifact_interaction_payload(context, input_data_infos)
+            output = NodeOutput(
+                node_id=node_id,
+                node_type=node_type,
+                outputs={"output": []},
+                data_infos=[],
+                artifacts=[item for node_input in context.inputs.values() for item in node_input.artifacts],
+                metadata={"interaction": interaction},
+            )
+            return NodeDispatchResult(
+                output=output,
+                status="waiting_user_input",
+                dataset_count=0,
+                output_ports=["output"],
+            )
+
+        channel_action = str(decision.get("channel_action") or context.params.get("channel_action") or "mark").strip().lower()
+        params = {
+            **context.params,
+            "bad_segments": decision.get("bad_segments", []),
+            "bad_channels": decision.get("bad_channels", []),
+            "channel_action": channel_action,
+            "decision_version": decision.get("decision_version", context.params.get("decision_version", 1)),
+        }
+        save_descriptor = "interp" if channel_action == "interpolate" else "artifact"
+        return self._execute_raw_preprocess(
+            context, run_artifact_mark, save_descriptor=save_descriptor, params_override=params
+        )
 
     def _execute_ica_compute(self, context: NodeExecutionContext) -> NodeDispatchResult:
         node_id = str(context.node.get("id") or "")
@@ -473,6 +526,118 @@ class NodeDispatcher:
                 "input_dataset_count": len(input_data_infos),
                 "decision": decision,
                 "save_descriptor": "clean",
+            },
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted_data_infos),
+            output_ports=["output"],
+            errors=errors,
+        )
+
+    def _execute_ica_iclabel(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """ICLabel 自动选成分：input(EEG) + ica_matrix → cleaned EEG。非交互（无人工审阅门）——
+        引擎内自动分类 + 按类别/阈值定剔除集 + 重建，分类明细并入 preview 作溯源。"""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        ica_infos = self._input_data_infos(context, "ica_matrix")
+        if not input_data_infos or not ica_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="ICLabel auto-select requires both input EEG data_infos and ica_matrix data_infos.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
+        params = context.params if isinstance(context.params, dict) else {}
+        # mark 模式数据未改：用区分后缀 + raw 类型，别把未清洗的输出冒充成 cleaned（溯源要诚实）
+        action = str(params.get("action") or "apply").strip().lower()
+        save_descriptor = "iclabel" if action == "apply" else "iclabel_marked"
+        default_data_type = "ica_cleaned" if action == "apply" else "raw"
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+
+        for index, data_info in enumerate(input_data_infos):
+            raw = None
+            cleaned = None
+            ica = None
+            try:
+                ica_info = self._matching_ica_info(data_info, ica_infos, index)
+                raw = read_raw_from_data_info(data_info, preload=True)
+                ica = read_ica_from_data_info(ica_info)
+                cleaned, detail = run_iclabel(raw, ica, params)
+                raw = None
+                summary = summarize_raw(cleaned)
+                if detail:
+                    # 并入 summary，使 ICLabel 分类明细同时进 preview 与 mne_summary（溯源）
+                    summary = {**summary, **detail}
+                filename = self._derived_raw_filename(data_info, save_descriptor, index)
+                upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info, ica_info)
+                save_meta = self._save_settings_metadata(context, data_info=data_info, index=index)
+                artifact = study_output_store.save_file_from_writer(
+                    filename,
+                    lambda path, cleaned=cleaned: save_raw_fif(cleaned, path),
+                    kind="derivative",
+                    data_type=save_meta.get("data_type") or default_data_type,
+                    metadata={
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "params": params,
+                        "input_data_info": self._compact_input_data_info(data_info),
+                        "ica_data_info": self._compact_input_data_info(ica_info),
+                        "mne_summary": summary,
+                        "upstream_dataset_ids": upstream_dataset_ids,
+                        "upstream_recording_ids": upstream_recording_ids,
+                        **save_meta,
+                    },
+                    preview=summary,
+                    source_dataset_id=self._source_dataset_id(data_info),
+                    node_id=node_id,
+                )
+                artifacts.append(artifact)
+                output_data_infos.append(
+                    self._derived_data_info(
+                        context=context,
+                        input_data_info=data_info,
+                        artifact=artifact,
+                        summary=summary,
+                    )
+                )
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: {exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+            finally:
+                # 单 dataset 处理完显式释放 raw / cleaned / ica（~500MB 级），触发 GC 防累积 OOM
+                raw = None  # noqa: F841
+                cleaned = None  # noqa: F841
+                ica = None  # noqa: F841
+                import gc  # noqa: PLC0415
+                gc.collect()
+
+        emitted_data_infos = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted_data_infos},
+            data_infos=emitted_data_infos,
+            artifacts=artifacts,
+            metadata={
+                "dataset_count": len(output_data_infos),
+                "input_dataset_count": len(input_data_infos),
+                "save_descriptor": save_descriptor,
             },
         )
         return NodeDispatchResult(
@@ -872,7 +1037,11 @@ class NodeDispatcher:
         processor: Callable[[Any, dict[str, Any]], Any],
         *,
         save_descriptor: str,
+        params_override: dict[str, Any] | None = None,
     ) -> NodeDispatchResult:
+        # 交互节点（如 artifact_mark）把人工 decision 合进 params 后用 params_override 传入；
+        # 普通预处理节点不传，沿用 context.params——老调用行为零变化。
+        params = params_override if params_override is not None else context.params
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
         input_data_infos = self._input_data_infos(context, "input")
@@ -896,7 +1065,7 @@ class NodeDispatcher:
             processed = None
             try:
                 raw = read_raw_from_data_info(data_info, preload=True)
-                processed = processor(raw, context.params)
+                processed = processor(raw, params)
                 # 预处理引擎可返回 (raw, extra_meta)：extra_meta 记录如坏道检测明细之类的溯源信息
                 processor_meta: dict[str, Any] = {}
                 if isinstance(processed, tuple):
@@ -918,7 +1087,7 @@ class NodeDispatcher:
                     metadata={
                         "node_id": node_id,
                         "node_type": node_type,
-                        "params": context.params,
+                        "params": params,
                         "input_data_info": self._compact_input_data_info(data_info),
                         "mne_summary": summary,
                         "upstream_dataset_ids": upstream_dataset_ids,
@@ -2085,6 +2254,66 @@ class NodeDispatcher:
                 "source": "node_params",
             }
         return None
+
+    @staticmethod
+    def _artifact_decision(context: NodeExecutionContext) -> dict[str, Any] | None:
+        """读人工去伪迹决策：优先取 job interaction 里已提交的 decision，
+        否则回退节点 params（允许完全在图上写死坏段/坏道直接跑，与 ICA 同口径）。无标记则返回 None → 等待。"""
+        output_json = getattr(context.job, "output_json", None) or {}
+        interaction = NodeDispatcher._interaction_from_output(output_json)
+        decision = interaction.get("decision") if isinstance(interaction, dict) else None
+        if isinstance(decision, dict) and (
+            decision.get("type") == "artifact_marking" or "bad_segments" in decision or "bad_channels" in decision
+        ):
+            return {
+                "bad_segments": decision.get("bad_segments") or [],
+                "bad_channels": decision.get("bad_channels") or [],
+                "channel_action": decision.get("channel_action") or context.params.get("channel_action") or "mark",
+                "decision_version": int(decision.get("decision_version") or context.params.get("decision_version") or 1),
+            }
+
+        raw_segments = context.params.get("bad_segments")
+        raw_channels = context.params.get("bad_channels")
+        if raw_segments not in (None, "", []) or raw_channels not in (None, "", []):
+            return {
+                "bad_segments": raw_segments or [],
+                "bad_channels": raw_channels or [],
+                "channel_action": context.params.get("channel_action") or "mark",
+                "decision_version": int(context.params.get("decision_version") or 1),
+                "source": "node_params",
+            }
+        return None
+
+    @staticmethod
+    def _artifact_interaction_payload(
+        context: NodeExecutionContext,
+        input_data_infos: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """伪迹审核 waiting payload：把节点 raw 输入的标识喂给前端（页面据此调观察窗端点画波形），
+        并回填节点上已有的草稿标记作初始态。具体波形不进 payload——按需走窗口端点取。"""
+        datasets = [
+            {
+                "dataset_id": data_info.get("dataset_id"),
+                "source_dataset_id": NodeDispatcher._source_dataset_id(data_info),
+                # 上游 raw 的 StudyOutput id：前端据此调 /outputs/{id}/timeseries 画波形让用户框选
+                "output_id": data_info.get("artifact_id"),
+                "data_info": NodeDispatcher._compact_input_data_info(data_info),
+            }
+            for data_info in input_data_infos
+        ]
+        return {
+            "type": "artifact_marking",
+            "status": "waiting_user_input",
+            "decision_version": int(context.params.get("decision_version") or 1),
+            "preview_json": {
+                "datasets": datasets,
+                "channel_action": context.params.get("channel_action") or "mark",
+                "initial": {
+                    "bad_segments": context.params.get("bad_segments") or "",
+                    "bad_channels": context.params.get("bad_channels") or "",
+                },
+            },
+        }
 
     @staticmethod
     def _interaction_from_output(output_json: dict[str, Any]) -> dict[str, Any]:

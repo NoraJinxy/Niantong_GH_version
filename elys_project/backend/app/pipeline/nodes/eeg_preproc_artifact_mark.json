@@ -1,0 +1,49 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/artifact_mark",
+  "title": "Artifact Mark",
+  "category": "preprocessing",
+  "phase": "phase1",
+  "description": "人工去伪迹去坏段（交互节点）：双击节点打开波形审核台，在连续波形上框选坏段、点选坏道，可一键自动检测异常作建议，确认后返回流水线续跑。坏段只写 BAD_ 标注（非破坏，留给下游 Epoch 切分 reject_by_annotation 跳过）；坏道默认仅标记进 info['bads']、不改数据，可选球面样条插值修复（需电极坐标，请在本节点前接 Ch Loc Assign）。输出写入 derivatives，不改写 fifdata。",
+  "tags": ["artifact", "bad", "segment", "channel", "manual", "review", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "Reviewed EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "bad_segments", "label": "坏段", "type": "text", "default": "",
+     "description": "坏段在波形审核台框选标记（JSON 存 [{onset,duration,source}]，秒）；下游切分时按 BAD_ 标注剔除，非破坏。"},
+    {"name": "bad_channels", "label": "坏道", "type": "text", "default": "",
+     "description": "坏道在波形审核台点选标记（通道名列表）；默认只标记进 info['bads']、不改数据。"},
+    {"name": "channel_action", "label": "坏道处理方式", "type": "select", "default": "mark", "required": true,
+     "options": [
+       {"value": "mark", "label": "仅标记坏道（默认，不改数据）"},
+       {"value": "interpolate", "label": "球面样条插值修复（改数据，需电极坐标）"}
+     ],
+     "description": "默认保守：仅标记=只把坏道写进 info['bads']、数据不动，留给下游或人工复核；插值=用周围好电极球面样条重建坏电极，数据被修复（需先接 Ch Loc Assign 给坐标）。"},
+    {"name": "reset_bads", "label": "插值后清除坏道标记", "type": "boolean", "default": true, "advanced": true,
+     "visible_when": {"channel_action": ["interpolate"]},
+     "description": "插值后把这些通道恢复为正常通道（MNE 默认行为，下游照常使用）；关掉则保留坏道标记，下游可继续排除它们。"},
+    {"name": "decision_version", "label": "Decision Version", "type": "integer", "default": 1, "advanced": true}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.artifact_mark",
+    "function": "run_artifact_mark",
+    "save_descriptor": "artifact",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": true
+  },
+  "save": {
+    "step_label": "artifact-mark",
+    "auto_tags": ["step:artifact-mark", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "light",
+  "output_footprint": "large",
+  "ui": {"color": "#D9776F", "default_size": [200, 110], "preview_type": "time_series"}
+}

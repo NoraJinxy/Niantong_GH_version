@@ -102,6 +102,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/artifact',
+      name: 'ArtifactMark',
+      component: () => import('@/views/ArtifactMarkPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/statistics',
       name: 'Statistics',
       component: () => import('@/views/StatisticsPage.vue'),

@@ -2223,6 +2223,22 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     statusMessage.value = '该节点本次运行没有执行记录，先运行工作流再查看'
     return
   }
+  // 手动去伪迹去坏段：交互节点在 waiting_user_input 时双击 → 打开波形审核台（标坏段/坏道 → 确认 → 续跑）
+  if (job.node_type === 'eeg/preproc/artifact_mark' && job.status === 'waiting_user_input') {
+    const params = new URLSearchParams({
+      studyId,
+      executionId: String(activeExecutionId.value || job.execution_id || ''),
+      jobId: job.id,
+    })
+    const reviewLink = document.createElement('a')
+    reviewLink.href = `/artifact?${params.toString()}`
+    reviewLink.target = '_blank'
+    reviewLink.rel = 'noopener'
+    document.body.appendChild(reviewLink)
+    reviewLink.click()
+    reviewLink.remove()
+    return
+  }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
   const saved = artifacts.filter((item) => !item.deleted_at)
   if (!saved.length) {
