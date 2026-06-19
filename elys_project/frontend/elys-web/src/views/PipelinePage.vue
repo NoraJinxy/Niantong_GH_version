@@ -1232,16 +1232,25 @@ import {
 import { planNodeWidgets, type NodeWidgetPlan } from '@/composables/pipeline/nodeWidgetPlan'
 import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTypes'
 
-// 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
+// 节点强调色（只读「点击设置」提示用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
-// litegraph 每个 widget 实际行距 = computeSize 高 + 4（源码强加）。此处 14 → 有效行距 18px。
-const CARD_ROW_H = 14
-const NODE_FACT_DIVIDER_H = 8 // 端口区与事实区之间的发丝分隔线高（有效占 8+4=12px）
 // 只读事实行字体：测量数字 = 全卡唯一的粗体(600/12)；档位词同字号低一档(500/12，秀气不墩)；单位/运算符 500/11 弱化
 const FACT_NUM_FONT = '600 12px "Segoe UI", Arial, sans-serif'
 const FACT_CAT_FONT = '500 12px "Segoe UI", Arial, sans-serif'
 const FACT_UNIT_FONT = '500 11px "Segoe UI", Arial, sans-serif'
 type FactRun = { text: string; font: string; fill: string; w: number }
+// 「参数面板」(D 方案)几何：标题→端口区→淡色面板(框住所有事实行)→底部保存条留白。面板内行自绘，无 litegraph 逐行 widget。
+const PANEL_INSET_X = 8 // 面板距卡左右各 8px
+const PANEL_GAP_TOP = 10 // 端口区到面板顶的留白
+const PANEL_SAVE_RESERVE = 14 // 面板底到卡底的留白(含 4px 保存条)
+const PANEL_PAD_V = 8 // 面板内上下内边距
+const PANEL_PAD_L = 11 // 面板内左内边距(标签)
+const PANEL_PAD_R = 11 // 面板内右内边距(值右缘)
+const PANEL_R = 6 // 面板圆角(与卡片一致)
+const PANEL_ROW_H = 18 // 面板内每行行距(自绘,无 litegraph +4)
+type ElysFact =
+  | { kind: 'fact'; label: string; value: string }
+  | { kind: 'line'; text: string; tone: 'default' | 'muted' | 'accent' }
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -3153,50 +3162,124 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 
 // ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
 
-/** 统一节点尺寸 + 顶部对齐：事实行紧跟端口区往下排（不再沉底留出空心中段），在事实之上插一条发丝
- *  分隔线分隔「上半=数据流端口 / 下半=方法学事实」；卡片高度取「固定统一高度 NODE_CARD_MIN_HEIGHT」与
- *  内容真实高度的较大者——多数卡（≤3 行事实）落在固定值上一排齐平、短卡补底部留白，仅 4+ 行节点更高。 */
+/** 节点事实缓冲：push*Summary 把 1~N 条事实/行累积到节点上，finalizeNodeWidgets 再统一画成「参数面板」。 */
+function nodeFactBuffer(graphNode: LiteGraphNode): ElysFact[] {
+  const g = graphNode as { __elysFacts?: ElysFact[] }
+  return g.__elysFacts || (g.__elysFacts = [])
+}
+
+/** 画面板内一行：事实=「标签(左灰) …… 值(右；数字醒目/单位弱化)」；行=左对齐单行(文件名/提示)。 */
+function drawFactRow(
+  ctx: CanvasRenderingContext2D,
+  row: ElysFact,
+  cy: number,
+  leftX: number,
+  rightX: number,
+  valNum: string,
+  valUnit: string,
+) {
+  ctx.textBaseline = 'middle'
+  if (row.kind === 'line') {
+    ctx.textAlign = 'left'
+    if (row.tone === 'muted') {
+      ctx.font = 'italic 11px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#9AAABB'
+    } else if (row.tone === 'accent') {
+      ctx.font = '11px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
+    } else {
+      ctx.font = '500 12px "Segoe UI", Arial, sans-serif'
+      ctx.fillStyle = '#2D3E52'
+    }
+    ctx.fillText(truncByWidth(ctx, row.text, rightX - leftX), leftX, cy)
+    return
+  }
+  // 标签（左，浅灰 10px）
+  ctx.font = '10px "Segoe UI", Arial, sans-serif'
+  ctx.fillStyle = '#9AAABB'
+  ctx.textAlign = 'left'
+  const labelTxt = truncWidgetText(row.label, 10)
+  ctx.fillText(labelTxt, leftX, cy)
+  const labelEnd = leftX + ctx.measureText(labelTxt).width
+  // 值（先按数字字重测宽截断 → 多段上色 → 整体右对齐）
+  ctx.font = FACT_NUM_FONT
+  const maxValW = Math.max(24, rightX - labelEnd - 10)
+  const valTxt = truncByWidth(ctx, row.value, maxValW)
+  const runs = factValueRuns(valTxt, valNum, valUnit)
+  let cw = 0
+  for (const r of runs) {
+    ctx.font = r.font
+    r.w = ctx.measureText(r.text).width
+    cw += r.w
+  }
+  ctx.textAlign = 'left'
+  let tx = Math.round(rightX - cw)
+  for (const r of runs) {
+    ctx.font = r.font
+    ctx.fillStyle = r.fill
+    ctx.fillText(r.text, tx, cy)
+    tx += r.w
+  }
+}
+
+/** 统一节点尺寸 + 画「参数面板」(D 方案)：标题 → 端口区 → 一块淡类别色面板(框住全部事实行) → 底部保存条留白。
+ *  卡片高度取「固定统一高度 NODE_CARD_MIN_HEIGHT」与内容真实高度的较大者——短卡面板内补留白、一排齐平。
+ *  面板 + 各行都在「单个自绘 widget」里画(不再逐行 widget)，高度按 litegraph「起点 +2、widget 后 +4」精确预留、不溢出。 */
 function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
-  const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
+  const facts = nodeFactBuffer(graphNode)
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
   const slotH = LiteGraph.NODE_SLOT_HEIGHT || 22
-  const factCount = widgets.length
-  const isLoadData = String((graphNode as { type?: unknown }).type || '') === LOAD_DATA_NODE_TYPE
-  // LoadData 的内容是文件名行（语义上不需要「端口/方法学」分隔线）；其余事实卡才插发丝线。
-  const hasDivider = factCount > 0 && !isLoadData
+  const portsHeight = portRows * slotH
+  const widgetsStartY = portsHeight + PANEL_GAP_TOP
+  ;(graphNode as { widgets_start_y?: number }).widgets_start_y = widgetsStartY
+  ;(graphNode as { widgets?: unknown[] }).widgets = []
 
-  if (hasDivider) {
-    widgets.unshift({
-      type: 'elys_divider',
-      name: '',
-      value: null,
-      computeSize: (w: number) => [w, NODE_FACT_DIVIDER_H],
-      draw: (ctx: CanvasRenderingContext2D, _node: unknown, w: number, y: number, _h: number) => {
-        const lineY = Math.round(y + 6) + 0.5 // 1px 描边居中在 8+4=12px 预留带里
-        ctx.save()
-        ctx.strokeStyle = '#E0E6EE'
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(12, lineY)
-        ctx.lineTo(w - 12, lineY)
-        ctx.stroke()
-        ctx.restore()
-      },
-    } as unknown)
+  if (facts.length === 0) {
+    graphNode.size = [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, widgetsStartY + 8)]
+    return
   }
 
-  // 高度严格对齐 litegraph 的 widget 布局：起点 = 钉死的 widgets_start_y（避开 max_y 漂移），
-  // 之后 drawNodeWidgets 先 posY+=2，再每个 widget posY += computeSize高 + 4。把这「一次性 +2」「每行 +4」
-  // 全算进来，卡片高度才恰好罩住最后一行、不溢出（旧公式漏算致 3 行卡的末行冲出底边）。
-  const PORT_GUTTER = 6
-  const widgetsStartY = portRows * slotH + PORT_GUTTER
-  ;(graphNode as { widgets_start_y?: number }).widgets_start_y = widgetsStartY
-  const stackHeight = 2 + (hasDivider ? NODE_FACT_DIVIDER_H + 4 : 0) + factCount * (CARD_ROW_H + 4)
-  // 末行与底部保存胶囊（画在 height-7）之间留净空：有保存条的卡留 11，无的留 7。
-  // 保存条只出现在「非 LoadData」事实卡，LoadData 恒无 → 取 7。
-  const bottomBand = factCount > 0 && !isLoadData ? 11 : 7
-  const bodyHeight = widgetsStartY + stackHeight + bottomBand
-  graphNode.size = [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, bodyHeight)]
+  const rowsContentH = facts.length * PANEL_ROW_H + PANEL_PAD_V * 2
+  const naturalCardH = widgetsStartY + 2 + rowsContentH + PANEL_SAVE_RESERVE
+  const cardH = Math.max(NODE_CARD_MIN_HEIGHT, naturalCardH)
+  // 面板填到「卡底 − 保存条留白」，行多则卡变高、行少则面板内补留白（短卡仍达固定高、一排齐平）。
+  const panelH = cardH - PANEL_SAVE_RESERVE - widgetsStartY - 2
+
+  const accent = categoryColor(spec?.category)
+  const panelTint = mixHex(accent, '#FFFFFF', 0.92) // 一缕类别淡底
+  const panelStroke = mixHex(accent, '#FFFFFF', 0.74) // 极细类别边（无左竖线，克制）
+  const valNum = mixHex(accent, '#000000', 0.2)
+  const valUnit = mixHex(valNum, panelTint, 0.42)
+  const rows = facts.slice()
+
+  ;(graphNode as { widgets?: unknown[] }).widgets!.push({
+    type: 'elys_fact_panel',
+    name: '',
+    value: null,
+    computeSize: (w: number) => [w, panelH],
+    draw: (ctx: CanvasRenderingContext2D, _node: unknown, w: number, y: number, _h: number) => {
+      ctx.save()
+      const px = PANEL_INSET_X
+      const pw = w - PANEL_INSET_X * 2
+      ctx.fillStyle = panelTint
+      ctx.beginPath()
+      ctx.roundRect(px, y, pw, panelH, PANEL_R)
+      ctx.fill()
+      ctx.strokeStyle = panelStroke
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.roundRect(px + 0.5, y + 0.5, pw - 1, panelH - 1, PANEL_R)
+      ctx.stroke()
+      const leftX = px + PANEL_PAD_L
+      const rightX = px + pw - PANEL_PAD_R
+      for (let i = 0; i < rows.length; i += 1) {
+        drawFactRow(ctx, rows[i], y + PANEL_PAD_V + i * PANEL_ROW_H + PANEL_ROW_H / 2, leftX, rightX, valNum, valUnit)
+      }
+      ctx.restore()
+    },
+  } as unknown)
+
+  graphNode.size = [NODE_CARD_WIDTH, cardH]
 }
 
 /** 文字截断（超长加省略号）—— 节点卡片窄，长中文 label / 值要截。 */
@@ -3219,27 +3302,6 @@ function recordingDisplayName(rec: { fif_path?: string | null; source_path?: str
   if (base) return base
   const subj = rec.bids_subject_id || rec.subject_id || '?'
   return `sub-${subj}${rec.task ? `_${rec.task}` : ''}`
-}
-
-/** 往节点塞一个**纯只读**自绘控件（无交互）。点节点本身会选中 → 自动开检查器（litegraph 默认行为）。 */
-function pushReadonlyWidget(
-  graphNode: LiteGraphNode,
-  drawFn: (ctx: CanvasRenderingContext2D, width: number, y: number, h: number) => void,
-) {
-  const widgets = (graphNode as { widgets?: unknown[] }).widgets || ((graphNode as { widgets?: unknown[] }).widgets = [])
-  const H = CARD_ROW_H
-  widgets.push({
-    type: 'elys_readonly',
-    name: '',
-    value: null,
-    computeSize: (width: number) => [width, H],
-    draw: (ctx: CanvasRenderingContext2D, _node: unknown, width: number, y: number, h: number) => {
-      ctx.save()
-      ctx.textBaseline = 'middle'
-      drawFn(ctx, width, y, h)
-      ctx.restore()
-    },
-  })
 }
 
 /** 不透明 hex 线性插值（a→b 取 t∈[0,1]）。从类别强调色派生胶囊的描边/文字/单位色，
@@ -3290,73 +3352,15 @@ function truncByWidth(ctx: CanvasRenderingContext2D, text: string, maxPx: number
   return s + '…'
 }
 
-/** 只读「标签 …… 值」事实行：标签 10px 浅灰 + 右侧随节点类别染色的**纯文本**值（无胶囊底 / 无边框）；
- *  数值做「数字醒目（600·12）+ 单位/运算符弱化（500·11/400·11）」双层排版，整体右对齐、动态像素宽度截断。 */
+/** 只读「标签 …… 值」事实：累积到节点事实缓冲，由 finalizeNodeWidgets 统一画进参数面板
+ *  （面板内右对齐、数字醒目单位弱化，配色随节点类别在面板渲染时统一派生）。 */
 function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
-  // 值文字色随节点类别色派生（与标题圈点 / accent 竖条 / 保存胶囊同源）——整张卡一个色系。
-  const factSpec = nodeSpecs.value.find((s) => s.type === String((graphNode as { type?: unknown }).type || '')) || null
-  const accent = categoryColor(factSpec?.category)
-  const inkColor = mixHex(accent, '#000000', 0.22) // 数字：类别色压深，白底上够沉、够醒目
-  const unitColor = mixHex(inkColor, '#6B7888', 0.45) // 单位/运算符：向中性灰提一档弱化（无底色衬托，太淡会发飘）
-
-  pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
-    const cy = y + h * 0.5
-    const PAD_L = 10
-    const PAD_R = 12 // 值右缘 = width-12，与标题栏状态徽标右缘同列对齐
-    const MIN_GAP = 10
-
-    // Label（左，浅灰 10px）
-    let labelEndX = PAD_L
-    if (label) {
-      ctx.font = '10px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#9AAABB'
-      ctx.textAlign = 'left'
-      ctx.fillText(truncWidgetText(label, 10), PAD_L, cy)
-      labelEndX = PAD_L + ctx.measureText(truncWidgetText(label, 10)).width
-    }
-
-    // 值：先按数字字重测宽度上界做像素截断，再切「数字 / 运算符 / 单位」多段分别上色，
-    // 累加各段实测宽度后整体右对齐（从 width-PAD_R 反推起点，逐段左对齐推进画）。
-    ctx.font = FACT_NUM_FONT
-    const maxValueW = Math.max(24, width - PAD_R - labelEndX - MIN_GAP)
-    const valueText = truncByWidth(ctx, value, maxValueW)
-
-    const runs = factValueRuns(valueText, inkColor, unitColor)
-    let contentW = 0
-    for (const run of runs) {
-      ctx.font = run.font
-      run.w = ctx.measureText(run.text).width
-      contentW += run.w
-    }
-    ctx.textAlign = 'left'
-    let tx = Math.round(width - PAD_R - contentW)
-    for (const run of runs) {
-      ctx.font = run.font
-      ctx.fillStyle = run.fill
-      ctx.fillText(run.text, tx, cy)
-      tx += run.w
-    }
-  })
+  nodeFactBuffer(graphNode).push({ kind: 'fact', label, value })
 }
 
-/** 只读单行（左对齐，像素宽度截断）；muted=细灰斜体，accent=蓝提示，默认=文件名/普通文本。 */
+/** 只读单行（文件名 / 提示）：累积到事实缓冲，面板内左对齐绘制；muted=细灰斜体，accent=蓝提示，默认=深色文本。 */
 function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?: boolean; accent?: boolean }) {
-  pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
-    const PAD_L = 10
-    const PAD_R = 10
-    if (opts.muted) {
-      ctx.font = 'italic 10px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#9AAABB' // 与事实行标签同一「次级灰」，全卡统一一个 token
-    } else if (opts.accent) {
-      ctx.font = '11px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
-    } else {
-      ctx.font = '11px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#2D3E52'
-    }
-    ctx.textAlign = 'left'
-    ctx.fillText(truncByWidth(ctx, text, width - PAD_L - PAD_R), PAD_L, y + h * 0.5)
-  })
+  nodeFactBuffer(graphNode).push({ kind: 'line', text, tone: opts.muted ? 'muted' : opts.accent ? 'accent' : 'default' })
 }
 
 /** LoadData 专属只读摘要：选 1~2 个显文件名、更多显「N 个文件」、没选显「未选择数据」提示。 */
@@ -3389,30 +3393,26 @@ function pushFilterSummary(graphNode: LiteGraphNode, params: Record<string, unkn
   const TYPE_LABEL: Record<string, string> = { bandpass: '带通', highpass: '高通', lowpass: '低通', notch: '工频陷波' }
   const typeLabel = TYPE_LABEL[filterType] ?? filterType
 
+  // 精简成一行：标签 = 滤波类型，值 = 频率范围 / 工频（谐波数等细节留检查器）。
   if (filterType === 'notch') {
     const freq = Number(params.notch_freq ?? 50)
-    const harmonics = Number(params.notch_harmonics ?? 3)
-    pushReadonlyFact(graphNode, '类型', typeLabel)
-    pushReadonlyFact(graphNode, '工频', `${trimNumberText(freq)} Hz`)
-    if (harmonics > 1) pushReadonlyFact(graphNode, '谐波', String(harmonics))
-  } else {
-    const lf = params.l_freq != null ? Number(params.l_freq) : null
-    const hf = params.h_freq != null ? Number(params.h_freq) : null
-    let rangeText = ''
-    if (filterType === 'bandpass' && lf != null && hf != null) rangeText = `${trimNumberText(lf)} → ${trimNumberText(hf)} Hz`
-    else if (filterType === 'highpass' && lf != null) rangeText = `> ${trimNumberText(lf)} Hz`
-    else if (filterType === 'lowpass' && hf != null) rangeText = `< ${trimNumberText(hf)} Hz`
-    pushReadonlyFact(graphNode, '类型', typeLabel)
-    if (rangeText) pushReadonlyFact(graphNode, '范围', rangeText)
+    pushReadonlyFact(graphNode, typeLabel, `${trimNumberText(freq)} Hz`)
+    return
   }
+  const lf = params.l_freq != null ? Number(params.l_freq) : null
+  const hf = params.h_freq != null ? Number(params.h_freq) : null
+  let rangeText = ''
+  if (filterType === 'bandpass' && lf != null && hf != null) rangeText = `${trimNumberText(lf)} → ${trimNumberText(hf)} Hz`
+  else if (filterType === 'highpass' && lf != null) rangeText = `> ${trimNumberText(lf)} Hz`
+  else if (filterType === 'lowpass' && hf != null) rangeText = `< ${trimNumberText(hf)} Hz`
+  pushReadonlyFact(graphNode, typeLabel, rangeText || '—')
 }
 
-/** Bad Channels：处理方式 + 检测算法，两个字以内。 */
+/** Bad Channels：处理 + 算法精简成一行「修复 · LOF」。 */
 function pushBadChannelsSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const action = String(params.action ?? 'interpolate')
   const method = String(params.method ?? 'lof')
-  pushReadonlyFact(graphNode, '处理', action === 'interpolate' ? '修复' : '仅标记')
-  pushReadonlyFact(graphNode, '算法', method === 'lof' ? 'LOF' : 'RANSAC')
+  pushReadonlyFact(graphNode, '坏道', `${action === 'interpolate' ? '修复' : '仅标记'} · ${method === 'lof' ? 'LOF' : 'RANSAC'}`)
 }
 
 /** 把 event_select / channel_list 值解析成名称字符串列表：对象取 .name，字符串直接用。 */
@@ -3475,13 +3475,13 @@ function pushErpSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   }
 }
 
-/** ICA Compute：方法 + 成分数（隐掉无用的 random_state）。 */
+/** ICA Compute：方法 + 成分数精简成一行「FastICA · 20」。 */
 function pushIcaComputeSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const method = String(params.method ?? 'fastica')
   const METHOD_LABELS: Record<string, string> = { fastica: 'FastICA', infomax: 'Infomax', picard: 'Picard' }
-  pushReadonlyFact(graphNode, '方法', METHOD_LABELS[method] ?? method)
   const n = params.n_components
-  pushReadonlyFact(graphNode, '成分', n != null && n !== '' ? String(n) : '自动')
+  const nText = n != null && n !== '' ? String(n) : '自动'
+  pushReadonlyFact(graphNode, 'ICA', `${METHOD_LABELS[method] ?? method} · ${nText}`)
 }
 
 /** ICA Apply：解析 excluded_components 文本→成分索引列表，空则提示待审阅。 */
@@ -3508,11 +3508,7 @@ function pushTfrSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   const fmin = params.fmin ?? 4
   const fmax = params.fmax ?? 40
   pushReadonlyFact(graphNode, '频率', `${trimNumberText(Number(fmin))} → ${trimNumberText(Number(fmax))} Hz`)
-  const bm = String(params.baseline_mode ?? 'logratio')
-  const BM_LABELS: Record<string, string> = {
-    logratio: 'dB', percent: '% 变化', zscore: 'Z-score', ratio: '比值', mean: '减均值', none: '不做基线',
-  }
-  pushReadonlyFact(graphNode, '基线', BM_LABELS[bm] ?? bm)
+  // 基线模式（dB / % 变化 …）留检查器、不上卡（精简）。
 }
 
 /** PSD：条件名（可选）+ 频率范围 + 估计方法。 */
@@ -3526,9 +3522,7 @@ function pushPsdSummary(graphNode: LiteGraphNode, params: Record<string, unknown
   const fmin = params.fmin ?? 1
   const fmax = params.fmax ?? 40
   pushReadonlyFact(graphNode, '频率', `${trimNumberText(Number(fmin))} → ${trimNumberText(Number(fmax))} Hz`)
-  const method = String(params.method ?? 'welch')
-  const M_LABELS: Record<string, string> = { welch: 'Welch', multitaper: 'Multitaper', fft: 'FFT' }
-  pushReadonlyFact(graphNode, '方法', M_LABELS[method] ?? method)
+  // 估计方法（Welch / Multitaper）留检查器、不上卡（精简）。
 }
 
 /** Channel Location：只显电极帽模板名，去掉 rename / on_missing 细节。 */
@@ -3557,6 +3551,7 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
   const spec = nodeSpecs.value.find((item) => item.type === nodeType) || null
   const params = (graphNode.properties || {}) as Record<string, unknown>
   ;(graphNode as { widgets?: unknown[] }).widgets = []
+  ;(graphNode as { __elysFacts?: ElysFact[] }).__elysFacts = [] // 每次重建清空事实缓冲（push*Summary 重新累积）
 
   switch (nodeType) {
     case LOAD_DATA_NODE_TYPE:
