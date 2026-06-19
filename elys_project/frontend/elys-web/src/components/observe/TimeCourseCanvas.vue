@@ -663,7 +663,16 @@ watch(() => props.highlight, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
   () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers],
-  () => chart.value?.redraw(),
+  () => {
+    const u = chart.value
+    if (!u) return
+    // 区间被撤（region=null，如右键撤区间）时，连 uPlot 原生框选高亮（`.u-select` 层）一并清掉——
+    // 框选用 setScale:false，uPlot 会把那块灰矩形留在原地，redraw() 只重画 canvas 清不掉它，否则右键后灰带残留。
+    if (!props.region && u.select && u.select.width > 0) {
+      u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false)
+    }
+    u.redraw()
+  },
   { deep: true },
 )
 // 受控视图缩放（滚轮，父层广播）→ 就地 setScale x，不重建（保留游标 / 高亮）。
