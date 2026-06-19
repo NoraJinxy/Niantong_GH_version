@@ -22,6 +22,7 @@
         :class="{ 'is-sel': selectable, 'is-active': selectable && c.seg === activeSeg, 'is-marked': c.marked }"
         :style="{ borderTopColor: c.color }"
         @click="onCardClick(c.seg)"
+        @dblclick="onCardDblClick(c.seg, $event)"
       >
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
         <!-- 单层 canvas：色面 + 头罩 + 鼻耳 + 电极点同一坐标变换绘制（杜绝分层错位）；hover 真值走动态 title -->
@@ -83,9 +84,14 @@ interface TopoCell { seg: number; label: string; color: string; points: TopoPoin
 // domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
 // cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
 const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; selectable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', selectable: false, activeSeg: null })
-const emit = defineEmits<{ (e: 'cell-click', seg: number): void }>()
+const emit = defineEmits<{ (e: 'cell-click', seg: number): void; (e: 'cell-dblclick', seg: number): void }>()
 // 成分墙（ICA）：网格模式下点选某格上报 seg；strip 模式 / 非 selectable 不触发，三观察页零影响。
 function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg) }
+// 双击：selectable 下上报 seg（ICA 用作"标记/取消剔除"）并 stop——阻止冒泡到 .topo-cards 开放大弹窗；
+// 非 selectable（三观察页）不拦截，双击照常冒泡开放大弹窗，零影响。
+function onCardDblClick(seg: number, ev: Event) {
+  if (props.selectable) { ev.stopPropagation(); emit('cell-dblclick', seg) }
+}
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {

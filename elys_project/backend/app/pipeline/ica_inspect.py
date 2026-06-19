@@ -219,11 +219,18 @@ def spatial_comparison(
     keep = min(int(seconds * sfreq), original.shape[0]) if seconds and seconds > 0 else original.shape[0]
     times = np.asarray(raw.times[:keep], dtype="float64")
     idx = _downsample_idx(np, keep, max_points)
+    # 方差降幅：该通道去除前后信号方差减少多少（%）——给一个"整体清掉了多少"的量化读数。
+    orig_keep = original[:keep]
+    filt_keep = filtered[:keep]
+    var_o = float(np.var(orig_keep)) if orig_keep.size else 0.0
+    var_f = float(np.var(filt_keep)) if filt_keep.size else 0.0
+    var_reduction = ((var_o - var_f) / var_o * 100.0) if var_o > 0 else 0.0
     return {
         "has_comparison": True,
         "channel_name": ch_names[ch_idx],
         "channel_index": ch_idx,
         "components_removed": excluded,
+        "variance_reduction": round(var_reduction, 1),
         "times": np.round(times[idx], 5).tolist(),
         "original": np.round(original[:keep][idx], 6).tolist(),
         "filtered": np.round(filtered[:keep][idx], 6).tolist(),
@@ -295,3 +302,32 @@ def build_ica_component_detail(
     if excluded:
         detail["comparison"] = spatial_comparison(ica, raw, excluded)
     return detail
+
+
+def build_ica_preview(
+    study: Any,
+    artifact: Any,
+    *,
+    excluded: list[int] | None = None,
+    channel: str | None = None,
+    max_seconds: float = 10.0,
+) -> dict[str, Any]:
+    """端点用：给定要剔除的成分组合 + 通道，返回去除前后对比波形（成分审核页中心视图实时刷新用）。
+
+    只算对比波形（不含时序 / 频谱），比单成分详情端点轻，便于成分组合频繁切换时实时预览。
+    excluded 为空 → 返回 has_comparison=False（前端显示占位提示，不报错）。
+    """
+    from .previews import StudyOutputPreviewError, resolve_study_output_path  # noqa: PLC0415
+
+    mne = _mne()
+    ica_path = resolve_study_output_path(study, artifact)
+    ica = mne.preprocessing.read_ica(str(ica_path), verbose="ERROR")
+    raw = _load_source_raw(study, artifact)
+    if raw is None:
+        raise StudyOutputPreviewError(
+            "ICA_SOURCE_RAW_UNAVAILABLE",
+            "源 raw 不可用，无法计算去除前后对比。",
+            status_code=409,
+        )
+    excluded = [int(i) for i in (excluded or [])]
+    return spatial_comparison(ica, raw, excluded, channel=channel, seconds=max_seconds)
