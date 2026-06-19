@@ -213,6 +213,19 @@
 .ov-dtable th:first-child, .ov-dtable th:nth-child(2) { text-align: left; }
 .ov-dtable td { padding: 3px 5px; text-align: right; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
 .ov-dtable td:first-child, .ov-dtable td:nth-child(2) { text-align: left; }
+
+/* 区间统计块（右栏）：默认关——点开关或图上框选才出对比/明细/着色带，与「焦点」同为按需。三页（时域/频域/时频）统一。精确范围输入收纳于「调整范围」折叠里。 */
+.ov-stat-block { padding: 10px 12px; border-top: 1px solid var(--c-border); }
+.ov-stat-head { display: flex; align-items: center; gap: 8px; }
+.ov-stat-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
+.ov-stat-toggle:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.ov-stat-toggle.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+.ov-stat-ico { font-weight: 700; font-size: 12px; }
+.ov-stat-rng { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.ov-stat-edit { margin-top: 9px; background: none; border: none; cursor: pointer; font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.ov-stat-inps { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; flex-wrap: wrap; }
+.ov-stat-inps .ov-inp { width: 62px; flex: 0 0 auto; }
+.ov-stat-note, .ov-stat-off { margin-top: 9px; font-size: 12px; line-height: 1.6; color: var(--c-text-3); }
 .ov-dtable tr:hover td { background: var(--c-bg-tint); }
 .ov-dt-row { cursor: pointer; }
 .ov-dtable tr.is-focus td { background: var(--c-primary-soft); }
