@@ -4,13 +4,13 @@
   "title": "Group Merge",
   "category": "group",
   "phase": "phase2",
-  "description": "将上游批量 PSD（N 个被试）堆叠成组级张量 (n_subjects × n_channels × n_freqs)，供 Group Average / Contrast / Statistics 节点使用。典型用法：接在 PSD 节点之后，自动收集同一批次所有被试的功率谱结果。",
-  "tags": ["group", "merge", "psd", "grand-average"],
+  "description": "把多个分析产物沿「unit 轴」堆叠成组级张量 unit_stack（n_units × n_channels × …）。通吃 ERP / PSD / TFR：一个 unit 可以是被试、run 或试次（语义由你定）。要求同形态、通道可取交集、时间/频率轴一致。典型用法：接在 ERP/PSD/TFR 节点后，自动收集同一批次所有被试的结果，供 Grand Average / Compare 使用。",
+  "tags": ["group", "merge", "stack", "grand-average", "erp", "psd", "tfr"],
   "inputs": [
     {
       "name": "input",
-      "type": "psd",
-      "label": "PSD（多被试）",
+      "type": "stackable",
+      "label": "可堆叠产物（ERP / PSD / TFR · 多被试）",
       "required": true,
       "cardinality": "one_or_many"
     }
@@ -18,12 +18,26 @@
   "outputs": [
     {
       "name": "output",
-      "type": "group_psd",
-      "label": "Group PSD",
+      "type": "unit_stack",
+      "label": "Unit Stack",
       "cardinality": "one"
     }
   ],
   "properties": [
+    {
+      "name": "unit_label",
+      "label": "一个 unit 代表",
+      "type": "select",
+      "default": "subject",
+      "required": false,
+      "options": [
+        {"value": "subject", "label": "被试"},
+        {"value": "run", "label": "run / 次"},
+        {"value": "trial", "label": "试次"},
+        {"value": "session", "label": "session"}
+      ],
+      "description": "本次堆叠里「一个 unit」的语义（仅作标注，不影响数学）。跨被试 grand average 选「被试」。"
+    },
     {
       "name": "label",
       "label": "Group 标签",
@@ -35,19 +49,19 @@
   ],
   "backend": {
     "module": "app.engine.group.merge",
-    "function": "run_group_merge_psd",
-    "save_descriptor": "group_psd",
+    "function": "run_group_merge",
+    "save_descriptor": "unit_stack",
     "output_kind": "npz",
     "supports_batch": false,
     "interactive": false
   },
   "save": {
-    "step_label": "group_psd",
-    "name_template_default": "Group PSD · {condition}",
-    "auto_tags": ["step:group_merge", "type:group_psd"],
-    "data_type": "group_psd"
+    "step_label": "unit_stack",
+    "name_template_default": "Unit Stack · {condition}",
+    "auto_tags": ["step:group_merge", "type:unit_stack"],
+    "data_type": "unit_stack"
   },
   "compute_cost": "cheap",
   "output_footprint": "medium",
-  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "group_psd"}
+  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "unit_stack"}
 }

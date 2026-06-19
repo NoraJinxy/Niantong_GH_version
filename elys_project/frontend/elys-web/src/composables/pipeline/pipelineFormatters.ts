@@ -294,6 +294,8 @@ export function portTypesCompatible(sourceType?: string, targetType?: string) {
     eeg_data: ['eeg_data', 'raw', 'dataset_collection'],
     // 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs。
     spectral_source: ['spectral_source', 'eeg_data', 'raw', 'dataset_collection', 'epochs'],
+    // group 合并入口:沿 unit 轴可堆叠的产物(evoked/psd/tfr/已堆叠块/grand average 回吐)。
+    stackable: ['stackable', 'evoked', 'psd', 'tfr', 'unit_stack', 'analysis_result'],
   }
   return Boolean(sourceType && targetType && compatibleTargets[targetType]?.includes(sourceType))
 }
@@ -308,6 +310,8 @@ export function isWildcardPortType(type?: string): boolean {
 // 让画布拖线与后端 port_types_compatible 判定一致。
 const MULTI_ACCEPT_LITEGRAPH_TYPES: Record<string, string> = {
   spectral_source: 'epochs,eeg_data',
+  // group 合并入口接受多种可堆叠产物——展开成逗号列表让画布原生连线放行。
+  stackable: 'evoked,psd,tfr,unit_stack',
 }
 
 export function liteGraphPortType(type?: string): string {

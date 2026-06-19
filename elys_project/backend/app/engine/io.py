@@ -61,6 +61,33 @@ def read_ica_from_data_info(data_info: Any):
     return mne.preprocessing.read_ica(path, verbose="ERROR")
 
 
+def read_evoked_from_data_info(data_info: Any):
+    """读单条 ERP(-ave.fif)→ mne.Evoked。一个 artifact 存一个 condition,取首个。"""
+    path = resolve_path_reference(
+        data_info,
+        ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
+    )
+    mne = _mne()
+    evokeds = mne.read_evokeds(path, verbose="ERROR")
+    if not evokeds:
+        raise ValueError(f"read_evoked_from_data_info: 文件无 evoked: {path}")
+    return evokeds[0]
+
+
+def read_tfr_from_data_info(data_info: Any):
+    """读时频(-tfr.h5)→ mne.time_frequency.AverageTFR。read_tfrs 返回 list,取首个。"""
+    path = resolve_path_reference(
+        data_info,
+        ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
+    )
+    mne = _mne()
+    tfrs = mne.time_frequency.read_tfrs(str(path))
+    obj = tfrs[0] if isinstance(tfrs, list) else tfrs
+    if obj is None:
+        raise ValueError(f"read_tfr_from_data_info: 文件无 TFR: {path}")
+    return obj
+
+
 def save_raw_fif(raw: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "raw")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -287,40 +314,6 @@ def load_psd_npz(path: str | Path) -> dict[str, Any]:
     }
 
 
-def save_group_psd_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
-    """保存 group PSD 张量 (n_subjects × n_channels × n_freqs) 为 .npz。"""
-    import numpy as np  # noqa: PLC0415
-
-    target = ensure_psd_npz_path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        str(target),
-        group_psds=np.asarray(result["group_psds"], dtype=float),
-        freqs=np.asarray(result["freqs"], dtype=float),
-        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
-        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
-        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
-        subjects=np.asarray(list(result.get("subjects") or []), dtype="U256"),
-    )
-    return target
-
-
-def load_group_psd_npz(path: str | Path) -> dict[str, Any]:
-    """读 group PSD .npz → {group_psds, freqs, ch_names, sfreq, label, subjects, n_subjects}。"""
-    import numpy as np  # noqa: PLC0415
-
-    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
-    return {
-        "group_psds": data["group_psds"],  # (n_subjects, n_channels, n_freqs)
-        "freqs": data["freqs"],
-        "ch_names": list(data["ch_names"]),
-        "sfreq": float(data["sfreq"]),
-        "label": str(data["label"]),
-        "subjects": list(data["subjects"]),
-        "n_subjects": int(data["group_psds"].shape[0]),
-    }
-
-
 def save_psd_grandavg_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
     """保存 grand average PSD（mean ± SEM）为 .npz；格式类似单被试 PSD，额外含 psds_sem。"""
     import numpy as np  # noqa: PLC0415
@@ -340,28 +333,6 @@ def save_psd_grandavg_npz(result: dict[str, Any], path: str | Path, *, overwrite
     return target
 
 
-def summarize_group_psd(result: dict[str, Any]) -> dict[str, Any]:
-    """group PSD 张量的轻量摘要（不含大数组）。"""
-    freqs_attr = result.get("freqs")
-    freqs = list(freqs_attr) if freqs_attr is not None else []
-    ch_names = list(result.get("ch_names") or [])
-    group_psds = result.get("group_psds")
-    n_subjects = int(
-        result.get("n_subjects") or (group_psds.shape[0] if group_psds is not None else 0)
-    )
-    return {
-        "data_type": "group_psd",
-        "n_subjects": n_subjects,
-        "n_channels": len(ch_names),
-        "ch_names": ch_names,
-        "n_freqs": len(freqs),
-        "fmin": float(freqs[0]) if freqs else None,
-        "fmax": float(freqs[-1]) if freqs else None,
-        "label": str(result.get("label") or ""),
-        "subjects": list(result.get("subjects") or []),
-    }
-
-
 def summarize_psd_grandavg(result: dict[str, Any]) -> dict[str, Any]:
     """grand average PSD 的轻量摘要。"""
     freqs_attr = result.get("freqs")
@@ -377,6 +348,102 @@ def summarize_psd_grandavg(result: dict[str, Any]) -> dict[str, Any]:
         "fmax": float(freqs[-1]) if freqs else None,
         "label": str(result.get("label") or ""),
     }
+
+
+# ========== 通用 unit_stack(沿 unit 轴堆叠的块,通吃 evoked/psd/tfr) ==========
+# 任何分析产物都能写成 (unit, *feature_axes):unit=trial/run/subject(语义),feature 轴随形态。
+# group 的 merge/average/compare 全是对 unit 轴的操作,故三类共用本格式,一套 io 通吃。
+
+def ensure_unit_stack_npz_path(path: str | Path) -> Path:
+    """保证 unit_stack 落盘文件名以 .npz 结尾(numpy savez 约束)。"""
+    target = Path(path).expanduser()
+    if target.name.lower().endswith(".npz"):
+        return target
+    return target.with_name(f"{target.name}_unitstack.npz")
+
+
+def save_unit_stack_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
+    """保存 unit_stack:data (n_units × *feature) + base_type + 坐标轴 + 逐 unit 元数据。
+
+    times / freqs 缺省轴存空数组(读回还原成 None);psd 无 time、evoked 无 freq。
+    """
+    import numpy as np  # noqa: PLC0415
+
+    target = ensure_unit_stack_npz_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    times = result.get("times")
+    freqs = result.get("freqs")
+    np.savez(
+        str(target),
+        data=np.asarray(result["data"], dtype=float),
+        base_type=np.asarray(str(result.get("base_type") or ""), dtype="U16"),
+        ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
+        ch_types=np.asarray(list(result.get("ch_types") or []), dtype="U16"),
+        times=np.asarray(list(times) if times is not None else [], dtype=float),
+        freqs=np.asarray(list(freqs) if freqs is not None else [], dtype=float),
+        sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
+        unit_labels=np.asarray(list(result.get("unit_labels") or []), dtype="U256"),
+        unit_subjects=np.asarray(list(result.get("unit_subjects") or []), dtype="U256"),
+        unit_n=np.asarray(list(result.get("unit_n") or []), dtype=float),
+        unit_kind=np.asarray(str(result.get("unit_kind") or "unit"), dtype="U32"),
+        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
+    )
+    return target
+
+
+def load_unit_stack_npz(path: str | Path) -> dict[str, Any]:
+    """读 unit_stack .npz → dict(data + 坐标轴 + 逐 unit 元数据);空 times/freqs 还原成 None。"""
+    import numpy as np  # noqa: PLC0415
+
+    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
+    times = data["times"]
+    freqs = data["freqs"]
+    stacked = data["data"]
+    return {
+        "data": stacked,  # (n_units, n_channels, *feature)
+        "base_type": str(data["base_type"]),
+        "ch_names": [str(c) for c in data["ch_names"]],
+        "ch_types": [str(c) for c in data["ch_types"]],
+        "times": times if times.size else None,
+        "freqs": freqs if freqs.size else None,
+        "sfreq": float(data["sfreq"]),
+        "unit_labels": [str(c) for c in data["unit_labels"]],
+        "unit_subjects": [str(c) for c in data["unit_subjects"]],
+        "unit_n": [float(x) for x in data["unit_n"]],
+        "unit_kind": str(data["unit_kind"]),
+        "label": str(data["label"]),
+        "n_units": int(stacked.shape[0]),
+    }
+
+
+def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
+    """unit_stack 的轻量摘要(不含大数组)。"""
+    ch_names = list(result.get("ch_names") or [])
+    times = result.get("times")
+    freqs = result.get("freqs")
+    data = result.get("data")
+    n_units = int(result.get("n_units") or (data.shape[0] if data is not None else 0))
+    summary: dict[str, Any] = {
+        "data_type": "unit_stack",
+        "base_type": str(result.get("base_type") or ""),
+        "unit_kind": str(result.get("unit_kind") or "unit"),
+        "n_units": n_units,
+        "n_channels": len(ch_names),
+        "ch_names": ch_names,
+        "label": str(result.get("label") or ""),
+        "unit_labels": list(result.get("unit_labels") or []),
+        "subjects": list(result.get("unit_subjects") or []),
+    }
+    # times / freqs 是 numpy 数组或 None —— 显式判 None + len(),严禁 `if 数组`(真值歧义)。
+    if times is not None and len(times) > 0:
+        summary["n_times"] = int(len(times))
+        summary["tmin"] = float(times[0])
+        summary["tmax"] = float(times[-1])
+    if freqs is not None and len(freqs) > 0:
+        summary["n_freqs"] = int(len(freqs))
+        summary["fmin"] = float(freqs[0])
+        summary["fmax"] = float(freqs[-1])
+    return summary
 
 
 def _get_reference_value(reference: Any, key: str) -> Any:

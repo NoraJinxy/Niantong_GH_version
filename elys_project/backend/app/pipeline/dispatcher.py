@@ -15,27 +15,25 @@ from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
 from app.engine.analysis.psd import run_psd
 from app.engine.analysis.reject import run_reject_trials
 from app.engine.analysis.tfr import run_tfr
-from app.engine.group.average import run_group_average_psd
-from app.engine.group.merge import run_group_merge_psd
+from app.engine.group.average import build_grandavg_payload, run_group_average
+from app.engine.group.merge import run_group_merge
 from app.engine.io import (
     read_epochs_from_data_info,
     read_ica_from_data_info,
     read_raw_from_data_info,
     save_epochs_fif,
     save_evoked_fif,
-    save_group_psd_npz,
     save_ica_fif,
-    save_psd_grandavg_npz,
     save_psd_npz,
     save_raw_fif,
     save_tfr_h5,
+    save_unit_stack_npz,
     summarize_epochs,
     summarize_evoked,
-    summarize_group_psd,
     summarize_psd,
-    summarize_psd_grandavg,
     summarize_raw,
     summarize_tfr,
+    summarize_unit_stack,
 )
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
@@ -100,8 +98,8 @@ class NodeDispatcher:
             "eeg/analysis/erp": self._execute_erp_average,
             "eeg/analysis/tfr": self._execute_tfr_average,
             "eeg/analysis/psd": self._execute_psd_average,
-            "eeg/group/merge": self._execute_group_merge_psd,
-            "eeg/group/average": self._execute_group_average_psd,
+            "eeg/group/merge": self._execute_group_merge,
+            "eeg/group/average": self._execute_group_average,
         }
 
     def supported_node_types(self) -> set[str]:
@@ -805,8 +803,8 @@ class NodeDispatcher:
     def _execute_psd_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_psd_output(context, run_psd, save_descriptor="psd")
 
-    def _execute_group_merge_psd(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        """N-to-1: 收集所有上游 PSD data_info，堆叠成 group 张量，输出一个 group_psd artifact。"""
+    def _execute_group_merge(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """N-to-1: 收集所有上游产物(ERP/PSD/TFR/unit_stack)，沿 unit 轴堆叠成一个 unit_stack artifact。"""
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
         input_data_infos = self._input_data_infos(context, "input")
@@ -814,7 +812,7 @@ class NodeDispatcher:
         if not input_data_infos:
             issue = self._issue(
                 code="PIPELINE_NODE_INPUT_MISSING",
-                message="Group Merge 节点没有收到上游 PSD data_infos（input 端口为空）。",
+                message="Group Merge 节点没有收到上游产物（input 端口为空）。",
                 node_id=node_id,
                 node_type=node_type,
             )
@@ -828,13 +826,15 @@ class NodeDispatcher:
         label = str(params.get("label") or "")
 
         try:
-            result = run_group_merge_psd(input_data_infos, params)
-            summary = summarize_group_psd(result)
+            result = run_group_merge(input_data_infos, params)
+            summary = summarize_unit_stack(result)
+            base_type = str(result.get("base_type") or "")
+            subjects = list(result.get("unit_subjects") or [])
 
             safe_label = "".join(
                 c if c.isalnum() or c in {"-", "_"} else "_" for c in label
             ).strip("_") or "group"
-            filename = f"{safe_label}_psd_group.npz"
+            filename = f"{safe_label}_unitstack.npz"
 
             upstream_ids = [
                 str(di.get("artifact_id") or di.get("study_output_id") or "")
@@ -843,7 +843,7 @@ class NodeDispatcher:
             ]
 
             # 保存设置（keep/cache_eligible/display_name/tags）：与其他节点同源，由拓扑角色驱动。
-            # group 输出非单被试，传 condition=label 让命名模板渲染（"Group PSD · EO"）。
+            # group 输出非单被试，传 condition=label 让命名模板渲染（"Unit Stack · EO"）。
             save_meta = self._save_settings_metadata(
                 context,
                 data_info={"condition": label, "task": label},
@@ -853,9 +853,9 @@ class NodeDispatcher:
 
             artifact = study_output_store.save_file_from_writer(
                 filename,
-                lambda path, r=result: save_group_psd_npz(r, path),
+                lambda path, r=result: save_unit_stack_npz(r, path),
                 kind="analysis_result",
-                data_type="group_psd",
+                data_type="unit_stack",
                 metadata={
                     "node_id": node_id,
                     "node_type": node_type,
@@ -863,8 +863,9 @@ class NodeDispatcher:
                     "mne_summary": summary,
                     "upstream_dataset_ids": upstream_ids,
                     "upstream_recording_ids": [],
-                    "n_subjects": result["n_subjects"],
-                    "subjects": result["subjects"],
+                    "base_type": base_type,
+                    "n_units": result["n_units"],
+                    "subjects": subjects,
                     "label": label,
                     **save_meta,
                 },
@@ -878,7 +879,8 @@ class NodeDispatcher:
             fif_abs_path = str(artifact_path) if artifact_path else None
 
             group_data_info: dict[str, Any] = {
-                "data_type": "group_psd",
+                "data_type": "unit_stack",
+                "base_type": base_type,
                 "file_role": "pipeline_artifact",
                 "artifact_id": artifact.get("artifact_id"),
                 "study_output_id": artifact.get("study_output_id"),
@@ -901,8 +903,8 @@ class NodeDispatcher:
                 "sha256": artifact.get("sha256") or artifact.get("checksum"),
                 "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
                 "label": label,
-                "n_subjects": result["n_subjects"],
-                "subjects": result["subjects"],
+                "n_units": result["n_units"],
+                "subjects": subjects,
                 **summary,
             }
 
@@ -912,7 +914,7 @@ class NodeDispatcher:
                 outputs={"output": [group_data_info]},
                 data_infos=[group_data_info],
                 artifacts=[artifact],
-                metadata={"dataset_count": 1, "n_subjects": result["n_subjects"], "label": label},
+                metadata={"dataset_count": 1, "n_units": result["n_units"], "base_type": base_type, "label": label},
             )
             return NodeDispatchResult(
                 output=output,
@@ -923,15 +925,15 @@ class NodeDispatcher:
         except Exception as exc:
             error = self._issue(
                 code="PIPELINE_NODE_DATASET_FAILED",
-                message=f"Group Merge PSD 失败：{exc}",
+                message=f"Group Merge 失败：{exc}",
                 node_id=node_id,
                 node_type=node_type,
             )
             output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
             return NodeDispatchResult(output=output, status="failed", errors=[error], output_ports=["output"])
 
-    def _execute_group_average_psd(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        """1-to-1: 从 group_psd artifact 读取张量，计算 grand average ± SEM，输出 psd_grandavg。"""
+    def _execute_group_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """1-to-1: 从 unit_stack 读取张量，沿 unit 轴求 mean ± SEM，回吐成原形态(evoked/psd/tfr)。"""
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
         input_data_infos = self._input_data_infos(context, "input")
@@ -939,7 +941,7 @@ class NodeDispatcher:
         if not input_data_infos:
             issue = self._issue(
                 code="PIPELINE_NODE_INPUT_MISSING",
-                message="Grand Average 节点没有收到上游 group_psd data_infos（input 端口为空）。",
+                message="Grand Average 节点没有收到上游 unit_stack data_infos（input 端口为空）。",
                 node_id=node_id,
                 node_type=node_type,
             )
@@ -953,16 +955,23 @@ class NodeDispatcher:
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
 
+        # grand average 回吐形态 → 落盘文件名后缀(saver 也会按形态兜底纠正)
+        ext_by_type = {
+            "psd_grandavg": "_grandavg_psd.npz",
+            "evoked": "_grandavg-ave.fif",
+            "tfr": "_grandavg-tfr.h5",
+        }
+
         for index, data_info in enumerate(input_data_infos):
             try:
-                result = run_group_average_psd(data_info, context.params)
-                summary = summarize_psd_grandavg(result)
+                result = run_group_average(data_info, context.params)
+                out_type, writer, summary = build_grandavg_payload(result)
 
                 label = str(result.get("label") or data_info.get("label") or "")
                 safe_label = "".join(
                     c if c.isalnum() or c in {"-", "_"} else "_" for c in label
                 ).strip("_") or "grandavg"
-                filename = f"{safe_label}_grandavg_psd.npz"
+                filename = f"{safe_label}{ext_by_type.get(out_type, '_grandavg.npz')}"
 
                 upstream_ids = [str(data_info.get("artifact_id") or data_info.get("study_output_id") or "")]
 
@@ -976,9 +985,9 @@ class NodeDispatcher:
 
                 artifact = study_output_store.save_file_from_writer(
                     filename,
-                    lambda path, r=result: save_psd_grandavg_npz(r, path),
+                    writer,
                     kind="analysis_result",
-                    data_type="psd_grandavg",
+                    data_type=out_type,
                     metadata={
                         "node_id": node_id,
                         "node_type": node_type,
@@ -987,7 +996,8 @@ class NodeDispatcher:
                         "upstream_dataset_ids": upstream_ids,
                         "upstream_recording_ids": [],
                         "label": label,
-                        "n_subjects": result.get("n_subjects"),
+                        "base_type": result.get("base_type"),
+                        "n_units": result.get("n_units"),
                         **save_meta,
                     },
                     preview=summary,
@@ -1007,7 +1017,7 @@ class NodeDispatcher:
                 errors.append(
                     self._issue(
                         code="PIPELINE_NODE_DATASET_FAILED",
-                        message=f"Grand Average PSD [{index}] 失败：{exc}",
+                        message=f"Grand Average [{index}] 失败：{exc}",
                         node_id=node_id,
                         node_type=node_type,
                     )

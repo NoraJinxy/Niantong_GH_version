@@ -25,6 +25,9 @@ def port_types_compatible(source_type: str | None, target_type: str | None) -> b
         "eeg_data": {"eeg_data", "raw", "dataset_collection"},
         # 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs,故既收 eeg_data 也收 epochs。
         "spectral_source": {"spectral_source", "eeg_data", "raw", "dataset_collection", "epochs"},
+        # group 合并入口:沿 unit 轴可堆叠的产物(同形态才有意义,跨形态由引擎运行期拦)。
+        # 收单产物(evoked/psd/tfr)、已堆叠块(unit_stack)、以及 grand average 回吐的 analysis_result。
+        "stackable": {"stackable", "evoked", "psd", "tfr", "unit_stack", "analysis_result"},
     }
     return bool(source_type and target_type and source_type in compatible_targets.get(target_type, set()))
 

@@ -60,6 +60,9 @@ export const PORT_COLORS: Record<string, string> = {
   connectivity: '#4F6F9F',
   microstate: '#9B557A',
   source_estimate: '#6B5F95',
+  stackable: '#7C3AED',
+  unit_stack: '#7C3AED',
+  stat_map: '#B42318',
 }
 
 // 连线视觉常量(集中管理,方便统一调整)

@@ -1,16 +1,16 @@
 {
   "schema_version": "2.0",
   "type": "eeg/group/average",
-  "title": "Grand Average PSD",
+  "title": "Grand Average",
   "category": "group",
   "phase": "phase2",
-  "description": "对组级 PSD 张量沿被试轴求均值与 SEM，输出 Grand Average 功率谱（可直接在观察页渲染 ±SEM 带）。",
-  "tags": ["group", "average", "psd", "grand-average", "sem"],
+  "description": "对 unit_stack 沿 unit 轴求均值与 SEM（grand average），并回吐成原形态：ERP→evoked、PSD→psd_grandavg、TFR→tfr，可直接在对应观察页渲染。通吃 ERP / PSD / TFR。",
+  "tags": ["group", "average", "grand-average", "sem", "erp", "psd", "tfr"],
   "inputs": [
     {
       "name": "input",
-      "type": "group_psd",
-      "label": "Group PSD",
+      "type": "unit_stack",
+      "label": "Unit Stack",
       "required": true,
       "cardinality": "one"
     }
@@ -18,25 +18,34 @@
   "outputs": [
     {
       "name": "output",
-      "type": "psd_grandavg",
-      "label": "Grand Average PSD",
+      "type": "analysis_result",
+      "label": "Grand Average（原形态）",
       "cardinality": "one"
     }
   ],
-  "properties": [],
+  "properties": [
+    {
+      "name": "weighted",
+      "label": "按试次数加权",
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "description": "按每个 unit 的试次数加权平均（各被试 trial 数不等时，ERP 跨被试常用）。关闭则等权平均。"
+    }
+  ],
   "backend": {
     "module": "app.engine.group.average",
-    "function": "run_group_average_psd",
+    "function": "run_group_average",
     "save_descriptor": "grandavg",
-    "output_kind": "npz",
+    "output_kind": "dynamic",
     "supports_batch": false,
     "interactive": false
   },
   "save": {
-    "step_label": "psd_grandavg",
-    "name_template_default": "Grand Average PSD · {condition}",
-    "auto_tags": ["step:grand_average", "type:psd_grandavg"],
-    "data_type": "psd_grandavg"
+    "step_label": "grandavg",
+    "name_template_default": "Grand Average · {condition}",
+    "auto_tags": ["step:grand_average", "type:grandavg"],
+    "data_type": "analysis_result"
   },
   "compute_cost": "cheap",
   "output_footprint": "small",
