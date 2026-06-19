@@ -45,7 +45,16 @@
                   点击成分看详情并标记剔除；地形图是该成分在各电极的权重经插值的头皮场（红正·蓝负·白≈0，各成分独立归一）。被标记剔除的成分显红框。
                 </div>
               </div>
-              <span class="badge badge--primary">{{ keepCount }} 保留 / {{ removeList.length }} 剔除</span>
+              <div class="ic-wall-tools">
+                <label class="ic-sort">
+                  排序
+                  <select v-model="sortMode" class="ic-sort-sel">
+                    <option value="index">编号</option>
+                    <option value="variance">解释方差 ↓</option>
+                  </select>
+                </label>
+                <span class="badge badge--primary">{{ keepCount }} 保留 / {{ removeList.length }} 剔除</span>
+              </div>
             </div>
 
             <TopoStrip
@@ -259,9 +268,19 @@ function cellPoints(c: IcaComponent): TopoCell['points'] {
   return c.topography.map((p) => ({ name: p.name, x: p.x, y: p.y, value: p.weight / m }))
 }
 
+// 成分墙排序：默认按编号；可切"按解释方差↓"先看影响最大的成分（ICA 审阅常规起手式）。
+const sortMode = ref<'index' | 'variance'>('index')
+const sortedComponents = computed(() => {
+  const list = [...components.value]
+  if (sortMode.value === 'variance') {
+    list.sort((a, b) => (b.explained_variance ?? -Infinity) - (a.explained_variance ?? -Infinity))
+  }
+  return list
+})
+
 // 成分墙：每成分一格插值地形图，颜色/标记态由 removeSet 驱动，sub 显解释方差%。
 const componentCells = computed<TopoCell[]>(() =>
-  components.value.map((c) => {
+  sortedComponents.value.map((c) => {
     const removed = removeSet.value.has(c.index)
     return {
       seg: c.index,
@@ -426,6 +445,11 @@ onMounted(load)
 .ica-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
 .ica-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
 .ica-empty.is-error .ica-empty-title { color: var(--c-danger); }
+
+/* 成分墙工具区：排序选择 + 计数徽标 */
+.ic-wall-tools { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.ic-sort { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-3); white-space: nowrap; }
+.ic-sort-sel { font-size: 12px; padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; }
 
 /* 详情三图 / 对比图：给 TimeCourseCanvas 宿主一个明确高度（其 .tcc-host 为 100%×100%） */
 .ic-plot-host { height: 120px; position: relative; }
