@@ -940,6 +940,12 @@ export interface StudyOutput {
   upstream_dataset_ids: string[]
   upstream_recording_ids: string[]
 
+  /** 来源工作流（后端 join execution→pipeline 注入；历史行可能为空） */
+  pipeline_id?: number | null
+  pipeline_name?: string | null
+  pipeline_version?: number | null
+  execution_seq?: number | null
+
   /** 数据语义 */
   data_type: string
   subject_id?: string | null

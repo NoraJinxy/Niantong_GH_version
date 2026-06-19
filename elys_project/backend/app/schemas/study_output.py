@@ -37,6 +37,13 @@ class StudyOutputResponse(BaseModel):
     upstream_dataset_ids: list[str] = Field(default_factory=list)
     upstream_recording_ids: list[str] = Field(default_factory=list)
 
+    # 来源工作流（由 produced_by_execution_id join PipelineExecution→PipelineDefinition 注入；
+    # 历史行 / 无关联执行时为空）。结果页据此显示「哪个工作流 · 哪一版」并支持筛选。
+    pipeline_id: Optional[int] = None
+    pipeline_name: Optional[str] = None
+    pipeline_version: Optional[int] = None  # 执行当时的工作流版本号
+    execution_seq: Optional[int] = None  # 该工作流的第几次运行
+
     # 数据语义
     data_type: str
     subject_id: Optional[str] = None

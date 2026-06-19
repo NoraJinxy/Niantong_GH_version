@@ -129,6 +129,24 @@
             </div>
           </details>
 
+          <details class="filter-dd">
+            <summary>
+              工作流
+              <span v-if="filters.workflows.length" class="filter-dd__count">{{ filters.workflows.length }}</span>
+              <span class="filter-dd__caret">▾</span>
+            </summary>
+            <div class="filter-dd__panel filter-dd__panel--wide">
+              <div v-if="!workflowOptions.length" class="filter-dd__empty">还没有工作流产出的结果</div>
+              <label v-for="opt in workflowOptions" :key="'dd-wf-' + opt.key" class="filter-dd__opt">
+                <input type="checkbox" :checked="filters.workflows.includes(opt.key)" @change="toggleFilter('workflows', opt.key)" />
+                <span class="wf-opt">
+                  <span class="wf-opt__name">{{ opt.label }}</span>
+                  <small class="wf-opt__count">{{ opt.count }}</small>
+                </span>
+              </label>
+            </div>
+          </details>
+
           <details ref="ddSubject" class="filter-dd">
             <summary>
               被试
@@ -195,20 +213,27 @@
           </div>
 
           <div class="results-toolbar__right">
-            <label class="results-select-all">
-              <input
-                type="checkbox"
-                :checked="allChecked"
-                :indeterminate.prop="partialChecked"
-                :disabled="!filtered.length"
-                @change="toggleAllChecked($event)"
-              />
-              <span>全选</span>
-            </label>
+            <span class="results-select-hint" aria-hidden="true">单击选 · Ctrl 加选 · Shift 连选</span>
+            <button
+              class="btn btn--sm btn--ghost"
+              type="button"
+              :disabled="!filtered.length"
+              title="全选当前筛选结果（Ctrl/⌘ + A）"
+              @click="selectAll"
+            >全选</button>
 
             <transition name="results-toolbar-bulk">
               <div v-if="selectedIds.size" class="results-toolbar__bulk">
                 <span class="results-toolbar__selection">已选 {{ selectedIds.size }} 项</span>
+                <button
+                  class="btn btn--sm btn--primary"
+                  type="button"
+                  :title="selectedObserveGroupCount > 1 ? '勾选里有多种类型，将按类型分别打开观察页' : '把勾选的结果叠加到观察页一起看'"
+                  @click="observeSelected"
+                >
+                  <AppIcon name="figure" :size="12" />一起观察<span v-if="selectedObserveGroupCount > 1" class="results-toolbar__obs-split">· {{ selectedObserveGroupCount }} 类</span>
+                </button>
+                <span class="results-toolbar__bulk-sep" aria-hidden="true"></span>
                 <button class="btn btn--sm" type="button" @click="bulkSetKeep(true)">
                   <AppIcon name="check" :size="12" />保存
                 </button>
@@ -227,7 +252,7 @@
 
         <!-- ❺ List + ❻ Detail -->
         <section class="results-body" :class="{ 'has-detail': activeRow }">
-          <div class="results-list" :class="`results-list--${viewMode}`">
+          <div class="results-list" @keydown="onListKeydown">
             <!-- Loading skeleton -->
             <div v-if="loading && !datasets.length" class="results-skeleton">
               <div v-for="i in 5" :key="'sk-' + i" class="results-skeleton-row">
@@ -259,72 +284,84 @@
               <button class="btn btn--sm" type="button" @click="resetFilters">重置筛选</button>
             </div>
 
-            <!-- Rows -->
-            <article
-              v-for="row in filtered"
-              v-else
-              :key="row.id"
-              class="result-row"
-              :class="{ 'is-active': activeId === row.id, 'is-checked': selectedIds.has(row.id) }"
-              tabindex="0"
-              title="单击选中 · 双击在新标签页打开观察"
-              @click="setActive(row.id)"
-              @dblclick="openObserve(row)"
-              @keydown.enter="setActive(row.id)"
-            >
-              <!-- UI Phase (docs_v2/6-05) P1-3: 卡片视图顶部预览占位 -->
-              <div v-if="viewMode === 'grid'" class="result-row__preview" :class="dataTypeClass(row.data_type)">
-                <span class="result-row__preview-emoji"><AppIcon :name="dataTypeIcon(row.data_type)" :size="40" /></span>
-                <span class="result-row__preview-meta" v-if="previewSummaryFor(row)">{{ previewSummaryFor(row) }}</span>
-              </div>
-              <label class="result-row__check" @click.stop>
-                <input
-                  type="checkbox"
-                  :checked="selectedIds.has(row.id)"
-                  @change="toggleRowChecked(row.id, $event)"
-                />
-              </label>
+            <!-- 工作流文件夹树：filtered 之后按「工作流·版本」分组；单组退化为非折叠面包屑 -->
+            <template v-else>
+              <section
+                v-for="g in groups"
+                :key="g.key"
+                class="rtree-folder"
+                :class="{ 'is-open': isFolderOpen(g), 'is-orphan': g.isOrphan, 'is-solo': groups.length === 1 }"
+              >
+                <header
+                  class="rtree-folder__head"
+                  :class="{ 'is-static': groups.length === 1 }"
+                  @click="onFolderHeadClick(g, $event)"
+                >
+                  <button
+                    v-if="groups.length > 1"
+                    class="rtree-folder__caret"
+                    type="button"
+                    tabindex="-1"
+                    :aria-expanded="expandedKeys.has(g.key)"
+                    aria-label="展开 / 折叠文件夹"
+                  >
+                    <AppIcon name="chevron-right" :size="12" />
+                  </button>
+                  <AppIcon class="rtree-folder__icon" name="folder" :size="16" />
+                  <span v-if="g.label" class="result-row__wf">
+                    <AppIcon name="pipeline" :size="11" />{{ g.label }}
+                  </span>
+                  <span v-else class="rtree-folder__orphan">未归属工作流（历史结果）</span>
+                  <span class="rtree-folder__stats">
+                    {{ g.rows.length }} 条 · {{ g.typeCount }} 类 · {{ g.subjectCount }} 被试
+                    · <em class="is-kept">保存 {{ g.keptCount }}</em> · {{ formatSize(g.totalSize) }}
+                  </span>
+                  <button
+                    class="rtree-folder__observe"
+                    type="button"
+                    title="把这个工作流的结果一起观察"
+                    @click.stop="observeFolder(g)"
+                  >
+                    <AppIcon name="figure" :size="12" />
+                  </button>
+                  <span class="rtree-folder__time">{{ formatTime(g.latest) }}</span>
+                </header>
 
-              <span class="data-type-tag data-type-tag--lg" :class="dataTypeClass(row.data_type)">
-                <AppIcon :name="dataTypeIcon(row.data_type)" :size="12" />
-                {{ formatDataType(row.data_type) }}
-              </span>
-
-              <div class="result-row__main">
-                <div class="result-row__title">
-                  <strong>{{ rowDisplayName(row) }}</strong>
-                  <span class="badge" :class="retentionBadgeClass(row)">
-                    {{ retentionLabel(row) }}
-                  </span>
+                <div v-show="isFolderOpen(g)" class="rtree-folder__body">
+                  <article
+                    v-for="row in g.rows"
+                    :key="row.id"
+                    class="rtree-row"
+                    :class="{ 'is-active': activeId === row.id, 'is-selected': selectedIds.has(row.id), 'is-deleted': !!row.deleted_at }"
+                    tabindex="0"
+                    title="单击选中 · Ctrl 点加选 · Shift 点连选 · 双击打开观察"
+                    @click="onRowClick(row, $event)"
+                    @dblclick="openObserve(row)"
+                    @keydown.enter="openObserve(row)"
+                  >
+                    <span class="rtree-row__indent" aria-hidden="true"></span>
+                    <span class="data-type-tag" :class="dataTypeClass(row.data_type)">
+                      {{ formatDataType(row.data_type) }}
+                    </span>
+                    <strong class="rtree-row__name" :title="rowDisplayName(row)">{{ rowDisplayName(row) }}</strong>
+                    <span class="rtree-row__facets">
+                      <template v-if="row.bids_subject_id">{{ row.bids_subject_id }}</template>
+                      <template v-if="row.condition"> · {{ row.condition }}</template>
+                      <em v-if="row.tags && row.tags.length" class="rtree-row__tagn" :title="row.tags.join(', ')">#{{ row.tags.length }}</em>
+                    </span>
+                    <span class="rtree-row__right">
+                      <i
+                        v-if="retentionBadgeShown(row)"
+                        class="rtree-row__keep"
+                        :class="retentionDotClass(row)"
+                        :title="retentionLabel(row)"
+                      ></i>
+                      <span class="rtree-row__size">{{ formatSize(row.file_size) }}</span>
+                    </span>
+                  </article>
                 </div>
-                <div class="result-row__meta">
-                  <span v-if="row.bids_subject_id" class="result-row__meta-item">
-                    <em>被试</em>{{ row.bids_subject_id }}
-                  </span>
-                  <span v-if="row.task" class="result-row__meta-item">
-                    <em>Task</em>{{ row.task }}
-                  </span>
-                  <span v-if="row.session" class="result-row__meta-item">
-                    <em>Ses</em>{{ row.session }}
-                  </span>
-                  <span v-if="row.produced_by_execution_id" class="result-row__meta-item result-row__meta-item--mono">
-                    <em>运行</em>{{ shortId(row.produced_by_execution_id) }}
-                  </span>
-                  <span v-if="row.produced_by_node_type" class="result-row__meta-item">
-                    <em>节点</em>{{ row.produced_by_node_type }}
-                  </span>
-                </div>
-                <div v-if="row.tags && row.tags.length" class="result-row__tags">
-                  <span v-for="tag in row.tags.slice(0, 4)" :key="'rt-' + row.id + '-' + tag" class="result-row__tag">#{{ tag }}</span>
-                  <span v-if="row.tags.length > 4" class="result-row__tag-more">+{{ row.tags.length - 4 }}</span>
-                </div>
-              </div>
-
-              <div class="result-row__right">
-                <span class="result-row__size">{{ formatSize(row.file_size) }}</span>
-                <span class="result-row__time">{{ formatTime(row.created_at) }}</span>
-              </div>
-            </article>
+              </section>
+            </template>
           </div>
 
           <!-- ❻ Detail Drawer -->
@@ -405,11 +442,13 @@
             <section class="result-detail__section">
               <h3>概要</h3>
               <dl class="result-detail__grid">
+                <div class="result-detail__grid-wide"><dt>工作流</dt><dd>{{ workflowLabel(activeRow) || '—' }}</dd></div>
+                <div><dt>运行</dt><dd>{{ activeRow.execution_seq != null ? `第 ${activeRow.execution_seq} 次` : '—' }}</dd></div>
+                <div><dt>产出步骤</dt><dd>{{ activeRow.produced_by_node_type || '—' }}</dd></div>
                 <div><dt>被试</dt><dd>{{ activeRow.bids_subject_id || '—' }}</dd></div>
                 <div><dt>采集任务</dt><dd>{{ activeRow.task || '—' }}</dd></div>
                 <div><dt>会话</dt><dd>{{ activeRow.session || '—' }}</dd></div>
                 <div><dt>实验条件</dt><dd>{{ activeRow.condition || '—' }}</dd></div>
-                <div><dt>产出步骤</dt><dd>{{ activeRow.produced_by_node_type || '—' }}</dd></div>
                 <div><dt>文件大小</dt><dd>{{ formatSize(activeRow.file_size) }}</dd></div>
                 <div class="result-detail__grid-wide"><dt>创建时间</dt><dd>{{ formatTime(activeRow.created_at) }}</dd></div>
               </dl>
@@ -525,9 +564,6 @@ const loading = ref(false)
 const error = ref('')
 
 const searchText = ref('')
-// UI Phase (docs_v2/6-05) P1-3: 视图模式 + 类型 chip 辅助
-type ResultsViewMode = 'list' | 'grid'
-const viewMode = ref<ResultsViewMode>('list')
 
 function countByType(typeName: string): number {
   return visibleDatasets.value.filter((d) => d.data_type === typeName).length
@@ -552,6 +588,9 @@ const filters = reactive({
   data_types: [] as string[],
   bids_subject_ids: [] as string[],
   tasks: [] as string[],
+  // 来源工作流筛选：每项是 workflowKey(row) = `pipeline_name pipeline_version`，
+  // 即「某工作流的某一版」。这样筛选直接回答「哪个工作流哪一版报出来的结果」。
+  workflows: [] as string[],
   status: 'all' as StatusFilter,
   tags: [] as string[],
 })
@@ -586,11 +625,9 @@ function observeRoute(row: { id: string; data_type?: string | null; display_name
   return { path: '/observe/waveform', query: { ...query, type: row.data_type || '' } }
 }
 
-// 查看结果：在新标签页打开观察页（与画布节点双击一致）。用 <a target="_blank"> 模拟点击，
+// 在新标签页打开一个 href（与画布节点双击一致）。用 <a target="_blank"> 模拟点击，
 // 比 window.open 更可靠——浏览器按「新标签」处理、可拖进标签栏并排，而非独立弹窗。
-function openObserve(row: { id: string; data_type?: string | null; display_name?: string | null } | null) {
-  if (!row) return
-  const href = router.resolve(observeRoute(row)).href
+function openHrefInNewTab(href: string) {
   const link = document.createElement('a')
   link.href = href
   link.target = '_blank'
@@ -599,6 +636,80 @@ function openObserve(row: { id: string; data_type?: string | null; display_name?
   link.click()
   link.remove()
 }
+
+// 查看单条结果：打开它对应模态的观察页。
+function openObserve(row: { id: string; data_type?: string | null; display_name?: string | null } | null) {
+  if (!row) return
+  openHrefInNewTab(router.resolve(observeRoute(row)).href)
+}
+
+// 多选「一起观察」：把勾选的结果按观察页（模态）分组——同模态的拼成逗号串
+// study_output_id 叠加进同一页（观察页原生支持多产物对比）；跨模态则各开一页。
+function observeSelected() {
+  const rows = datasets.value.filter((d) => selectedIds.has(d.id) && !d.deleted_at)
+  if (!rows.length) return
+  const groups = new Map<string, StudyOutput[]>()
+  for (const row of rows) {
+    const path = observeRoute(row).path
+    const arr = groups.get(path)
+    if (arr) arr.push(row)
+    else groups.set(path, [row])
+  }
+  for (const group of groups.values()) {
+    const base = observeRoute(group[0])
+    const query = {
+      ...(base.query as Record<string, string>),
+      study_output_id: group.map((r) => r.id).join(','),
+      name: group.length > 1 ? `${group.length} 个结果对比` : (group[0].display_name || group[0].data_type),
+    }
+    openHrefInNewTab(router.resolve({ path: base.path, query }).href)
+  }
+}
+
+// 勾选里横跨几种观察模态（>1 时「一起观察」会分多页打开，按钮上给出提示）。
+const selectedObserveGroupCount = computed(() => {
+  const paths = new Set<string>()
+  for (const d of datasets.value) {
+    if (selectedIds.has(d.id) && !d.deleted_at) paths.add(observeRoute(d).path)
+  }
+  return paths.size
+})
+
+// === 来源工作流（pipeline 名 · 版本）===
+// 一条结果的来源标识：同一工作流的不同版本视为不同来源。用   当分隔避免与名称里的字符撞。
+function workflowKey(row: { pipeline_name?: string | null; pipeline_version?: number | null }): string {
+  return `${row.pipeline_name || ''} ${row.pipeline_version ?? ''}`
+}
+
+// 行内/详情展示用：「工作流名 · v版本」。两者都缺时返回空串（调用方自行隐藏胶囊）。
+function workflowLabel(row: { pipeline_name?: string | null; pipeline_version?: number | null }): string {
+  const name = row.pipeline_name?.trim()
+  const ver = row.pipeline_version
+  if (!name && ver == null) return ''
+  const verPart = ver == null ? '' : ` · v${ver}`
+  return `${name || '工作流'}${verPart}`
+}
+
+// 筛选下拉的工作流选项：去重的 (名, 版本) 对，带计数；按名升序、同名版本降序（新版本在前）。
+const workflowOptions = computed(() => {
+  const map = new Map<string, { key: string; label: string; name: string; version: number | null; count: number }>()
+  for (const d of visibleDatasets.value) {
+    if (!d.pipeline_name && d.pipeline_version == null) continue
+    const key = workflowKey(d)
+    const existing = map.get(key)
+    if (existing) existing.count++
+    else map.set(key, {
+      key,
+      label: workflowLabel(d) || '未知工作流',
+      name: d.pipeline_name || '',
+      version: d.pipeline_version ?? null,
+      count: 1,
+    })
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    a.name.localeCompare(b.name) || (b.version ?? -1) - (a.version ?? -1),
+  )
+})
 
 const dataTypeOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.data_type)))
 const subjectOptions = computed(() => uniqueSorted(visibleDatasets.value.map((d) => d.bids_subject_id || '').filter(Boolean)))
@@ -613,6 +724,7 @@ const filtered = computed(() => {
   const q = searchText.value.trim().toLowerCase()
   return visibleDatasets.value.filter((d) => {
     if (filters.data_types.length && !filters.data_types.includes(d.data_type)) return false
+    if (filters.workflows.length && !filters.workflows.includes(workflowKey(d))) return false
     if (filters.bids_subject_ids.length && !filters.bids_subject_ids.includes(d.bids_subject_id || '')) return false
     if (filters.tasks.length && !filters.tasks.includes(d.task || '')) return false
     const deleted = Boolean(d.deleted_at)
@@ -666,6 +778,7 @@ const hasActiveFilters = computed(() =>
   Boolean(
     searchText.value
     || filters.data_types.length
+    || filters.workflows.length
     || filters.bids_subject_ids.length
     || filters.tasks.length
     || filters.status !== 'all'
@@ -673,12 +786,127 @@ const hasActiveFilters = computed(() =>
   ),
 )
 
-const allChecked = computed(() => filtered.value.length > 0 && filtered.value.every((row) => selectedIds.has(row.id)))
-const partialChecked = computed(() => {
-  if (!filtered.value.length) return false
-  const n = filtered.value.filter((row) => selectedIds.has(row.id)).length
-  return n > 0 && n < filtered.value.length
+// === 结果文件夹分组（按「工作流·版本」收成文件夹树：更紧凑、一眼见来源）===
+interface ResultFolder {
+  key: string
+  label: string
+  rows: StudyOutput[]
+  latest: string
+  totalSize: number
+  typeCount: number
+  subjectCount: number
+  keptCount: number
+  isOrphan: boolean
+}
+
+// 在 filtered 之上再聚合一层：一个文件夹 = 一个 (pipeline_name, pipeline_version)。
+// 真实工作流按最近产出时间倒序（刚跑完的置顶），无归属的历史结果永远沉底。
+const groups = computed<ResultFolder[]>(() => {
+  const map = new Map<string, StudyOutput[]>()
+  for (const row of filtered.value) {
+    const k = workflowKey(row)
+    const arr = map.get(k)
+    if (arr) arr.push(row)
+    else map.set(k, [row])
+  }
+  const out: ResultFolder[] = []
+  for (const [key, rows] of map) {
+    const head = rows[0]
+    out.push({
+      key,
+      label: workflowLabel(head),
+      rows,
+      isOrphan: !head.pipeline_name && head.pipeline_version == null,
+      latest: rows.reduce((m, r) => (r.created_at && r.created_at > m ? r.created_at : m), ''),
+      totalSize: rows.reduce((s, r) => s + (r.file_size || 0), 0),
+      typeCount: new Set(rows.map((r) => r.data_type)).size,
+      subjectCount: new Set(rows.map((r) => r.bids_subject_id).filter(Boolean)).size,
+      keptCount: rows.filter((r) => r.keep && !r.deleted_at).length,
+    })
+  }
+  return out.sort((a, b) =>
+    (a.isOrphan ? 1 : 0) - (b.isOrphan ? 1 : 0)
+    || (b.latest < a.latest ? -1 : b.latest > a.latest ? 1 : 0),
+  )
 })
+
+// 文件夹展开态。智能默认：结果少 / 组少时全展开（小研究项免折腾），否则只展开最新一组；
+// 搜索或任意筛选激活时强制展开所有命中文件夹（否则「搜了却看见一排折叠文件夹」=搜索失效）。
+const expandedKeys = reactive(new Set<string>())
+const userTouchedExpand = ref(false)
+
+const forcedExpandKeys = computed<Set<string>>(() => {
+  if (!hasActiveFilters.value) return new Set<string>()
+  return new Set(groups.value.map((g) => g.key))
+})
+
+function computeDefaultExpanded(gs: ResultFolder[]): Set<string> {
+  const keys = new Set<string>()
+  if (!gs.length) return keys
+  if (hasActiveFilters.value || gs.length <= 2 || filtered.value.length <= 12) {
+    for (const g of gs) keys.add(g.key)
+  } else {
+    keys.add(gs[0].key)
+  }
+  return keys
+}
+
+// groups / 筛选态变化时：用户没手动开合过就重算默认；手动过则只「并集」补上命中即展开，不覆盖用户意图。
+watch(
+  [groups, forcedExpandKeys],
+  () => {
+    if (!userTouchedExpand.value) {
+      const def = computeDefaultExpanded(groups.value)
+      expandedKeys.clear()
+      for (const k of def) expandedKeys.add(k)
+    } else {
+      for (const k of forcedExpandKeys.value) expandedKeys.add(k)
+    }
+  },
+  { immediate: true },
+)
+
+// 单组时恒展开、无折叠外壳的折叠概念，所以视为「常开」。
+function isFolderOpen(g: ResultFolder): boolean {
+  return groups.value.length === 1 || expandedKeys.has(g.key)
+}
+
+function toggleExpand(key: string) {
+  userTouchedExpand.value = true
+  if (expandedKeys.has(key)) expandedKeys.delete(key)
+  else expandedKeys.add(key)
+}
+
+// 普通点文件夹头 = 展开/折叠；Ctrl/⌘ 或 Shift 点 = 选中整组（替代被去掉的整组复选框）。
+function onFolderHeadClick(g: ResultFolder, event: MouseEvent) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    for (const r of g.rows) selectedIds.add(r.id)
+    const last = g.rows[g.rows.length - 1]
+    if (last) {
+      // 折叠中的组没有可见锚点供后续 Shift 连选，置空避免下次 Shift 落到隐形锚点
+      selectionAnchorId.value = isFolderOpen(g) ? last.id : ''
+      setActive(last.id)
+    }
+    return
+  }
+  if (groups.value.length === 1) return
+  toggleExpand(g.key)
+}
+
+// 整组一起观察：复用现成 selectedIds 与 observeSelected，批量条逻辑零改。
+function observeFolder(g: ResultFolder) {
+  for (const r of g.rows) if (!r.deleted_at) selectedIds.add(r.id)
+  observeSelected()
+}
+
+// 保留徽标只在「非默认态」显示（保存=默认态不显徽标，降噪；已删除/不保存才点一个状态色点）。
+function retentionBadgeShown(row: StudyOutput): boolean {
+  return Boolean(row.deleted_at) || Boolean(row.purged_at) || !row.keep
+}
+function retentionDotClass(row: StudyOutput): string {
+  if (row.deleted_at || row.purged_at) return 'is-deleted'
+  return 'is-transient'
+}
 
 const lineageItems = computed(() => {
   if (!activeRow.value) return [] as Array<{ label: string; value: string; current?: boolean }>
@@ -699,6 +927,8 @@ const lineageItems = computed(() => {
 watch(selectedStudyId, async () => {
   selectedIds.clear()
   activeId.value = ''
+  expandedKeys.clear()
+  userTouchedExpand.value = false
   resetFiltersSilent()
   searchText.value = ''
   await reload()
@@ -766,6 +996,7 @@ function resetFilters() {
 
 function resetFiltersSilent() {
   filters.data_types = []
+  filters.workflows = []
   filters.bids_subject_ids = []
   filters.tasks = []
   filters.status = 'all'
@@ -784,23 +1015,60 @@ function toggleSummaryFilter(key: string) {
   filters.status = filters.status === key ? 'all' : (key as StatusFilter)
 }
 
-function toggleRowChecked(id: string, event: Event) {
-  const checked = (event.target as HTMLInputElement).checked
-  if (checked) selectedIds.add(id)
-  else selectedIds.delete(id)
-}
+// 文件管理器式选择：单击=只选此项；Ctrl/⌘ 点=加选/减选；Shift 点=从锚点连选（按可见顺序）。
+const selectionAnchorId = ref('')
+// 当前可见（已展开文件夹内）行的显示顺序，供 Shift 连选取区间。
+const visibleRowIds = computed<string[]>(() => {
+  const ids: string[] = []
+  for (const g of groups.value) {
+    if (isFolderOpen(g)) for (const r of g.rows) ids.push(r.id)
+  }
+  return ids
+})
 
-function toggleAllChecked(event: Event) {
-  const checked = (event.target as HTMLInputElement).checked
-  if (checked) {
-    for (const row of filtered.value) selectedIds.add(row.id)
+function onRowClick(row: StudyOutput, event: MouseEvent) {
+  const additive = event.ctrlKey || event.metaKey
+  if (event.shiftKey && selectionAnchorId.value) {
+    const order = visibleRowIds.value
+    const a = order.indexOf(selectionAnchorId.value)
+    const b = order.indexOf(row.id)
+    if (a !== -1 && b !== -1) {
+      if (!additive) selectedIds.clear()
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) selectedIds.add(order[i])
+    } else {
+      selectedIds.clear()
+      selectedIds.add(row.id)
+      selectionAnchorId.value = row.id
+    }
+    // Shift 连选保持锚点不动：连续 Shift 点从同一锚点扩 / 缩选区
+  } else if (additive) {
+    if (selectedIds.has(row.id)) selectedIds.delete(row.id)
+    else selectedIds.add(row.id)
+    selectionAnchorId.value = row.id
   } else {
     selectedIds.clear()
+    selectedIds.add(row.id)
+    selectionAnchorId.value = row.id
+  }
+  setActive(row.id)
+}
+
+function selectAll() {
+  for (const row of filtered.value) selectedIds.add(row.id)
+}
+
+function onListKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A')) {
+    event.preventDefault()
+    selectAll()
+  } else if (event.key === 'Escape') {
+    clearSelection()
   }
 }
 
 function clearSelection() {
   selectedIds.clear()
+  selectionAnchorId.value = ''
 }
 
 function setActive(id: string) {
@@ -1036,13 +1304,6 @@ function retentionLabel(row: StudyOutput): string {
   if (row.keep) return '保存'
   // 缓存/临时是内部保留态，对用户统一收敛成「不保存」（与筛选标签同口径）
   return '不保存'
-}
-
-function retentionBadgeClass(row: StudyOutput): string {
-  if (row.purged_at) return 'badge--muted'
-  if (row.deleted_at) return 'badge--danger'
-  if (row.keep) return 'badge--success'
-  return 'badge--muted'
 }
 
 function dataTypeClass(type?: string | null): string {
@@ -1432,6 +1693,31 @@ function describeError(err: unknown, fallback: string): string {
 .filter-dd__opt:hover { background: var(--c-bg-tint); }
 .filter-dd__opt input { accent-color: var(--c-primary); }
 
+/* 工作流名可能较长，给这个面板更宽的上限 */
+.filter-dd__panel--wide {
+  min-width: 260px;
+  max-width: 380px;
+}
+.wf-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.wf-opt__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-opt__count {
+  flex-shrink: 0;
+  color: var(--c-text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .results-filter-reset {
   height: 34px;
   padding: 0 10px;
@@ -1483,17 +1769,6 @@ function describeError(err: unknown, fallback: string): string {
   flex-wrap: wrap;
 }
 
-.results-select-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--c-text-2);
-  cursor: pointer;
-  user-select: none;
-}
-.results-select-all input { accent-color: var(--c-primary); }
-
 .results-toolbar__bulk {
   display: flex;
   align-items: center;
@@ -1514,7 +1789,17 @@ function describeError(err: unknown, fallback: string): string {
   padding: 0 10px;
   font-size: 12px;
 }
-
+/* 「一起观察」与其余批量操作之间的细分隔 */
+.results-toolbar__bulk-sep {
+  width: 1px;
+  height: 18px;
+  background: color-mix(in srgb, var(--c-primary) 24%, transparent);
+}
+.results-toolbar__obs-split {
+  margin-left: 4px;
+  font-weight: 500;
+  opacity: .85;
+}
 .results-toolbar-bulk-enter-from,
 .results-toolbar-bulk-leave-to {
   opacity: 0;
@@ -1544,65 +1829,6 @@ function describeError(err: unknown, fallback: string): string {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-}
-
-/* UI Phase (docs_v2/6-05) P1-3: 视图模式 */
-.results-list--list {
-  /* 维持现有列表样式 */
-}
-.results-list--grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
-.results-list--grid .result-row {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 10px;
-}
-.results-list--grid .result-row__right {
-  flex-direction: row;
-  justify-content: space-between;
-  text-align: left;
-}
-
-/* UI Phase (docs_v2/6-05): 卡片视图顶部预览占位 */
-.result-row__preview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 100px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-bg-tint) 100%);
-  position: relative;
-  overflow: hidden;
-}
-.result-row__preview::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 20% 30%, rgba(63, 94, 143, 0.08) 0%, transparent 50%),
-    radial-gradient(circle at 80% 70%, rgba(94, 123, 168, 0.06) 0%, transparent 50%);
-  pointer-events: none;
-}
-.result-row__preview-emoji {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  color: var(--c-primary);
-  z-index: 1;
-}
-.result-row__preview-meta {
-  font-size: 12px;
-  color: var(--c-text-2);
-  z-index: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .result-detail__preview-stats {
@@ -1657,30 +1883,6 @@ function describeError(err: unknown, fallback: string): string {
 .type-chip.is-active small {
   color: var(--c-primary);
   opacity: 0.8;
-}
-
-/* 视图切换 */
-.view-mode-switch {
-  display: inline-flex;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.view-mode-switch__btn {
-  padding: 6px 12px;
-  background: var(--c-surface);
-  color: var(--c-text-2);
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-}
-.view-mode-switch__btn:not(:last-child) {
-  border-right: 1px solid var(--c-border);
-}
-.view-mode-switch__btn.is-active {
-  background: var(--c-primary-soft);
-  color: var(--c-primary);
 }
 
 /* skeleton */
@@ -1738,120 +1940,25 @@ function describeError(err: unknown, fallback: string): string {
   min-height: 200px;
 }
 
-/* rows */
-.result-row {
-  display: grid;
-  grid-template-columns: 28px auto minmax(0, 1fr) auto;
+/* 来源工作流胶囊：折叠头一眼看清「哪个工作流 · 哪一版」。中性底色 + 主色文字，不抢标题。 */
+.result-row__wf {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  cursor: pointer;
-  position: relative;
-  transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
-}
-.result-row:hover {
-  border-color: var(--c-border-strong);
-  background: #fafbfd;
-}
-.result-row:focus-visible {
-  outline: none;
-  border-color: var(--c-primary);
-  box-shadow: 0 0 0 3px var(--c-primary-soft);
-}
-.result-row.is-active {
-  border-color: rgba(63, 94, 143, .42);
+  gap: 3px;
+  flex-shrink: 0;
+  max-width: 240px;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: var(--r-sm);
   background: var(--c-primary-soft);
-  box-shadow: inset 3px 0 0 var(--c-primary), 0 8px 18px rgba(63, 94, 143, .08);
-}
-.result-row.is-checked {
-  background: var(--c-primary-soft);
-}
-
-.result-row__check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.result-row__check input { accent-color: var(--c-primary); }
-
-.result-row__main { min-width: 0; }
-
-.result-row__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.result-row__title strong {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--c-text);
+  color: var(--c-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-  line-height: 1.25;
 }
-
-.result-row__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  font-size: 12px;
-  color: var(--c-text-2);
-}
-.result-row__meta-item em {
-  color: var(--c-text-3);
-  font-style: normal;
-  font-size: 11px;
-  margin-right: 4px;
-  font-weight: 500;
-}
-.result-row__meta-item--mono em + * {
-  font-family: var(--ff-mono);
-}
-
-.result-row__tags {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.result-row__tag,
-.result-row__tag-more {
-  height: 18px;
-  padding: 0 6px;
-  border-radius: var(--r-sm);
-  background: var(--c-bg-tint);
-  color: var(--c-text-2);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 18px;
-}
-.result-row__tag-more {
-  background: transparent;
-  color: var(--c-text-3);
-}
-
-.result-row__right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  color: var(--c-text-3);
-  font-size: 11px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.result-row__size {
-  color: var(--c-text-2);
-  font-weight: 500;
-  font-size: 12px;
-}
+.result-row__wf :deep(svg) { flex-shrink: 0; opacity: .85; }
 
 /* data type tags */
 .data-type-tag {
@@ -1874,6 +1981,188 @@ function describeError(err: unknown, fallback: string): string {
   font-size: 12px;
 }
 /* 数据类型标签：颜色给状态、不给分类（铁律 3）——8 种类型一律走中性 .data-type-tag 基样式，靠文字区分，不再每类一色 */
+
+/* ===== 结果文件夹树（按工作流·版本分组，紧凑） ===== */
+.rtree-folder {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+.rtree-folder.is-orphan { background: var(--c-bg-soft); }
+
+/* 折叠头 40px · sticky 吸顶（超多组滚动时当前文件夹身份不丢） */
+.rtree-folder__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--c-surface);
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+.rtree-folder.is-open .rtree-folder__head { border-bottom-color: var(--c-border); }
+.rtree-folder__head:hover { background: var(--c-bg-tint); }
+.rtree-folder__head.is-static,
+.rtree-folder__head.is-static:hover { cursor: default; background: var(--c-surface); }
+
+.rtree-folder__caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  background: transparent;
+  color: var(--c-text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--t-fast);
+}
+.rtree-folder.is-open .rtree-folder__caret { transform: rotate(90deg); }
+
+.rtree-folder__icon { color: var(--c-text-3); flex-shrink: 0; }
+
+.rtree-folder__orphan {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-3);
+  flex-shrink: 0;
+}
+
+/* 折叠态摘要名片：全程中性文字（铁律3：颜色给状态不给分类），唯一彩色是「保存 N」的状态色 */
+.rtree-folder__stats {
+  min-width: 0;
+  color: var(--c-text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rtree-folder__stats .is-kept {
+  color: var(--c-success);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.rtree-folder__observe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border: 0.5px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-text-2);
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.rtree-folder__head:hover .rtree-folder__observe { opacity: 1; }
+.rtree-folder__observe:hover {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  border-color: var(--c-border);
+}
+
+.rtree-folder__time {
+  color: var(--c-text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rtree-folder__body { display: flex; flex-direction: column; }
+
+/* 展开后单行 32px · 缩进列里一条竖向 guide line 给「树」的隶属感 */
+.rtree-row {
+  display: grid;
+  grid-template-columns: 18px auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 12px;
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 55%, transparent);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  transition: background var(--t-fast);
+}
+.rtree-folder__body > .rtree-row:first-child { border-top: 0; }
+.rtree-row:hover { background: #fafbfd; }
+.rtree-row:focus-visible { outline: none; background: var(--c-primary-soft); }
+.rtree-row.is-active { background: var(--c-primary-soft); box-shadow: inset 3px 0 0 var(--c-primary); }
+.rtree-row.is-selected { background: var(--c-primary-soft); }
+.rtree-row.is-deleted { opacity: 0.6; }
+
+.rtree-row__indent {
+  align-self: stretch;
+  justify-self: center;
+  width: 1px;
+  background: var(--c-border);
+}
+
+.rtree-row .data-type-tag { height: 18px; padding: 0 7px; font-size: 11px; }
+
+.rtree-row__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.rtree-row__facets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 240px;
+  min-width: 0;
+  color: var(--c-text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rtree-row__tagn { font-style: normal; color: var(--c-text-3); }
+
+.rtree-row__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rtree-row__keep {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--c-text-3);
+}
+.rtree-row__keep.is-deleted { background: var(--c-danger); }
+.rtree-row__keep.is-transient { background: var(--c-text-3); }
+
+.results-select-hint {
+  font-size: 11px;
+  color: var(--c-text-3);
+  white-space: nowrap;
+}
 
 /* ===== ❻ Detail ===== */
 .result-detail {

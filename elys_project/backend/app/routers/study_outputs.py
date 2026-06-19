@@ -49,7 +49,12 @@ from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
 from app.services.execution_dependencies import ArtifactDependencyError, assert_artifact_can_be_deleted
 from app.routers.auth import get_current_user
-from app.routers._pipeline_shared import get_study_for_read, get_study_for_write, study_output_to_response
+from app.routers._pipeline_shared import (
+    get_study_for_read,
+    get_study_for_write,
+    pipeline_attribution_by_execution,
+    study_output_to_response,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["工作流"])
@@ -296,8 +301,18 @@ def list_study_outputs(
         .limit(limit)
         .all()
     )
+    # 批量解析来源工作流（哪个工作流·哪一版·第几次运行），结果页据此展示与筛选；一次 IN 查询避免 N+1。
+    pipeline_info = pipeline_attribution_by_execution(
+        db, (item.produced_by_execution_id for item in datasets)
+    )
     return StudyOutputListResponse(
-        study_outputs=[study_output_to_response(item) for item in datasets],
+        study_outputs=[
+            study_output_to_response(
+                item,
+                pipeline_info=pipeline_info.get(item.produced_by_execution_id),
+            )
+            for item in datasets
+        ],
         total=total,
     )
 

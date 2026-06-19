@@ -8,13 +8,21 @@ converter (used by both Pipelines-CRUD and Executions), and the StudyOutput resp
 (used by both the execution-detail area and the study-outputs area).
 """
 
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import ExecutionOutput, PipelineDefinition, Study, StudyOutput, User
+from app.models import (
+    ExecutionOutput,
+    PipelineDefinition,
+    PipelineExecution,
+    Study,
+    StudyOutput,
+    User,
+)
 from app.schemas.pipeline import PipelineResponse
 from app.schemas.study_output import StudyOutputResponse
 from app.services.study_access import require_study_read, require_study_run, require_study_write
@@ -81,10 +89,62 @@ def _to_str_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+@dataclass(frozen=True)
+class PipelineAttribution:
+    """某条结果的来源工作流标识，由 produced_by_execution_id 解析而来。
+
+    结果页要回答「这条结果是哪个工作流、哪一版、第几次运行产出的」，但 StudyOutput 行只存
+    produced_by_execution_id。这里把 execution → pipeline 的归属信息打包，由列表端点批量查好后
+    传给 study_output_to_response，避免逐行查库（N+1）。
+    """
+
+    pipeline_id: int | None = None
+    pipeline_name: str | None = None
+    pipeline_version: int | None = None
+    execution_seq: int | None = None
+
+
+def pipeline_attribution_by_execution(
+    db: Session, execution_ids: Iterable[Any]
+) -> dict[Any, PipelineAttribution]:
+    """批量把 execution_id 映射到来源工作流（pipeline 名/版本/运行序号）。
+
+    一次 IN 查询取回所有相关 execution 的 (pipeline_id, name, version, seq)，键为 execution.id
+    （与 StudyOutput.produced_by_execution_id 同为 UUID 对象，可直接 .get 命中）。
+    """
+    ids = [eid for eid in {*execution_ids} if eid]
+    if not ids:
+        return {}
+    rows = (
+        db.query(
+            PipelineExecution.id,
+            PipelineExecution.pipeline_id,
+            PipelineExecution.pipeline_version,
+            PipelineExecution.execution_seq,
+            PipelineDefinition.name,
+        )
+        .outerjoin(
+            PipelineDefinition, PipelineDefinition.id == PipelineExecution.pipeline_id
+        )
+        .filter(PipelineExecution.id.in_(ids))
+        .all()
+    )
+    return {
+        exec_id: PipelineAttribution(
+            pipeline_id=pipeline_id,
+            pipeline_name=name,
+            pipeline_version=pipeline_version,
+            execution_seq=execution_seq,
+        )
+        for exec_id, pipeline_id, pipeline_version, execution_seq, name in rows
+    }
+
+
 def study_output_to_response(
     dataset: StudyOutput,
     *,
     attribution: tuple[str | None, str | None] | None = None,
+    pipeline_info: PipelineAttribution | None = None,
 ) -> StudyOutputResponse:
     """把 StudyOutput 行序列化成响应。
 
@@ -108,6 +168,10 @@ def study_output_to_response(
         produced_by_params=dataset.produced_by_params or {},
         upstream_dataset_ids=_to_str_list(dataset.upstream_dataset_ids),
         upstream_recording_ids=_to_str_list(dataset.upstream_recording_ids),
+        pipeline_id=pipeline_info.pipeline_id if pipeline_info else None,
+        pipeline_name=pipeline_info.pipeline_name if pipeline_info else None,
+        pipeline_version=pipeline_info.pipeline_version if pipeline_info else None,
+        execution_seq=pipeline_info.execution_seq if pipeline_info else None,
         data_type=dataset.data_type,
         subject_id=str(dataset.subject_id) if dataset.subject_id else None,
         bids_subject_id=dataset.bids_subject_id,
