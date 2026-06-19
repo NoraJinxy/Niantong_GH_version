@@ -318,45 +318,52 @@
           <div v-if="!focusCell" class="ov-right-empty">
             移动游标到热图上读各图在该 (时间, 频率) 点的值；拖拽框选一块区域量区间均值。
           </div>
-          <template v-else-if="focusCell">
-            <!-- ROI 区间均值（拖拽框选后出现）；未框选给提示。时频面本身已表达「何时·何频·增强减弱」，故不再做峰值英雄数字 / 频段 bar -->
-            <div v-if="region" class="ov-contrast">
-              <div class="ov-sec-mini">
-                ROI 区间均值 · {{ fmtTime(region.t0) }}–{{ fmtTime(region.t1) }}s × {{ fmtFreq(region.f0) }}–{{ fmtFreq(region.f1) }}Hz
-                <button class="ov-link" style="margin-left: 6px" @click="region = null">清除</button>
+          <template v-else>
+            <!-- 区间统计：默认关——点开关或图上框选一块 ROI 才出 ROI 均值 + 刺激后频段明细 + 图上着色。三页（时域/频域/时频）统一为此「默认关、按需开」模式。时频是 2D ROI，无「满窗均值」语义，故开关开后先给框选提示；明细表为刺激后固定窗。 -->
+            <div class="ov-stat-block">
+              <div class="ov-stat-head">
+                <button class="ov-stat-toggle" :class="{ 'is-on': statsActive }" type="button" @click="toggleStats" title="区间统计：在热图上拖拽框选一块（时间 × 频率），量该区间内各图平均功率变化；并展开刺激后各频段明细。再点关闭。">
+                  <span class="ov-stat-ico">∑</span>区间统计
+                </button>
+                <span v-if="region" class="ov-stat-rng text-mono">{{ fmtTime(region.t0) }}–{{ fmtTime(region.t1) }}s × {{ fmtFreq(region.f0) }}–{{ fmtFreq(region.f1) }}Hz</span>
               </div>
-              <div class="ov-contrast-list">
-                <div v-for="r in roiRows" :key="r.key" class="ov-hover-row">
-                  <span class="ov-li-dot" :style="{ background: r.color }"></span>
-                  <span class="ov-hover-name">{{ r.name }}</span>
-                  <span class="ov-hover-val text-mono">{{ Number.isFinite(r.mean) ? fmtSigned(r.mean) : '—' }}</span>
+              <template v-if="statsActive">
+                <!-- ROI 区间均值（拖拽框选后出现） -->
+                <div v-if="region" class="ov-contrast">
+                  <div class="ov-sec-mini">ROI 区间均值<button class="ov-link" style="margin-left: 6px" @click="region = null">清除框选</button></div>
+                  <div class="ov-contrast-list">
+                    <div v-for="r in roiRows" :key="r.key" class="ov-hover-row">
+                      <span class="ov-li-dot" :style="{ background: r.color }"></span>
+                      <span class="ov-hover-name">{{ r.name }}</span>
+                      <span class="ov-hover-val text-mono">{{ Number.isFinite(r.mean) ? fmtSigned(r.mean) : '—' }}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div v-else class="ov-right-empty" style="text-align: left; padding: 8px 4px; line-height: 1.6">
-              在热图上拖拽框选一块（时间 × 频率），即可量出该区间内各图的平均功率变化（相对基线 {{ unit }}）。
-            </div>
+                <div v-else class="ov-stat-note">在热图上拖拽框选一块（时间 × 频率），即可量出该区间内各图的平均功率变化（相对基线 {{ unit }}）。</div>
 
-            <!-- 明细表（导出参考·默认折叠）：刺激后各频段平均 -->
-            <div class="ov-detail">
-              <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
-                <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
-                明细表 · 刺激后频段均值 · {{ statsRows.length }} 行
-              </button>
-              <table v-if="showDetailTable" class="ov-dtable">
-                <thead>
-                  <tr><th>数据集</th><th>通道</th><th>θ</th><th>α</th><th>β</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in statsRows" :key="r.key" class="ov-dt-row" :class="{ 'is-focus': focusKey === r.key }" @click="focusKey = r.key">
-                    <td>{{ r.segName }}</td>
-                    <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.channel }}</td>
-                    <td>{{ r.bands.theta != null ? fmtSigned(r.bands.theta) : '—' }}</td>
-                    <td>{{ r.bands.alpha != null ? fmtSigned(r.bands.alpha) : '—' }}</td>
-                    <td>{{ r.bands.beta != null ? fmtSigned(r.bands.beta) : '—' }}</td>
-                  </tr>
-                </tbody>
-              </table>
+                <!-- 明细表（导出参考·默认折叠）：刺激后各频段平均 -->
+                <div class="ov-detail">
+                  <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                    <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                    明细表 · 刺激后频段均值 · {{ statsRows.length }} 行
+                  </button>
+                  <table v-if="showDetailTable" class="ov-dtable">
+                    <thead>
+                      <tr><th>数据集</th><th>通道</th><th>θ</th><th>α</th><th>β</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in statsRows" :key="r.key" class="ov-dt-row" :class="{ 'is-focus': focusKey === r.key }" @click="focusKey = r.key">
+                        <td>{{ r.segName }}</td>
+                        <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.channel }}</td>
+                        <td>{{ r.bands.theta != null ? fmtSigned(r.bands.theta) : '—' }}</td>
+                        <td>{{ r.bands.alpha != null ? fmtSigned(r.bands.alpha) : '—' }}</td>
+                        <td>{{ r.bands.beta != null ? fmtSigned(r.bands.beta) : '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+              <div v-else class="ov-stat-off">在热图上拖拽框选一块（时间 × 频率），或点「区间统计」，查看 ROI 均值与刺激后频段明细。</div>
             </div>
           </template>
         </div>
@@ -730,8 +737,16 @@ const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : h
 // ---------- ROI 框选 ----------
 interface Roi { t0: number; t1: number; f0: number; f1: number }
 const region = ref<Roi | null>(null)
+// 区间统计开关（右栏）：默认关——右栏不堆 ROI 均值 / 刺激后频段明细 / 图上着色；点开关或框选 ROI 即开。与时域/频域三页统一为「默认关、按需开」。
+const statsEnabled = ref(false)
+const statsActive = computed(() => statsEnabled.value || !!region.value)
 function onSelect(r: Roi | null) {
   region.value = r
+}
+// 右栏「区间统计」开关：关→连同 ROI 框选一并撤掉；开→等待框选（时频是 2D ROI，无「满窗均值」语义，故开后先给框选提示；明细表为刺激后固定窗）
+function toggleStats() {
+  if (statsActive.value) { statsEnabled.value = false; region.value = null }
+  else { statsEnabled.value = true }
 }
 function roiMean(tfr: StudyOutputTfr, r: Roi): number {
   let sum = 0

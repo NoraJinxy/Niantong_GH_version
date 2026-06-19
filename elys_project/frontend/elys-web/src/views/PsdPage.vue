@@ -343,62 +343,84 @@
             </template>
           </div>
 
-          <div v-if="!statsRows.length" class="ov-right-empty">
-            选择通道后，这里显示主频 (IAF)、频段相对功率与常用比值。
-          </div>
-          <template v-else>
-            <!-- ① 焦点卡：以选中谱线为主——IAF + α 一行、θ/β + δ/α 一行（B 风格，曲线本色圆点·克制深灰） -->
-            <template v-if="readoutStat">
-              <div class="ov-focus">
-                <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: readoutStat.color }"></span>{{ readoutStat.chan }} · {{ readoutStat.segName }}</div>
-                <div class="ov-focus-row">
-                  <span class="ov-focus-k">IAF</span><span class="ov-focus-v text-mono">{{ iafText }}</span><span class="ov-focus-uu">Hz</span>
-                  <span class="ov-focus-k2">α</span><span class="ov-focus-v text-mono">{{ (readoutStat.bandRel.alpha ?? 0).toFixed(0) }}</span><span class="ov-focus-uu">%</span>
-                </div>
-                <div class="ov-focus-row">
-                  <span class="ov-focus-k">θ/β</span><span class="ov-focus-v text-mono">{{ tbr }}</span>
-                  <span class="ov-focus-k2">δ/α</span><span class="ov-focus-v text-mono">{{ dar }}</span>
+          <!-- ① 焦点卡：单击谱线后显示 IAF / α / 比值 + 频段相对功率（独立于下方「区间统计」开关；readoutStat 自带空守卫，无数据不显示）。 -->
+          <template v-if="readoutStat">
+            <div class="ov-focus">
+              <div class="ov-focus-lbl"><span class="ov-li-dot" :style="{ background: readoutStat.color }"></span>{{ readoutStat.chan }} · {{ readoutStat.segName }}</div>
+              <div class="ov-focus-row">
+                <span class="ov-focus-k">IAF</span><span class="ov-focus-v text-mono">{{ iafText }}</span><span class="ov-focus-uu">Hz</span>
+                <span class="ov-focus-k2">α</span><span class="ov-focus-v text-mono">{{ (readoutStat.bandRel.alpha ?? 0).toFixed(0) }}</span><span class="ov-focus-uu">%</span>
+              </div>
+              <div class="ov-focus-row">
+                <span class="ov-focus-k">θ/β</span><span class="ov-focus-v text-mono">{{ tbr }}</span>
+                <span class="ov-focus-k2">δ/α</span><span class="ov-focus-v text-mono">{{ dar }}</span>
+              </div>
+            </div>
+            <div class="ov-contrast">
+              <div class="ov-sec-mini">频段相对功率 %（{{ readoutStat.chan }} · {{ readoutStat.segName }}）</div>
+              <div class="ov-contrast-list">
+                <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
+                  <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
+                  <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
+                  <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: (readoutStat.bandRel[b.name] ?? 0) + '%', background: bandColor(b.name) }"></span></span>
+                  <span class="ov-contrast-val text-mono">{{ (readoutStat.bandRel[b.name] ?? 0).toFixed(0) }}%</span>
                 </div>
               </div>
-
-              <!-- 频段相对功率 % -->
-              <div class="ov-contrast">
-                <div class="ov-sec-mini">频段相对功率 %（{{ readoutStat.chan }} · {{ readoutStat.segName }}）</div>
-                <div class="ov-contrast-list">
-                  <div v-for="b in presentBands" :key="b.name" class="ov-contrast-row">
-                    <span class="ov-li-dot" :style="{ background: bandColor(b.name) }"></span>
-                    <span class="ov-contrast-lbl">{{ b.label }} {{ b.lo }}–{{ b.hi }}</span>
-                    <span class="ov-contrast-bar"><span class="ov-contrast-fill" :style="{ width: (readoutStat.bandRel[b.name] ?? 0) + '%', background: bandColor(b.name) }"></span></span>
-                    <span class="ov-contrast-val text-mono">{{ (readoutStat.bandRel[b.name] ?? 0).toFixed(0) }}%</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <!-- 重叠但焦点关：引导开启 + 单击选线 -->
-            <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条谱线，即可聚焦查看其主频 IAF / 相对功率 / 比值。</div>
-
-            <!-- 明细表（相对功率 %）-->
-            <div class="ov-detail">
-              <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
-                <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
-                明细表 · {{ statsRows.length }} 行
-              </button>
-              <table v-if="showDetailTable" class="ov-dtable">
-                <thead>
-                  <tr><th>数据集</th><th>通道</th><th>IAF</th><th>α%</th><th>θ/β</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
-                    <td>{{ r.segName }}</td>
-                    <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
-                    <td>{{ Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '—' }}</td>
-                    <td>{{ (r.bandRel.alpha ?? 0).toFixed(0) }}%</td>
-                    <td>{{ (r.bandRel.beta ?? 0) > 0 ? ((r.bandRel.theta ?? 0) / (r.bandRel.beta ?? 0)).toFixed(2) : '—' }}</td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
           </template>
+          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条谱线，即可聚焦查看其主频 IAF / 相对功率 / 比值。</div>
+
+          <!-- ② 区间统计：默认关——点开关或图上横向框选一段频率才出逐通道明细 + 图上着色带；精确范围 + δθαβγ 频段胶囊收纳于此（从旧左栏面板迁来）。三页（时域/频域/时频）统一为此「默认关、按需开」模式。 -->
+          <div class="ov-stat-block">
+            <div class="ov-stat-head">
+              <button class="ov-stat-toggle" :class="{ 'is-on': statsActive }" type="button" @click="toggleStats" title="区间统计：选一段频率，量该段内各通道的相对功率明细。点此用全频段，或直接在图上横向拖拽框选；也可在「调整范围」里点 δθαβγ 胶囊。再点关闭。">
+                <span class="ov-stat-ico">∑</span>区间统计
+              </button>
+              <span v-if="statsActive && region" class="ov-stat-rng text-mono">{{ fmtX(region.x0) }}–{{ fmtX(region.x1) }} Hz</span>
+            </div>
+            <template v-if="statsActive">
+              <button class="ov-stat-edit" type="button" @click="rangeEdit = !rangeEdit">
+                <span class="ov-detail-arr" :class="{ 'is-open': rangeEdit }">▸</span>调整范围
+              </button>
+              <div v-if="rangeEdit" class="ov-stat-inps">
+                <input v-model="statLoInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
+                <span class="ov-sep">~</span>
+                <input v-model="statHiInput" class="ov-inp" type="number" step="1" @keydown.enter="applyStatsRange" @change="applyStatsRange" />
+                <span class="ov-unit-tag">Hz</span>
+                <button class="ov-link" @click="applyStatsRange">应用</button>
+                <button class="ov-link" @click="resetStatsRange">全频段</button>
+              </div>
+              <div v-if="rangeEdit && presentBands.length" class="psd-bandpills" style="margin-top: 6px">
+                <button v-for="b in presentBands" :key="b.name" class="psd-bandpill"
+                  :class="{ 'is-on': region && Math.abs(region.x0 - b.lo) < 0.1 && Math.abs(region.x1 - b.hi) < 0.1 }"
+                  @click="applyStatsBand(b.lo, b.hi)">
+                  {{ b.label }} {{ b.lo }}–{{ b.hi }}
+                </button>
+              </div>
+              <div v-if="!statsRows.length" class="ov-stat-note">当前通道选择下没有可统计的数据。</div>
+              <div v-else class="ov-detail">
+                <button class="ov-detail-toggle" type="button" @click="showDetailTable = !showDetailTable">
+                  <span class="ov-detail-arr" :class="{ 'is-open': showDetailTable }">▸</span>
+                  明细表 · {{ statsRows.length }} 行
+                </button>
+                <table v-if="showDetailTable" class="ov-dtable">
+                  <thead>
+                    <tr><th>数据集</th><th>通道</th><th>IAF</th><th>α%</th><th>θ/β</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, i) in statsRows" :key="i" class="ov-dt-row" :class="{ 'is-focus': effectiveFocus === r.chan }" @click="focusChan(r.chan)">
+                      <td>{{ r.segName }}</td>
+                      <td><span class="ov-li-dot" :style="{ background: r.color }"></span>{{ r.chan }}</td>
+                      <td>{{ Number.isFinite(r.iaf) ? r.iaf.toFixed(1) : '—' }}</td>
+                      <td>{{ (r.bandRel.alpha ?? 0).toFixed(0) }}%</td>
+                      <td>{{ (r.bandRel.beta ?? 0) > 0 ? ((r.bandRel.theta ?? 0) / (r.bandRel.beta ?? 0)).toFixed(2) : '—' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+            <div v-else class="ov-stat-off">在图上横向拖拽框选一段频率，或点「区间统计」，查看逐通道相对功率明细。</div>
+          </div>
         </div>
       </aside>
     </div>
