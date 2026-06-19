@@ -91,7 +91,9 @@ export const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label
   { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
 ]
 export const NODE_CARD_WIDTH = 264
-export const NODE_CARD_MIN_HEIGHT = 64
+// 卡片统一固定高度（= 3 行事实卡的自然高）。事实少的卡补底部留白对齐到此值，让一排卡齐平；
+// 仅极少数 4+ 行节点（通用 planNodeWidgets 封顶 4）会超过它而更高。
+export const NODE_CARD_MIN_HEIGHT = 107
 export const NODE_TITLE_MAX_CHARS = 22
 export const NODE_GAP_X = 304
 export const NODE_GAP_Y = 168

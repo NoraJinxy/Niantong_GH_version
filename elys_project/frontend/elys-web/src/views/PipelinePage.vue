@@ -3138,8 +3138,8 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 // ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
 
 /** 统一节点尺寸 + 顶部对齐：事实行紧跟端口区往下排（不再沉底留出空心中段），在事实之上插一条发丝
- *  分隔线分隔「上半=数据流端口 / 下半=方法学事实」；卡片高度贴合内容（min 仅作地板），底部留固定
- *  留白带让保存指示胶囊不被事实行压到。 */
+ *  分隔线分隔「上半=数据流端口 / 下半=方法学事实」；卡片高度取「固定统一高度 NODE_CARD_MIN_HEIGHT」与
+ *  内容真实高度的较大者——多数卡（≤3 行事实）落在固定值上一排齐平、短卡补底部留白，仅 4+ 行节点更高。 */
 function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
