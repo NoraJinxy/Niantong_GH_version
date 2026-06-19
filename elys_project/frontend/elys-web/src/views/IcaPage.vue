@@ -106,7 +106,7 @@
               原始 vs 去除选定成分后<template v-if="comparison && comparison.has_comparison && comparison.channel_name">（{{ comparison.channel_name }}）</template>
             </div>
             <div v-if="comparison && comparison.has_comparison" class="ic-plot-host ic-plot-host--wide">
-              <TimeCourseCanvas :data="cmpData" :series="cmpSeries" x-label="时间 (s)" y-label="" show-legend />
+              <TimeCourseCanvas :data="cmpData" :series="cmpSeries" x-label="时间 (s)" y-label="µV" show-legend />
             </div>
             <p v-else class="muted text-sm">标记要剔除的成分后，这里显示某通道（{{ comparison?.channel_name || '首通道' }}）去除前后的对比波形。</p>
           </div>
@@ -301,7 +301,8 @@ const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectr
 const cmpData = computed<number[][]>(() => {
   const c = comparison.value
   if (!c || !c.has_comparison || !c.times || !c.original || !c.filtered) return [[], []]
-  return [c.times, c.original, c.filtered]
+  // 后端给的是 Volts（~1e-5），×1e6 换成 µV，坐标轴才可读。
+  return [c.times, c.original.map((v) => v * 1e6), c.filtered.map((v) => v * 1e6)]
 })
 
 async function load() {
