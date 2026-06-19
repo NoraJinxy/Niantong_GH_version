@@ -44,7 +44,7 @@
             </button>
           </div>
         </div>
-        <div class="topo-modal-grid">
+        <div class="topo-modal-grid" :style="modalGridStyle">
           <div v-for="c in cells" :key="c.seg" class="topo-modal-card" :style="{ borderTopColor: c.color }">
             <div class="topo-modal-cardhd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-modal-cardname">{{ c.label }}</span></div>
             <canvas v-if="c.points && c.points.length" :ref="(el) => setModalCanvas(c.seg, el)" class="topo-modal-cv"></canvas>
@@ -189,6 +189,12 @@ const modalHitMap = new Map<number, Hit[]>()
 // 放大查看：把本条整组地形图铺成网格大图（标签=条件名）
 const expanded = ref(false)
 function openExpanded() { if (props.cells.length) expanded.value = true }
+// 弹窗网格列数按卡片数自适应（少则少列 → 弹窗 fit-content 自然收窄，不留大白边）；与导出图同一套平衡公式
+const gridCols = computed(() => {
+  const n = props.cells.length
+  return n <= 3 ? Math.max(1, n) : Math.min(4, Math.ceil(Math.sqrt(n)))
+})
+const modalGridStyle = computed(() => ({ gridTemplateColumns: `repeat(${gridCols.value}, minmax(190px, 240px))` }))
 
 function bindCanvas(seg: number, el: unknown, cmap: Map<number, HTMLCanvasElement>, hmap: Map<number, Hit[]>) {
   if (el instanceof HTMLCanvasElement) {
@@ -436,8 +442,8 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 </script>
 
 <style scoped>
-/* 自绘放大镜光标（描白边的招牌蓝），替掉系统默认那只糙放大镜；hotspot 落在镜片中心 (11,11) */
-.topo-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; --cursor-zoom: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%20viewBox='0%200%2028%2028'%3E%3Cg%20fill='none'%20stroke-linecap='round'%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%232E6BFF'%20stroke-width='2.2'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%232E6BFF'%20stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E") 11 11, pointer; }
+/* 自绘放大镜光标（描白边 + elys 招牌蓝＝色板冷端钴蓝 #2D5096，比 UI 亮蓝更深更沉），替掉系统默认那只糙放大镜；hotspot 落在镜片中心 (11,11) */
+.topo-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; --cursor-zoom: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%20viewBox='0%200%2028%2028'%3E%3Cg%20fill='none'%20stroke-linecap='round'%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%23ffffff'%20stroke-width='4'/%3E%3Ccircle%20cx='11'%20cy='11'%20r='7.5'%20stroke='%232D5096'%20stroke-width='2.2'/%3E%3Cline%20x1='16.5'%20y1='16.5'%20x2='23.5'%20y2='23.5'%20stroke='%232D5096'%20stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E") 11 11, pointer; }
 /* 固定宽度：游标 ms 位数变化（5 / 315 / 1000）不再改变本列宽度，右侧地形图卡不再左右抖动 */
 .topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
 .topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
@@ -454,8 +460,8 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-cv { width: 100%; height: 96px; display: block; }
 .topo-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: var(--c-text-3); line-height: 1.4; padding: 12px 4px; }
 
-/* ── 放大查看弹窗：外壳沿用全站 modal 规格（surface + r-md + shadow-lg），内容铺成大网格 ── */
-.topo-modal { width: min(1080px, 92vw); max-height: 88vh; display: flex; flex-direction: column; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
+/* ── 放大查看弹窗：外壳沿用全站 modal 规格（surface + r-md + shadow-lg）；宽度按卡片数自适应（fit-content），少量卡片时自然收窄、不留大白边 ── */
+.topo-modal { width: fit-content; max-width: 92vw; max-height: 88vh; display: flex; flex-direction: column; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
 .topo-modal-hd { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 13px 16px; border-bottom: 1px solid var(--c-border); }
 .topo-modal-ttl { font-size: 14px; font-weight: 600; color: var(--c-text); }
 .topo-modal-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
@@ -467,7 +473,7 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-modal-dl svg { flex-shrink: 0; }
 .topo-modal-x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; color: var(--c-text-3); background: transparent; border: none; border-radius: var(--r-sm); cursor: pointer; }
 .topo-modal-x:hover { color: var(--c-text); background: var(--c-bg-soft); }
-.topo-modal-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; padding: 16px; background: var(--c-bg-soft); }
+.topo-modal-grid { flex: 1; overflow-y: auto; display: grid; justify-content: center; gap: 14px; padding: 16px; background: var(--c-bg-soft); }
 .topo-modal-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 10px 12px; border: 1px solid var(--c-border); border-top-width: 3px; border-radius: var(--r-sm); background: var(--c-surface); box-shadow: var(--shadow-sm); }
 .topo-modal-cardhd { width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--c-text-2); }
 .topo-modal-cardname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
