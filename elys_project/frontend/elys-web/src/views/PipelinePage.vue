@@ -1194,6 +1194,7 @@ import {
   formatExecutionMode,
   formatArtifactRetention,
   categoryColor,
+  categorySoftColor,
 } from '@/composables/pipeline/pipelineFormatters'
 import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
 import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
@@ -1235,6 +1236,11 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
 const CARD_ROW_H = 16
+// 只读事实行胶囊值的「双层排版」字体：数字醒目(600/11)、单位弱化(500/10)、运算符更轻(400/10)
+const FACT_NUM_FONT = '600 11px "Segoe UI", Arial, sans-serif'
+const FACT_UNIT_FONT = '500 10px "Segoe UI", Arial, sans-serif'
+const FACT_OP_FONT = '400 10px "Segoe UI", Arial, sans-serif'
+type FactRun = { text: string; font: string; fill: string; w: number }
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
@@ -3184,6 +3190,46 @@ function pushReadonlyWidget(
   })
 }
 
+/** 不透明 hex 线性插值（a→b 取 t∈[0,1]）。从类别强调色派生胶囊的描边/文字/单位色，
+ *  比 withAlpha 的 rgba 更稳：与背景无关、HiDPI 下边缘干净（避免半透明叠色发糊）。 */
+function mixHex(a: string, b: string, t: number): string {
+  const parse = (hex: string) => {
+    const s = hex.replace('#', '')
+    return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)]
+  }
+  const [ca, cb] = [parse(a), parse(b)]
+  const to2 = (x: number) => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0')
+  return '#' + [0, 1, 2].map((i) => to2(ca[i] * (1 - t) + cb[i] * t)).join('')
+}
+
+/** 把胶囊值切成「数字 / 运算符 / 单位」多段做双层排版——仅当 value 是「纯数值事实」
+ *  （只由数字、运算符 →~±<>、空白、已知单位组成）时才拆；含字母 / 中文 / '/'（通道名 TP9、
+ *  事件名 Stimulus/S 9、中文档位 带通）整体一段、不弱化。数字醒目、单位/运算符弱化且同色系。 */
+function factValueRuns(value: string, textColor: string, mutedColor: string): FactRun[] {
+  // 先剥掉已知单位再判字母：'dB'/'30 Hz' 的单位不算字母，但 'LOF'/'带通' 的字母/中文要拦住。
+  const unitStripped = value.replace(/Hz|kHz|ms|µV|uV|dB|%|项|个|通道|s/g, '')
+  const isNumericFact = /\d/.test(value) && !/[/A-Za-z一-鿿]/.test(unitStripped)
+  if (!isNumericFact) return [{ text: value, font: FACT_NUM_FONT, fill: textColor, w: 0 }]
+
+  const runs: FactRun[] = []
+  const push = (text: string, font: string, fill: string) => {
+    if (text) runs.push({ text, font, fill, w: 0 })
+  }
+  // 匹配 数字 / 运算符 / 空白；未匹配的间隙（Hz、s、项 等单位）归入弱化单位段。
+  const re = /([+\-]?\d[\d.]*)|([→~±<>])|(\s+)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(value))) {
+    if (m.index > last) push(value.slice(last, m.index), FACT_UNIT_FONT, mutedColor)
+    if (m[1] !== undefined) push(m[1], FACT_NUM_FONT, textColor)
+    else if (m[2] !== undefined) push(m[2], FACT_OP_FONT, mutedColor)
+    else push(m[0], FACT_UNIT_FONT, mutedColor) // 空白：用单位字体测宽留白
+    last = re.lastIndex
+  }
+  if (last < value.length) push(value.slice(last), FACT_UNIT_FONT, mutedColor)
+  return runs
+}
+
 /** 用 arcTo 画圆角矩形（fill，兼容不支持 roundRect 的环境）。 */
 function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
@@ -3224,18 +3270,27 @@ function truncByWidth(ctx: CanvasRenderingContext2D, text: string, maxPx: number
   return s + '…'
 }
 
-/** 只读「标签 …… [蓝色 pill 值]」事实行：标签 10px 浅灰 + 右侧蓝色圆角徽章，动态像素宽度截断。 */
+/** 只读「标签 …… [类别色 pill 值]」事实行：标签 10px 浅灰 + 右侧随节点类别染色的圆角徽章；
+ *  数值做「数字醒目 + 单位/运算符弱化」双层排版（仅纯数值事实），动态像素宽度截断。 */
 function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
+  // 胶囊配色随节点类别色派生（与标题渐变 / accent 竖条 / 保存胶囊同源）——整张卡一个色系。
+  const factSpec = nodeSpecs.value.find((s) => s.type === String((graphNode as { type?: unknown }).type || '')) || null
+  const accent = categoryColor(factSpec?.category)
+  const pillBg = categorySoftColor(factSpec?.category)
+  const pillBorder = mixHex(accent, '#FFFFFF', 0.66)
+  const pillText = mixHex(accent, '#000000', 0.22)
+  const pillUnit = mixHex(pillText, pillBg, 0.42)
+
   pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
     const cy = y + h * 0.5
     const PAD_L = 10
-    const PAD_R = 10
-    const PILL_H = 15
-    const PILL_PAD_H = 7
-    const PILL_R = 4
-    const MIN_GAP = 8
+    const PAD_R = 8 // 与标题栏状态徽标同列右对齐（width-8）
+    const PILL_H = 14 // 行高 16 → 上下各 1px 呼吸
+    const PILL_PAD_H = 8
+    const PILL_R = 5 // ≈半高，与卡片 6px 圆角 / 状态胶囊同语汇
+    const MIN_GAP = 10
 
-    // Label（左，浅灰，10px — 和蓝色值形成层次对比）
+    // Label（左，浅灰 10px，与彩色值形成层次对比）
     let labelEndX = PAD_L
     if (label) {
       ctx.font = '10px "Segoe UI", Arial, sans-serif'
@@ -3245,24 +3300,40 @@ function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string
       labelEndX = PAD_L + ctx.measureText(truncWidgetText(label, 10)).width
     }
 
-    // Value pill（右，蓝徽章 + 微边框）— 按像素宽度截断，避免中文/事件名混合时溢出
-    ctx.font = '600 11px "Segoe UI", Arial, sans-serif'
+    // 值 pill：先按数字字重测宽度上界做像素截断，再切「数字 / 运算符 / 单位」多段分别上色，
+    // 按各段实测宽度拼回（pill 仍贴合内容、整体右对齐）。
+    ctx.font = FACT_NUM_FONT
     const maxPillContentW = Math.max(24, width - PAD_R - PILL_PAD_H * 2 - labelEndX - MIN_GAP)
     const valueText = truncByWidth(ctx, value, maxPillContentW)
-    const tw = ctx.measureText(valueText).width
-    const pillW = tw + PILL_PAD_H * 2
-    const pillX = width - PAD_R - pillW
-    const pillY = Math.round(cy - PILL_H / 2)
 
-    ctx.fillStyle = '#EBF4FF'
-    fillRoundRect(ctx, pillX, pillY, pillW, PILL_H, PILL_R)
-    ctx.strokeStyle = '#BDD7F0'
-    ctx.lineWidth = 0.5
-    strokeRoundRect(ctx, pillX, pillY, pillW, PILL_H, PILL_R)
+    const runs = factValueRuns(valueText, pillText, pillUnit)
+    let contentW = 0
+    for (const run of runs) {
+      ctx.font = run.font
+      run.w = ctx.measureText(run.text).width
+      contentW += run.w
+    }
+    const pillW = contentW + PILL_PAD_H * 2
+    const fx = Math.round(width - PAD_R - pillW)
+    const fy = Math.round(cy - PILL_H / 2)
 
-    ctx.fillStyle = '#1D5C96'
-    ctx.textAlign = 'right'
-    ctx.fillText(valueText, width - PAD_R - PILL_PAD_H, cy)
+    // 背景填实心整数坐标（不偏移，避免 fill 自身边缘被反走样糊掉）；描边 +0.5 半像素 snap + 1px，
+    // 让发丝线恰好落在物理像素上（HiDPI 不糊）。
+    ctx.fillStyle = pillBg
+    fillRoundRect(ctx, fx, fy, pillW, PILL_H, PILL_R)
+    ctx.strokeStyle = pillBorder
+    ctx.lineWidth = 1
+    strokeRoundRect(ctx, fx + 0.5, fy + 0.5, pillW - 1, PILL_H - 1, PILL_R)
+
+    // 多段文字左对齐逐段推进（baseline 由 pushReadonlyWidget 设为 middle）
+    ctx.textAlign = 'left'
+    let tx = fx + PILL_PAD_H
+    for (const run of runs) {
+      ctx.font = run.font
+      ctx.fillStyle = run.fill
+      ctx.fillText(run.text, tx, cy)
+      tx += run.w
+    }
   })
 }
 
@@ -3273,7 +3344,7 @@ function pushReadonlyLine(graphNode: LiteGraphNode, text: string, opts: { muted?
     const PAD_R = 10
     if (opts.muted) {
       ctx.font = 'italic 10px "Segoe UI", Arial, sans-serif'
-      ctx.fillStyle = '#A0B0C0'
+      ctx.fillStyle = '#9AAABB' // 与事实行标签同一「次级灰」，全卡统一一个 token
     } else if (opts.accent) {
       ctx.font = '11px "Segoe UI", Arial, sans-serif'
       ctx.fillStyle = NODE_WIDGET_SLIDER_COLOR
