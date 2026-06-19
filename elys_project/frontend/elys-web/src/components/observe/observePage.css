@@ -157,7 +157,8 @@
 .ov-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
 .ov-cell-dl:hover { color: var(--c-primary); }
 .ov-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
-.ov-cell.is-focus { box-shadow: 0 0 0 2px var(--c-primary); position: relative; z-index: 1; }
+/* 多视图并排对比时不做「选中某 panel」的修饰：去掉原 .ov-cell.is-focus 蓝色外框（三页共用→时域/频域/时频同步）。
+   focusKey/effectiveFocus 仍驱动主格取数与曲线高亮、顶部通道色边仍标识 panel，只是不再给选中 panel 加外框光圈。 */
 
 /* ===== 状态条 ===== */
 .ov-sbar { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--c-surface); border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text-3); flex-shrink: 0; overflow: hidden; }
