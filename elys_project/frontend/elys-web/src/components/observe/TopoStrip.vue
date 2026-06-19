@@ -24,6 +24,15 @@
         @click="onCardClick(c.seg)"
         @dblclick="onCardDblClick(c.seg, $event)"
       >
+        <input
+          v-if="checkable"
+          type="checkbox"
+          class="topo-check"
+          :checked="c.marked"
+          title="勾选 = 标记剔除该成分"
+          @click.stop
+          @change="onCardCheck(c.seg)"
+        />
         <div class="topo-hd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-hd-name">{{ c.label }}</span></div>
         <!-- 单层 canvas：色面 + 头罩 + 鼻耳 + 电极点同一坐标变换绘制（杜绝分层错位）；hover 真值走动态 title -->
         <canvas v-if="c.points && c.points.length" :ref="(el) => setCanvas(c.seg, el)" class="topo-cv"></canvas>
@@ -83,8 +92,8 @@ interface TopoCell { seg: number; label: string; color: string; points: TopoPoin
 // vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
 // domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
 // cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; selectable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', selectable: false, activeSeg: null })
-const emit = defineEmits<{ (e: 'cell-click', seg: number): void; (e: 'cell-dblclick', seg: number): void }>()
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; selectable?: boolean; checkable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', selectable: false, checkable: false, activeSeg: null })
+const emit = defineEmits<{ (e: 'cell-click', seg: number): void; (e: 'cell-dblclick', seg: number): void; (e: 'cell-check', seg: number): void }>()
 // 成分墙（ICA）：网格模式下点选某格上报 seg；strip 模式 / 非 selectable 不触发，三观察页零影响。
 function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg) }
 // 双击：selectable 下上报 seg（ICA 用作"标记/取消剔除"）并 stop——阻止冒泡到 .topo-cards 开放大弹窗；
@@ -92,6 +101,8 @@ function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg
 function onCardDblClick(seg: number, ev: Event) {
   if (props.selectable) { ev.stopPropagation(); emit('cell-dblclick', seg) }
 }
+// 勾选框（checkable，ICA 成分墙用）：显式标记/取消剔除，与双击等效但更可发现。@click.stop 已阻止触发选中。
+function onCardCheck(seg: number) { emit('cell-check', seg) }
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
@@ -478,9 +489,13 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-cv { width: 100%; height: 96px; display: block; }
 .topo-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9px; color: var(--c-text-3); line-height: 1.4; padding: 12px 4px; }
 
-/* 成分墙（ICA 等）：网格平铺 + 可点选 + 选中/标记态。默认 strip + 非 selectable 时这些规则不命中，三观察页零影响。 */
-.topo-cards.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); overflow-x: visible; cursor: default; }
-.is-grid .topo-card { width: auto; }
+/* 成分墙（ICA 等）：网格平铺 + 可点选 + 选中/标记态。默认 strip + 非 selectable 时这些规则不命中，三观察页零影响。
+   网格用「缩略图」尺寸（比观察页 strip 小一圈）：扫描全部成分认伪迹类型，配合右栏放大镜看选中那一个。 */
+.topo-cards.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); overflow-x: visible; cursor: default; gap: 5px; }
+.is-grid .topo-card { width: auto; position: relative; padding: 3px 3px 2px; }
+.is-grid .topo-cv { height: 62px; }
+/* 勾选框：缩略图左上角，显式「标记剔除」入口 */
+.topo-check { position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; margin: 0; cursor: pointer; accent-color: var(--c-danger); z-index: 2; }
 .topo-card.is-sel { cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s; }
 .topo-card.is-sel:hover { border-color: var(--c-primary); }
 .topo-card.is-active { border-color: var(--c-primary); box-shadow: 0 0 0 2px rgba(46, 107, 255, .18); }
