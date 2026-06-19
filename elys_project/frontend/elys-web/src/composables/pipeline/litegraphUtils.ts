@@ -6,7 +6,7 @@
 import { LGraph, LGraphNode, LiteGraph } from 'litegraph.js'
 import type { NodeSpec } from '@/types'
 import { LITEGRAPH_NODE_ID_PROP, LOAD_DATA_NODE_TYPE, NODE_CARD_WIDTH, NODE_CARD_MIN_HEIGHT } from './pipelineConstants'
-import { formatJobStatus, nodeStatusColor, nodeStatusSoftColor, withAlpha } from './pipelineFormatters'
+import { formatJobStatus, nodeStatusColor, normalizedJobStatus } from './pipelineFormatters'
 
 export type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -127,29 +127,31 @@ export function drawNodeAccentBar(
   ctx.restore()
 }
 
-/** 标题栏右侧的运行状态徽标胶囊（运行中/完成/失败…），颜色取 nodeStatusColor 家族。 */
+/** 标题栏右侧的运行状态徽标：状态圆点 + 中性灰文字。
+ *  改自原「彩色药丸」——药丸的状态色（尤其成功的绿）会与节点类别色撞成第二个色系；降级为一颗小圆点后，
+ *  整张卡只剩单一类别色系。成功/排队等常态用中性灰点（安静）；运行/等待用状态色点；失败用红点 + 红字（告警必须显眼）。 */
 export function drawNodeStatusBadge(ctx: CanvasRenderingContext2D, width: number, status: string) {
   const label = formatJobStatus(status)
+  const normalized = normalizedJobStatus(status)
   const titleHeight = LiteGraph.NODE_TITLE_HEIGHT
-  const badgeHeight = 18
+  const cy = -titleHeight / 2 // 标题栏（y<0）垂直居中
+  const alarm = normalized === 'failed'
+  const active = normalized === 'running' || normalized === 'waiting_user_input'
+  const dotColor = alarm ? '#B42318' : active ? nodeStatusColor(status) : '#94A3B8'
+  const labelColor = alarm ? '#B42318' : '#6B7785'
+
   ctx.save()
   ctx.font = '600 10px "Segoe UI", Arial, sans-serif'
-  const textWidth = ctx.measureText(label).width
-  const badgeWidth = Math.max(40, textWidth + 14)
-  const x = Math.max(10, width - badgeWidth - 8)
-  // 标题栏内（y < 0），上下居中：badge 高 18，标题栏高 titleHeight，居中 -titleHeight + (titleHeight - 18)/2
-  const y = -titleHeight + (titleHeight - badgeHeight) / 2
-  ctx.fillStyle = nodeStatusSoftColor(status)
-  ctx.strokeStyle = withAlpha(nodeStatusColor(status), 0.42)
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.roundRect(x, y, badgeWidth, badgeHeight, [badgeHeight / 2])
-  ctx.fill()
-  ctx.stroke()
-  ctx.fillStyle = nodeStatusColor(status)
-  ctx.textAlign = 'center'
+  ctx.textAlign = 'right'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label, x + badgeWidth / 2, y + badgeHeight / 2)
+  const rightX = width - 12 // 与事实行值右缘同列
+  ctx.fillStyle = labelColor
+  ctx.fillText(label, rightX, cy)
+  const labelWidth = ctx.measureText(label).width
+  ctx.beginPath()
+  ctx.fillStyle = dotColor
+  ctx.arc(rightX - labelWidth - 7, cy, 2.6, 0, Math.PI * 2)
+  ctx.fill()
   ctx.restore()
 }
 

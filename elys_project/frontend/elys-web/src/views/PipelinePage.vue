@@ -1194,7 +1194,6 @@ import {
   formatExecutionMode,
   formatArtifactRetention,
   categoryColor,
-  categorySoftColor,
 } from '@/composables/pipeline/pipelineFormatters'
 import { useEditorLayout } from '@/composables/pipeline/useEditorLayout'
 import { useNodeLibrary } from '@/composables/pipeline/useNodeLibrary'
@@ -1235,11 +1234,13 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示 / 复杂项「编辑 ›」胶囊用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
-const CARD_ROW_H = 16
-// 只读事实行胶囊值的「双层排版」字体：数字醒目(600/11)、单位弱化(500/10)、运算符更轻(400/10)
-const FACT_NUM_FONT = '600 11px "Segoe UI", Arial, sans-serif'
-const FACT_UNIT_FONT = '500 10px "Segoe UI", Arial, sans-serif'
-const FACT_OP_FONT = '400 10px "Segoe UI", Arial, sans-serif'
+const CARD_ROW_H = 18 // 事实行高（无胶囊纯文本值更显眼，行距放松到 18）
+const NODE_FACT_DIVIDER_H = 12 // 端口区与事实区之间的发丝分隔线所占高度（含上下留白）
+const NODE_BOTTOM_PAD = 12 // 卡片底部固定留白，给保存指示胶囊让位、且各卡底部节奏一致
+// 只读事实行的「双层排版」字体（无框纯文本）：数字醒目(600/12)、单位弱化(500/11)、运算符更轻(400/11)
+const FACT_NUM_FONT = '600 12px "Segoe UI", Arial, sans-serif'
+const FACT_UNIT_FONT = '500 11px "Segoe UI", Arial, sans-serif'
+const FACT_OP_FONT = '400 11px "Segoe UI", Arial, sans-serif'
 type FactRun = { text: string; font: string; fill: string; w: number }
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
@@ -3136,31 +3137,39 @@ function updateLiteGraphNode(node: PipelineGraphNode) {
 
 // ===== 节点就地控件（widgets）：规划见 composables/pipeline/nodeWidgetPlan =====
 
-/** 统一节点尺寸 + 沉底：先按端口区 + 控件区算最小高度，若总高度 > 最小高度则在首位插 spacer 把内容推到底部。 */
+/** 统一节点尺寸 + 顶部对齐：事实行紧跟端口区往下排（不再沉底留出空心中段），在事实之上插一条发丝
+ *  分隔线分隔「上半=数据流端口 / 下半=方法学事实」；卡片高度贴合内容（min 仅作地板），底部留固定
+ *  留白带让保存指示胶囊不被事实行压到。 */
 function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
   const widgets = (graphNode as { widgets?: unknown[] }).widgets || []
   const portRows = Math.max(spec?.inputs?.length || 0, spec?.outputs?.length || 0, 1)
   const slotH = LiteGraph.NODE_SLOT_HEIGHT || 28
   const portsHeight = portRows * slotH
-  const widgetsHeight = widgets.length ? widgets.length * CARD_ROW_H + 8 : 0
-  const contentHeight = portsHeight + widgetsHeight + 14
-  const totalHeight = Math.max(NODE_CARD_MIN_HEIGHT, contentHeight)
+  const factCount = widgets.length
 
-  // 沉底：剩余空间用 spacer 填在内容上方，把参数行推到卡片底部
-  const spacerH = totalHeight - contentHeight
-  if (spacerH > 0 && widgets.length > 0) {
-    ;(graphNode as { widgets?: unknown[] }).widgets = [
-      {
-        type: 'elys_spacer',
-        name: '',
-        value: null,
-        computeSize: (w: number) => [w, spacerH],
-        draw: (_ctx: CanvasRenderingContext2D, _node: unknown, _w: number, _y: number, _h: number) => undefined,
-      } as unknown,
-      ...widgets,
-    ]
+  // 事实之上插一条极淡发丝线（分隔端口区与方法学事实区）；顶部对齐 = 不再补沉底 spacer。
+  if (factCount > 0) {
+    widgets.unshift({
+      type: 'elys_divider',
+      name: '',
+      value: null,
+      computeSize: (w: number) => [w, NODE_FACT_DIVIDER_H],
+      draw: (ctx: CanvasRenderingContext2D, _node: unknown, w: number, y: number, _h: number) => {
+        const lineY = Math.round(y + NODE_FACT_DIVIDER_H - 5) + 0.5
+        ctx.save()
+        ctx.strokeStyle = '#E0E6EE'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(12, lineY)
+        ctx.lineTo(w - 12, lineY)
+        ctx.stroke()
+        ctx.restore()
+      },
+    } as unknown)
   }
 
+  const bodyHeight = portsHeight + (factCount > 0 ? NODE_FACT_DIVIDER_H + factCount * CARD_ROW_H : 0) + NODE_BOTTOM_PAD
+  const totalHeight = Math.max(NODE_CARD_MIN_HEIGHT, bodyHeight)
   graphNode.size = [NODE_CARD_WIDTH, totalHeight]
 }
 
@@ -3247,38 +3256,6 @@ function factValueRuns(value: string, textColor: string, mutedColor: string): Fa
   return runs
 }
 
-/** 用 arcTo 画圆角矩形（fill，兼容不支持 roundRect 的环境）。 */
-function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.arcTo(x + w, y, x + w, y + r, r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-  ctx.lineTo(x + r, y + h)
-  ctx.arcTo(x, y + h, x, y + h - r, r)
-  ctx.lineTo(x, y + r)
-  ctx.arcTo(x, y, x + r, y, r)
-  ctx.closePath()
-  ctx.fill()
-}
-
-/** 用 arcTo 画圆角矩形（stroke，与 fillRoundRect 同路径）。 */
-function strokeRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.arcTo(x + w, y, x + w, y + r, r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-  ctx.lineTo(x + r, y + h)
-  ctx.arcTo(x, y + h, x, y + h - r, r)
-  ctx.lineTo(x, y + r)
-  ctx.arcTo(x, y, x + r, y, r)
-  ctx.closePath()
-  ctx.stroke()
-}
-
 /** 按像素宽度截断文字（ctx 须已设好字体）—— 比字符数截断更准确，中文/数字/ASCII 混合时不溢出。 */
 function truncByWidth(ctx: CanvasRenderingContext2D, text: string, maxPx: number): string {
   if (ctx.measureText(text).width <= maxPx) return text
@@ -3287,27 +3264,22 @@ function truncByWidth(ctx: CanvasRenderingContext2D, text: string, maxPx: number
   return s + '…'
 }
 
-/** 只读「标签 …… [类别色 pill 值]」事实行：标签 10px 浅灰 + 右侧随节点类别染色的圆角徽章；
- *  数值做「数字醒目 + 单位/运算符弱化」双层排版（仅纯数值事实），动态像素宽度截断。 */
+/** 只读「标签 …… 值」事实行：标签 10px 浅灰 + 右侧随节点类别染色的**纯文本**值（无胶囊底 / 无边框）；
+ *  数值做「数字醒目（600·12）+ 单位/运算符弱化（500·11/400·11）」双层排版，整体右对齐、动态像素宽度截断。 */
 function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string) {
-  // 胶囊配色随节点类别色派生（与标题渐变 / accent 竖条 / 保存胶囊同源）——整张卡一个色系。
+  // 值文字色随节点类别色派生（与标题圈点 / accent 竖条 / 保存胶囊同源）——整张卡一个色系。
   const factSpec = nodeSpecs.value.find((s) => s.type === String((graphNode as { type?: unknown }).type || '')) || null
   const accent = categoryColor(factSpec?.category)
-  const pillBg = categorySoftColor(factSpec?.category)
-  const pillBorder = mixHex(accent, '#FFFFFF', 0.66)
-  const pillText = mixHex(accent, '#000000', 0.22)
-  const pillUnit = mixHex(pillText, pillBg, 0.42)
+  const inkColor = mixHex(accent, '#000000', 0.22) // 数字：类别色压深，白底上够沉、够醒目
+  const unitColor = mixHex(inkColor, '#6B7888', 0.45) // 单位/运算符：向中性灰提一档弱化（无底色衬托，太淡会发飘）
 
   pushReadonlyWidget(graphNode, (ctx, width, y, h) => {
     const cy = y + h * 0.5
     const PAD_L = 10
-    const PAD_R = 8 // 与标题栏状态徽标同列右对齐（width-8）
-    const PILL_H = 14 // 行高 16 → 上下各 1px 呼吸
-    const PILL_PAD_H = 8
-    const PILL_R = 5 // ≈半高，与卡片 6px 圆角 / 状态胶囊同语汇
+    const PAD_R = 12 // 值右缘 = width-12，与标题栏状态徽标右缘同列对齐
     const MIN_GAP = 10
 
-    // Label（左，浅灰 10px，与彩色值形成层次对比）
+    // Label（左，浅灰 10px）
     let labelEndX = PAD_L
     if (label) {
       ctx.font = '10px "Segoe UI", Arial, sans-serif'
@@ -3317,34 +3289,21 @@ function pushReadonlyFact(graphNode: LiteGraphNode, label: string, value: string
       labelEndX = PAD_L + ctx.measureText(truncWidgetText(label, 10)).width
     }
 
-    // 值 pill：先按数字字重测宽度上界做像素截断，再切「数字 / 运算符 / 单位」多段分别上色，
-    // 按各段实测宽度拼回（pill 仍贴合内容、整体右对齐）。
+    // 值：先按数字字重测宽度上界做像素截断，再切「数字 / 运算符 / 单位」多段分别上色，
+    // 累加各段实测宽度后整体右对齐（从 width-PAD_R 反推起点，逐段左对齐推进画）。
     ctx.font = FACT_NUM_FONT
-    const maxPillContentW = Math.max(24, width - PAD_R - PILL_PAD_H * 2 - labelEndX - MIN_GAP)
-    const valueText = truncByWidth(ctx, value, maxPillContentW)
+    const maxValueW = Math.max(24, width - PAD_R - labelEndX - MIN_GAP)
+    const valueText = truncByWidth(ctx, value, maxValueW)
 
-    const runs = factValueRuns(valueText, pillText, pillUnit)
+    const runs = factValueRuns(valueText, inkColor, unitColor)
     let contentW = 0
     for (const run of runs) {
       ctx.font = run.font
       run.w = ctx.measureText(run.text).width
       contentW += run.w
     }
-    const pillW = contentW + PILL_PAD_H * 2
-    const fx = Math.round(width - PAD_R - pillW)
-    const fy = Math.round(cy - PILL_H / 2)
-
-    // 背景填实心整数坐标（不偏移，避免 fill 自身边缘被反走样糊掉）；描边 +0.5 半像素 snap + 1px，
-    // 让发丝线恰好落在物理像素上（HiDPI 不糊）。
-    ctx.fillStyle = pillBg
-    fillRoundRect(ctx, fx, fy, pillW, PILL_H, PILL_R)
-    ctx.strokeStyle = pillBorder
-    ctx.lineWidth = 1
-    strokeRoundRect(ctx, fx + 0.5, fy + 0.5, pillW - 1, PILL_H - 1, PILL_R)
-
-    // 多段文字左对齐逐段推进（baseline 由 pushReadonlyWidget 设为 middle）
     ctx.textAlign = 'left'
-    let tx = fx + PILL_PAD_H
+    let tx = Math.round(width - PAD_R - contentW)
     for (const run of runs) {
       ctx.font = run.font
       ctx.fillStyle = run.fill
