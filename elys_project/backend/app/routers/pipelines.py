@@ -13,6 +13,9 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
+from app.pipeline.previews import StudyOutputPreviewError
+from app.pipeline.timeseries import build_auto_artifacts_from_data_info, build_input_timeseries
+
 try:
     from fastapi.responses import FileResponse, StreamingResponse
 except Exception:  # pragma: no cover - lightweight test stubs do not provide fastapi.responses
@@ -2351,6 +2354,90 @@ def resume_pipeline_node(
         execution=pipeline_execution_to_response(execution),
         job=pipeline_job_to_response(job),
     )
+
+
+def _node_input_data_info(job: PipelineJob, index: int | None = None) -> dict[str, Any] | None:
+    """从等待中的交互节点 job 取「输入」data_info（伪迹审核页据此直接画输入 raw 波形、跑自动检测）。"""
+    interaction = job_interaction(job)
+    preview = interaction.get("preview_json") if isinstance(interaction, dict) else None
+    datasets = preview.get("datasets") if isinstance(preview, dict) else None
+    if not isinstance(datasets, list) or not datasets:
+        return None
+    idx = 0 if index is None else max(0, min(int(index), len(datasets) - 1))
+    entry = datasets[idx] if isinstance(datasets[idx], dict) else {}
+    data_info = entry.get("data_info")
+    return data_info if isinstance(data_info, dict) else None
+
+
+@router.get("/studies/{study_id}/pipeline-executions/{execution_id}/jobs/{job_id}/input-timeseries")
+def get_pipeline_node_input_timeseries(
+    study_id: str,
+    execution_id: UUID,
+    job_id: UUID,
+    tmin: float | None = Query(default=None),
+    tmax: float | None = Query(default=None),
+    index: int | None = Query(default=None, ge=0),
+    max_points: int = Query(default=2000, ge=50, le=8000),
+    max_channels: int = Query(default=64, ge=1, le=256),
+    l_freq: float | None = Query(default=None),
+    h_freq: float | None = Query(default=None),
+    notch: float | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """交互节点（如 Artifact Mark）「输入」连续数据的时域窗口——直接解析输入 fif，不依赖 StudyOutput。"""
+    study = get_study_for_read(study_id, db, current_user)
+    execution = get_pipeline_execution_or_404(db, study.id, execution_id)
+    job = get_pipeline_job_or_404(db, study.id, execution.id, job_id)
+    data_info = _node_input_data_info(job, index)
+    if not data_info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "PIPELINE_NODE_INPUT_NOT_FOUND", "message": "该节点没有可用的输入数据（确认其上游已成功运行）。"},
+        )
+    try:
+        return build_input_timeseries(
+            study, data_info,
+            tmin=tmin, tmax=tmax, max_points=max_points, max_channels=max_channels,
+            l_freq=l_freq, h_freq=h_freq, notch=notch,
+        )
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "PIPELINE_NODE_INPUT_TIMESERIES_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/studies/{study_id}/pipeline-executions/{execution_id}/jobs/{job_id}/auto-artifacts")
+def auto_detect_pipeline_node_input_artifacts(
+    study_id: str,
+    execution_id: UUID,
+    job_id: UUID,
+    index: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """对交互节点「输入」连续数据自动检测坏道 / 坏段，返回**建议**（不改数据）。"""
+    study = get_study_for_read(study_id, db, current_user)
+    execution = get_pipeline_execution_or_404(db, study.id, execution_id)
+    job = get_pipeline_job_or_404(db, study.id, execution.id, job_id)
+    data_info = _node_input_data_info(job, index)
+    if not data_info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "PIPELINE_NODE_INPUT_NOT_FOUND", "message": "该节点没有可用的输入数据（确认其上游已成功运行）。"},
+        )
+    try:
+        return build_auto_artifacts_from_data_info(study, data_info)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "PIPELINE_NODE_AUTO_ARTIFACTS_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
 
 
 def _raise_pipeline_execution_locked(lock, study_id: str, pipeline_id: int) -> None:

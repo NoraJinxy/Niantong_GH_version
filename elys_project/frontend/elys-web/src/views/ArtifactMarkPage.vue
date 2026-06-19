@@ -61,7 +61,7 @@
           </div>
         </div>
 
-        <button class="btn btn--block am-auto" :disabled="autoRunning || !outputId" @click="autoDetect">
+        <button class="btn btn--block am-auto" :disabled="autoRunning || !jobContext" @click="autoDetect">
           <AppIcon name="sparkles" :size="15" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
         </button>
         <button class="btn btn--block" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
@@ -172,7 +172,6 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import { fetchTimeseries } from '@/composables/observe/plotCache'
 import type { PipelineInteraction, StudyOutputTimeseries } from '@/types'
 
 interface ArtifactBadSegment { onset: number; duration: number; source?: string }
@@ -195,12 +194,14 @@ const executionId = qstr('executionId') || qstr('execution_id')
 const jobId = qstr('jobId') || qstr('job_id')
 
 const isLive = computed(() => Boolean(studyId && executionId && jobId))
-const jobContext = computed(() => Boolean(isLive.value && decisionVersion.value > 0 && outputId.value))
+const jobContext = computed(() => Boolean(isLive.value && decisionVersion.value > 0))
 
 const loading = ref(false)
 const error = ref('')
-const outputId = ref('')
 const decisionVersion = ref(0)
+// 按「节点输入」取波形/自动检测（不依赖 StudyOutput，LoadData 直连也能看），走数据服务器
+const inputTsUrl = `/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/input-timeseries`
+const autoArtifactsUrl = `/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/auto-artifacts`
 
 const overview = ref<StudyOutputTimeseries | null>(null) // 粗全程（包络 + 总时长 + 坐标）
 const ts = ref<StudyOutputTimeseries | null>(null) // 当前窗口细节
@@ -339,34 +340,33 @@ function seekOverview(ev: MouseEvent) {
 }
 function seekToSegment(seg: ArtifactBadSegment) { setWinStart(seg.onset - winLen.value / 2) }
 
-async function loadInteraction(): Promise<boolean> {
+async function loadInteraction(): Promise<void> {
   const res = await api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`)
   const it = res.data
   decisionVersion.value = Number(it.decision_version || 0)
-  const preview = (it.preview_json || {}) as { datasets?: Array<{ output_id?: string | null }>; channel_action?: string; initial?: { bad_segments?: unknown; bad_channels?: unknown } }
-  const datasets = Array.isArray(preview.datasets) ? preview.datasets : []
-  outputId.value = String(datasets.find((d) => d && d.output_id)?.output_id || '')
+  const preview = (it.preview_json || {}) as { channel_action?: string; initial?: { bad_segments?: unknown; bad_channels?: unknown } }
   if (preview.channel_action === 'interpolate' || preview.channel_action === 'mark') channelAction.value = preview.channel_action
   badSegments.value = parseInitSegments(preview.initial?.bad_segments)
   badChannels.value = new Set(parseInitChannels(preview.initial?.bad_channels))
-  return Boolean(outputId.value)
 }
 
+async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
+  const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
+  return res.data
+}
 async function loadOverview() {
-  const { ts: data } = await fetchTimeseries(studyId, outputId.value, { maxPoints: 1500, maxChannels: 16 })
-  overview.value = data
+  overview.value = await fetchInputTs({ max_points: 1500, max_channels: 16 })
 }
 async function loadWindow() {
-  if (!outputId.value) return
-  const params: { tmin: number; tmax: number; maxPoints: number; maxChannels: number; lFreq?: number; hFreq?: number; notch?: number } = {
-    tmin: winStart.value, tmax: winStart.value + winLen.value, maxPoints: 5000, maxChannels: 256,
+  const params: Record<string, number | undefined> = {
+    tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 5000, max_channels: 256,
   }
   if (filterEnabled.value) {
-    if (lFreq.value > 0) params.lFreq = lFreq.value
-    if (hFreq.value > 0) params.hFreq = hFreq.value
+    if (lFreq.value > 0) params.l_freq = lFreq.value
+    if (hFreq.value > 0) params.h_freq = hFreq.value
     if (notch.value > 0) params.notch = notch.value
   }
-  const { ts: data } = await fetchTimeseries(studyId, outputId.value, params)
+  const data = await fetchInputTs(params)
   ts.value = data
   // 无游标时地形图用窗口均值
   if (!Object.keys(topoValues.value).length) {
@@ -381,7 +381,7 @@ async function reload() {
   loading.value = true
   error.value = ''
   try {
-    if (!(await loadInteraction())) { error.value = '该节点的输入未保存为可视产物，无法加载波形（请在其前接一个会保存输出的步骤）。'; return }
+    await loadInteraction()
     await loadOverview()
     await loadWindow()
     document.title = `伪迹审核 · ${ts.value?.channels.length ?? 0} 通道 — 念析`
@@ -391,19 +391,19 @@ async function reload() {
 // 窗口 / 滤波变 → 重取细节窗（粗全程不变）
 let winSeq = 0
 watch([winStart, winLen, filterEnabled, lFreq, hFreq, notch], async () => {
-  if (!outputId.value || !overview.value) return
+  if (!overview.value) return
   const my = ++winSeq
   try { await loadWindow() } catch { /* 保留旧窗 */ }
   void my
 })
 
 async function autoDetect() {
-  if (!outputId.value) return
+  if (!jobContext.value) return
   autoRunning.value = true
   autoMsg.value = ''
   try {
     const res = await dataApi.post<{ bad_channels: string[]; bad_segments: ArtifactBadSegment[]; n_bad_channels?: number; n_bad_segments?: number }>(
-      `/studies/${studyId}/outputs/${outputId.value}/auto-artifacts`, {},
+      autoArtifactsUrl, {},
     )
     const sugCh = Array.isArray(res.data.bad_channels) ? res.data.bad_channels : []
     const sugSeg = Array.isArray(res.data.bad_segments) ? res.data.bad_segments : []

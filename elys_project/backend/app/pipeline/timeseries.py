@@ -117,6 +117,66 @@ def build_auto_artifacts(study: Any, artifact: Any, *, params: dict[str, Any] | 
     return auto_detect_artifacts(raw, params or {})
 
 
+def _raw_path_from_data_info(study: Any, data_info: dict[str, Any]) -> Path:
+    """从交互节点「输入」的 data_info 解析出 raw FIF 路径。
+
+    统一按存储引用解析：LoadData 直出的原始文件（storage_uri / fif_path）与处理后产物
+    （artifact_storage_uri）都走同一套——这样伪迹审核页接在 LoadData 之后也能看波形，
+    不再要求中间插一个「会保存输出」的步骤。
+    """
+    from app.engine.io import resolve_path_reference  # noqa: PLC0415
+
+    ref = dict(data_info or {})
+    ref.setdefault("study_id", str(getattr(study, "id", "") or ""))
+    ref.setdefault("study_root", getattr(study, "data_root", None))
+    return resolve_path_reference(
+        ref,
+        ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
+    )
+
+
+def build_input_timeseries(
+    study: Any,
+    data_info: dict[str, Any],
+    *,
+    tmin: float | None = None,
+    tmax: float | None = None,
+    max_points: int = DEFAULT_MAX_POINTS,
+    max_channels: int = DEFAULT_MAX_CHANNELS,
+    l_freq: float | None = None,
+    h_freq: float | None = None,
+    notch: float | None = None,
+) -> dict[str, Any]:
+    """取交互节点「输入」连续数据的时域窗口（伪迹审核页用；直接解析输入 fif，不依赖 StudyOutput）。"""
+    try:
+        path = _raw_path_from_data_info(study, data_info)
+    except (FileNotFoundError, ValueError) as exc:
+        raise StudyOutputPreviewError(
+            "PIPELINE_NODE_INPUT_FILE_MISSING", f"节点输入文件不可解析：{exc}", status_code=422
+        ) from exc
+    result = _ts_raw(path, "raw", tmin, tmax, max_points, max_channels, l_freq, h_freq, notch)
+    result["subject"] = data_info.get("subject") or data_info.get("subject_id")
+    result["display_name"] = data_info.get("display_name")
+    return result
+
+
+def build_auto_artifacts_from_data_info(
+    study: Any, data_info: dict[str, Any], *, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """对交互节点「输入」的连续数据跑自动伪迹检测（伪迹审核页「自动检测异常」用，直接读输入 fif）。"""
+    from app.engine.preprocess.artifact_mark import auto_detect_artifacts  # noqa: PLC0415
+
+    try:
+        path = _raw_path_from_data_info(study, data_info)
+    except (FileNotFoundError, ValueError) as exc:
+        raise StudyOutputPreviewError(
+            "PIPELINE_NODE_INPUT_FILE_MISSING", f"节点输入文件不可解析：{exc}", status_code=422
+        ) from exc
+    mne = _mne()
+    raw = mne.io.read_raw_fif(path, preload=True, verbose="ERROR")
+    return auto_detect_artifacts(raw, params or {})
+
+
 def encode_timeseries_binary(payload: dict[str, Any]) -> bytes:
     """把 build_timeseries 的 JSON 结构编码为紧凑二进制（前端 plotCache 解码）。
 
