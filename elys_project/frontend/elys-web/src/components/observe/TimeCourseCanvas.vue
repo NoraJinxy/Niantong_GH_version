@@ -64,8 +64,14 @@ const props = withDefaults(
     logX?: boolean
     /** 用 monotone cubic spline 替换默认直线段（PSD 等点稀疏场景，避免折痕）。 */
     useSpline?: boolean
+    /** 坏段红块（伪迹审核）：按 x 区间 [onset, onset+duration] 画半透明红块，曲线之下；overlay/spread 都画。 */
+    badSegments?: { onset: number; duration: number }[]
+    /** 坏道名集合（伪迹审核）：spread 模式下这些道的 Y 轴名加 ` *`（置灰由父层传灰色 series 实现）。 */
+    markedChannels?: string[]
+    /** spread 模式可点波形标坏道：贴近某泳道时光标变手型、单击 emit channel-pick（伪迹审核专用，不影响时域焦点选线）。 */
+    channelPickable?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false },
 )
 
 const emit = defineEmits<{
@@ -82,6 +88,8 @@ const emit = defineEmits<{
   (e: 'line-hover', name: string): void
   /** 单击选线（pickable + overlay）：name=点中的序列名，''=点空白处（取消选择）。 */
   (e: 'line-pick', name: string): void
+  /** spread 模式单击波形标坏道（channelPickable）：name=最近泳道的通道名。 */
+  (e: 'channel-pick', name: string): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -95,6 +103,7 @@ let lastEmitIdx: number | null | undefined = undefined
 let lastLineHover = '' // 最近高亮的序列名，去重避免重复 emit
 // 单击选线（pickable）：记最近可点序列 + 区分单击/双击/拖拽
 let lastNearName = '' // 当前游标贴近、可点选的序列名（超阈值为 ''）
+let lastNearChannel = '' // spread 模式下游标最近泳道的通道名（channelPickable 标坏道用）
 let clickTimer = 0 // 单击去抖：等过双击窗口再 emit line-pick，dblclick 来了就取消
 let downX = 0; let downY = 0; let dragMoved = false // mousedown→up 位移，判定是否拖拽（拖拽不选线）
 const PICK_THRESHOLD = 24 // 游标距最近曲线 ≤24px(CSS) 视为点中该线，否则点空白=取消选择
@@ -103,6 +112,7 @@ const PICK_THRESHOLD = 24 // 游标距最近曲线 ≤24px(CSS) 视为点中该�
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
 const GRID = '#D3DAE6' // --c-border-2（原 border #E4E9F1 ≈隐形，提一档让网格成形而不抢戏）
 const REGION_FILL = 'rgba(63, 94, 143, 0.07)' // elys 主蓝低透明
+const BAD_SEG_FILL = 'rgba(226, 75, 74, 0.18)' // 坏段红块：柔和 danger 半透明（受众医生，不用刺眼硬红）
 const REGION_LINE = 'rgba(63, 94, 143, 0.32)'
 const REF_LINE = '#C4CCD8'
 const LOCK_LINE = '#D9822B' // 锁定标记：琥珀色，区别于参考线/区间
@@ -186,6 +196,20 @@ function drawUnder(u: uPlot) {
       ctx.fillRect(xa, top, xb - xa, height)
       ctx.restore()
     }
+  }
+  // 坏段红块（伪迹审核）：overlay/spread 都画，置于曲线之下
+  if (props.badSegments && props.badSegments.length) {
+    ctx.save()
+    ctx.fillStyle = BAD_SEG_FILL
+    for (const seg of props.badSegments) {
+      const on = Number(seg.onset)
+      const dur = Number(seg.duration)
+      if (!Number.isFinite(on) || !(dur > 0)) continue
+      const xa = clamp(u.valToPos(on, 'x', true), left, left + width)
+      const xb = clamp(u.valToPos(on + dur, 'x', true), left, left + width)
+      if (xb > xa) ctx.fillRect(xa, top, xb - xa, height)
+    }
+    ctx.restore()
   }
   // 统计区间高亮
   const r = props.region
@@ -368,7 +392,10 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
         size: 70,
         font: '12px var(--ff-mono, monospace)',
         splits: () => Array.from({ length: n }, (_, k) => k),
-        values: (_u, splits) => splits.map((c) => props.series[n - 1 - Math.round(c)]?.name ?? ''),
+        values: (_u, splits) => splits.map((c) => {
+          const nm = props.series[n - 1 - Math.round(c)]?.name ?? ''
+          return nm && props.markedChannels && props.markedChannels.includes(nm) ? `${nm} *` : nm
+        }),
       }
     : {
         label: dense ? undefined : props.yLabel,
@@ -461,6 +488,18 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
               const ov = u.over as HTMLElement | undefined
               if (ov) ov.style.cursor = lastNearName ? 'pointer' : ''
             }
+          } else if (props.channelPickable) {
+            // spread 模式标坏道：游标最近泳道 → 通道名，贴近变手型
+            const top = u.cursor.top ?? -1
+            let nm = ''
+            if (top >= 0) {
+              const lane = Math.round(Number(u.posToVal(top, 'y')))
+              const si = props.series.length - 1 - lane
+              if (si >= 0 && si < props.series.length) nm = props.series[si].name
+            }
+            lastNearChannel = nm
+            const ov = u.over as HTMLElement | undefined
+            if (ov) ov.style.cursor = nm ? 'pointer' : ''
           }
         },
       ],
@@ -530,10 +569,15 @@ function rebuild() {
 function onHostMouseDown(e: MouseEvent) { downX = e.clientX; downY = e.clientY; dragMoved = false }
 function onHostMouseUp(e: MouseEvent) { if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) dragMoved = true }
 function onHostClick() {
-  if (!props.pickable || props.displayMode === 'spread') return
-  if (dragMoved) { dragMoved = false; return } // 拖拽框选，不选线
+  if (dragMoved) { dragMoved = false; return } // 拖拽框选，不选线 / 不标坏道
   if (clickTimer) return // 双击的第二次 click：忽略（dblclick 处理）
-  clickTimer = window.setTimeout(() => { clickTimer = 0; emit('line-pick', lastNearName) }, 200)
+  if (props.displayMode === 'spread') {
+    if (!props.channelPickable) return
+    clickTimer = window.setTimeout(() => { clickTimer = 0; emit('channel-pick', lastNearChannel) }, 200)
+  } else {
+    if (!props.pickable) return
+    clickTimer = window.setTimeout(() => { clickTimer = 0; emit('line-pick', lastNearName) }, 200)
+  }
 }
 
 // 双击锁定游标 / 右键解锁（锁定 state 由父层持有，本组件只发事件 + 收 locked/lockedX 入参）
@@ -564,6 +608,7 @@ function onHostContextMenu(e: MouseEvent) {
 function onHostMouseLeave() {
   if (lastLineHover !== '') { lastLineHover = ''; emit('line-hover', '') }
   lastNearName = ''
+  lastNearChannel = ''
   const ov = chart.value?.over as HTMLElement | undefined
   if (ov) ov.style.cursor = ''
 }

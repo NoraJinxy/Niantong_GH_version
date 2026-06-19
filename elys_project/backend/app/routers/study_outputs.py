@@ -41,7 +41,7 @@ from app.pipeline.previews import (
     resolve_study_output_path,
     validate_study_output_file,
 )
-from app.pipeline.timeseries import build_timeseries
+from app.pipeline.timeseries import build_auto_artifacts, build_timeseries
 from app.pipeline.psd_view import build_psd_lines
 from app.pipeline.stat_view import build_stat_view
 from app.pipeline.tfr_view import build_tfr_cube, build_tfr_heatmap, build_tfr_topomap
@@ -579,6 +579,35 @@ def get_study_output_timeseries(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "DERIVED_DATASET_TIMESERIES_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/studies/{study_id}/outputs/{dataset_id}/auto-artifacts")
+def auto_detect_study_output_artifacts(
+    study_id: str,
+    dataset_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """对一个连续数据产物自动检测坏道 / 坏段，返回**建议**（不改数据）。伪迹审核页「自动检测异常」调用。"""
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，无法自动检测。"},
+        )
+    try:
+        return build_auto_artifacts(study, dataset)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DERIVED_DATASET_AUTO_ARTIFACTS_ENGINE_UNAVAILABLE", "message": str(exc)},
         ) from exc
 
 

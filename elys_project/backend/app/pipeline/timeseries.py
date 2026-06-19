@@ -96,6 +96,27 @@ def build_timeseries(
     return result
 
 
+def build_auto_artifacts(study: Any, artifact: Any, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """对一个连续数据产物跑自动伪迹检测，返回坏道 / 坏段**建议**（不改数据，交前端 union 给人确认）。
+
+    复用 build_timeseries 的路径解析 / 校验；仅支持 raw 系（CONTINUOUS_TYPES）。
+    """
+    from app.engine.preprocess.artifact_mark import auto_detect_artifacts  # noqa: PLC0415 懒加载，避免引入重依赖到取数模块
+
+    data_type = str(getattr(artifact, "data_type", "") or "").strip().lower()
+    if data_type not in CONTINUOUS_TYPES:
+        raise StudyOutputPreviewError(
+            "DERIVED_DATASET_AUTO_ARTIFACTS_UNSUPPORTED",
+            f"自动检测仅支持连续数据（raw），当前 data_type={data_type or 'unknown'}",
+            status_code=400,
+        )
+    path = resolve_study_output_path(study, artifact)
+    validate_study_output_file(path, artifact)
+    mne = _mne()
+    raw = mne.io.read_raw_fif(path, preload=True, verbose="ERROR")
+    return auto_detect_artifacts(raw, params or {})
+
+
 def encode_timeseries_binary(payload: dict[str, Any]) -> bytes:
     """把 build_timeseries 的 JSON 结构编码为紧凑二进制（前端 plotCache 解码）。
 
