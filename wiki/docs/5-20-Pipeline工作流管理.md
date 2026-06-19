@@ -40,7 +40,7 @@ Pipeline 不保存：
 
 一句话：Pipeline 管“怎么处理”，Execution 管“这一次实际怎么跑”。
 
-Pipeline 的 MVP 协作边界：保存必须携带 `expected_version`，运行前会按 Pipeline 状态和 `execution_mode` 校验，NodeSpec 必须有真实 executor，临时手选数据进入 Execution `selection_override` 而不是回写 Pipeline。仍未拆分的是不可变 `pipeline_versions` 表，当前继续用 `pipeline_definitions.version + Execution.definition_snapshot` 承担 MVP 追溯。
+Pipeline 的 MVP 协作边界：保存必须携带 `expected_version`，NodeSpec 必须有真实 executor，临时手选数据进入 Execution `selection_override` 而不是回写 Pipeline。仍未拆分的是不可变 `pipeline_versions` 表，当前继续用 `pipeline_definitions.version + Execution.definition_snapshot` 承担 MVP 追溯。
 
 ## 2. Definition JSON
 
@@ -108,18 +108,9 @@ Pipeline 的 MVP 协作边界：保存必须携带 `expected_version`，运行�
 | `archived` | 不再默认展示，不建议新运行 |
 | `deleted` | 逻辑删除 |
 
-当前 DB 和 API 已允许 `draft` / `active` / `archived` / `deleted`。Execution 创建时已经按 `pipeline.status` 和 `execution_mode` 做硬校验：
+当前 DB 和 API 已允许 `draft` / `active` / `archived` / `deleted`。Execution 创建不再按 `pipeline.status` 做运行门禁——「运行就是运行」，任意状态（`draft` / `active` / `archived`）都可创建 Execution；`deleted` 的 Pipeline 因查不到继续返回 404。曾经的运行类型（`execution_mode`：试跑 / 正式分析 / 重放 / 系统）连同状态×模式校验已整体移除。
 
-| Pipeline 状态 | 允许的 Execution | 规则 |
-|---|---|---|
-| `active` | `analysis` / `trial` | 正式工作流可正式分析或试跑 |
-| `draft` | `trial` | 草稿只能试跑，不允许正式分析 |
-| `archived` | 无 | 禁止创建新 Execution |
-| `deleted` | 无 | 查询时不可见，继续返回 404 |
-
-不允许运行时返回 409，错误体包含 `code`、`message`、`pipeline_status` 和 `execution_mode`。
-
-当前前端已显示 Pipeline 状态，并在 Execution 创建前预判是否可运行：`active` 可创建 `analysis/trial`，`draft` 只允许 `trial`，`archived/deleted` 禁用运行按钮。后端 409 仍是最终保护。
+前端仍显示 Pipeline 状态，但运行按钮只看「有没有选研究项 / 工作流名称是否填好 / 是否正在保存或运行」，不再因状态拦截。
 
 ## 5. LoadData 选择规则
 

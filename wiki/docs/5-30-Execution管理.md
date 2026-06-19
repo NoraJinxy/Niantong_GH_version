@@ -93,29 +93,17 @@ Execution 状态：
 | 追溯 | 新 Execution 的 `result_json.retry_of_execution_id` 和 `pipeline_execution_dependencies(dependency_kind=retry_of)` 指向旧 Execution |
 | 派发 | 新建 `async_tasks` 并重新派发 Celery task，不覆盖旧 Execution |
 
-## 2.1 运行模式和保存策略
+## 2.1 保存策略
 
-Execution 创建 API 已支持两个轻量控制字段：
+「运行就是运行」：不再区分运行类型（曾经的 `execution_mode`：试跑 / 正式分析 / 重放 / 系统已整体移除——它只是个标签，从不改变计算、缓存或产物留存）。Execution 创建只保留一个轻量控制字段：
 
 | 字段 | 当前值 | 默认值 | 说明 |
 |---|---|---|---|
-| `execution_mode` | `trial` / `analysis` / `replay` / `system` | `analysis` | 区分试跑、正式分析、重放和系统触发 |
 | `save_policy` | `temporary` / `current` / `pinned` / `discard` | `current` | 描述输出保存意图 |
 
 当前实现先保证字段能创建、能返回、能写入 `pipeline_executions`、`pipeline_executions.result_json` 和 `async_tasks.payload_json`。StudyOutputStore 尚未按 Execution 级 `save_policy` 自动改变输出保留策略（当前 retention 由节点拓扑角色经 `save_settings.py` 决定：leaf=current、intermediate=cached+7d），后续再强化。
 
-Execution 创建还会结合 Pipeline 状态校验：
-
-| Pipeline 状态 | `execution_mode` 规则 |
-|---|---|
-| `active` | 允许 `analysis` / `trial` |
-| `draft` | 只允许 `trial` |
-| `archived` | 禁止创建新 Execution |
-| `deleted` | 不可见，继续 404 |
-
-规则不满足时返回 409，错误体包含 `code`、`message`、`pipeline_status`、`execution_mode`。
-
-当前前端已在 Execution 创建对话框中暴露 `execution_mode` 和 `save_policy`。默认值为 `analysis/current`，用户可切换为 `trial/temporary` 等组合；对话框会结合 Pipeline 状态给出是否可创建 Execution 的提示。
+Execution 创建不再按 Pipeline 状态做运行类型门禁——任意状态（`draft` / `active` / `archived`）都可创建 Execution，`deleted` 的 Pipeline 因查不到继续返回 404。
 
 ## 3. 输入快照
 

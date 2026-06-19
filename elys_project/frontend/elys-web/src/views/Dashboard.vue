@@ -265,7 +265,7 @@ import StatusPill from '@/components/common/StatusPill.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { getFeatureBlueprint } from '@/data/featureBlueprints'
 import { formatAbsoluteTime, formatRelativeTime, formatShortDate, timestamp } from '@/composables/common/formatters'
-import { formatExecutionMode, formatPipelineExecutionStatus } from '@/composables/pipeline/pipelineFormatters'
+import { formatPipelineExecutionStatus } from '@/composables/pipeline/pipelineFormatters'
 import { deriveStudyStage } from '@/composables/studies/studyStage'
 import { studyStatusLabel, studyStatusTone } from '@/composables/studies/studyFormatters'
 import { useAuthStore } from '@/stores/auth'
@@ -854,7 +854,7 @@ function executionQueueDetail(execution: DashboardExecutionItem) {
   if ('stage_label' in execution && execution.stage_label) {
     return `${formatPipelineExecutionStatus(execution.status)} · ${execution.stage_label}`
   }
-  return `${formatPipelineExecutionStatus(execution.status)} · ${formatExecutionMode(execution.execution_mode)}`
+  return formatPipelineExecutionStatus(execution.status)
 }
 
 function isActiveExecutionStatus(status: string) {

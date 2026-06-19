@@ -53,7 +53,6 @@ class StudySummaryExecution(BaseModel):
 
     id: str
     execution_seq: int
-    execution_mode: str
     status: str
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None

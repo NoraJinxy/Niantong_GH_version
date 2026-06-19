@@ -23,7 +23,6 @@
 | `pipeline_id` / `pipeline_version` | 对应 Pipeline 定义和版本 |
 | `definition_snapshot` | 当时 Pipeline 定义的快照 |
 | `manifest_json` | 终态 Execution 摘要，详情见 5-30 |
-| `execution_mode` | `trial` · `analysis` · `replay` · `system` |
 | `save_policy` | `temporary` · `current` · `pinned` · `discard` |
 | `status` | `queued` · `running` · `waiting_user_input` · `completed` · `failed` · `canceled` |
 | `dataset_count` / `node_count` | 摘要字段 |
@@ -131,7 +130,7 @@ GET /studies/{study_id}/pipeline-executions/{execution_id}/lineage
 
 | 当前表 | 说明 |
 |---|---|
-| `pipeline_executions` | Pipeline 执行记录，含 `manifest_json`、`execution_mode`、`save_policy` |
+| `pipeline_executions` | Pipeline 执行记录，含 `manifest_json`、`save_policy` |
 | `pipeline_jobs` | 节点级执行记录 |
 | `study_outputs` | 结果登记 |
 | `pipeline_execution_dependencies` | Execution / StudyOutput 依赖保护，阻止被下游引用的结果 hide / 清理 |

@@ -103,7 +103,6 @@ def generate_execution_manifest(
             "execution_seq": getattr(execution, "execution_seq", None),
             "trigger": getattr(execution, "trigger", None),
             "status": getattr(execution, "status", None),
-            "execution_mode": getattr(execution, "execution_mode", None),
             "node_count": getattr(execution, "node_count", None),
             "dataset_count": getattr(execution, "dataset_count", None),
             "started_by": _string_or_none(getattr(execution, "started_by", None)),

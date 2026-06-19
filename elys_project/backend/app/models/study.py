@@ -557,7 +557,6 @@ class PipelineExecution(Base):
     dataset_count = Column(Integer, nullable=False, default=0)
     definition_snapshot = Column(JSONB, nullable=False, default=dict)
     manifest_json = Column(JSONB, nullable=False, default=dict)
-    execution_mode = Column(String(32), nullable=False, default="analysis")
     result_json = Column(JSONB, nullable=False, default=dict)
     error_json = Column(JSONB, nullable=False, default=dict)
     started_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))

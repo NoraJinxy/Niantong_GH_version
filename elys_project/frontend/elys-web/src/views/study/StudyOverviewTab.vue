@@ -90,7 +90,7 @@
               <article v-for="execution in summary.executions" :key="execution.id" class="study-compact-item">
                 <div>
                   <strong>第 {{ execution.execution_seq }} 次运行</strong>
-                  <p>{{ formatExecutionMode(execution.execution_mode) }} · {{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
+                  <p>{{ formatDateTime(execution.finished_at || execution.started_at) }}</p>
                 </div>
                 <StatusPill :tone="executionStatusTone(execution.status)" :label="formatPipelineExecutionStatus(execution.status)" />
               </article>
@@ -162,7 +162,6 @@ import {
   executionStatusTone,
   formatArtifactRetention,
   formatDataType,
-  formatExecutionMode,
   formatPipelineExecutionStatus,
   formatPipelineStatus,
   pipelineStatusTone,

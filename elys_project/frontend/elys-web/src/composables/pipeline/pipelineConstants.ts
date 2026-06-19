@@ -1,8 +1,6 @@
 // 从 PipelinePage.vue 抽出的集中常量（模块级 `const 大写名 = 字面量`）。
 // 另有 composable / 函数会按原名 import 这些常量，导出名与原变量名保持一致。
 
-import type { PipelineExecutionMode } from '@/types'
-
 export const LOAD_DATA_NODE_TYPE = 'eeg/data/load'
 export const EPOCH_NODE_TYPE = 'eeg/epoch/segment'
 export const ERP_NODE_TYPE = 'eeg/analysis/erp'
@@ -87,12 +85,6 @@ export const EXECUTION_CANCELABLE_STATUSES = ['queued', 'running', 'waiting_user
 export const EXECUTION_RETRYABLE_STATUSES = ['failed', 'canceled']
 export const TASK_CANCELABLE_STATUSES = ['queued', 'pending', 'running', 'waiting', 'waiting_user_input', 'started']
 export const TASK_RETRYABLE_STATUSES = ['failed', 'canceled']
-export const EXECUTION_MODE_OPTIONS: Array<{ value: PipelineExecutionMode; label: string; description: string }> = [
-  { value: 'trial', label: '试跑', description: '用于边调参数边看数据' },
-  { value: 'analysis', label: '正式分析', description: '用于正式结果和报告追溯' },
-  { value: 'replay', label: '重跑', description: '复用历史快照重跑一次执行；当前后端通常由 Retry 触发' },
-  { value: 'system', label: '系统运行', description: '系统维护或自动化任务使用，人工运行时会受状态规则限制' },
-]
 export const NODE_CARD_WIDTH = 264
 // 卡片统一固定高度（= 3 行事实卡的自然高）。事实少的卡补底部留白对齐到此值，让一排卡齐平；
 // 仅极少数 4+ 行节点（通用 planNodeWidgets 封顶 4）会超过它而更高。

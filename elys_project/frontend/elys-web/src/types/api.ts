@@ -1553,8 +1553,6 @@ export interface components {
             execution_seq: number;
             /** Status */
             status: string;
-            /** Execution Mode */
-            execution_mode: string;
             /** Stage Label */
             stage_label: string;
             /** Started At */
@@ -2655,11 +2653,6 @@ export interface components {
              */
             trigger: "manual";
             /**
-             * Execution Mode
-             * @default analysis
-             * @enum {string}
-             */
-            execution_mode: "trial" | "analysis" | "replay" | "system";
             /** Selection Override */
             selection_override?: {
                 [key: string]: components["schemas"]["LoadDataSelectionOverride"];
@@ -2699,11 +2692,6 @@ export interface components {
             /** Trigger */
             trigger: string;
             /**
-             * Execution Mode
-             * @default analysis
-             * @enum {string}
-             */
-            execution_mode: "trial" | "analysis" | "replay" | "system";
             /** Status */
             status: string;
             /** Node Count */
@@ -2854,11 +2842,6 @@ export interface components {
             /** Trigger */
             trigger: string;
             /**
-             * Execution Mode
-             * @default analysis
-             * @enum {string}
-             */
-            execution_mode: "trial" | "analysis" | "replay" | "system";
             /** Status */
             status: string;
             /** Node Count */
@@ -3622,8 +3605,6 @@ export interface components {
             id: string;
             /** Execution Seq */
             execution_seq: number;
-            /** Execution Mode */
-            execution_mode: string;
             /** Status */
             status: string;
             /** Started At */

@@ -73,7 +73,6 @@ class DashboardActiveExecution(BaseModel):
     pipeline_name: str
     execution_seq: int
     status: str
-    execution_mode: str
     stage_label: str
     started_at: datetime | None = None
     finished_at: datetime | None = None

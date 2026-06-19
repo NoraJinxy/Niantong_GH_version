@@ -212,7 +212,6 @@ def recent_executions(db: Session, *, study: Study) -> list[StudySummaryExecutio
         StudySummaryExecution(
             id=str(execution.id),
             execution_seq=execution.execution_seq,
-            execution_mode=getattr(execution, "execution_mode", None) or "analysis",
             status=execution.status,
             started_at=execution.started_at,
             finished_at=execution.finished_at,

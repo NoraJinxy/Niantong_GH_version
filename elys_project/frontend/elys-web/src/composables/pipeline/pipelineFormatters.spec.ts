@@ -16,7 +16,6 @@ import {
   liteGraphPortType,
   categoryKey,
   compactNodeTitle,
-  formatExecutionMode,
   formatArtifactRetention,
   formatDataType,
   formatPipelineStatus,
@@ -166,12 +165,7 @@ describe('compactNodeTitle', () => {
   })
 })
 
-describe('mode / retention / pipeline status', () => {
-  it('formatExecutionMode', () => {
-    expect(formatExecutionMode('trial')).toBe('试跑')
-    expect(formatExecutionMode('analysis')).toBe('正式分析')
-    expect(formatExecutionMode(null)).toBe('-')
-  })
+describe('retention / pipeline status', () => {
   it('formatArtifactRetention precedence (deleted > keep > 不保存)', () => {
     expect(formatArtifactRetention({ deleted_at: 'x', keep: true })).toBe('已删除')
     expect(formatArtifactRetention({ keep: true })).toBe('保存')

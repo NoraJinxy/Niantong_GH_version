@@ -211,20 +211,6 @@ export function formatPipelineStatus(status: string) {
   return status || '草稿'
 }
 
-export function allowedExecutionModeText(status: string) {
-  if (status === 'draft') return '试跑'
-  if (status === 'active') return '试跑或正式分析'
-  return '无'
-}
-
-export function formatExecutionMode(mode?: string | null) {
-  if (mode === 'trial') return '试跑'
-  if (mode === 'analysis') return '正式分析'
-  if (mode === 'replay') return '重跑'
-  if (mode === 'system') return '系统运行'
-  return mode || '-'
-}
-
 export function formatArtifactRetention(
   artifact?: { keep?: boolean; cache_eligible?: boolean; deleted_at?: string | null } | null,
 ) {

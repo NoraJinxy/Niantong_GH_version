@@ -94,7 +94,6 @@ def make_execution(status: str):
         execution_seq=4,
         trigger="manual",
         status=status,
-        execution_mode="analysis",
         node_count=1,
         dataset_count=1,
         definition_snapshot={

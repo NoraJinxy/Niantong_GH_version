@@ -77,7 +77,6 @@ from app.schemas.pipeline import (
     TaskStatus,
 )
 from app.services.audit_events import record_audit_event
-from app.services.pipeline_execution_rules import pipeline_execution_status_violation
 from app.services.study_access import require_study_run, require_study_write
 from app.services.study_locks import (
     DEFAULT_STUDY_LOCK_TTL_SECONDS,
@@ -124,7 +123,6 @@ def pipeline_execution_to_response(execution: PipelineExecution) -> PipelineExec
         pipeline_version=execution.pipeline_version,
         execution_seq=execution.execution_seq,
         trigger=execution.trigger,
-        execution_mode=getattr(execution, "execution_mode", None) or "analysis",
         status=execution.status,
         node_count=execution.node_count,
         dataset_count=execution.dataset_count,
@@ -1985,7 +1983,6 @@ def retry_pipeline_execution(
         pipeline_version=source_execution.pipeline_version,
         execution_seq=next_pipeline_execution_seq(db, study.id, source_execution.pipeline_id),
         trigger="retry",
-        execution_mode=source_execution.execution_mode or "analysis",
         status="queued",
         node_count=count_nodes(definition_snapshot),
         dataset_count=source_execution.dataset_count if payload.input_policy == "reuse_snapshot" else 0,
@@ -1999,7 +1996,6 @@ def retry_pipeline_execution(
             "task_queue": settings.CELERY_WORKFLOW_QUEUE,
             "execution_lock_id": str(execution_lock.id),
             "execution_lock_expires_at": execution_lock.expires_at.isoformat(),
-            "execution_mode": source_execution.execution_mode or "analysis",
             "retry_of_execution_id": str(source_execution.id),
             "retry_input_policy": payload.input_policy,
             "node_results": [],
@@ -2047,7 +2043,6 @@ def retry_pipeline_execution(
             "pipeline_version": retry_execution.pipeline_version,
             "execution_seq": retry_execution.execution_seq,
             "trigger": "retry",
-            "execution_mode": retry_execution.execution_mode,
             "retry_of_execution_id": str(source_execution.id),
             "input_policy": payload.input_policy,
             "cloned_input_count": cloned_input_count,
@@ -2389,13 +2384,9 @@ def _create_pipeline_execution(
     study = get_study_for_run(study_id, db, current_user)
     pipeline = get_pipeline_or_404(db, study.id, pipeline_id)
     trigger = payload.trigger
-    execution_mode = payload.execution_mode
     selection_override = normalize_selection_override(
         payload.model_dump(mode="json", exclude_none=True).get("selection_override")
     )
-    status_violation = pipeline_execution_status_violation(pipeline.status, execution_mode)
-    if status_violation is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=status_violation)
 
     definition_for_validation = apply_load_data_selection_overrides(pipeline.definition_json, selection_override)
     validation = validate_definition(definition_for_validation, db=db, study=study)
@@ -2460,7 +2451,6 @@ def _create_pipeline_execution(
                 "pipeline_id": pipeline.id,
                 "pipeline_version": pipeline.version,
                 "trigger": trigger,
-                "execution_mode": execution_mode,
                 "reason": "pipeline_execution",
             },
         )
@@ -2497,7 +2487,6 @@ def _create_pipeline_execution(
         pipeline_version=pipeline.version,
         execution_seq=next_pipeline_execution_seq(db, study.id, pipeline.id),
         trigger=trigger,
-        execution_mode=execution_mode,
         status="queued",
         node_count=count_nodes(pipeline.definition_json),
         dataset_count=0,
@@ -2511,7 +2500,6 @@ def _create_pipeline_execution(
             "task_queue": settings.CELERY_WORKFLOW_QUEUE,
             "execution_lock_id": str(execution_lock.id),
             "execution_lock_expires_at": execution_lock.expires_at.isoformat(),
-            "execution_mode": execution_mode,
             "selection_override": selection_override,
             "node_results": [],
             "data_infos_by_node": {},
@@ -2539,7 +2527,6 @@ def _create_pipeline_execution(
             "pipeline_version": pipeline.version,
             "execution_seq": execution.execution_seq,
             "trigger": trigger,
-            "execution_mode": execution_mode,
             "selection_override": selection_override,
             "lock_id": str(execution_lock.id),
             "lock_expires_at": execution_lock.expires_at.isoformat(),
@@ -2571,7 +2558,6 @@ def _create_pipeline_execution(
             "pipeline_version": pipeline.version,
             "execution_seq": execution.execution_seq,
             "trigger": trigger,
-            "execution_mode": execution_mode,
             "async_task_id": str(async_task.id),
             "lock_id": str(execution_lock.id),
             "lock_expires_at": execution_lock.expires_at.isoformat(),

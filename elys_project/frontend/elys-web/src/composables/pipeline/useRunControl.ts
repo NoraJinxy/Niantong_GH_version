@@ -5,10 +5,10 @@
 // LoadData 覆盖逻辑作回调 buildRunSelectionOverridePayload 注入，本体留在 PipelinePage / 后续 LoadData 批次。
 
 import { computed, ref, type Ref, type ComputedRef } from 'vue'
-import type { Pipeline, PipelineExecution, PipelineExecutionMode, PipelineExecutionSelectionOverride } from '@/types'
+import type { Pipeline, PipelineExecution, PipelineExecutionSelectionOverride } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import { EXECUTION_CANCELABLE_STATUSES, EXECUTION_RETRYABLE_STATUSES } from './pipelineConstants'
-import { formatPipelineStatus, allowedExecutionModeText, shortId, formatDateTime } from './pipelineFormatters'
+import { formatPipelineStatus, shortId, formatDateTime } from './pipelineFormatters'
 
 interface RunControlOptions {
   selectedStudyId: ComputedRef<string>
@@ -54,31 +54,21 @@ export function useRunControl(options: RunControlOptions) {
   } = options
 
   const runDialogOpen = ref(false)
-  const executionMode = ref<PipelineExecutionMode>('analysis')
   const executionActionLoading = ref<'cancel' | 'retry' | ''>('')
   const runDrawerOpen = ref(false)
 
   const currentPipelineStatus = computed(() => currentPipeline.value?.status || 'draft')
-  const pipelineCanCreateExecution = computed(() => !['archived', 'deleted'].includes(currentPipelineStatus.value))
-  const executionModeAllowed = computed(() => {
-    const status = currentPipelineStatus.value
-    if (status === 'archived' || status === 'deleted') return false
-    if (status === 'draft') return executionMode.value === 'trial'
-    return executionMode.value === 'trial' || executionMode.value === 'analysis'
-  })
   const runDisabledReason = computed(() => {
     if (!selectedStudyId.value) return '请选择研究项'
     if (!canSave.value) return '请填写工作流名称'
     if (saving.value) return '正在保存工作流'
     if (runningPipeline.value) return '正在创建运行'
-    if (!pipelineCanCreateExecution.value) return `${formatPipelineStatus(currentPipelineStatus.value)} 工作流不能运行`
-    if (!executionModeAllowed.value) return `${formatPipelineStatus(currentPipelineStatus.value)} 只允许 ${allowedExecutionModeText(currentPipelineStatus.value)}`
     return ''
   })
   const canOpenRunDialog = computed(() =>
-    Boolean(selectedStudyId.value && canSave.value && !saving.value && !runningPipeline.value && pipelineCanCreateExecution.value),
+    Boolean(selectedStudyId.value && canSave.value && !saving.value && !runningPipeline.value),
   )
-  const canSubmitRun = computed(() => canOpenRunDialog.value && executionModeAllowed.value)
+  const canSubmitRun = computed(() => canOpenRunDialog.value)
   const canCancelLatestExecution = computed(() =>
     Boolean(latestPipelineExecution.value && EXECUTION_CANCELABLE_STATUSES.includes(String(latestPipelineExecution.value.status))),
   )
@@ -101,7 +91,6 @@ export function useRunControl(options: RunControlOptions) {
 
   function openRunDialog() {
     if (!canOpenRunDialog.value) return
-    executionMode.value = currentPipelineStatus.value === 'draft' ? 'trial' : 'analysis'
     runDialogOpen.value = true
   }
 
@@ -122,10 +111,6 @@ export function useRunControl(options: RunControlOptions) {
       await savePipeline()
     }
     if (!currentPipeline.value || dirty.value) return
-    if (!executionModeAllowed.value) {
-      statusMessage.value = runDisabledReason.value || '当前工作流状态不允许运行'
-      return
-    }
 
     runningPipeline.value = true
     statusMessage.value = '正在运行工作流...'
@@ -133,7 +118,6 @@ export function useRunControl(options: RunControlOptions) {
     try {
       const selectionOverride = buildRunSelectionOverridePayload()
       const res = await pipelineApi.run(selectedStudyId.value, currentPipeline.value.id, {
-        execution_mode: executionMode.value,
         ...(Object.keys(selectionOverride).length ? { selection_override: selectionOverride } : {}),
       })
       latestPipelineExecution.value = res.data
@@ -198,12 +182,9 @@ export function useRunControl(options: RunControlOptions) {
 
   return {
     runDialogOpen,
-    executionMode,
     executionActionLoading,
     runDrawerOpen,
     currentPipelineStatus,
-    pipelineCanCreateExecution,
-    executionModeAllowed,
     runDisabledReason,
     canOpenRunDialog,
     canSubmitRun,

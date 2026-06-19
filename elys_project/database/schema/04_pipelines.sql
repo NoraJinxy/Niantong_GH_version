@@ -41,8 +41,6 @@ CREATE TABLE IF NOT EXISTS pipeline_executions (
     dataset_count       INTEGER NOT NULL DEFAULT 0,
     definition_snapshot JSONB NOT NULL DEFAULT '{}',
     manifest_json       JSONB NOT NULL DEFAULT '{}',
-    execution_mode            VARCHAR(32) NOT NULL DEFAULT 'analysis'
-                            CHECK (execution_mode IN ('trial', 'analysis', 'replay', 'system')),
     result_json         JSONB NOT NULL DEFAULT '{}',
     error_json          JSONB NOT NULL DEFAULT '{}',
     started_by          UUID REFERENCES users(id),
@@ -52,7 +50,6 @@ CREATE TABLE IF NOT EXISTS pipeline_executions (
 );
 
 COMMENT ON COLUMN pipeline_executions.manifest_json IS '执行清单（Execution Manifest）摘要快照。完整文件后续可写入 Study executions/{execution_id}/execution_manifest.json。';
-COMMENT ON COLUMN pipeline_executions.execution_mode IS '运行模式，例如 trial 试跑、analysis 正式分析、replay 重放、system 系统任务。';
 
 -- ============================================
 -- Pipeline 节点运行（每个节点一行）
@@ -88,7 +85,6 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_study ON pipeline_definitions(study_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_executions_pipeline ON pipeline_executions(study_id, pipeline_id, execution_seq DESC);
-CREATE INDEX IF NOT EXISTS idx_pipeline_executions_mode ON pipeline_executions(study_id, execution_mode);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_execution_topo ON pipeline_jobs(execution_id, topo_index);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_study_status ON pipeline_jobs(study_id, status);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_study_hash ON pipeline_jobs(study_id, node_hash);

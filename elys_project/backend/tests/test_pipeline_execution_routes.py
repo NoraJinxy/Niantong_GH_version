@@ -18,10 +18,8 @@ from app.schemas.pipeline import (
     PipelineExecutionCreate,
     PipelineExecutionDetailResponse,
     PipelineExecutionLineageResponse,
-    PipelineExecutionResponse,
     PipelineUpdate,
 )
-from app.services.pipeline_execution_rules import pipeline_execution_status_violation
 from app.services.study_locks import refresh_study_lock
 
 
@@ -439,10 +437,7 @@ def test_pipeline_worker_skips_canceled_execution_before_execution() -> None:
 def test_pipeline_execution_policy_schema_defaults_and_validation() -> None:
     payload = PipelineExecutionCreate()
     assert payload.trigger == "manual"
-    assert payload.execution_mode == "analysis"
 
-    payload = PipelineExecutionCreate(execution_mode="trial")
-    assert payload.execution_mode == "trial"
     payload = PipelineExecutionCreate(
         selection_override={
             "load-1": {
@@ -454,10 +449,6 @@ def test_pipeline_execution_policy_schema_defaults_and_validation() -> None:
     assert payload.selection_override["load-1"].selection_mode == "explicit"
     assert payload.selection_override["load-1"].dataset_ids == ["11111111-1111-1111-1111-111111111111"]
 
-    assert "execution_mode" in PipelineExecutionResponse.model_fields
-
-    with pytest.raises(ValidationError):
-        PipelineExecutionCreate(execution_mode="explore")
     with pytest.raises(ValidationError):
         PipelineExecutionCreate(selection_override={"load-1": {"selection_mode": "current"}})
 
@@ -466,47 +457,5 @@ def test_pipeline_execution_policy_fields_are_persisted_and_tracked() -> None:
     source = load_router_source()
 
     assert "payload = payload or PipelineExecutionCreate()" in source
-    assert "execution_mode = payload.execution_mode" in source
-    assert "execution_mode=execution_mode" in source
-    assert '"execution_mode": execution_mode' in source
     assert "selection_override = normalize_selection_override" in source
     assert '"selection_override": selection_override' in source
-
-
-def test_pipeline_status_execution_rules_allow_active_analysis_trial_and_draft_trial() -> None:
-    assert pipeline_execution_status_violation("active", "analysis") is None
-    assert pipeline_execution_status_violation("active", "trial") is None
-    assert pipeline_execution_status_violation("draft", "trial") is None
-
-
-def test_pipeline_status_execution_rules_block_draft_analysis_archived_and_replay() -> None:
-    draft_violation = pipeline_execution_status_violation("draft", "analysis")
-    assert draft_violation == {
-        "code": "PIPELINE_EXECUTION_STATUS_NOT_ALLOWED",
-        "message": "draft Pipeline only allows trial executions.",
-        "pipeline_status": "draft",
-        "execution_mode": "analysis",
-    }
-
-    archived_violation = pipeline_execution_status_violation("archived", "trial")
-    assert archived_violation == {
-        "code": "PIPELINE_EXECUTION_STATUS_NOT_ALLOWED",
-        "message": "archived Pipeline cannot create new executions.",
-        "pipeline_status": "archived",
-        "execution_mode": "trial",
-    }
-
-    active_replay_violation = pipeline_execution_status_violation("active", "replay")
-    assert active_replay_violation is not None
-    assert active_replay_violation["pipeline_status"] == "active"
-    assert active_replay_violation["execution_mode"] == "replay"
-
-
-def test_pipeline_execution_creation_checks_status_before_validation_and_locking() -> None:
-    source = router_function_source("_create_pipeline_execution")
-    status_check_index = source.index("pipeline_execution_status_violation(pipeline.status, execution_mode)")
-    validation_index = source.index("validation = validate_definition")
-    lock_index = source.index("execution_lock = _try_acquire_lock()")
-
-    assert status_check_index < validation_index < lock_index
-    assert "status.HTTP_409_CONFLICT" in source
