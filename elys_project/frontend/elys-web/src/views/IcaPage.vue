@@ -79,11 +79,12 @@
                     {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
                   </span>
                   <span v-if="activeComp.explained_variance != null" class="muted text-sm">方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
+                  <span class="muted text-sm ica-spec-unit">Welch 频谱 · dB / Hz</span>
                 </template>
                 <span v-else class="muted text-sm">点成分看频谱</span>
               </div>
               <div class="ica-spec-host">
-                <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline :loading="detailLoading" />
+                <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline dense-axes :loading="detailLoading" />
               </div>
               <div v-if="activeComp" class="muted text-sm ica-spec-chans">主导：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
             </div>
@@ -553,7 +554,8 @@ onMounted(load)
 .ica-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
 .ica-tag.is-artifact { background: rgba(239, 68, 68, .12); color: var(--c-danger); }
 .ica-tag.is-brain { background: rgba(34, 197, 94, .14); color: #15803d; }
-.ica-spec-host { height: 116px; position: relative; }
+.ica-spec-unit { margin-left: auto; font-size: 10px; }
+.ica-spec-host { height: 150px; position: relative; }
 .ica-spec-chans { font-size: 11px; }
 
 /* 通道列表：chip 点选（不下拉），可换行滚动 */
