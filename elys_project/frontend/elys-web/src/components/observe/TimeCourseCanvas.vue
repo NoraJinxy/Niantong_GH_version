@@ -116,7 +116,7 @@ let panning = false; let panStartPx = 0; let panStartMin = 0; let panStartMax = 
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
 const GRID = '#D3DAE6' // --c-border-2（原 border #E4E9F1 ≈隐形，提一档让网格成形而不抢戏）
 const REGION_FILL = 'rgba(63, 94, 143, 0.07)' // elys 主蓝低透明
-const BAD_SEG_FILL = 'rgba(226, 75, 74, 0.18)' // 坏段红块：柔和 danger 半透明（受众医生，不用刺眼硬红）
+const BAD_SEG_FILL = 'rgba(226, 75, 74, 0.22)' // 坏段红块：柔和 danger 半透明（受众医生，不用刺眼硬红）
 const BAD_SEG_EDGE = 'rgba(214, 40, 40, 0.85)' // 坏段左右边界线：实色，密集多通道波形上也清晰可辨
 const REGION_LINE = 'rgba(63, 94, 143, 0.32)'
 const REF_LINE = '#C4CCD8'
@@ -312,6 +312,8 @@ function drawBadSegments(u: uPlot) {
     if (xb <= xa) continue
     ctx.fillStyle = BAD_SEG_FILL
     ctx.fillRect(xa, top, xb - xa, height)
+    ctx.fillStyle = BAD_SEG_EDGE
+    ctx.fillRect(xa, top, Math.max(2, xb - xa), 4 * PX_RATIO) // 顶部实色红带：下面波形再密也压不住、必可见
     ctx.strokeStyle = BAD_SEG_EDGE
     ctx.lineWidth = 1.5 * PX_RATIO
     ctx.beginPath()
