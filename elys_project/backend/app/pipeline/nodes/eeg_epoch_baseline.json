@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "type": "eeg/epoch/baseline",
   "title": "Baseline 基线校正",
-  "category": "preprocess",
+  "category": "epoch",
   "phase": "phase1",
   "description": "对 Epochs 做基线校正：减去基线窗（默认刺激前 [起点, 0]）的均值。常接在分段之后、ERP/时频之前。",
   "tags": ["baseline", "epochs", "preprocess", "erp"],

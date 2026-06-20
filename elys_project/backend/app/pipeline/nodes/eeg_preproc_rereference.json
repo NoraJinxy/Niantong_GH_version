@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "type": "eeg/preproc/rereference",
   "title": "Re-reference",
-  "category": "preprocessing",
+  "category": "preprocess",
   "phase": "phase1",
   "description": "重参考，禁止写入 fifdata，输出写入 derivatives。",
   "tags": ["reference", "preprocess"],

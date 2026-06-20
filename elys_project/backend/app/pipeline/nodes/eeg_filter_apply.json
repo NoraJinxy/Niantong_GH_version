@@ -2,7 +2,7 @@
   "schema_version": "3.0",
   "type": "eeg/filter/apply",
   "title": "Filter",
-  "category": "preprocessing",
+  "category": "preprocess",
   "phase": "phase1",
   "description": "统一滤波节点：带通 / 高通 / 低通 + 工频陷波，FIR / IIR / 谱拟合可选。输出写入 derivatives，不改写 fifdata。",
   "tags": ["filter", "preprocess", "bandpass", "highpass", "lowpass", "notch"],

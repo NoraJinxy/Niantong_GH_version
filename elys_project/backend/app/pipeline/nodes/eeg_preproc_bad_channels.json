@@ -2,7 +2,7 @@
   "schema_version": "3.0",
   "type": "eeg/preproc/bad_channels",
   "title": "Bad Channels",
-  "category": "preprocessing",
+  "category": "preprocess",
   "phase": "phase1",
   "description": "自动坏道处理：用 LOF（MNE 内置，温和）或 RANSAC（PREP 流程，更激进）自动找出坏电极，再用球面样条插值（周围好电极重建坏电极）修复。也可只标记不改数据。输出写入 derivatives，不改写 fifdata。插值（及 RANSAC 检测）需电极坐标，请在本节点前接 Ch Loc Assign。",
   "tags": ["bad", "channel", "interpolate", "lof", "preprocess", "repair"],

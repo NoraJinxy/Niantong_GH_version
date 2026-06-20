@@ -2,7 +2,7 @@
   "schema_version": "3.0",
   "type": "eeg/preproc/artifact_mark",
   "title": "Artifact Mark",
-  "category": "preprocessing",
+  "category": "preprocess",
   "phase": "phase1",
   "description": "人工去伪迹去坏段（交互节点）：双击节点打开波形审核台，在连续波形上框选坏段、点选坏道，可一键自动检测异常作建议，确认后返回流水线续跑。坏段只写 BAD_ 标注（非破坏，留给下游 Epoch 切分 reject_by_annotation 跳过）；坏道默认仅标记进 info['bads']、不改数据，可选球面样条插值修复（需电极坐标，请在本节点前接 Ch Loc Assign）。输出写入 derivatives，不改写 fifdata。",
   "tags": ["artifact", "bad", "segment", "channel", "manual", "review", "preprocess"],

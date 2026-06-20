@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "type": "eeg/preproc/resample",
   "title": "Resample",
-  "category": "preprocessing",
+  "category": "preprocess",
   "phase": "phase1",
   "description": "重采样，属于 preprocessing，输出写入 derivatives。",
   "tags": ["resample", "preprocess"],

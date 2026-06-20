@@ -2,6 +2,7 @@
 // 另有 composable / 函数会按原名 import 这些常量，导出名与原变量名保持一致。
 
 export const LOAD_DATA_NODE_TYPE = 'eeg/data/load'
+export const EVENT_REMAP_NODE_TYPE = 'eeg/preproc/event_remap'
 export const EPOCH_NODE_TYPE = 'eeg/epoch/segment'
 export const ERP_NODE_TYPE = 'eeg/analysis/erp'
 export const TFR_NODE_TYPE = 'eeg/analysis/tfr'
@@ -26,6 +27,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   ica: '#6B5F95',
   epoch: '#4C7A5B',
   analysis: '#9A6A28',
+  group: '#7C3AED',
   output: '#687386',
   qc: '#9B557A',
   visualization: '#4F6F9F',
@@ -38,6 +40,7 @@ export const CATEGORY_SOFT_COLORS: Record<string, string> = {
   ica: '#F3F1F8',
   epoch: '#F0F7F2',
   analysis: '#FAF4E8',
+  group: '#F3F0FB',
   output: '#F2F4F7',
   qc: '#F8EEF4',
   visualization: '#EEF3F9',
