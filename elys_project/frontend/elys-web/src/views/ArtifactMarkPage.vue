@@ -107,6 +107,11 @@
               x-label="时间 (s)"
               y-label=""
               :y-max="ampUv"
+              :amp-scale="ampScale"
+              :view-min="viewMin"
+              :view-max="viewMax"
+              :locked="cursorLockedX != null"
+              :locked-x="cursorLockedX"
               :bad-segments="badSegments"
               :marked-channels="badChannelList"
               channel-pickable
@@ -114,6 +119,10 @@
               @select="onSelect"
               @channel-pick="toggleChannel"
               @cursor="onCursor"
+              @amp="ampScale = $event"
+              @zoom="onZoom"
+              @lock="onLock"
+              @unlock="onUnlock"
             />
           </div>
 
@@ -209,6 +218,10 @@ const ts = ref<StudyOutputTimeseries | null>(null) // 当前窗口细节
 const winStart = ref(0)
 const winLen = ref(10)
 const ampUv = ref(80)
+const ampScale = ref(1) // Ctrl+滚轮微调波幅（在 ampUv 基准上再缩放，spread 改泳道波高）
+const viewMin = ref<number | null>(null) // 滚轮缩放时间轴的受控视窗（null=全窗）
+const viewMax = ref<number | null>(null)
+const cursorLockedX = ref<number | null>(null) // 双击锁定游标 → 冻结地形图到该时刻
 const displayMode = ref<'spread' | 'overlay'>('spread')
 
 const filterEnabled = ref(false)
@@ -228,9 +241,11 @@ const autoRunning = ref(false)
 const autoMsg = ref('')
 
 const sfreq = computed(() => (ts.value?.sfreq ?? overview.value?.sfreq ?? 0))
-const totalDuration = computed(() => overview.value?.total_duration ?? (overview.value?.times.length ? overview.value.times[overview.value.times.length - 1] : 0))
-const rangeMin = computed(() => overview.value?.available_tmin ?? 0)
-const rangeMax = computed(() => Math.max(rangeMin.value + winLen.value, overview.value?.available_tmax ?? totalDuration.value ?? rangeMin.value + winLen.value))
+// 时长 / 范围优先用全程概览，没回来前回退到当前窗（让导航不必等概览加载）
+const meta = computed(() => overview.value ?? ts.value)
+const totalDuration = computed(() => meta.value?.total_duration ?? (meta.value?.times.length ? meta.value.times[meta.value.times.length - 1] : 0))
+const rangeMin = computed(() => meta.value?.available_tmin ?? 0)
+const rangeMax = computed(() => Math.max(rangeMin.value + winLen.value, meta.value?.available_tmax ?? totalDuration.value ?? rangeMin.value + winLen.value))
 const chNames = computed<string[]>(() => (ts.value ? ts.value.channels.map((c) => c.name) : []))
 const badChannelList = computed(() => [...badChannels.value])
 const totalBadSeconds = computed(() => badSegments.value.reduce((s, g) => s + g.duration, 0))
@@ -250,7 +265,7 @@ const chartSeries = computed(() =>
 
 // 地形图：电极 2D 坐标 + 游标时刻各通道值（无游标用窗口均值）；单 cell 喂 TopoStrip
 const topoCells = computed<TopoCell[]>(() => {
-  const pos = overview.value?.ch_pos
+  const pos = meta.value?.ch_pos
   if (!pos) return []
   const pts = Object.keys(pos)
     .filter((name) => pos[name])
@@ -345,6 +360,17 @@ function seekOverview(ev: MouseEvent) {
   setWinStart(target - winLen.value / 2)
 }
 function seekToSegment(seg: ArtifactBadSegment) { setWinStart(seg.onset - winLen.value / 2) }
+function onZoom(view: { min: number; max: number } | null) {
+  viewMin.value = view ? view.min : null
+  viewMax.value = view ? view.max : null
+}
+function onLock(payload: { x: number; items: { name: string; uv: number }[] }) {
+  cursorLockedX.value = payload.x
+  const next: Record<string, number> = {}
+  for (const it of payload.items) next[it.name] = it.uv
+  topoValues.value = next // 冻结地形图到锁定时刻
+}
+function onUnlock() { cursorLockedX.value = null }
 
 async function loadInteraction(): Promise<void> {
   const res = await api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`)
@@ -356,16 +382,30 @@ async function loadInteraction(): Promise<void> {
   badChannels.value = new Set(parseInitChannels(preview.initial?.bad_channels))
 }
 
+const tsCache = new Map<string, StudyOutputTimeseries>()
 async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
+  const key = JSON.stringify(params)
+  const hit = tsCache.get(key)
+  if (hit) return hit
   const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
-  return res.data
+  const data = res.data
+  // JSON 取数通道值是伏特(V)；只有二进制端点才换算 µV。TimeCourseCanvas 期望 µV，这里统一 V→µV。
+  if (data && data.unit !== 'uV' && Array.isArray(data.channels)) {
+    for (const ch of data.channels) ch.values = ch.values.map((v) => v * 1e6)
+    data.unit = 'uV'
+  }
+  tsCache.set(key, data)
+  return data
 }
 async function loadOverview() {
   overview.value = await fetchInputTs({ max_points: 1500, max_channels: 16 })
 }
 async function loadWindow() {
+  viewMin.value = null // 换窗 → 回到整窗视图（清掉上一窗的滚轮缩放）
+  viewMax.value = null
   const params: Record<string, number | undefined> = {
-    tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 5000, max_channels: 256,
+    // 10s 窗在屏宽下 3000 点已超像素、视觉无损；比 5000 省约 4 成 JSON 体积（提速）
+    tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 3000, max_channels: 256,
   }
   if (filterEnabled.value) {
     if (lFreq.value > 0) params.l_freq = lFreq.value
@@ -388,9 +428,9 @@ async function reload() {
   error.value = ''
   try {
     await loadInteraction()
-    await loadOverview()
-    await loadWindow()
+    await loadWindow() // 先画当前窗（快）→ 波形立即可见
     document.title = `伪迹审核 · ${ts.value?.channels.length ?? 0} 通道 — 念析`
+    void loadOverview().catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
   } catch (err: unknown) { error.value = describeError(err); ts.value = null } finally { loading.value = false }
 }
 
