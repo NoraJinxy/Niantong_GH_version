@@ -765,7 +765,7 @@ watch(
 watch(() => props.highlight, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
-  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers],
+  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers, props.badSegments, props.markedChannels],
   () => {
     const u = chart.value
     if (!u) return
