@@ -91,8 +91,8 @@
             <span class="am-time">{{ winStart.toFixed(1) }} s</span>
             <button class="btn btn--xs" :disabled="winStart >= rangeMax - winLen" title="前进" @click="stepWindow(1)"><AppIcon name="chevron-right" :size="14" /></button>
             <button class="btn btn--xs" :disabled="winStart >= rangeMax - winLen" title="下一窗" @click="shiftWindow(1)"><AppIcon name="chevrons-right" :size="14" /></button>
-            <label class="am-num">窗长 <input type="number" v-model.number="winLen" min="1" step="1" /> s</label>
-            <label class="am-num">幅度 <input type="number" v-model.number="ampUv" min="1" step="10" /> µV</label>
+            <label class="am-num">窗长 <input type="number" v-model.number="visibleWinLen" min="1" step="1" /> s</label>
+            <label class="am-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
             <span class="am-modeswitch">
               <button :class="{ on: displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
               <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
@@ -246,6 +246,15 @@ const meta = computed(() => overview.value ?? ts.value)
 const totalDuration = computed(() => meta.value?.total_duration ?? (meta.value?.times.length ? meta.value.times[meta.value.times.length - 1] : 0))
 const rangeMin = computed(() => meta.value?.available_tmin ?? 0)
 const rangeMax = computed(() => Math.max(rangeMin.value + winLen.value, meta.value?.available_tmax ?? totalDuration.value ?? rangeMin.value + winLen.value))
+// 工具条「窗长 / 幅度」始终显示实际可见尺度（被滚轮 / Ctrl+滚轮缩放后随动）；编辑则设新基准并清缩放——根治「数字与画面对不上、没联动」
+const visibleWinLen = computed<number>({
+  get: () => (viewMin.value != null && viewMax.value != null) ? Math.round((viewMax.value - viewMin.value) * 10) / 10 : winLen.value,
+  set: (v) => { const n = Math.max(1, Number(v) || winLen.value); viewMin.value = null; viewMax.value = null; winLen.value = n },
+})
+const visibleAmp = computed<number>({
+  get: () => Math.round(ampUv.value / (ampScale.value > 0 ? ampScale.value : 1)),
+  set: (v) => { const n = Math.max(1, Number(v) || ampUv.value); ampScale.value = 1; ampUv.value = n },
+})
 const chNames = computed<string[]>(() => (ts.value ? ts.value.channels.map((c) => c.name) : []))
 const badChannelList = computed(() => [...badChannels.value])
 const totalBadSeconds = computed(() => badSegments.value.reduce((s, g) => s + g.duration, 0))
