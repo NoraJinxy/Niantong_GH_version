@@ -10,7 +10,7 @@
     {
       "name": "input",
       "type": "stackable",
-      "label": "可堆叠产物（ERP / PSD / TFR · 多被试）",
+      "label": "分析产物",
       "required": true,
       "cardinality": "one_or_many"
     }
@@ -19,7 +19,7 @@
     {
       "name": "output",
       "type": "unit_stack",
-      "label": "Unit Stack",
+      "label": "组数据",
       "cardinality": "one"
     }
   ],

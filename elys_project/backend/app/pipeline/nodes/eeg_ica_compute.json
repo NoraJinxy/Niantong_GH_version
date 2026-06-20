@@ -7,11 +7,11 @@
   "description": "拟合 ICA 矩阵，后续需要 Inspect/Apply。",
   "tags": ["ica", "artifact"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "EEG Data", "cardinality": "same_as_input"},
-    {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA Matrix", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"},
+    {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "n_components", "label": "成分数", "type": "integer", "default": null, "min": 1},

@@ -7,10 +7,10 @@
   "description": "指派标准电极位置（10-20 / 10-05 模板）写入数据，供地形图 / ICA 成分图 / 坏导插值使用。可自动按通道数选帽并把通道名归一化到标准命名。输出写入 derivatives，不改写 fifdata。",
   "tags": ["channel", "montage", "topomap", "location", "preprocess"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "EEG Data", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "Located EEG", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "montage", "label": "电极帽模板", "type": "select", "default": "auto", "required": true,

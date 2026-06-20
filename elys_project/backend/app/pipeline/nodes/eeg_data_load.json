@@ -8,7 +8,7 @@
   "tags": ["data", "load", "dataset", "fifdata"],
   "inputs": [],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "EEG Data", "cardinality": "many"}
+    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "many"}
   ],
   "properties": [
     {

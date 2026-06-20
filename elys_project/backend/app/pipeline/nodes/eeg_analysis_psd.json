@@ -7,7 +7,7 @@
   "description": "对 Epochs（按 condition）或连续数据（整段，静息态频域）做功率谱密度估计（Welch / Multitaper / FFT 单段），并随产物给出各频段绝对 + 相对功率（线性积分）。FFT 单段拉满频率分辨率，用于 SSVEP 等盯单个刺激频率的窄带分析。",
   "tags": ["psd", "spectrum", "welch", "frequency", "analysis"],
   "inputs": [
-    {"name": "input", "type": "spectral_source", "label": "EEG / Epochs", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "spectral_source", "label": "脑电/分段", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
     {"name": "output", "type": "psd", "label": "PSD", "cardinality": "same_as_input"}
