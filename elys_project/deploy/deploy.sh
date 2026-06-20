@@ -95,6 +95,10 @@ CELERY_WORKFLOW_QUEUE="workflow.default"
 # cgroup 内 OOM 杀进程，而不触发全局 OOM 把 PostgreSQL 一起带走。按机型调（当前按 8核16G 设）。
 WORKER_MEMORY_HIGH="9G"
 WORKER_MEMORY_MAX="10G"
+# Celery 并发数 = worker 同时跑几个任务（prefork 进程数）。不设则默认=CPU 核数（8 核机=8），8 个 MNE
+# 重转换/重跑并行会挤爆上面的内存护栏（撞 MemoryMax 被 OOM 杀→任务回炉、长期 queued）。导入与 pipeline
+# 共用这一个 worker 池，调试单机压到 2 = 最多俩任务并行、稳且可预测；要严格一个个来设 1，机器更壮可调大。
+WORKER_CONCURRENCY="2"
 SRC="/tmp/elys_project"
 STUDIES_DIR="/mnt/elys_data/studies"
 ELYS_STORAGE_ROOT=""
@@ -124,6 +128,7 @@ while [[ $# -gt 0 ]]; do
         --studies-dir) STUDIES_DIR="$2"; shift 2 ;;
         --worker-memory-high) WORKER_MEMORY_HIGH="$2"; shift 2 ;;
         --worker-memory-max) WORKER_MEMORY_MAX="$2"; shift 2 ;;
+        --worker-concurrency) WORKER_CONCURRENCY="$2"; shift 2 ;;
         --extra-apt-packages) EXTRA_APT_PACKAGES="$2"; shift 2 ;;
         --use-cn-mirrors) USE_CN_MIRRORS="$2"; shift 2 ;;
         --reset-db) RESET_DB=true; shift ;;
@@ -823,7 +828,7 @@ EnvironmentFile=${BACKEND_DIR}/.env
 MemoryHigh=${WORKER_MEMORY_HIGH}
 MemoryMax=${WORKER_MEMORY_MAX}
 MemorySwapMax=0
-ExecStart=${BACKEND_DIR}/venv/bin/celery -A app.tasks.celery_app:celery_app worker -B -s ${BACKEND_DIR}/celerybeat-schedule -Q ${CELERY_WORKFLOW_QUEUE} --loglevel=INFO
+ExecStart=${BACKEND_DIR}/venv/bin/celery -A app.tasks.celery_app:celery_app worker -B -s ${BACKEND_DIR}/celerybeat-schedule -Q ${CELERY_WORKFLOW_QUEUE} --concurrency=${WORKER_CONCURRENCY} --loglevel=INFO
 Restart=always
 RestartSec=10
 StandardOutput=journal
