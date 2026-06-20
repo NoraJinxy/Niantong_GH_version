@@ -4107,7 +4107,9 @@ function describeError(error: unknown, fallback: string) {
   border-color: var(--c-border);
   overflow: auto;
   transform: translateX(0);
-  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 抽屉显隐用 translateX 瞬时切换，不对 transform 做过渡：过渡一旦被主线程卡顿（运行繁忙时）
+     或标签后台节流打断，会把面板搁浅在屏幕外（运行中右侧检查器只剩一条缝、甚至整块消失即此故）。
+     瞬时切换永不搁浅。需要淡入可改 transition: opacity，但绝不能动 transform。 */
 }
 
 .library {
