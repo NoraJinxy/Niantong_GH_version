@@ -21,6 +21,8 @@ import type {
   StudyOutputUpdatePayload,
   LoadDataResolveRequest,
   LoadDataResolveResponse,
+  ConditionResolveRequest,
+  ConditionResolveResponse,
   NodeSpecListResponse,
   Pipeline,
   PipelineCreateRequest,
@@ -218,6 +220,9 @@ export const pipelineApi = {
     api.post<PipelineResumeResponse>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/resume`),
   resolveLoadData: (studyId: string, data: LoadDataResolveRequest) =>
     api.post<LoadDataResolveResponse>(`/studies/${studyId}/pipeline/load-data/resolve`, data),
+  /** 沿链路解析某节点输入端可用 condition（Epoch / ERP / TFR / PSD 选择器用，方案 B） */
+  resolveConditions: (studyId: string, data: ConditionResolveRequest) =>
+    api.post<ConditionResolveResponse>(`/studies/${studyId}/pipeline/resolve-conditions`, data),
   getTask: (studyId: string, taskId: string) =>
     api.get<AsyncTask>(`/studies/${studyId}/tasks/${taskId}`),
   listTaskEvents: (studyId: string, taskId: string, since?: string) =>

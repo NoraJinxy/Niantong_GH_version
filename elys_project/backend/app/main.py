@@ -102,6 +102,7 @@ from app.routers import (
     pipelines_router,
     pipeline_node_specs_router,
     pipeline_load_data_router,
+    pipeline_conditions_router,
     pipeline_definitions_router,
     study_outputs_router,
     studies_router,
@@ -156,6 +157,7 @@ app.include_router(dataset_publicizations_router)
 app.include_router(pipelines_router)
 app.include_router(pipeline_node_specs_router)
 app.include_router(pipeline_load_data_router)
+app.include_router(pipeline_conditions_router)
 app.include_router(pipeline_definitions_router)
 app.include_router(study_outputs_router)
 

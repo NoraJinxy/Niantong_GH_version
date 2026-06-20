@@ -96,7 +96,6 @@ export interface StudySummaryPipeline {
 export interface StudySummaryExecution {
   id: string
   execution_seq: number
-  execution_mode: string
   status: string
   started_at: string | null
   finished_at: string | null
@@ -183,7 +182,6 @@ export interface DashboardActiveExecution {
   pipeline_name: string
   execution_seq: number
   status: string
-  execution_mode: PipelineExecutionMode | string
   stage_label: string
   started_at?: string | null
   finished_at?: string | null
@@ -729,6 +727,7 @@ export interface NodeProperty {
     | 'select'
     | 'channel_list'
     | 'event_select'
+    | 'event_remap_rules'
     | 'tags_input'
     | 'dataset_filter'
     | 'dataset_ids'
@@ -835,8 +834,6 @@ export interface PipelineUpdateRequest {
   expected_version: number
 }
 
-export type PipelineExecutionMode = 'trial' | 'analysis' | 'replay' | 'system'
-
 export interface PipelineExecutionSelectionOverride {
   selection_mode?: 'filter' | 'explicit'
   dataset_filter?: Record<string, unknown>
@@ -847,7 +844,6 @@ export interface PipelineExecutionSelectionOverride {
 
 export interface PipelineExecutionCreateRequest {
   trigger?: 'manual'
-  execution_mode: PipelineExecutionMode
   selection_override?: Record<string, PipelineExecutionSelectionOverride>
 }
 
@@ -890,7 +886,6 @@ export interface PipelineExecution {
   pipeline_version: number
   execution_seq: number
   trigger: string
-  execution_mode: PipelineExecutionMode | string
   status: 'running' | 'completed' | 'failed' | string
   node_count: number
   dataset_count: number
@@ -1492,4 +1487,22 @@ export interface LoadDataResolveResponse {
   errors: PipelineValidationIssue[]
   warnings: PipelineValidationIssue[]
   missing_dataset_ids: string[]
+}
+
+/** 沿链路解析「某节点输入端可用 condition」（方案 B：Epoch / ERP / TFR / PSD 选择器用）。 */
+export interface ConditionResolveRequest {
+  node_id: string
+  graph: PipelineDefinitionPayload['graph']
+}
+
+export interface ConditionOption {
+  name: string
+  count: number
+  datasets: number
+}
+
+export interface ConditionResolveResponse {
+  node_id: string
+  conditions: ConditionOption[]
+  warnings: PipelineValidationIssue[]
 }

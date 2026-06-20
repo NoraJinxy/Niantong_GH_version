@@ -1,118 +1,101 @@
-// 工作流编辑器 · 事件标签下拉编辑器（检查器里 Epoch / ERP 节点的 event_select 属性）
+// 工作流编辑器 · 事件标签选择器（检查器里 Epoch / ERP / TFR / PSD 节点的 event_select 属性）
 //
-// 从 PipelinePage.vue 抽出。Epoch 节点：从 graph 中所有 LoadData 节点的"已选中" data_infos 聚合事件；
-// ERP 节点：候选 condition 只能是上游 Epoch 节点 event_id 里选过的（按 LoadData dataset_ids 过滤 count/datasets）。
-// 关键：用注入的 loadDataSelectedInfos —— LoadData 没勾文件 → 无事件，不会泄漏数据库全集。
+// 方案 B：候选「沿链路在后端解析」——选中 event_select 节点时，把（可能未保存的）实时图 + 节点 id
+// POST 给 /pipeline/resolve-conditions，后端按上游链路算出可用 condition（Epoch=看上游 LoadData 链路；
+// ERP/TFR/PSD=看上游 Epoch 实际切出的 condition），前端只渲染。取代旧的「前端各自扫 LoadData + BFS」，
+// 与运行时切分共用一套服务端口径，且天然支持将来的事件变换节点（方案 C）。
 //
-// 依赖承重墙 selectedNode / definition + LoadData 的 loadDataSelectedInfos（注入，留在主文件作共享 helper）
-// + 画布 updateLiteGraphNode + 保存 markDirty。
+// 依赖承重墙 selectedNode / definition + selectedStudyId（取数）+ 画布 updateLiteGraphNode + 保存 markDirty。
 
-import { computed, type Ref, type ComputedRef } from 'vue'
-import type { NodeProperty, PipelineGraphNode, LoadDataDataInfo, PipelineDefinitionPayload } from '@/types'
-import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, TFR_NODE_TYPE, PSD_NODE_TYPE, LOAD_DATA_NODE_TYPE } from './pipelineConstants'
+import { computed, reactive, ref, watch, type Ref, type ComputedRef } from 'vue'
+import type { NodeProperty, PipelineGraphNode, PipelineDefinitionPayload, ConditionOption } from '@/types'
+import { EPOCH_NODE_TYPE, ERP_NODE_TYPE, TFR_NODE_TYPE, PSD_NODE_TYPE, EVENT_REMAP_NODE_TYPE } from './pipelineConstants'
+import { pipelineApi } from '@/api/pipelines'
 
 interface EventSelectEditorOptions {
   selectedNode: ComputedRef<PipelineGraphNode | null>
   definition: Ref<PipelineDefinitionPayload>
-  loadDataSelectedInfos: (node: PipelineGraphNode) => LoadDataDataInfo[]
+  selectedStudyId: Ref<string> | ComputedRef<string>
   updateLiteGraphNode: (node: PipelineGraphNode) => void
   markDirty: () => void
 }
 
-export function useEventSelectEditor(options: EventSelectEditorOptions) {
-  const { selectedNode, definition, loadDataSelectedInfos, updateLiteGraphNode, markDirty } = options
+// 这些节点的条件候选都沿链路在后端解析：Epoch（看上游 LoadData）、ERP/TFR/PSD（看上游 Epoch 切出的）、
+// Event Remap（看上游原始事件，作为重映射规则的「源」池）。
+const EVENT_SELECT_TYPES = new Set<string>([
+  EPOCH_NODE_TYPE,
+  ERP_NODE_TYPE,
+  TFR_NODE_TYPE,
+  PSD_NODE_TYPE,
+  EVENT_REMAP_NODE_TYPE,
+])
 
-  const isEpochNode = computed(() => selectedNode.value?.type === EPOCH_NODE_TYPE)
-  // ERP / TFR / PSD 同口径：候选 condition 都来自上游 Epoch 勾选的分组
-  const isConditionFromEpoch = computed(
-    () =>
-      selectedNode.value?.type === ERP_NODE_TYPE ||
-      selectedNode.value?.type === TFR_NODE_TYPE ||
-      selectedNode.value?.type === PSD_NODE_TYPE,
+/** Event Remap 一条规则：把若干「源事件分组名」映射到一个目标名（目标留空 = 丢弃）。 */
+type RemapRule = { sources: string[]; target: string }
+
+export function useEventSelectEditor(options: EventSelectEditorOptions) {
+  const { selectedNode, definition, selectedStudyId, updateLiteGraphNode, markDirty } = options
+
+  // 后端沿链路解析的候选缓存（按节点 id）。方案 B：服务端单一事实源。
+  const conditionsByNodeId = reactive<Record<string, ConditionOption[]>>({})
+  const conditionsLoading = ref(false)
+  let resolveSeq = 0
+
+  /** 让某节点的候选重新从后端解析（seq 防过期响应覆盖新结果）。 */
+  async function fetchConditions(node: PipelineGraphNode) {
+    const studyId = selectedStudyId.value
+    if (!studyId || !EVENT_SELECT_TYPES.has(node.type)) return
+    const seq = ++resolveSeq
+    conditionsLoading.value = true
+    try {
+      const res = await pipelineApi.resolveConditions(studyId, {
+        node_id: node.id,
+        graph: definition.value.graph,
+      })
+      if (seq !== resolveSeq) return // 过期响应丢弃
+      conditionsByNodeId[node.id] = res.data.conditions || []
+    } catch {
+      if (seq !== resolveSeq) return
+      conditionsByNodeId[node.id] = []
+    } finally {
+      if (seq === resolveSeq) conditionsLoading.value = false
+    }
+  }
+
+  // 选中 event_select 节点、或其上游（连线 / LoadData 选择 / 上游 Epoch 勾选）变化 → 重解析。
+  // 签名刻意**排除选中节点自身的 conditions**：勾选自己的 condition 不影响自己的输入候选，避免无谓重取。
+  const resolveSignature = computed(() => {
+    const node = selectedNode.value
+    if (!node || !EVENT_SELECT_TYPES.has(node.type)) return ''
+    const graph = definition.value.graph
+    const links = (graph.links || []).map((l) => `${l.from?.node}>${l.to?.node}`).join('|')
+    const params = (graph.nodes || [])
+      .map((n) => {
+        const conds = n.id === node.id ? '' : JSON.stringify(n.params?.conditions ?? '')
+        return `${n.id}:${JSON.stringify(n.params?.dataset_ids ?? '')}:${conds}`
+      })
+      .join('|')
+    return `${node.id}#${links}#${params}`
+  })
+
+  watch(
+    resolveSignature,
+    (sig) => {
+      const node = selectedNode.value
+      if (!sig || !node) return
+      void fetchConditions(node)
+    },
+    { immediate: true },
   )
 
-  /** 沿 graph.links 倒推：从某节点开始向上找指定 type 的最近祖先节点（BFS）。 */
-  function findUpstreamNodeByType(startNodeId: string, targetType: string): typeof definition.value.graph.nodes[number] | null {
-    const links = definition.value.graph.links || []
-    const incoming: Record<string, string[]> = {}
-    for (const link of links) {
-      const from = link.from?.node
-      const to = link.to?.node
-      if (typeof from === 'string' && typeof to === 'string') {
-        if (!incoming[to]) incoming[to] = []
-        incoming[to].push(from)
-      }
-    }
-    const visited = new Set<string>([startNodeId])
-    const queue: string[] = [...(incoming[startNodeId] || [])]
-    while (queue.length) {
-      const cur = queue.shift() as string
-      if (visited.has(cur)) continue
-      visited.add(cur)
-      const node = definition.value.graph.nodes.find((n) => n.id === cur)
-      if (node?.type === targetType) return node
-      const parents = incoming[cur] || []
-      for (const p of parents) if (!visited.has(p)) queue.push(p)
-    }
-    return null
-  }
-
-  /** 把上游所有 LoadData「已选中」data_infos 的事件分组聚合成 名字→{count,datasets}。
-   *  Epoch 节点直接列出供勾选；ERP/TFR 节点用它给候选 condition 回填真实事件数。
-   *  关键：用 loadDataSelectedInfos —— LoadData 没勾文件 → 无事件，不会泄漏数据库全集。 */
-  function loadDataGroupCounts(): Map<string, { count: number; datasets: number }> {
-    const aggregate = new Map<string, { count: number; datasets: number }>()
-    for (const node of definition.value.graph.nodes) {
-      if (node.type !== LOAD_DATA_NODE_TYPE) continue
-      for (const info of loadDataSelectedInfos(node)) {
-        for (const g of info.condition_groups || []) {
-          const name = String(g?.name ?? '').trim()
-          if (!name) continue
-          const existing = aggregate.get(name) || { count: 0, datasets: 0 }
-          existing.count += Number(g?.count) || 0
-          existing.datasets += 1
-          aggregate.set(name, existing)
-        }
-      }
-    }
-    return aggregate
-  }
-
   const availableEventLabels = computed<Array<{ label: string; count: number; datasets: number }>>(() => {
-    const groups = loadDataGroupCounts()
-
-    // Epoch 节点：列出上游 LoadData 的全部事件分组供勾选。
-    if (isEpochNode.value) {
-      return Array.from(groups.entries())
-        .map(([label, info]) => ({ label, count: info.count, datasets: info.datasets }))
-        .sort((a, b) => {
-          const an = Number(a.label)
-          const bn = Number(b.label)
-          if (!Number.isNaN(an) && !Number.isNaN(bn)) return an - bn
-          return a.label.localeCompare(b.label)
-        })
-    }
-
-    // ERP / TFR 节点：候选 = 上游 Epoch 勾选的 condition 名（直接读其 conditions 参数）。
-    // 计数回查 LoadData 分组：分组名字符串能直接命中真实事件数；脚本/API 的友好名字典
-    // （name=fist 之类）匹配不到 → 回落 0，但不再把"有 40 试次"误显成 0。
-    if (isConditionFromEpoch.value && selectedNode.value) {
-      const upstreamEpoch = findUpstreamNodeByType(selectedNode.value.id, EPOCH_NODE_TYPE)
-      const raw = upstreamEpoch?.params?.conditions
-      let names: string[] = []
-      if (Array.isArray(raw)) {
-        names = raw
-          .map((s) => (typeof s === 'string' ? s : String((s as { name?: unknown })?.name ?? '')))
-          .map((s) => s.trim())
-          .filter(Boolean)
-      }
-      return names.map((label) => {
-        const g = groups.get(label)
-        return { label, count: g?.count ?? 0, datasets: g?.datasets ?? 1 }
-      })
-    }
-
-    return []
+    const node = selectedNode.value
+    if (!node) return []
+    return (conditionsByNodeId[node.id] || []).map((c) => ({
+      label: c.name,
+      count: c.count,
+      datasets: c.datasets,
+    }))
   })
 
   function getEventIdArray(prop: NodeProperty): string[] {
@@ -160,11 +143,66 @@ export function useEventSelectEditor(options: EventSelectEditorOptions) {
     markDirty()
   }
 
+  // —— Event Remap 规则编辑（方案 C）：rules = [{sources:[分组名], target:"新名字"}]；源池 = availableEventLabels ——
+  function getRemapRules(prop: NodeProperty): RemapRule[] {
+    const raw = selectedNode.value?.params?.[prop.name]
+    if (!Array.isArray(raw)) return []
+    return raw.map((r) => {
+      const rec = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>
+      return {
+        sources: Array.isArray(rec.sources) ? rec.sources.map((s) => String(s)).filter(Boolean) : [],
+        target: typeof rec.target === 'string' ? rec.target : '',
+      }
+    })
+  }
+  function setRemapRules(prop: NodeProperty, rules: RemapRule[]) {
+    const node = selectedNode.value
+    if (!node) return
+    node.params = { ...node.params, [prop.name]: rules }
+    updateLiteGraphNode(node)
+    markDirty()
+  }
+  function addRemapRule(prop: NodeProperty) {
+    setRemapRules(prop, [...getRemapRules(prop), { sources: [], target: '' }])
+  }
+  function removeRemapRule(prop: NodeProperty, index: number) {
+    const rules = getRemapRules(prop)
+    rules.splice(index, 1)
+    setRemapRules(prop, rules)
+  }
+  function toggleRemapRuleSource(prop: NodeProperty, index: number, label: string) {
+    const rules = getRemapRules(prop)
+    const rule = rules[index]
+    if (!rule) return
+    const set = new Set(rule.sources)
+    if (set.has(label)) set.delete(label)
+    else set.add(label)
+    rule.sources = Array.from(set)
+    setRemapRules(prop, rules)
+  }
+  function isRemapRuleSourceSelected(prop: NodeProperty, index: number, label: string) {
+    return getRemapRules(prop)[index]?.sources.includes(label) ?? false
+  }
+  function setRemapRuleTarget(prop: NodeProperty, index: number, value: string) {
+    const rules = getRemapRules(prop)
+    const rule = rules[index]
+    if (!rule) return
+    rule.target = value
+    setRemapRules(prop, rules)
+  }
+
   return {
     availableEventLabels,
+    conditionsLoading,
     getEventIdArray,
     isEventIdSelected,
     toggleEventId,
     clearEventIds,
+    getRemapRules,
+    addRemapRule,
+    removeRemapRule,
+    toggleRemapRuleSource,
+    isRemapRuleSourceSelected,
+    setRemapRuleTarget,
   }
 }

@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 NodePhase = Literal["phase1", "phase2", "phase3"]
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "canceled", "retrying"]
-PipelineExecutionMode = Literal["trial", "analysis", "replay", "system"]
 
 
 class NodePort(BaseModel):
@@ -170,7 +169,6 @@ class LoadDataSelectionOverride(BaseModel):
 
 class PipelineExecutionCreate(BaseModel):
     trigger: Literal["manual"] = "manual"
-    execution_mode: PipelineExecutionMode = "analysis"
     selection_override: dict[str, LoadDataSelectionOverride] = Field(default_factory=dict)
 
 
@@ -187,7 +185,6 @@ class PipelineExecutionResponse(BaseModel):
     pipeline_version: int
     execution_seq: int
     trigger: str
-    execution_mode: PipelineExecutionMode = "analysis"
     status: str
     node_count: int
     dataset_count: int
@@ -465,6 +462,25 @@ class LoadDataResolveResponse(BaseModel):
     errors: list[PipelineValidationIssue] = Field(default_factory=list)
     warnings: list[PipelineValidationIssue] = Field(default_factory=list)
     missing_dataset_ids: list[str] = Field(default_factory=list)
+
+
+class ConditionResolveRequest(BaseModel):
+    """解析某节点输入端可用 condition 的请求：携带（可能未保存的）实时图 + 目标节点 id。"""
+
+    node_id: str
+    graph: dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "links": []})
+
+
+class ConditionOption(BaseModel):
+    name: str
+    count: int = 0
+    datasets: int = 0
+
+
+class ConditionResolveResponse(BaseModel):
+    node_id: str
+    conditions: list[ConditionOption] = Field(default_factory=list)
+    warnings: list[PipelineValidationIssue] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

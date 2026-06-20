@@ -17,6 +17,7 @@ from .dataset_versions import router as dataset_versions_router
 from .pipelines import router as pipelines_router
 from .pipeline_node_specs import router as pipeline_node_specs_router
 from .pipeline_load_data import router as pipeline_load_data_router
+from .pipeline_conditions import router as pipeline_conditions_router
 from .pipeline_definitions import router as pipeline_definitions_router
 from .study_outputs import router as study_outputs_router
 from .studies import router as studies_router
@@ -35,6 +36,7 @@ __all__ = [
     "pipelines_router",
     "pipeline_node_specs_router",
     "pipeline_load_data_router",
+    "pipeline_conditions_router",
     "pipeline_definitions_router",
     "study_outputs_router",
     "studies_router",

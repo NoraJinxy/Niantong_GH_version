@@ -1,5 +1,15 @@
 <template>
   <div class="pipeline-page" @pointerdown="closePipelineContextMenu">
+      <!-- 节点库悬停说明卡:fixed 定位、放在根级（不进抽屉），既不被 overflow 裁、也避开 transform 祖先 -->
+      <div
+        v-if="nodeTip"
+        class="node-tip"
+        :style="{ left: nodeTip.x + 'px', top: nodeTip.y + 'px' }"
+      >
+        <div class="node-tip__title">{{ nodeTip.title }}</div>
+        <div v-if="nodeTip.desc" class="node-tip__desc">{{ nodeTip.desc }}</div>
+        <div class="node-tip__hint">拖到画布添加 · 或双击</div>
+      </div>
       <!-- 拖宽手柄:放在抽屉外、跨在「抽屉↔画布」的缝上,避开抽屉 overflow 裁剪与滚动条争点击 -->
       <div
         v-if="libraryVisible"
@@ -7,7 +17,7 @@
         :class="{ 'is-dragging': drawerDragging === 'library' }"
         :style="{ left: libraryWidth + 'px' }"
         title="拖动调整左侧节点库宽度"
-        @mousedown="startDrawerDrag('library', $event)"
+        @pointerdown="startDrawerDrag('library', $event)"
       ></div>
       <aside
         class="library"
@@ -29,8 +39,9 @@
           <div v-else class="node-groups">
             <div v-for="group in groupedNodeSpecs" :key="group.category" class="node-group">
               <button class="group-head" type="button" @click="toggleGroup(group.category)">
+                <span class="group-arrow" :class="{ 'is-collapsed': groupOpen[group.category] === false }">▾</span>
                 <span class="group-dot" :style="{ background: categoryColor(group.category) }"></span>
-                <span>{{ group.category }}</span>
+                <span class="group-name">{{ group.label }}</span>
                 <small>{{ group.nodes.length }}</small>
               </button>
               <div v-show="groupOpen[group.category] !== false" class="group-body">
@@ -40,12 +51,14 @@
                   class="node-template"
                   type="button"
                   draggable="true"
-                  title="拖到画布添加（或双击）"
                   @dblclick="addNode(spec)"
                   @dragstart="handleNodeDragStart(spec, $event)"
+                  @mouseenter="showNodeTip(spec, $event)"
+                  @mouseleave="hideNodeTip"
+                  @focus="showNodeTip(spec, $event)"
+                  @blur="hideNodeTip"
                 >
                   <span class="node-template__title">{{ spec.title }}</span>
-                  <span class="node-template__desc">{{ spec.description }}</span>
                 </button>
               </div>
             </div>
@@ -286,35 +299,22 @@
             <button class="icon-button" type="button" aria-label="关闭" @click="closeRunDialog">×</button>
           </header>
 
-          <div class="run-dialog__grid">
-            <label class="field">
-              <span>运行模式</span>
-              <select v-model="executionMode" class="control">
-                <option v-for="option in EXECUTION_MODE_OPTIONS" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-              <small>{{ executionModeDescription }}</small>
-            </label>
-          </div>
-
-          <div class="run-dialog__notice" :class="{ 'is-error': !executionModeAllowed }">
-            <strong>{{ executionModeAllowed ? '可以创建运行' : '当前状态不允许运行' }}</strong>
+          <div class="run-dialog__notice" :class="{ 'is-error': !canSubmitRun }">
+            <strong>{{ canSubmitRun ? '可以创建运行' : '暂不能创建运行' }}</strong>
             <span>{{ runDisabledReason || runDialogSummary }}</span>
           </div>
 
           <div class="run-dialog__override">
-            <strong>运行数据覆盖</strong>
+            <strong>本次运行使用的数据</strong>
             <span>{{ runSelectionOverrideSummaryText }}</span>
             <div v-if="runSelectionOverrideItems.length" class="run-dialog__override-list">
               <article v-for="item in runSelectionOverrideItems" :key="item.nodeId">
                 <div>
                   <strong>{{ item.nodeTitle }}</strong>
-                  <small>{{ item.sourceLabel }}</small>
                 </div>
                 <span>
-                  {{ item.datasetCount }} datasets
-                  <template v-if="item.fileCount"> · {{ item.fileCount }} files</template>
+                  {{ item.datasetCount }} 个数据集
+                  <template v-if="item.fileCount"> · {{ item.fileCount }} 个文件</template>
                 </span>
               </article>
             </div>
@@ -346,7 +346,6 @@
             <span class="status-pill" :class="jobStatusClass(latestPipelineExecution.status)">
               {{ formatPipelineExecutionStatus(latestPipelineExecution.status) }}
             </span>
-            <small>{{ formatExecutionMode(latestPipelineExecution.execution_mode) }}</small>
           </div>
           <div class="run-action-strip">
             <button
@@ -565,7 +564,7 @@
           class="drawer-handle drawer-handle--seam-right"
           :class="{ 'is-dragging': drawerDragging === 'inspector' }"
           title="拖动调整右侧检查器宽度"
-          @mousedown="startDrawerDrag('inspector', $event)"
+          @pointerdown="startDrawerDrag('inspector', $event)"
         ></div>
         <div class="inspector-inner">
         <div v-if="!selectedNode || !selectedNodeSpec" class="inspector-empty">
@@ -763,8 +762,8 @@
                     <small v-if="prop.unit">({{ prop.unit }})</small>
                   </span>
                   <span class="event-select__meta">
-                    <small v-if="eventLabelsLoading">读取事件中…</small>
-                    <small v-else-if="!availableEventLabels.length">上游加载节点暂无可用事件</small>
+                    <small v-if="conditionsLoading || eventLabelsLoading">读取事件中…</small>
+                    <small v-else-if="!availableEventLabels.length">上游暂无可用事件（先连上游、选好数据/条件）</small>
                     <small v-else>共 {{ availableEventLabels.length }} 种事件</small>
                     <button
                       v-if="getEventIdArray(prop).length"
@@ -809,6 +808,56 @@
                   </button>
                 </div>
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
+              </div>
+
+              <!-- event_remap_rules：事件重映射规则编辑器（方案 C）。源 = 上游事件分组（沿链路在后端解析），
+                   每条规则把若干源合并 / 改名到一个目标；目标留空 = 丢弃；未命中的事件原样保留。 -->
+              <div v-else-if="prop.type === 'event_remap_rules'" class="field event-remap-field" :data-param="prop.name">
+                <div class="event-select__head">
+                  <span>{{ prop.label }}</span>
+                  <span class="event-select__meta">
+                    <small v-if="conditionsLoading || eventLabelsLoading">读取事件中…</small>
+                    <small v-else-if="!availableEventLabels.length">上游暂无可用事件（先连上游、选好数据）</small>
+                    <small v-else>{{ availableEventLabels.length }} 种上游事件</small>
+                  </span>
+                </div>
+                <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
+                <div class="remap-rules">
+                  <div v-for="(rule, idx) in getRemapRules(prop)" :key="'remap-' + idx" class="remap-rule">
+                    <div class="remap-rule__row">
+                      <span class="remap-rule__tag">源</span>
+                      <div class="chip-row chip-row--pool">
+                        <button
+                          v-for="entry in availableEventLabels"
+                          :key="'rs-' + idx + '-' + entry.label"
+                          type="button"
+                          class="chip"
+                          :class="{ 'chip--active': isRemapRuleSourceSelected(prop, idx, entry.label) }"
+                          :title="`${entry.count} 次出现 · ${entry.datasets} 个数据集`"
+                          @click="toggleRemapRuleSource(prop, idx, entry.label)"
+                        >
+                          {{ entry.label }}
+                          <span class="chip__count">{{ entry.count }}</span>
+                        </button>
+                        <span v-if="!availableEventLabels.length" class="remap-rule__empty">无上游事件</span>
+                      </div>
+                    </div>
+                    <div class="remap-rule__row remap-rule__row--target">
+                      <span class="remap-rule__tag">改成</span>
+                      <input
+                        type="text"
+                        class="remap-rule__target"
+                        :value="rule.target"
+                        placeholder="新名字（留空 = 丢弃这些事件）"
+                        @input="setRemapRuleTarget(prop, idx, ($event.target as HTMLInputElement).value)"
+                      />
+                      <button type="button" class="link-button" @click="removeRemapRule(prop, idx)">删除</button>
+                    </div>
+                  </div>
+                  <button type="button" class="button button--subtle remap-rules__add" @click="addRemapRule(prop)">
+                    ＋ 添加规则
+                  </button>
+                </div>
               </div>
 
               <!-- channel_list：从上游 LoadData 推断通道，listbox 多选（单选=单通道参考 / 多选=平均参考 / 全选=共同平均参考）
@@ -1123,7 +1172,6 @@ import {
   LINK_HIGHLIGHT_COLOR,
   LINK_CONNECTING_COLOR,
   LINK_HIGHLIGHT_WIDTH_MULT,
-  EXECUTION_MODE_OPTIONS,
   NODE_CARD_WIDTH,
   NODE_CARD_MIN_HEIGHT,
   NODE_GAP_X,
@@ -1151,7 +1199,6 @@ import {
   formatPipelineExecutionStatus,
   formatTaskStatus,
   formatPipelineStatus,
-  formatExecutionMode,
   formatArtifactRetention,
   categoryColor,
 } from '@/composables/pipeline/pipelineFormatters'
@@ -1274,6 +1321,24 @@ const {
   groupedNodeSpecs,
   toggleGroup,
 } = useNodeLibrary(nodeSpecs)
+
+// 节点库悬停说明卡：条目只显标题，鼠标移上去在右侧浮出介绍文字。
+// 用 fixed 定位跟随条目的 getBoundingClientRect（根级渲染，不被 overflow 裁、避 transform 祖先）。
+const nodeTip = ref<{ title: string; desc: string; x: number; y: number } | null>(null)
+function showNodeTip(spec: NodeSpec, e: Event) {
+  const el = e.currentTarget as HTMLElement | null
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  nodeTip.value = {
+    title: spec.title,
+    desc: spec.description || '',
+    x: Math.round(r.right + 10),
+    y: Math.round(r.top),
+  }
+}
+function hideNodeTip() {
+  nodeTip.value = null
+}
 
 // Pipeline 草稿 localStorage 暂存（每次 markDirty 后 debounce 写入；切回页面静默恢复）
 // 状态与逻辑见 composables/pipeline/useDraftPersistence
@@ -1577,12 +1642,9 @@ const canSave = computed(() => Boolean(selectedStudyId.value && pipelineName.val
 // 运行控制（运行对话框 + 创建 / 取消 / 重试 + 准入判定）见 composables/pipeline/useRunControl
 const {
   runDialogOpen,
-  executionMode,
   executionActionLoading,
   runDrawerOpen,
   currentPipelineStatus,
-  pipelineCanCreateExecution,
-  executionModeAllowed,
   runDisabledReason,
   canOpenRunDialog,
   canSubmitRun,
@@ -1647,17 +1709,24 @@ const {
 // [Dead code 已清理] 旧 LoadData chip UI 相关 computed (loadDataSelectionMode/eligibleLoadDataDatasets/matchedLoadDataDatasets/loadData*Options 等) 已全部删除，
 // 筛选逻辑迁移到 LoadDataPanel.vue 组件内部。
 
-// === Epoch / ERP 节点：事件标签下拉 === 见 composables/pipeline/useEventSelectEditor
+// === Epoch / ERP / Event Remap 节点：事件候选 + 重映射规则 === 见 composables/pipeline/useEventSelectEditor
 const {
   availableEventLabels,
+  conditionsLoading,
   getEventIdArray,
   isEventIdSelected,
   toggleEventId,
   clearEventIds,
+  getRemapRules,
+  addRemapRule,
+  removeRemapRule,
+  toggleRemapRuleSource,
+  isRemapRuleSourceSelected,
+  setRemapRuleTarget,
 } = useEventSelectEditor({
   selectedNode,
   definition,
-  loadDataSelectedInfos,
+  selectedStudyId,
   updateLiteGraphNode,
   markDirty,
 })
@@ -1747,31 +1816,27 @@ const runSelectionOverridePayload = computed(() => buildRunSelectionOverridePayl
 const runSelectionOverrideItems = computed(() =>
   Object.entries(runSelectionOverridePayload.value).map(([nodeId, override]) => {
     const node = definition.value.graph.nodes.find((item) => item.id === nodeId)
-    const datasetCount = override.dataset_ids?.length || 0
-    const fileCount = override.dataset_file_ids?.length || 0
-    const source = String(override.selector_json?.source || '')
+    // 节点默认标题是英文 "LoadData"，对医生太抽象——给个友好名；用户自定义过则保留
+    const nodeTitle = node?.title && node.title !== 'LoadData' ? node.title : '数据来源'
     return {
       nodeId,
-      nodeTitle: node?.title || nodeId,
-      datasetCount,
-      fileCount,
-      sourceLabel: source === 'legacy_pipeline_explicit'
-        ? '兼容旧工作流 explicit 列表'
-        : '本次运行覆盖，不修改工作流定义',
+      nodeTitle,
+      datasetCount: override.dataset_ids?.length || 0,
+      fileCount: override.dataset_file_ids?.length || 0,
     }
   }),
 )
 const runSelectionOverrideSummaryText = computed(() => {
-  if (!runSelectionOverrideItems.value.length) return '没有本次覆盖；运行将按工作流中保存的选择规则重新解析。'
+  if (!runSelectionOverrideItems.value.length) return '将按工作流中已选定的数据运行。'
   const totalDatasets = runSelectionOverrideItems.value.reduce((sum, item) => sum + item.datasetCount, 0)
-  return `${runSelectionOverrideItems.value.length} 个 LoadData 节点携带输入覆盖，合计 ${totalDatasets} 个数据集。`
+  const totalFiles = runSelectionOverrideItems.value.reduce((sum, item) => sum + item.fileCount, 0)
+  return `本次运行将处理 ${totalDatasets} 个数据集、共 ${totalFiles} 个文件。`
 })
 // 运行态派生 computed（executionJobByNodeId / selectedJob / 产物映射等）见 composables/pipeline/useRunExecution（解构见上方装配区）
 // 产物预览 computed（指标 / 事件 / 曲线 / 标题 / 观察目标）见 composables/pipeline/useArtifactPreview（解构见上方装配区）
 // ICA 面板显隐 / 成分列表 computed 见 composables/pipeline/useIcaInteraction（解构见上方装配区）
-const executionModeDescription = computed(() => EXECUTION_MODE_OPTIONS.find((option) => option.value === executionMode.value)?.description || '')
 const runDialogSummary = computed(
-  () => `${formatExecutionMode(executionMode.value)} · ${definition.value.graph.nodes.length} 节点`,
+  () => `${definition.value.graph.nodes.length} 节点`,
 )
 const executionDetailTabs: Array<{ key: ExecutionDetailTab; label: string }> = [
   { key: 'artifacts', label: '结果' },
@@ -1887,8 +1952,9 @@ onDeactivated(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleLayoutKeydown)
-  document.removeEventListener('mousemove', onDrawerDragMove)
-  document.removeEventListener('mouseup', onDrawerDragEnd)
+  document.removeEventListener('pointermove', onDrawerDragMove)
+  document.removeEventListener('pointerup', onDrawerDragEnd)
+  document.removeEventListener('pointercancel', onDrawerDragEnd)
   stopRunPolling()
   if (pendingGraphSync) window.cancelAnimationFrame(pendingGraphSync)
   resizeObserver?.disconnect()
@@ -2284,7 +2350,9 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const link = document.createElement('a')
   link.href = href
   link.target = '_blank'
-  link.rel = 'noopener'
+  // rel='opener'（非 noopener）：保住 window.opener，让观察页「返回研究项」能聚焦来源页 + window.close 关本标签
+  // （对标工作区/pipeline 由 dashboard/studies 用 rel="opener" 打开的做法）。同源，无 tabnabbing 风险。
+  link.rel = 'opener'
   document.body.appendChild(link)
   link.click()
   link.remove()
@@ -2451,6 +2519,10 @@ function formatParamForHtmlExport(prop: NodeSpec['properties'][number], value: u
     )
     if (names.length <= 4) return names.join(' / ')
     return `${names.slice(0, 3).join(' / ')} 等 ${names.length} 项`
+  }
+  if (prop.type === 'event_remap_rules') {
+    const arr = Array.isArray(value) ? (value as unknown[]) : []
+    return arr.length ? `${arr.length} 条规则` : ''
   }
   if (prop.type === 'tags_input') {
     const arr = Array.isArray(value) ? (value as unknown[]) : []
@@ -4155,8 +4227,9 @@ function describeError(error: unknown, fallback: string) {
   pointer-events: none;
 }
 
-/* 抽屉拖拽手柄:抽屉外、跨在缝上的兄弟元素,left/right 由模板按抽屉宽度内联绑定。
-   不再是抽屉子元素,故不被抽屉 overflow:auto 裁剪、也不和抽屉滚动条争点击;
+/* 抽屉拖拽手柄:left 手柄是抽屉外、跨在缝上的兄弟元素(:style left 按 libraryWidth 绑定);
+   right 手柄移入 inspector 内部、靠 left:-7px 骑在左缝(随面板左缘自动跟手,见 .inspector overflow:visible)。
+   两者均不被抽屉滚动条裁剪;拖拽走指针捕获(useEditorLayout),松手事件必达、不会丢在画布上。
    手柄一半盖在画布上(那侧永远没滚动条),命中区稳定、且加宽到 14px 更好抓。 */
 .drawer-handle {
   position: absolute;
@@ -4530,7 +4603,7 @@ function describeError(error: unknown, fallback: string) {
 .group-head {
   width: 100%;
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-columns: 12px 8px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border: 0;
@@ -4539,6 +4612,21 @@ function describeError(error: unknown, fallback: string) {
   color: var(--c-text);
   text-align: left;
   cursor: pointer;
+}
+
+.group-arrow {
+  color: var(--c-text-3);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.group-arrow.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.group-name {
+  font-weight: 600;
 }
 
 .group-dot {
@@ -4561,12 +4649,11 @@ function describeError(error: unknown, fallback: string) {
 
 .node-template {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
   border: 1px solid var(--c-border);
   border-radius: 6px;
   background: var(--c-bg-tint);
-  padding: 8px;
+  padding: 7px 9px;
   text-align: left;
   cursor: grab;
 }
@@ -4586,14 +4673,37 @@ function describeError(error: unknown, fallback: string) {
   color: var(--c-text);
 }
 
-.node-template__desc {
+/* 节点库悬停说明卡（fixed、根级渲染、跟随条目右侧浮出） */
+.node-tip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 260px;
+  pointer-events: none;
+  background: var(--c-bg, #fff);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  padding: 9px 11px;
+}
+
+.node-tip__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.node-tip__desc {
+  margin-top: 4px;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--c-text-3);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+}
+
+.node-tip__hint {
+  margin-top: 7px;
+  font-size: 10px;
+  color: var(--c-text-3);
+  opacity: 0.8;
 }
 
 .editor {
@@ -4727,6 +4837,57 @@ function describeError(error: unknown, fallback: string) {
 .run-drawer .run-detail-panel {
   border: 0;
   padding: 0;
+}
+
+/* Event Remap 规则编辑器（方案 C）：每条规则 = 源 chips + 目标输入 */
+.event-remap-field .remap-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.remap-rule {
+  border: 1px solid var(--c-border, #E0E6EE);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(47, 118, 111, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.remap-rule__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.remap-rule__row--target {
+  align-items: center;
+}
+.remap-rule__tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--c-text-muted, #6B7785);
+  padding-top: 3px;
+}
+.remap-rule__row .chip-row--pool {
+  flex: 1 1 auto;
+  margin-top: 0;
+}
+.remap-rule__target {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--c-border, #E0E6EE);
+  border-radius: 6px;
+  background: var(--c-surface, #fff);
+}
+.remap-rule__empty {
+  font-size: 11px;
+  color: var(--c-text-muted, #9AA4B2);
+}
+.remap-rules__add {
+  align-self: flex-start;
 }
 
 /* Chip 多选 (Epoch event_select 等节点参数还在用) */
