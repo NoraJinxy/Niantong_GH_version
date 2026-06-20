@@ -1,5 +1,5 @@
 <template>
-  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked }">
+  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag }">
     <div v-if="loading" class="tcc-loading">加载中…</div>
   </div>
 </template>
@@ -595,6 +595,7 @@ function onHostMouseDown(e: MouseEvent) {
     panStartPx = e.clientX
     panStartMin = u.scales.x.min as number
     panStartMax = u.scales.x.max as number
+    e.preventDefault() // 防原生拖拽选区 / 拖影干扰平移
     window.addEventListener('mousemove', onPanMove)
     window.addEventListener('mouseup', onPanEnd)
   }
@@ -856,6 +857,9 @@ defineExpose({ getExportCanvas })
 
 <style scoped>
 .tcc-host { position: relative; width: 100%; height: 100%; min-height: 0; }
+/* panOnDrag（ICA 审核页）：抓手光标，明示可拖动平移；按下时变握拳。 */
+.tcc-pan { cursor: grab; }
+.tcc-pan:active { cursor: grabbing; }
 .tcc-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--c-text-3); font-size: 13px; }
 /* 锁定态：隐藏跟随鼠标的十字线（琥珀锁定标记线由 drawLocked 画在 canvas 上，不受影响） */
 .tcc-locked :deep(.u-cursor-x),

@@ -114,10 +114,10 @@
             <div class="ica-center-head">
               <div class="ica-center-title">
                 整体去除前后对比
-                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }}</span>
+                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }} · µV</span>
               </div>
               <div class="ica-center-controls">
-                <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">复位缩放</button>
+                <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">全部时段</button>
                 <span v-if="previewLoading" class="ica-live">● 刷新中</span>
                 <span v-else-if="preview?.has_comparison && removeList.length && preview.variance_reduction != null" class="ica-vr">
                   方差 ↓ {{ preview.variance_reduction }}%
@@ -132,6 +132,7 @@
                   x-label="时间 (s)"
                   y-label="µV"
                   show-legend
+                  dense-axes
                   pan-on-drag
                   :view-min="viewMin"
                   :view-max="viewMax"
@@ -298,8 +299,9 @@ const applyError = ref(false)
 const applyDone = ref(false)
 
 // 前端视觉缩放（与三观察页同一套手感）：viewMin/Max=可见时间窗（两图共享，X 同步），*Amp=各自幅度系数。
-const viewMin = ref<number | null>(null)
-const viewMax = ref<number | null>(null)
+// 默认看前半段（约 WINDOW_SECONDS/2 秒）：曲线不挤、且一打开就能拖动平移（满量程视图无处可平移）。
+const viewMin = ref<number | null>(0)
+const viewMax = ref<number | null>(WINDOW_SECONDS / 2)
 const cmpAmp = ref(1)
 const tcAmp = ref(1)
 const isZoomed = computed(() => viewMin.value != null || Math.abs(cmpAmp.value - 1) > 1e-3 || Math.abs(tcAmp.value - 1) > 1e-3)
