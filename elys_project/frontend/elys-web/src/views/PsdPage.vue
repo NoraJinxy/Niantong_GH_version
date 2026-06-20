@@ -3,6 +3,7 @@
     <!-- 顶部信息条（全屏时隐去） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
+        <WorkspaceBackButton class="ov-back" />
         <span class="ov-badge" :style="{ background: TYPE_COLOR }">PSD</span>
         <div>
           <div class="ov-title">{{ displayName }}<span class="ov-region">功率谱 (PSD)</span></div>
@@ -432,6 +433,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputPsd } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'

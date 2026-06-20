@@ -3,6 +3,7 @@
     <!-- 顶部信息条（全屏时隐去） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
+        <WorkspaceBackButton class="ov-back" />
         <span class="ov-badge" :style="{ background: TYPE_COLOR }">TFR</span>
         <div>
           <div class="ov-title">{{ displayName }}<span class="ov-region">时频分析 (ERSP)</span></div>
@@ -377,6 +378,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
+import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 // HeatmapCanvas 实例数组（v-for 中按 ci 填入），exportCell 读取以触发高清重绘
 const cellHeatmapRefs: (InstanceType<typeof HeatmapCanvas> | null)[] = []
 import TopoStrip from '@/components/observe/TopoStrip.vue'
