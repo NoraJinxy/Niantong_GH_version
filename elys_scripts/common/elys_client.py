@@ -825,14 +825,24 @@ class ElysClient:
         return out
 
     # ---------- LoadData 元信息（看 ch_names / event_labels）----------
-    def resolve_load_data(self, study_id: str, dataset_ids: list[str]) -> dict:
+    def resolve_load_data(
+        self,
+        study_id: str,
+        dataset_ids: list[str] | None = None,
+        *,
+        selection_mode: str = "explicit",
+        dataset_filter: dict | None = None,
+    ) -> dict:
+        """resolve LoadData 选择 → data_infos（含 ch_names / event_labels / event_counts）。
+        explicit（默认）：传 dataset_ids（recording id 列表）。
+        filter：传 selection_mode="filter" + dataset_filter（如 {"tasks":["task-sensory"], "subjects":"all", ...}）。"""
         self._ensure_login()
         r = self._session.post(
             f"{self.base_url}/studies/{study_id}/pipeline/load-data/resolve",
             json={
-                "selection_mode": "explicit",
-                "dataset_ids": dataset_ids,
-                "dataset_filter": {},
+                "selection_mode": selection_mode,
+                "dataset_ids": dataset_ids or [],
+                "dataset_filter": dataset_filter or {},
             },
             timeout=self.timeout,
         )

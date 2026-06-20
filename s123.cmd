@@ -9,7 +9,7 @@ REM         DRY RUN (no charge): only validates the buy args, then STOPS.
 REM         Does NOT deploy or test.
 REM    s123 -LaunchTemplateName elys-compute -Yes
 REM         REAL BUY (costs money) -^> auto-writes the new public IP back to
-REM         the profile -^> deploy -^> run all 3 test cases.
+REM         the profile -^> deploy -^> UPLOAD the 04_group dataset (s3_test default).
 REM
 REM  Notes: the compute server public IP is written by s1 into
 REM         deploy/profiles/aliyun-test.env (COMPUTE_SERVER_IP) and read by s2,

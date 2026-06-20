@@ -17,6 +17,10 @@ REM Project subdir under projects\ (1st arg; default 01_erp_basic for back-compa
 set "PROJECT=%~1"
 if "%PROJECT%"=="" set "PROJECT=01_erp_basic"
 
+REM Stage (2nd arg): empty = setup + run (full); "setup" = only build dataset + upload data,
+REM skip the analysis pipeline. Projects without a run.py are upload-only regardless.
+set "STAGE=%~2"
+
 set "VENV_DIR=.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 
@@ -89,13 +93,22 @@ REM         chcp nor scrolled off by first-run pip logs. Sits right above the te
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\elys_project\deploy\step_banner.ps1" -Step 3
 powershell -NoProfile -Command "Write-Host '  Test case: ' -ForegroundColor DarkGray -NoNewline; Write-Host '%PROJECT%' -ForegroundColor White"
 
-REM --- 4) Run test chain: setup (build dataset + upload) then run (pipeline) ---
+REM --- 4) Test chain.  STAGE: ""=setup+run (full) | "setup"=upload only ---
 powershell -NoProfile -Command "Write-Host ''; Write-Host ' 1/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  setup: build dataset + upload data' -ForegroundColor White"
 python projects\%PROJECT%\setup.py
 if errorlevel 1 (
   powershell -NoProfile -Command "Write-Host ''; Write-Host ' FAIL ' -BackgroundColor DarkRed -ForegroundColor White -NoNewline; Write-Host '  setup failed - skip pipeline. See errors above.' -ForegroundColor Red"
   pause
   exit /b 1
+)
+if /i "%STAGE%"=="setup" (
+  powershell -NoProfile -Command "Write-Host ''; Write-Host ' DONE ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  setup only (upload) - analysis pipeline skipped.' -ForegroundColor White"
+  goto :eof
+)
+
+if not exist "projects\%PROJECT%\run.py" (
+  powershell -NoProfile -Command "Write-Host ''; Write-Host ' DONE ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  no run.py - upload-only project, finished.' -ForegroundColor White"
+  goto :eof
 )
 powershell -NoProfile -Command "Write-Host ''; Write-Host ' 2/2 ' -BackgroundColor DarkGreen -ForegroundColor White -NoNewline; Write-Host '  run: analysis pipeline' -ForegroundColor White"
 python projects\%PROJECT%\run.py
