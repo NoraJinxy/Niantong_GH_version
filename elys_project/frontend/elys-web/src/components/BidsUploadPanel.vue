@@ -138,6 +138,40 @@
       </div>
     </div>
 
+    <div v-if="groups.length" class="bids-mapping">
+      <div class="bids-mapping__rule">
+        <span><AppIcon name="import" :size="14" /> {{ mappingRuleText }}</span>
+        <button class="btn btn--sm" type="button" :disabled="isUploading || !groups.length" @click="clearGroups">清空</button>
+      </div>
+
+      <div v-if="sessionSplitSuggestion" class="bids-suggestion">
+        <span>
+          <AppIcon name="studies" :size="14" />
+          检测到 {{ sessionSplitSuggestion.samples.join(' / ') }} —— 末尾字母像是会话(session)？
+        </span>
+        <button class="btn btn--sm" type="button" :disabled="isUploading" @click="applySessionSuffixSplit">
+          拆成 subject + session（{{ sessionSplitSuggestion.count }} 份）
+        </button>
+      </div>
+
+      <div class="bids-bulk">
+        <span class="bids-bulk__label">整列批量填</span>
+        <div class="bids-bulk__field">
+          <label><span>task</span><input v-model.trim="defaultTask" class="bids-inline-input" placeholder="rest" :disabled="isUploading" /></label>
+          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyColumnToReadyGroups('task')">填充全部</button>
+        </div>
+        <div class="bids-bulk__field">
+          <label><span>session</span><input v-model.trim="defaultSession" class="bids-inline-input" placeholder="可空" :disabled="isUploading" /></label>
+          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyColumnToReadyGroups('session')">填充全部</button>
+        </div>
+        <div class="bids-bulk__field">
+          <label><span>run</span><input v-model.trim="defaultRun" class="bids-inline-input" placeholder="可空" :disabled="isUploading" /></label>
+          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyColumnToReadyGroups('run')">填充全部</button>
+          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyRunSequenceToReadyGroups">顺延 01·02·03</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="groups.length" class="bids-groups">
       <div v-if="!filteredGroups.length" class="bids-empty bids-empty--compact">
         <AppIcon name="file" :size="18" />
@@ -149,6 +183,11 @@
         class="bids-group"
         :class="[`is-${group.status}`, { 'is-invalid': hasGroupInlineError(group), 'is-expanded': group.expanded }]"
       >
+        <div class="bids-group__filename" :title="group.files.map((file) => file.name).join('  ·  ')">
+          <AppIcon name="file" :size="13" />
+          <strong>{{ group.title }}</strong>
+        </div>
+
         <div class="bids-group__row">
           <label class="bids-group__check" :title="canSelectGroup(group) ? '选择该组导入' : getShortGroupMessage(group)">
             <input v-model="group.selected" type="checkbox" :disabled="!canSelectGroup(group) || isUploading" />
@@ -305,34 +344,14 @@
           </div>
         </div>
       </div>
-      <div class="bids-defaults">
-        <label>
-          <span>默认任务</span>
-          <input v-model.trim="defaultTask" class="input" placeholder="rest" />
-        </label>
-        <label>
-          <span>默认 session</span>
-          <input v-model.trim="defaultSession" class="input" placeholder="可空" />
-        </label>
-        <label>
-          <span>默认 run</span>
-          <input v-model.trim="defaultRun" class="input" placeholder="可空" />
-        </label>
-        <div class="bids-default-actions">
-          <button class="btn btn--sm" type="button" :disabled="!canApplyDefaultEntities" @click="applyDefaultEntitiesToReadyGroups">
-            应用到待导入组
-          </button>
-          <button class="btn btn--sm" type="button" :disabled="isUploading || !groups.length" @click="clearGroups">
-            清空
-          </button>
-        </div>
-      </div>
     </details>
 
     <div class="bids-uploader__footer">
       <div>
         <div v-if="summaryText" class="muted text-sm">{{ summaryText }}</div>
-        <div v-if="autoFillNote" class="muted text-sm">{{ autoFillNote }}</div>
+        <div v-if="bidsSummary.total" class="muted text-sm" :class="{ 'is-warning': bidsSummary.hasWarning }">
+          {{ bidsSummary.passed }} / {{ bidsSummary.total }} 份通过 BIDS 校验{{ bidsSummary.hasWarning ? '；黄色项可修正后再导入（不影响其余）' : '' }}
+        </div>
         <div v-if="!hasUploadTarget" class="muted text-sm">系统正在自动准备上传位置；文件可以先选择，稍候即可提交。</div>
         <div v-if="globalError" class="inline-error">{{ globalError }}</div>
         <div v-if="globalSuccess" class="inline-success">{{ globalSuccess }}</div>
@@ -749,13 +768,88 @@ function getQueueFilterCount(filter: QueueFilter) {
   return queueStats.value.total
 }
 
-function applyDefaultEntitiesToReadyGroups() {
+// —— 整列批量填：把某一列一键填到所有「待导入」组，省去 14 行逐个点。
+// task 留空不覆盖（task 必填）；session/run 留空即视为「整列清空」。
+function applyColumnToReadyGroups(column: 'task' | 'session' | 'run') {
+  const value =
+    column === 'task' ? defaultTask.value.trim()
+    : column === 'session' ? defaultSession.value.trim()
+    : defaultRun.value.trim()
   defaultEntityTargetGroups.value.forEach((group) => {
-    if (defaultTask.value.trim()) group.task = defaultTask.value.trim()
-    group.session = defaultSession.value.trim()
-    group.run = defaultRun.value.trim()
+    if (column === 'task') {
+      if (value) group.task = value
+    } else {
+      group[column] = value
+    }
+    syncGroupSelectionState(group)
   })
 }
+
+// run 顺延填充：按当前显示顺序给「待导入」组依次编号 01、02、03…（文件名没带 run 时最省手）。
+function applyRunSequenceToReadyGroups() {
+  let n = Number(defaultRun.value.trim()) || 1
+  defaultEntityTargetGroups.value.forEach((group) => {
+    group.run = String(n).padStart(2, '0')
+    syncGroupSelectionState(group)
+    n += 1
+  })
+}
+
+// —— 智能建议：被试号末尾的单个字母（如 007a / 007b）通常是「会话(session)」而非被试编号的一部分。
+// 命中条件：字段以「数字 + 单个字母」收尾且 session 还空着。给一键拆分，不自动改（语义判断交还用户）。
+const sessionSuffixGroups = computed(() =>
+  groups.value.filter(
+    (group) => group.valid && !group.session.trim() && /^[A-Za-z0-9]*\d[A-Za-z]$/.test(group.subject),
+  ),
+)
+const sessionSplitSuggestion = computed(() => {
+  const matches = sessionSuffixGroups.value
+  if (matches.length < 2) return null
+  const samples = Array.from(new Set(matches.map((group) => group.subject))).slice(0, 3)
+  return { count: matches.length, samples }
+})
+function applySessionSuffixSplit() {
+  sessionSuffixGroups.value.forEach((group) => {
+    const match = group.subject.match(/^(.*\d)([A-Za-z])$/)
+    if (!match) return
+    group.subject = match[1]
+    group.session = match[2].toLowerCase()
+    syncGroupSelectionState(group)
+  })
+}
+
+// —— BIDS 字段校验：只允许字母和数字。非法字符给 warning 但不拦上传（符合「厚薄分层」的薄层引导：
+// 能跑就放行，只在该提醒时提醒）。subject/task 仍由 hasRequiredEntities 作硬性必填。
+const BIDS_ENTITY_PATTERN = /^[A-Za-z0-9]+$/
+function getBidsWarnings(group: UploadGroup): string[] {
+  if (!group.valid) return []
+  const warnings: string[] = []
+  const entries: Array<[string, string]> = [
+    ['subject', group.subject],
+    ['session', group.session],
+    ['task', group.task],
+    ['run', group.run],
+  ]
+  for (const [label, value] of entries) {
+    if (value.trim() && !BIDS_ENTITY_PATTERN.test(value.trim())) {
+      warnings.push(`${label} 含字母数字以外的字符`)
+    }
+  }
+  return warnings
+}
+function groupHasBidsWarning(group: UploadGroup) {
+  return getBidsWarnings(group).length > 0
+}
+const bidsSummary = computed(() => {
+  const valid = groups.value.filter((group) => group.valid)
+  const passed = valid.filter((group) => hasRequiredEntities(group) && !groupHasBidsWarning(group)).length
+  return { total: valid.length, passed, hasWarning: valid.some(groupHasBidsWarning) }
+})
+
+const mappingRuleText = computed(() =>
+  autoFillNote.value
+  || '已按文件名自动识别 subject / run（task 默认 rest）；可整列批量填，或在下方逐行修改。',
+)
 
 function selectAllReadyGroups() {
   groups.value.forEach((group) => {
@@ -834,13 +928,14 @@ function getShortGroupMessage(group: UploadGroup) {
 function getGroupInlineHint(group: UploadGroup) {
   if (hasGroupInlineError(group) || group.status === 'replace-pending') return getShortGroupMessage(group)
   if (group.status === 'done') return getGroupSuccessSummary(group)
+  if (group.status === 'ready' && groupHasBidsWarning(group)) return getBidsWarnings(group)[0]
   return getProgressDisplay(group)
 }
 
 function getGroupHintClass(group: UploadGroup) {
   return {
     'is-error': hasGroupInlineError(group),
-    'is-warning': group.status === 'replace-pending',
+    'is-warning': group.status === 'replace-pending' || (group.status === 'ready' && groupHasBidsWarning(group)),
     'is-success': group.status === 'done',
   }
 }
@@ -1048,8 +1143,19 @@ function inferEntities(file: File) {
     subject: findEntity(text, /sub-?([A-Za-z0-9]+)/i),
     session: findEntity(text, /ses-?([A-Za-z0-9]+)/i) || defaultSession.value,
     task: findEntity(text, /task-?([A-Za-z0-9]+)/i) || defaultTask.value || 'rest',
-    run: findEntity(text, /run-?([A-Za-z0-9]+)/i) || defaultRun.value,
+    run: findRun(text) || defaultRun.value,
   }
+}
+
+// run 既要认 BIDS 写法（run-01 / run01 / run_01），也要认实验室常见简写（_r01 / -r1）。
+// 简写要求「分隔符 + r + 数字」且后面紧跟分隔符或结尾，避免误伤 subject 里的字母。
+// 若 run 认不出来，同一被试的多个 run 四元组会全部撞车 → 触发去重把 subject 改花（见 assignBatchSubjects）。
+function findRun(text: string) {
+  const bids = text.match(/run[-_]?(\d+)/i)
+  if (bids?.[1]) return sanitizeEntity(bids[1])
+  const shorthand = text.match(/[_-]r(\d+)(?=[_.\-]|$)/i)
+  if (shorthand?.[1]) return sanitizeEntity(shorthand[1])
+  return ''
 }
 
 function findEntity(text: string, pattern: RegExp) {
