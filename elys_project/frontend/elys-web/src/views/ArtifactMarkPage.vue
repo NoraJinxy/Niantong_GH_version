@@ -274,7 +274,8 @@ const chartSeries = computed(() =>
 
 // 地形图：电极 2D 坐标 + 游标时刻各通道值（无游标用窗口均值）；单 cell 喂 TopoStrip
 const topoCells = computed<TopoCell[]>(() => {
-  const pos = meta.value?.ch_pos
+  // 用窗口(ts)的坐标——它取全部通道；概览(overview)只取 16 通道(算包络用)，坐标也只有 16，不能用来画地形图
+  const pos = ts.value?.ch_pos
   if (!pos) return []
   const pts = Object.keys(pos)
     .filter((name) => pos[name])
