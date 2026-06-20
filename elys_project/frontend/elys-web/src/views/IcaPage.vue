@@ -186,14 +186,17 @@
             </button>
           </div>
           <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
-          <button v-if="applyDone" class="btn btn--sm" @click="closeSelf">关闭本页</button>
+          <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
           <template v-else-if="!jobContext">
             <span class="muted text-sm">查看模式 · 在工作流「ICA Apply」节点处打开才能提交</span>
           </template>
-          <button v-else class="btn btn--primary" :disabled="!canApply" @click="applyDecision">
-            <AppIcon name="check" :size="16" />
-            {{ applying ? '提交中…' : '应用并继续' }}
-          </button>
+          <template v-else>
+            <button class="btn btn--primary" :disabled="!canApply" @click="submitAndReturn">
+              <AppIcon name="check" :size="16" />
+              {{ applying ? '提交中…' : '应用并继续' }}
+            </button>
+            <button class="btn btn--sm" :disabled="applying" @click="returnToPipeline">取消 · 返回</button>
+          </template>
         </div>
       </template>
     </div>
@@ -203,13 +206,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, dataApi } from '@/api/client'
+import { dataApi } from '@/api/client'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import { useIcaComparison } from '@/composables/observe/useIcaComparison'
+import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
 
 // ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
 interface TopoPoint { name: string; x: number; y: number; weight: number }
@@ -293,10 +297,13 @@ const detail = ref<IcaDetail | null>(null)
 const detailLoading = ref(false)
 let detailSeq = 0
 
-const applying = ref(false)
-const applyMsg = ref('')
-const applyError = ref(false)
-const applyDone = ref(false)
+// 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与伪迹审核页共用同一套
+const { applying, applyMsg, applyError, applyDone, submitAndReturn, returnToPipeline } = useReviewerHandoff({
+  studyId, executionId, jobId,
+  decisionVersion: () => decisionVersion,
+  buildBody: () => ({ excluded_components: removeList.value }),
+  summary: () => `剔除 ${removeList.value.length} 个成分`,
+})
 
 // 前端视觉缩放（与三观察页同一套手感）：viewMin/Max=可见时间窗（两图共享，X 同步），*Amp=各自幅度系数。
 // 默认看前半段（约 WINDOW_SECONDS/2 秒）：曲线不挤、且一打开就能拖动平移（满量程视图无处可平移）。
@@ -453,42 +460,6 @@ async function selectComponent(index: number) {
 
 function onCellClick(index: number) {
   selectComponent(index)
-}
-
-function closeSelf() {
-  try {
-    window.close()
-  } catch {
-    /* 浏览器可能拦截非脚本打开的标签关闭 */
-  }
-}
-
-async function applyDecision() {
-  if (!jobContext.value) return
-  applying.value = true
-  applyMsg.value = ''
-  applyError.value = false
-  try {
-    await api.post(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/decision`, {
-      excluded_components: removeList.value,
-      decision_version: decisionVersion,
-    })
-    // 提交决策后顺势恢复运行——职责合一：本页既能选也能续跑。
-    try {
-      await api.post(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/resume`, {})
-      applyMsg.value = `已提交剔除 ${removeList.value.length} 个成分，流水线已继续运行。`
-    } catch {
-      applyMsg.value = `已提交剔除 ${removeList.value.length} 个成分；自动继续未成功，请回工作流点「继续运行」。`
-    }
-    // 本页一般是从工作流暂停处新标签打开的——提交完直接关闭返回工作流；关不掉则保留「关闭本页」按钮兜底。
-    applyDone.value = true
-    setTimeout(closeSelf, 500)
-  } catch (err: unknown) {
-    applyError.value = true
-    applyMsg.value = describeError(err)
-  } finally {
-    applying.value = false
-  }
 }
 
 function describeError(err: unknown): string {

@@ -1138,7 +1138,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { LGraph, LGraphCanvas, LGraphNode, LiteGraph } from 'litegraph.js'
 import 'litegraph.js/css/litegraph.css'
 import AppIcon from '@/components/AppIcon.vue'
@@ -1278,6 +1278,7 @@ type PipelineContextMenuItem = {
 defineOptions({ name: 'PipelinePage' })
 
 const route = useRoute()
+const router = useRouter()
 
 // 承重墙：图定义 / 选中节点 / 节点规格（状态与基础查询见 composables/pipeline/usePipelineEditor）
 const {
@@ -1933,6 +1934,15 @@ onMounted(async () => {
 })
 
 // keep-alive：本页在容器 4-tab 中被缓存。切回时重绑快捷键 + 重算画布尺寸（隐藏期 ResizeObserver 不触发，防错位/糊）
+// 从审核台（/artifact /ica）router.back 回来：续跑已随 resume 推进，补刷执行态 + 续上轮询
+//（onDeactivated 切走时停了轮询、waiting_user_input 又是终态，不补刷就看不到节点从「等待确认」变「成功」）。
+async function wakeRunStateOnReturn() {
+  const eid = activeExecutionId.value
+  if (!eid) return
+  await refreshRunState(eid)
+  startRunPolling(eid) // 轮询自带终态自停，已完成则空转一拍即止
+}
+
 onActivated(() => {
   document.addEventListener('keydown', handleLayoutKeydown)
   // 切回本页：画布在就补尺寸；万一画布没了（异常 / HMR）就重建，避免卡在“正在初始化”
@@ -1942,6 +1952,7 @@ onActivated(() => {
   } else {
     initLiteGraphCanvas()
   }
+  void wakeRunStateOnReturn()
 })
 
 // 切走时解绑快捷键 + 停运行轮询，避免后台空转
@@ -2264,20 +2275,12 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     void openIcaReviewerForJob(job)
     return
   }
-  // 手动去伪迹去坏段：交互节点在 waiting_user_input 时双击 → 打开波形审核台（标坏段/坏道 → 确认 → 续跑）
+  // 手动去伪迹去坏段：交互节点在 waiting_user_input 时双击 → 同标签打开审核台（标坏段/坏道 → 应用后 router.back 回本页续跑）
   if (job.node_type === 'eeg/preproc/artifact_mark' && job.status === 'waiting_user_input') {
-    const params = new URLSearchParams({
-      studyId,
-      executionId: String(activeExecutionId.value || job.execution_id || ''),
-      jobId: job.id,
+    void router.push({
+      path: '/artifact',
+      query: { studyId, executionId: String(activeExecutionId.value || job.execution_id || ''), jobId: job.id },
     })
-    const reviewLink = document.createElement('a')
-    reviewLink.href = `/artifact?${params.toString()}`
-    reviewLink.target = '_blank'
-    reviewLink.rel = 'noopener'
-    document.body.appendChild(reviewLink)
-    reviewLink.click()
-    reviewLink.remove()
     return
   }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
@@ -3627,9 +3630,12 @@ function pushBaselineSummary(graphNode: LiteGraphNode, params: Record<string, un
   pushReadonlyFact(graphNode, '基线窗', `起点 → ${trimNumberText(tmax)} s`)
 }
 
-/** Grand Average PSD：无参数，补一行方法学说明避免空卡。 */
-function pushGroupAverageSummary(graphNode: LiteGraphNode) {
-  pushReadonlyFact(graphNode, '运算', '被试平均 ±SEM')
+/** Grand Average：沿 unit 轴求均值 + 标准误（通吃 ERP/PSD/TFR）。误差带单列一行，
+ *  让「不只是平均、还带 ±标准误」一眼可见；纯中文，不在卡上混 SEM 英文缩写。 */
+function pushGroupAverageSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const weighted = params.weighted === true
+  pushReadonlyFact(graphNode, '运算', weighted ? '加权被试平均' : '被试平均')
+  pushReadonlyFact(graphNode, '误差带', '±标准误')
 }
 
 /** Group Merge：有组标签显标签，否则补一行说明（唯一参数是 string、通用渲染会跳过 → 否则空卡）。 */
@@ -3731,7 +3737,7 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       pushBaselineSummary(graphNode, params)
       break
     case 'eeg/group/average':
-      pushGroupAverageSummary(graphNode)
+      pushGroupAverageSummary(graphNode, params)
       break
     case 'eeg/group/merge':
       pushGroupMergeSummary(graphNode, params)

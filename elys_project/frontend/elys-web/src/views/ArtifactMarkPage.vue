@@ -80,7 +80,10 @@
         <div v-else-if="error" class="am-empty is-error">
           <AppIcon name="warning" :size="32" />
           <p class="am-empty-title">{{ error }}</p>
-          <button class="btn btn--sm" :disabled="loading" @click="reload">重试</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn--sm" :disabled="loading" @click="reload">重试</button>
+            <button class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
+          </div>
         </div>
         <div v-else-if="loading && !ts" class="am-empty"><p class="muted">加载波形中…</p></div>
 
@@ -163,8 +166,11 @@
             <option value="interpolate">球面样条插值修复（改数据，需坐标）</option>
           </select>
         </div>
-        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="applyDecision">
+        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn">
           <AppIcon name="check" :size="16" /> {{ applying ? '提交中…' : applyLabel }}
+        </button>
+        <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
+          <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
         </button>
         <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Artifact Mark」节点（等待人工）处打开本页才能提交。</p>
         <p v-if="applyMsg" class="am-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
@@ -181,6 +187,7 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
+import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
 import type { PipelineInteraction, StudyOutputTimeseries } from '@/types'
 
 interface ArtifactBadSegment { onset: number; duration: number; source?: string }
@@ -234,11 +241,16 @@ const badChannels = ref<Set<string>>(new Set())
 const channelAction = ref<'mark' | 'interpolate'>('mark')
 const topoValues = ref<Record<string, number>>({})
 
-const applying = ref(false)
-const applyMsg = ref('')
-const applyError = ref(false)
 const autoRunning = ref(false)
 const autoMsg = ref('')
+
+// 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与 ICA 共用同一套
+const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline } = useReviewerHandoff({
+  studyId, executionId, jobId,
+  decisionVersion: () => decisionVersion.value,
+  buildBody: () => ({ bad_segments: badSegments.value, bad_channels: [...badChannels.value], channel_action: channelAction.value }),
+  summary: () => `${badSegments.value.length} 段坏段 / ${badChannels.value.size} 个坏道`,
+})
 
 const sfreq = computed(() => (ts.value?.sfreq ?? overview.value?.sfreq ?? 0))
 // 时长 / 范围优先用全程概览，没回来前回退到当前窗（让导航不必等概览加载）
@@ -441,7 +453,14 @@ async function reload() {
     await loadWindow() // 先画当前窗（快）→ 波形立即可见
     document.title = `伪迹审核 · ${ts.value?.channels.length ?? 0} 通道 — 念析`
     void loadOverview().catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
-  } catch (err: unknown) { error.value = describeError(err); ts.value = null } finally { loading.value = false }
+  } catch (err: unknown) {
+    // 节点已不在「等待人工」态（已处理/已续跑）→ /interaction 404 → 友好提示而非裸错误
+    const msg = describeError(err)
+    error.value = /interaction not found|interaction 不存在|找不到/i.test(msg)
+      ? '该节点已处理完成或不在「等待人工」状态，无需在此标记——可返回工作流查看结果。'
+      : msg
+    ts.value = null
+  } finally { loading.value = false }
 }
 
 // 窗口 / 滤波变 → 重取细节窗（粗全程不变）
@@ -469,22 +488,6 @@ async function autoDetect() {
     sugSeg.forEach((s) => mergeInSegment({ onset: Number(s.onset), duration: Number(s.duration), source: 'auto' }))
     autoMsg.value = `自动检测：建议 ${sugCh.length} 坏道 / ${sugSeg.length} 坏段，已并入（可再手动增删）。`
   } catch (err: unknown) { autoMsg.value = '自动检测失败：' + describeError(err) } finally { autoRunning.value = false }
-}
-
-async function applyDecision() {
-  if (!jobContext.value) return
-  applying.value = true
-  applyMsg.value = ''
-  applyError.value = false
-  try {
-    await api.post(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/decision`, {
-      bad_segments: badSegments.value, bad_channels: badChannelList.value, channel_action: channelAction.value, decision_version: decisionVersion.value,
-    })
-    try {
-      await api.post(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/resume`, {})
-      applyMsg.value = `已提交 ${badSegments.value.length} 段坏段 / ${badChannelList.value.length} 个坏道，流水线已继续运行。`
-    } catch { applyMsg.value = '已提交标记；自动继续未成功，请回工作流点「继续运行」。' }
-  } catch (err: unknown) { applyError.value = true; applyMsg.value = describeError(err) } finally { applying.value = false }
 }
 
 function parseInitSegments(value: unknown): ArtifactBadSegment[] {

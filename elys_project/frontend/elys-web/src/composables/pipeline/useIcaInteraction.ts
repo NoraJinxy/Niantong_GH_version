@@ -7,6 +7,7 @@
 // PipelinePage 的 watch 调用，均通过解构出的同名引用（单向：运行态 → ICA）。
 
 import { computed, ref, type Ref, type ComputedRef } from 'vue'
+import { useRouter } from 'vue-router'
 import type { PipelineExecution, PipelineIcaComponentPreview, PipelineInteraction, PipelineJob } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
 import { ICA_APPLY_NODE_TYPE } from './pipelineConstants'
@@ -35,6 +36,8 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
     isTerminalRunStatus,
     startRunPolling,
   } = options
+
+  const router = useRouter()
 
   const icaInteraction = ref<PipelineInteraction | null>(null)
   const icaExcludedComponents = ref<number[]>([])
@@ -182,13 +185,8 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
         jobId: job.id,
         decisionVersion: String(interaction.decision_version || 1),
       })
-      const link = document.createElement('a')
-      link.href = `/ica?${query.toString()}`
-      link.target = '_blank'
-      link.rel = 'noopener'
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
+      // 同标签打开富审核台（路线 B）：应用后 router.back 回工作流页续跑，与 artifact_mark 一致
+      void router.push(`/ica?${query.toString()}`)
     } catch (error) {
       statusMessage.value = describeError(error, 'ICA 审核台打开失败')
     }
