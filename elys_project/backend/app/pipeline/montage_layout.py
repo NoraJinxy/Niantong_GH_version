@@ -133,10 +133,13 @@ def channel_positions_2d(info, names) -> dict[str, list[float]] | None:
             thetas.append(float(np.arccos(vz)))
             phis.append(float(np.arctan2(float(v[1]), float(v[0]))))
         theta_max = max(thetas) or 1.0
-        # 按最大极角归一（不裁剪到 π/2），最外电极落边界、保留径向次序——否则下半球电极全堆在圆周
+        # 按最大极角归一保留径向次序（避免下半球电极全堆圆周），再留余量 HEAD_MARGIN：
+        # 最外电极落 ~0.9 头半径而非贴死圆边——对标 EEGLAB/MNE（头罩圆比电极分布大一圈；
+        # MNE plot_topomap 实测标准帽最外电极在 ~0.906 head_radius、不顶到圈上）。
+        HEAD_MARGIN = 0.9
         out: dict[str, list[float]] = {}
         for nm, th, ph in zip(names_list, thetas, phis):
-            r = th / theta_max
+            r = th / theta_max * HEAD_MARGIN
             out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
         return out or None
     except Exception:
