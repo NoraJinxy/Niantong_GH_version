@@ -251,12 +251,13 @@ function drawLegend(u: uPlot, forceShow = false) {
   const { left, top, width } = u.bbox
   const dpr = PX_RATIO
   const max = 8
-  const rowH = 19 * dpr
+  const rowH = 22 * dpr
   const ipad = 7 * dpr // 块内边距
-  const swatchW = 16 * dpr
+  const swatchW = 18 * dpr
   const gap = 7 * dpr
   ctx.save()
-  ctx.font = `${15 * dpr}px var(--ff-mono, monospace)`
+  // 图例字号固定 CSS px（不随子图缩放）：多视图 facet 子图小而密时原 15px 显小看不清，调到 18px
+  ctx.font = `${18 * dpr}px var(--ff-mono, monospace)`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   const items = props.series.slice(0, max).map((s) => ({
