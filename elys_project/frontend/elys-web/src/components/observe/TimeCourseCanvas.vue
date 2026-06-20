@@ -117,6 +117,7 @@ const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度
 const GRID = '#D3DAE6' // --c-border-2（原 border #E4E9F1 ≈隐形，提一档让网格成形而不抢戏）
 const REGION_FILL = 'rgba(63, 94, 143, 0.07)' // elys 主蓝低透明
 const BAD_SEG_FILL = 'rgba(226, 75, 74, 0.18)' // 坏段红块：柔和 danger 半透明（受众医生，不用刺眼硬红）
+const BAD_SEG_EDGE = 'rgba(214, 40, 40, 0.85)' // 坏段左右边界线：实色，密集多通道波形上也清晰可辨
 const REGION_LINE = 'rgba(63, 94, 143, 0.32)'
 const REF_LINE = '#C4CCD8'
 const LOCK_LINE = '#D9822B' // 锁定标记：琥珀色，区别于参考线/区间
@@ -201,20 +202,6 @@ function drawUnder(u: uPlot) {
       ctx.restore()
     }
   }
-  // 坏段红块（伪迹审核）：overlay/spread 都画，置于曲线之下
-  if (props.badSegments && props.badSegments.length) {
-    ctx.save()
-    ctx.fillStyle = BAD_SEG_FILL
-    for (const seg of props.badSegments) {
-      const on = Number(seg.onset)
-      const dur = Number(seg.duration)
-      if (!Number.isFinite(on) || !(dur > 0)) continue
-      const xa = clamp(u.valToPos(on, 'x', true), left, left + width)
-      const xb = clamp(u.valToPos(on + dur, 'x', true), left, left + width)
-      if (xb > xa) ctx.fillRect(xa, top, xb - xa, height)
-    }
-    ctx.restore()
-  }
   // 统计区间高亮
   const r = props.region
   if (r && r.x1 > r.x0) {
@@ -264,12 +251,12 @@ function drawLegend(u: uPlot, forceShow = false) {
   const { left, top, width } = u.bbox
   const dpr = PX_RATIO
   const max = 8
-  const rowH = 15 * dpr
-  const ipad = 6 * dpr // 块内边距
-  const swatchW = 14 * dpr
-  const gap = 6 * dpr
+  const rowH = 19 * dpr
+  const ipad = 7 * dpr // 块内边距
+  const swatchW = 16 * dpr
+  const gap = 7 * dpr
   ctx.save()
-  ctx.font = `${12 * dpr}px var(--ff-mono, monospace)`
+  ctx.font = `${15 * dpr}px var(--ff-mono, monospace)`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   const items = props.series.slice(0, max).map((s) => ({
@@ -305,6 +292,31 @@ function drawLegend(u: uPlot, forceShow = false) {
     }
     ctx.fillText(it.label, sx + swatchW + gap, y)
     y += rowH
+  }
+  ctx.restore()
+}
+
+// 坏段红块（伪迹审核）：画在 series 之上（draw 钩子），密集多通道下也清晰；半透明填充 + 实色左右边界线
+function drawBadSegments(u: uPlot) {
+  if (!props.badSegments || !props.badSegments.length) return
+  const ctx = u.ctx
+  const { left, top, width, height } = u.bbox
+  ctx.save()
+  for (const seg of props.badSegments) {
+    const on = Number(seg.onset)
+    const dur = Number(seg.duration)
+    if (!Number.isFinite(on) || !(dur > 0)) continue
+    const xa = clamp(u.valToPos(on, 'x', true), left, left + width)
+    const xb = clamp(u.valToPos(on + dur, 'x', true), left, left + width)
+    if (xb <= xa) continue
+    ctx.fillStyle = BAD_SEG_FILL
+    ctx.fillRect(xa, top, xb - xa, height)
+    ctx.strokeStyle = BAD_SEG_EDGE
+    ctx.lineWidth = 1.5 * PX_RATIO
+    ctx.beginPath()
+    ctx.moveTo(xa, top); ctx.lineTo(xa, top + height)
+    ctx.moveTo(xb, top); ctx.lineTo(xb, top + height)
+    ctx.stroke()
   }
   ctx.restore()
 }
@@ -450,7 +462,7 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
-      draw: [(u: uPlot) => { drawLegend(u, exportMode); if (!exportMode) drawLocked(u); drawMarkers(u) }],
+      draw: [(u: uPlot) => { drawBadSegments(u); drawLegend(u, exportMode); if (!exportMode) drawLocked(u); drawMarkers(u) }],
       setSelect: [
         (u: uPlot) => {
           const sel = u.select
