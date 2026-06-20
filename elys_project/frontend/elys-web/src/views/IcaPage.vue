@@ -114,7 +114,7 @@
             <div class="ica-center-head">
               <div class="ica-center-title">
                 整体去除前后对比
-                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }} · µV</span>
+                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }}</span>
               </div>
               <div class="ica-center-controls">
                 <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">全部时段</button>
@@ -132,7 +132,6 @@
                   x-label="时间 (s)"
                   y-label="µV"
                   show-legend
-                  dense-axes
                   pan-on-drag
                   :view-min="viewMin"
                   :view-max="viewMax"
@@ -159,9 +158,8 @@
                   :data="tcData"
                   :series="tcSeries"
                   x-label="时间 (s)"
-                  y-label=""
+                  y-label="a.u."
                   :show-legend="false"
-                  dense-axes
                   pan-on-drag
                   :view-min="viewMin"
                   :view-max="viewMax"
@@ -550,7 +548,7 @@ onMounted(load)
 .ica-zoom-hint { position: absolute; right: 8px; top: 4px; font-size: 10px; color: var(--c-text-3); pointer-events: none; background: color-mix(in srgb, var(--c-surface) 80%, transparent); padding: 1px 5px; border-radius: 4px; }
 .ica-cmp-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--c-text-3); padding: 24px; }
 /* 选中成分时域激活：全宽、窄高 */
-.ica-tc-body { flex-shrink: 0; height: 132px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; padding: 6px 16px 10px; }
+.ica-tc-body { flex-shrink: 0; height: 152px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; padding: 6px 16px 10px; }
 .ica-tc-cap { font-size: 11px; font-weight: 600; color: var(--c-text-2); padding-bottom: 4px; }
 .ica-tc-host { flex: 1; min-height: 0; position: relative; }
 .ica-tc-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
