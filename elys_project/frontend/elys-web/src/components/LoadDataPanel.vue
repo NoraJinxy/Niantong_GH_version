@@ -404,11 +404,12 @@ const filteredDatasets = computed<Recording[]>(() => {
 
 // === 命中文件 ===
 function bidsFileName(d: Recording): string {
+  // 后端存的 BIDS 实体本就带前缀（sub- / ses- / task- / run-），直接拼即可，别再补前缀（否则 ses-ses-b…）。
   const parts: string[] = []
   if (d.bids_subject_id) parts.push(d.bids_subject_id)
-  if (d.session) parts.push(`ses-${d.session}`)
-  if (d.task) parts.push(`task-${d.task}`)
-  if (d.run) parts.push(`run-${d.run}`)
+  if (d.session) parts.push(d.session)
+  if (d.task) parts.push(d.task)
+  if (d.run) parts.push(d.run)
   return `${parts.join('_')}_eeg.fif`
 }
 

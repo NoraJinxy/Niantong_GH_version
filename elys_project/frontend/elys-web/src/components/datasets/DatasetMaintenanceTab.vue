@@ -97,7 +97,7 @@
                 :class="{ 'is-selected': row.rec.id === selectedRecordingId }"
                 @click="selectRecording(row.rec)"
               >
-                <td v-if="showSession" class="dmt-muted">{{ row.rec.session ? `ses-${row.rec.session}` : '—' }}</td>
+                <td v-if="showSession" class="dmt-muted">{{ row.rec.session || '—' }}</td>
                 <td>{{ row.rec.task }}</td>
                 <td v-if="showRun" class="dmt-muted">{{ row.rec.run ?? '—' }}</td>
                 <td class="dmt-table__status">
