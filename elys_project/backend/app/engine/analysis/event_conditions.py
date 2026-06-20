@@ -173,13 +173,20 @@ def propose_condition_groups(
     return groups
 
 
-def rules_for_selection(selected: Any, descriptions: Sequence[str]) -> list[ConditionRule]:
+def rules_for_selection(
+    selected: Any, descriptions: Sequence[str]
+) -> tuple[list[ConditionRule], list[str]]:
     """把节点存的 conditions 还原成 ConditionRule。接受:
     - 勾选的分组名列表(前端 chips,字符串)→ 按当前数据重算分组、按名取回 pattern/mode;
     - [{"name","pattern","mode"?}, ...] 规则列表 → 直接用。
+
+    返回 (rules, unknown_names):unknown_names = 勾选了、但在「当前数据」的分组里找不到的名字
+    (即上游已无该事件)。原先这些名字被静默丢弃,导致「明明勾了却少切一类、还不报错」;现在回吐
+    给调用方,由其转成节点 warning(见 epoching.run_epoch_segment)。dict 形式的规则(脚本/API)
+    不查数据、永不计入 unknown——是否命中交给 match_conditions 兜。
     """
     if not selected:
-        return []
+        return [], []
     items = list(selected) if isinstance(selected, (list, tuple)) else [selected]
     rules: list[ConditionRule] = []
     pending_names: list[str] = []
@@ -196,10 +203,48 @@ def rules_for_selection(selected: Any, descriptions: Sequence[str]) -> list[Cond
             text = str(item).strip()
             if text:
                 pending_names.append(text)
+    unknown_names: list[str] = []
     if pending_names:
         groups = {g["name"]: g for g in propose_condition_groups(descriptions)}
         for nm in pending_names:
             g = groups.get(nm)
             if g is not None:
                 rules.append(ConditionRule(name=g["name"], pattern=g["pattern"], mode=g["mode"]))
-    return rules
+            else:
+                unknown_names.append(nm)
+    return rules, unknown_names
+
+
+def build_remap_source_target(raw_rules: Any) -> dict[str, str]:
+    """把 Event Remap 节点的 rules 编成 {源分组名 → 目标名}（首条规则优先；目标 '' 表丢弃）。
+
+    rules: [{"sources": [分组名...], "target": "新名字"}]。供运行时改写注释 + 解析器变换词表共用,
+    保证「界面里勾的」「运行时改的」「下游看到的」三处语义一致。
+    """
+    mapping: dict[str, str] = {}
+    if not isinstance(raw_rules, (list, tuple)):
+        return mapping
+    for rule in raw_rules:
+        if not isinstance(rule, dict):
+            continue
+        target = str(rule.get("target") or "").strip()
+        sources = rule.get("sources")
+        if not isinstance(sources, (list, tuple)):
+            continue
+        for s in sources:
+            name = str(s).strip()
+            if name and name not in mapping:  # 首条规则优先
+                mapping[name] = target
+    return mapping
+
+
+def classify_descriptions(descriptions: Sequence[str]) -> list[str]:
+    """给每个注释描述贴上它所属的「事件分组名」——与 propose_condition_groups 同一套分桶口径
+    (instance_laden 时按抹数字模板归组、否则按原值),返回与输入等长的分组名列表。
+    用于运行时把每条注释归到一个分组,再据 build_remap_source_target 决定改名/丢弃。
+    """
+    texts = [str(d) for d in descriptions]
+    use_template = summarize_event_vocabulary(texts)["looks_instance_laden"]
+    if not use_template:
+        return texts
+    return [_DIGITS.sub("#", t).replace("#", "*") for t in texts]

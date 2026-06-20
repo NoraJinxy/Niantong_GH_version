@@ -7,15 +7,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from .event_conditions import match_conditions, rules_for_selection
+from .event_conditions import (
+    match_conditions,
+    rules_for_selection,
+    summarize_event_vocabulary,
+)
 
 
-def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
+def run_epoch_segment(raw: Any, params: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
     """按 condition 切分 Epochs(condition 统一模型)。
 
     params["conditions"]: 用户在 Epoch 节点勾选的「事件分组名」列表(前端 chips 来自 LoadData
     自动算出的分组);也接受 [{"name","pattern","mode"?}, ...] 规则列表。运行时按当前数据重算
     分组、按所选名还原规则,与前端显示用同一套分组逻辑,保证一致。
+
+    返回 (epochs, diagnostics)。diagnostics["skipped_conditions"] = 用户勾了、但在「这份」数据
+    里切不出任何 epoch 的 condition(上游不存在 or 命中 0 条);调用方(dispatcher)据此回吐节点
+    warning,不再「默默少切一类」。按单份 raw 算——多数据集异质时某条件只在部分文件缺失属正常,
+    故只 warning、不 block(全部条件都切不出才在下面 raise)。
     """
     mne = _mne()
     import numpy as np  # noqa: PLC0415
@@ -25,22 +34,30 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
         raise ValueError("No events found in Raw annotations.")
     descriptions = list(annotations.description)
 
-    rules = rules_for_selection(params.get("conditions"), descriptions)
-    if not rules:
+    rules, unknown_conditions = rules_for_selection(params.get("conditions"), descriptions)
+    if not rules and not unknown_conditions:
         raise ValueError("Epoch.conditions is required.")
+    if not rules:
+        summary = summarize_event_vocabulary(descriptions)
+        raise ValueError(
+            f"None of the selected conditions {unknown_conditions} exist in this data. "
+            f"{summary['hint']}"
+        )
 
     sfreq = float(raw.info["sfreq"])
-    events_list, event_id_map, _report = match_conditions(
+    events_list, event_id_map, report = match_conditions(
         annotations.onset, descriptions, sfreq, rules
     )
     if not event_id_map:
-        from .event_conditions import summarize_event_vocabulary  # noqa: PLC0415
-
         summary = summarize_event_vocabulary(descriptions)
         raise ValueError(
             "No annotations matched the requested conditions "
             f"{[r.name for r in rules]}. {summary['hint']}"
         )
+
+    # 勾了但这份数据切不出 epoch 的:上游根本没有(unknown)+ 规则建起来却命中 0 条(empty)。
+    empty_conditions = [r.name for r in rules if report["counts"].get(r.name, 0) == 0]
+    skipped_conditions = unknown_conditions + empty_conditions
 
     events = np.array(sorted(events_list), dtype=int)
 
@@ -62,7 +79,8 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> Any:
     )
     if len(epochs) == 0:
         raise ValueError(f"No epochs were created for conditions: {list(event_id_map)}")
-    return epochs
+    diagnostics = {"skipped_conditions": skipped_conditions}
+    return epochs, diagnostics
 
 
 def _mne():

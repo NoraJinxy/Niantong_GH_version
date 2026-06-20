@@ -44,6 +44,7 @@ from app.engine.ica.iclabel import run_iclabel
 from app.engine.preprocess.artifact_mark import run_artifact_mark
 from app.engine.preprocess.bad_channels import run_bad_channels
 from app.engine.preprocess.channel_location import run_channel_location
+from app.engine.preprocess.event_remap import run_event_remap
 from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
 from app.engine.preprocess.resample import run_resample
@@ -92,6 +93,7 @@ class NodeDispatcher:
             "eeg/preproc/channel_location": self._execute_channel_location,
             "eeg/preproc/bad_channels": self._execute_bad_channels,
             "eeg/preproc/artifact_mark": self._execute_artifact_mark,
+            "eeg/preproc/event_remap": self._execute_event_remap,
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/ica/iclabel": self._execute_ica_iclabel,
@@ -240,6 +242,9 @@ class NodeDispatcher:
 
     def _execute_resample(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_raw_preprocess(context, run_resample, save_descriptor="resamp")
+
+    def _execute_event_remap(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        return self._execute_raw_preprocess(context, run_event_remap, save_descriptor="evtmap")
 
     def _execute_rereference(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_raw_preprocess(context, run_rereference, save_descriptor="ref")
@@ -979,12 +984,26 @@ class NodeDispatcher:
 
                 upstream_ids = [str(data_info.get("artifact_id") or data_info.get("study_output_id") or "")]
 
+                # 命名：英文 base「Grand Average」+ 区分信息（条件 / unit 数），避免多个组平均都叫
+                # 「Grand Average」撞名后只能靠后端补 (2) 区分（用户看不出谁是谁）。
+                n_units = int(result.get("n_units") or 0)
+                unit_word = {"subject": "subj", "trial": "trials", "run": "runs", "epoch": "epochs"}.get(
+                    str(result.get("unit_kind") or "subject"), str(result.get("unit_kind") or "subject")
+                )
+                ga_name_parts = ["Grand Average"]
+                if label.strip() and label.strip().lower() not in {"grandavg", "grand average", "grandaverage"}:
+                    ga_name_parts.append(f"· {label.strip()}")
+                if n_units > 0:
+                    ga_name_parts.append(f"({n_units} {unit_word})")
+                ga_display_name = " ".join(ga_name_parts)
+
                 # 保存设置：Grand Average 是终端 leaf，拓扑驱动下 keep=True → 结果页可见。
                 save_meta = self._save_settings_metadata(
                     context,
                     data_info={"condition": label, "task": label},
                     index=index,
                     split_value=label or None,
+                    display_name_override=ga_display_name,
                 )
 
                 artifact = study_output_store.save_file_from_writer(
@@ -1300,7 +1319,7 @@ class NodeDispatcher:
     def _execute_epochs_output(
         self,
         context: NodeExecutionContext,
-        processor: Callable[[Any, dict[str, Any]], Any],
+        processor: Callable[[Any, dict[str, Any]], tuple[Any, dict[str, Any]]],
         *,
         save_descriptor: str,
     ) -> NodeDispatchResult:
@@ -1321,6 +1340,7 @@ class NodeDispatcher:
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         # split_by 决定输出 cardinality：none → 一进一出；condition → 一进 N 出
         split_mode = str(context.params.get("split_by") or "none").strip().lower()
@@ -1328,7 +1348,28 @@ class NodeDispatcher:
         for index, data_info in enumerate(input_data_infos):
             try:
                 raw = read_raw_from_data_info(data_info, preload=True)
-                epochs = processor(raw, context.params)
+                epochs, diagnostics = processor(raw, context.params)
+
+                # 勾了但这份数据切不出的 condition → 节点 warning（不阻断；其余 condition 正常输出）
+                skipped = (
+                    list(diagnostics.get("skipped_conditions") or [])
+                    if isinstance(diagnostics, dict)
+                    else []
+                )
+                if skipped:
+                    warnings.append(
+                        self._issue(
+                            code="PIPELINE_EPOCH_CONDITIONS_SKIPPED",
+                            message=(
+                                f"数据集 {self._source_dataset_id(data_info) or index}："
+                                f"勾选的条件「{', '.join(skipped)}」在该数据中不存在或无匹配试次，"
+                                "已跳过（其余条件正常切分）。"
+                            ),
+                            node_id=node_id,
+                            node_type=node_type,
+                            severity="warning",
+                        )
+                    )
 
                 if split_mode == "condition":
                     # 按 condition 拆分 —— 每个 event label 一组 sub-epochs，单独保存
@@ -1395,6 +1436,7 @@ class NodeDispatcher:
             dataset_count=len(emitted_data_infos),
             output_ports=["output"],
             errors=errors,
+            warnings=warnings,
         )
 
     def _save_epochs_dataset(
@@ -2063,6 +2105,7 @@ class NodeDispatcher:
         data_info: dict[str, Any],
         index: int,
         split_value: str | None = None,
+        display_name_override: str | None = None,
     ) -> dict[str, Any]:
         """调 apply_save_settings 并返回可直接 merge 进 metadata 的 dict。
 
@@ -2083,6 +2126,7 @@ class NodeDispatcher:
             bids_entities=data_info,
             split_value=split_value,
             index=index,
+            display_name_override=display_name_override,
         )
 
     @staticmethod
@@ -2523,10 +2567,13 @@ class NodeDispatcher:
         raise ValueError("Could not match ICA matrix data_info to input dataset.")
 
     @staticmethod
-    def _issue(*, code: str, message: str, node_id: str, node_type: str) -> dict[str, Any]:
+    def _issue(
+        *, code: str, message: str, node_id: str, node_type: str, severity: str = "error"
+    ) -> dict[str, Any]:
         return PipelineValidationIssue(
             code=code,
             message=message,
             node_id=node_id,
             node_type=node_type,
+            severity=severity,
         ).model_dump(mode="json")

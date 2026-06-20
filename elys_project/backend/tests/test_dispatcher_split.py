@@ -295,7 +295,7 @@ def test_execute_epochs_output_split_condition_iterates_event_ids(monkeypatch):
 
     # processor 模拟 run_epoch_segment，返回带 2 个 conditions 的 FakeEpochs
     def fake_processor(raw, params):
-        return FakeEpochs({"go": 1, "nogo": 2}, count=20)
+        return FakeEpochs({"go": 1, "nogo": 2}, count=20), {"skipped_conditions": []}
 
     store = FakeStudyOutputStore()
     input_data_info = {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"}
@@ -333,7 +333,7 @@ def test_execute_epochs_output_split_none_keeps_single_output(monkeypatch):
     monkeypatch.setattr(disp_mod, "read_raw_from_data_info", lambda data_info, **kw: object())
 
     def fake_processor(raw, params):
-        return FakeEpochs({"go": 1, "nogo": 2}, count=20)
+        return FakeEpochs({"go": 1, "nogo": 2}, count=20), {"skipped_conditions": []}
 
     store = FakeStudyOutputStore()
     input_data_info = {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"}
@@ -368,7 +368,7 @@ def test_execute_epochs_output_split_skips_empty_subepochs(monkeypatch):
             return super().__getitem__(key)
 
     def fake_processor(raw, params):
-        return FakeEpochsWithEmpty({"go": 1, "nogo": 2}, count=10)
+        return FakeEpochsWithEmpty({"go": 1, "nogo": 2}, count=10), {"skipped_conditions": []}
 
     store = FakeStudyOutputStore()
     ctx = _make_context(params={"split_by": "condition"})
@@ -381,6 +381,37 @@ def test_execute_epochs_output_split_skips_empty_subepochs(monkeypatch):
     # 只有 go 一个非空
     assert result.dataset_count == 1
     assert store.calls[0]["metadata"]["condition"] == "go"
+
+
+def test_execute_epochs_output_emits_warning_for_skipped_conditions(monkeypatch):
+    """processor 回吐 skipped_conditions → 结果带 severity=warning 的 issue，但仍 success。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(disp_mod, "read_raw_from_data_info", lambda data_info, **kw: object())
+
+    def fake_processor(raw, params):
+        # 只切出 go；nogo 在该数据中无匹配 → 回吐为 skipped（不阻断）
+        return FakeEpochs({"go": 1}, count=10), {"skipped_conditions": ["nogo"]}
+
+    store = FakeStudyOutputStore()
+    input_data_info = {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"}
+    ctx = _make_context(params={"split_by": "none"})
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
+
+    assert result.status == "success"        # 部分跳过不阻断
+    assert result.dataset_count == 1         # go 仍正常切分输出
+    assert len(result.warnings) == 1
+    warning = result.warnings[0]
+    assert warning["severity"] == "warning"
+    assert warning["code"] == "PIPELINE_EPOCH_CONDITIONS_SKIPPED"
+    assert "nogo" in warning["message"]
 
 
 # =============================================================================
