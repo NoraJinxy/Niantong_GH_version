@@ -640,7 +640,9 @@ function openHrefInNewTab(href: string) {
   const link = document.createElement('a')
   link.href = href
   link.target = '_blank'
-  link.rel = 'noopener'
+  // rel='opener'（非 noopener）：保住 window.opener，让观察页「返回研究项」能聚焦来源页 + window.close 关本标签
+  // （对标工作区/pipeline 由 dashboard/studies 用 rel="opener" 打开的做法）。同源，无 tabnabbing 风险。
+  link.rel = 'opener'
   document.body.appendChild(link)
   link.click()
   link.remove()
