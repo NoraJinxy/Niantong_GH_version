@@ -101,9 +101,9 @@
               v-for="study in recentStudies"
               :key="study.id"
               class="study-row"
-              :to="`/studies/${study.id}`"
+              :to="{ path: `/studies/${study.id}`, query: { from: 'dashboard' } }"
               target="_blank"
-              rel="noopener"
+              rel="opener"
             >
               <span class="status-dot" :class="`is-${study.status}`"></span>
               <div class="study-row__content">
@@ -181,7 +181,7 @@
                 :class="{ 'is-attention': isAttentionExecutionStatus(execution.status) }"
                 :to="pipelineExecutionRoute(execution)"
                 target="_blank"
-                rel="noopener"
+                rel="opener"
               >
                 <span class="run-row__dot" :class="`is-${execution.status}`"></span>
                 <div class="run-row__body">
@@ -846,6 +846,7 @@ function pipelineExecutionRoute(execution: DashboardExecutionItem): RouteLocatio
     query: {
       pipeline_id: String(execution.pipeline_id),
       execution_id: execution.id,
+      from: 'dashboard',
     },
   }
 }

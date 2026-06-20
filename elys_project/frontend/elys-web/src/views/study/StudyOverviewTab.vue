@@ -57,7 +57,7 @@
             class="btn btn--primary"
             :to="decision.to"
             :target="decisionOpensPipeline ? '_blank' : undefined"
-            :rel="decisionOpensPipeline ? 'noopener' : undefined"
+            :rel="decisionOpensPipeline ? 'opener' : undefined"
           >{{ decision.action }}</RouterLink>
         </div>
       </section>
@@ -194,7 +194,8 @@ watch(studyId, (id) => {
 function nextStepRoute(target: StudyNextTarget, sid: string): RouteLocationRaw {
   if (target === 'import-data') return `/datasets?study_id=${sid}`
   if (target === 'view-data') return `/studies/${sid}/data`
-  return `/studies/${sid}/pipeline` // configure-pipeline / view-run / continue
+  // 工作流在新标签页打开：带 from=studies，让工作区顶栏「退出」按钮在来源页已关时知道兜底跳回研究项列表。
+  return { path: `/studies/${sid}/pipeline`, query: { from: 'studies' } } // configure-pipeline / view-run / continue
 }
 const decision = computed(() => {
   const s = summary.value
@@ -213,7 +214,12 @@ const decision = computed(() => {
   return { ...stage.nextStep, to: nextStepRoute(stage.nextStep.target, sid) }
 })
 // 指向工作流(pipeline)时在新标签打开，让用户专注；指向数据集/数据 tab 则维持当前页跳转。
-const decisionOpensPipeline = computed(() => String(decision.value.to).includes('/pipeline'))
+// decision.to 可能是字符串路径或 { path, query } 对象，取出 path 再判断。
+const decisionOpensPipeline = computed(() => {
+  const to = decision.value.to
+  const path = typeof to === 'string' ? to : to.path || ''
+  return path.includes('/pipeline')
+})
 
 // 概览结果区只展示「保存 / 缓存 / 回收站」三类；纯临时（keep=false 且 cache_eligible=false 且未删）
 // 是系统中间态，与「结果」tab 同口径藏掉，不占用户视野。
