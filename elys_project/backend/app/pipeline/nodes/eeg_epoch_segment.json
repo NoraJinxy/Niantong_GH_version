@@ -7,10 +7,10 @@
   "description": "按事件切分 Epochs。",
   "tags": ["epoch", "events", "erp"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "epochs", "label": "分段", "cardinality": "same_as_input"}
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "conditions", "label": "条件（勾选要切分的事件分组）", "type": "event_select", "default": "", "required": true, "description": "从上游自动识别的事件分组里勾选；每个勾选项 = 一个 condition。"},

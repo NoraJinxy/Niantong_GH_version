@@ -7,10 +7,10 @@
   "description": "自动剔除坏试次(epoch)：峰峰值 / 平坦阈值（MNE 内置，快）或 AutoReject（交叉验证自动学阈值，需 autoreject 库）。输出干净 Epochs，常接在分段 / 基线之后、ERP / 时频 / 频域之前，提升平均结果可信度。输出写入 derivatives。",
   "tags": ["reject", "artifact", "epochs", "autoreject", "qc", "trial"],
   "inputs": [
-    {"name": "input", "type": "epochs", "label": "分段", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "epochs", "label": "分段", "cardinality": "same_as_input"}
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "method", "label": "剔除方法", "type": "select", "default": "threshold", "required": true,

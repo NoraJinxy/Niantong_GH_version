@@ -10,7 +10,7 @@
     {
       "name": "input",
       "type": "unit_stack",
-      "label": "组数据",
+      "label": "Unit Stack",
       "required": true,
       "cardinality": "one"
     }
@@ -19,7 +19,7 @@
     {
       "name": "output",
       "type": "analysis_result",
-      "label": "均值",
+      "label": "Average",
       "cardinality": "one"
     }
   ],

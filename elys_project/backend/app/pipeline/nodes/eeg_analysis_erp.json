@@ -7,7 +7,7 @@
   "description": "对 Epochs 做条件平均，生成 Evoked/ERP 结果。",
   "tags": ["erp", "evoked", "analysis"],
   "inputs": [
-    {"name": "input", "type": "epochs", "label": "分段", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
     {"name": "output", "type": "evoked", "label": "ERP", "cardinality": "same_as_input"}

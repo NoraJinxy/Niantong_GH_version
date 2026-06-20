@@ -7,10 +7,10 @@
   "description": "对 Epochs 做基线校正：减去基线窗（默认刺激前 [起点, 0]）的均值。常接在分段之后、ERP/时频之前。",
   "tags": ["baseline", "epochs", "preprocess", "erp"],
   "inputs": [
-    {"name": "input", "type": "epochs", "label": "分段", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "epochs", "label": "分段", "cardinality": "same_as_input"}
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "baseline_tmax", "label": "基线窗结束", "type": "number", "unit": "s", "default": 0, "description": "基线窗 = [epoch 起点, 此值]，默认 0（用刺激前整段做基线）。"}

@@ -10,14 +10,14 @@
     {
       "name": "a",
       "type": "unit_stack",
-      "label": "组 A",
+      "label": "Group A",
       "required": true,
       "cardinality": "one_or_many"
     },
     {
       "name": "b",
       "type": "unit_stack",
-      "label": "组 B",
+      "label": "Group B",
       "required": true,
       "cardinality": "one_or_many"
     }
@@ -26,7 +26,7 @@
     {
       "name": "output",
       "type": "stat_map",
-      "label": "统计图",
+      "label": "Stat Map",
       "cardinality": "one"
     }
   ],

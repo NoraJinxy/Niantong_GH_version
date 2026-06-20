@@ -7,11 +7,11 @@
   "description": "应用人工确认的 ICA 剔除成分。",
   "tags": ["ica", "artifact"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"},
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"},
     {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA", "required": true, "cardinality": "same_as_input"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
     {

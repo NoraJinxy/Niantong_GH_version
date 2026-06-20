@@ -10,7 +10,7 @@
     {
       "name": "input",
       "type": "stackable",
-      "label": "分析产物",
+      "label": "Result",
       "required": true,
       "cardinality": "one_or_many"
     }
@@ -19,7 +19,7 @@
     {
       "name": "output",
       "type": "unit_stack",
-      "label": "组数据",
+      "label": "Unit Stack",
       "cardinality": "one"
     }
   ],

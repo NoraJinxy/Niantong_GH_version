@@ -7,10 +7,10 @@
   "description": "统一滤波节点：带通 / 高通 / 低通 + 工频陷波，FIR / IIR / 谱拟合可选。输出写入 derivatives，不改写 fifdata。",
   "tags": ["filter", "preprocess", "bandpass", "highpass", "lowpass", "notch"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "filter_type", "label": "滤波类型", "type": "select", "default": "bandpass", "required": true,

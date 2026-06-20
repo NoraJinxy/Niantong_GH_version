@@ -7,10 +7,10 @@
   "description": "重参考，禁止写入 fifdata，输出写入 derivatives。",
   "tags": ["reference", "preprocess"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "ref_channels", "label": "参考通道", "type": "channel_list", "default": [], "required": true, "help": "勾选用作参考的通道。单选 = 单通道参考；多选 = 这些通道的平均做参考；全选 = 共同平均参考 (common average reference)。"}

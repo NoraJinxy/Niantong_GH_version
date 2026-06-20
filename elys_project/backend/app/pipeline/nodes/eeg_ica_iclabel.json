@@ -7,11 +7,11 @@
   "description": "用 ICLabel 深度模型自动给每个 ICA 成分打分分类（脑 / 眼动 / 肌电 / 心电 / 工频 / 单通道噪声 / 其它），按所选类别 + 置信度阈值自动剔除伪迹成分并重建数据——全自动，无需逐个人工审阅。建议上游先做平均参考 + 1–100Hz 带通、且 Compute ICA 选 Infomax，分类最准。",
   "tags": ["ica", "artifact", "iclabel", "auto", "automatic"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"},
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"},
     {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA", "required": true, "cardinality": "same_as_input"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
     {

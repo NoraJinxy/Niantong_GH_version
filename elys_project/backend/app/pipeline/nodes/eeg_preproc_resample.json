@@ -7,10 +7,10 @@
   "description": "重采样，属于 preprocessing，输出写入 derivatives。",
   "tags": ["resample", "preprocess"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "脑电", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
-    {"name": "output", "type": "eeg_data", "label": "脑电", "cardinality": "same_as_input"}
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
   ],
   "properties": [
     {"name": "sfreq", "label": "采样率", "type": "number", "unit": "Hz", "default": 250, "min": 1, "required": true}
