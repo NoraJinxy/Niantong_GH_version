@@ -301,11 +301,15 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
   const cx = mapX(0)
   const cy = mapY(0)
 
-  // 4) 色面贴 [-1,1]²，裁到头罩圆
+  // 4) 色面贴 [-1,1]²，裁到头罩圆。绕圆心翻转 y：kernel 网格行号(py)向下递增=屏幕下方，
+  //    但电极坐标约定 +y=前(电极点画在 mapY(-p.y)=屏幕上方、与鼻子一致)；不翻则色斑与电极点
+  //    关于圆心上下镜像（前部电极的色斑跑到后部）。translate(0,2cy)+scale(1,-1) 对齐二者。
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, scale, 0, Math.PI * 2)
   ctx.clip()
+  ctx.translate(0, 2 * cy)
+  ctx.scale(1, -1)
   ctx.drawImage(o.canvas, mapX(-1), mapY(-1), 2 * scale, 2 * scale)
   ctx.restore()
 
