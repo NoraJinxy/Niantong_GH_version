@@ -10,6 +10,8 @@ Related: app/routers/study_outputs.py（ica-components 端点）, app/pipeline/m
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 from .montage_layout import channel_positions_2d
@@ -312,14 +314,71 @@ def _load_source_raw(study: Any, artifact: Any):
         return None
 
 
-def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
-    """端点用：解析 ICA artifact 路径载入 ICA（+回溯源 raw），返回总览 + 每成分地形图网格。"""
+# ── ICA 加载缓存（进程内）：三个 ICA 端点共享 ───────────────────────────────────
+# 痛点：成分网格 / 单成分详情 / 去除前后预览各自从磁盘重读整个源 raw（preload）+ 重跑 ICLabel，
+# 又慢又重复。这里按 artifact 内容身份（sha256，缺则 id）缓存「已载入的 (ica, raw) 对象 + 网格结果」，
+# 让首屏后的点选 / 勾选 / 重开都走内存。进程内、带 TTL + 容量上限（raw 对象大，只留几个）；
+# mne 对象只读复用——detail/preview 的 apply/copy 都在副本上做，不污染缓存原件。
+_ICA_CACHE: dict[str, dict[str, Any]] = {}
+_ICA_CACHE_LOCK = threading.Lock()
+_ICA_CACHE_TTL_SECONDS = 600.0  # 10 分钟未访问即失效
+_ICA_CACHE_MAX_ENTRIES = 3  # raw 对象占内存，最多并存 3 个数据集
+
+
+def _ica_cache_key(artifact: Any) -> str:
+    sha = getattr(artifact, "sha256", None)
+    return f"sha:{sha}" if sha else f"id:{getattr(artifact, 'id', '')}"
+
+
+def _ica_cache_get(key: str) -> dict[str, Any] | None:
+    with _ICA_CACHE_LOCK:
+        entry = _ICA_CACHE.get(key)
+        if entry is None:
+            return None
+        if time.time() - entry.get("ts", 0) > _ICA_CACHE_TTL_SECONDS:
+            _ICA_CACHE.pop(key, None)
+            return None
+        entry["ts"] = time.time()  # 触碰续期
+        return entry
+
+
+def _ica_cache_set(key: str, entry: dict[str, Any]) -> None:
+    with _ICA_CACHE_LOCK:
+        entry["ts"] = time.time()
+        _ICA_CACHE[key] = entry
+        if len(_ICA_CACHE) > _ICA_CACHE_MAX_ENTRIES:
+            stale = sorted(_ICA_CACHE.items(), key=lambda kv: kv[1].get("ts", 0))
+            for old_key, _entry in stale[: len(_ICA_CACHE) - _ICA_CACHE_MAX_ENTRIES]:
+                _ICA_CACHE.pop(old_key, None)
+
+
+def _load_ica_and_raw(study: Any, artifact: Any) -> tuple[str, Any, Any, dict[str, Any]]:
+    """载入 ICA + 源 raw，命中缓存则复用已载入对象（不再每请求重读整个 FIF）。返回 (key, ica, raw, entry)。"""
     from .previews import resolve_study_output_path  # noqa: PLC0415
 
+    key = _ica_cache_key(artifact)
+    entry = _ica_cache_get(key)
+    if entry and entry.get("loaded"):
+        return key, entry["ica"], entry["raw"], entry
+
     mne = _mne()
-    ica_path = resolve_study_output_path(study, artifact)
-    ica = mne.preprocessing.read_ica(str(ica_path), verbose="ERROR")
+    ica = mne.preprocessing.read_ica(str(resolve_study_output_path(study, artifact)), verbose="ERROR")
     raw = _load_source_raw(study, artifact)
+    entry = entry or {}
+    entry.update({"ica": ica, "raw": raw, "loaded": True})
+    _ica_cache_set(key, entry)
+    return key, ica, raw, entry
+
+
+def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
+    """端点用：解析 ICA artifact 路径载入 ICA（+回溯源 raw），返回总览 + 每成分地形图网格。
+
+    结果按 artifact 内容身份缓存：同一 ICA 重开 / 刷新直接命中内存，跳过 raw 重载 + ICLabel 重跑。
+    """
+    key, ica, raw, entry = _load_ica_and_raw(study, artifact)
+    if entry.get("result") is not None:
+        return entry["result"]
+
     overview = ica_overview(ica, raw)
     components = component_topographies(ica, raw)
 
@@ -333,7 +392,7 @@ def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
         if info and info.get("suggested"):
             suggested_exclude.append(comp["index"])
 
-    return {
+    result = {
         **overview,
         "study_output_id": str(getattr(artifact, "id", "") or ""),
         "has_source_raw": raw is not None,
@@ -341,6 +400,9 @@ def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
         "suggested_exclude": sorted(suggested_exclude),
         "components": components,
     }
+    entry["result"] = result
+    _ica_cache_set(key, entry)
+    return result
 
 
 def build_ica_component_detail(
@@ -352,13 +414,10 @@ def build_ica_component_detail(
     max_seconds: float = 10.0,
     fmax: float = 50.0,
 ) -> dict[str, Any]:
-    """端点用：单成分时域 + 频谱（+可选去除前后对比，需源 raw）。"""
-    from .previews import StudyOutputPreviewError, resolve_study_output_path  # noqa: PLC0415
+    """端点用：单成分时域 + 频谱（+可选去除前后对比，需源 raw）。复用缓存的 ica+raw，不重读 FIF。"""
+    from .previews import StudyOutputPreviewError  # noqa: PLC0415
 
-    mne = _mne()
-    ica_path = resolve_study_output_path(study, artifact)
-    ica = mne.preprocessing.read_ica(str(ica_path), verbose="ERROR")
-    raw = _load_source_raw(study, artifact)
+    _key, ica, raw, _entry = _load_ica_and_raw(study, artifact)
     if raw is None:
         raise StudyOutputPreviewError(
             "ICA_SOURCE_RAW_UNAVAILABLE",
@@ -383,14 +442,11 @@ def build_ica_preview(
     """端点用：给定要剔除的成分组合 + 通道，返回去除前后对比波形（成分审核页中心视图实时刷新用）。
 
     只算对比波形（不含时序 / 频谱），比单成分详情端点轻，便于成分组合频繁切换时实时预览。
-    excluded 为空 → 返回 has_comparison=False（前端显示占位提示，不报错）。
+    复用缓存的 ica+raw，不重读 FIF。excluded 为空 → 返回原始信号（去除后=原始）。
     """
-    from .previews import StudyOutputPreviewError, resolve_study_output_path  # noqa: PLC0415
+    from .previews import StudyOutputPreviewError  # noqa: PLC0415
 
-    mne = _mne()
-    ica_path = resolve_study_output_path(study, artifact)
-    ica = mne.preprocessing.read_ica(str(ica_path), verbose="ERROR")
-    raw = _load_source_raw(study, artifact)
+    _key, ica, raw, _entry = _load_ica_and_raw(study, artifact)
     if raw is None:
         raise StudyOutputPreviewError(
             "ICA_SOURCE_RAW_UNAVAILABLE",
