@@ -102,45 +102,82 @@ def collect_positions(np, info, names) -> dict[str, Any]:
 def channel_positions_2d(info, names) -> dict[str, list[float]] | None:
     """提取通道 2D 头皮投影坐标（单位圆内，+x=右、+y=前）供地形图用；取不到 → None。
 
-    坐标来源：内嵌 montage 优先，缺失时按通道名兜底匹配 MNE 标准帽（见 collect_positions）。
-    投影用方位等距（azimuthal equidistant）：顶点落圆心、耳缘落边界。纯 numpy，不依赖 MNE 私有 API，
-    全程 try/except 兜底——拿不到坐标只是没有地形图，绝不影响调用方主数据。
+    优先用 **MNE plot_topomap 同款投影**（`_find_topomap_coords`）——主流外圈电极（Fpz/Oz/T7…）
+    落在接近头罩圆边，不会被耳后/下方个别极端电极（P9/P10/Iz）把整组压缩到圆心（旧手写「按最大极角
+    归一」就栽在这：极端电极撑大 theta_max，主流电极只到 ~0.75 圆半径、看着缩了一圈）。
+    MNE 投影不可用（缺 montage、别名电极重叠等）时回退手写方位等距。全程 try/except，拿不到只是
+    没有地形图、绝不影响主数据。坐标来源：内嵌 montage 优先，缺失时按名兜底标准帽（见 collect_positions）。
     """
     try:
         np = _numpy()
-        pts = collect_positions(np, info, names)
-        if len(pts) < 3:
-            return None
-        names_list = list(pts.keys())
-        arr = np.asarray([pts[nm] for nm in names_list], dtype="float64")
-        center = arr.mean(axis=0)
-        # 退化点云（电极近共面、z 无展开）→ 方位投影无意义，宁可不画（返回 None 走诚实空态）
-        z_span = float(np.ptp(arr[:, 2]))
-        xy_span = float(max(float(np.ptp(arr[:, 0])), float(np.ptp(arr[:, 1]))) or 1.0)
-        if z_span <= 1e-6 * xy_span:
-            return None
-        # 相对中心的极角 theta（0=顶点）+ 方位角 phi
-        thetas: list[float] = []
-        phis: list[float] = []
-        for xyz in arr:
-            v = xyz - center
-            norm = float(np.linalg.norm(v))
-            if norm <= 0:
-                thetas.append(0.0)
-                phis.append(0.0)
-                continue
-            vz = max(-1.0, min(1.0, float(v[2]) / norm))
-            thetas.append(float(np.arccos(vz)))
-            phis.append(float(np.arctan2(float(v[1]), float(v[0]))))
-        theta_max = max(thetas) or 1.0
-        # 按最大极角归一保留径向次序（避免下半球电极全堆圆周），再留余量 HEAD_MARGIN：
-        # 最外电极落 ~0.9 头半径而非贴死圆边——对标 EEGLAB/MNE（头罩圆比电极分布大一圈；
-        # MNE plot_topomap 实测标准帽最外电极在 ~0.906 head_radius、不顶到圈上）。
-        HEAD_MARGIN = 0.9
-        out: dict[str, list[float]] = {}
-        for nm, th, ph in zip(names_list, thetas, phis):
-            r = th / theta_max * HEAD_MARGIN
-            out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
-        return out or None
+        xy = _mne_topomap_xy(np, info, names)
+        if xy is not None:
+            return xy
+        return _azimuthal_fallback_xy(np, info, names)
     except Exception:
         return None
+
+
+def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
+    """MNE `plot_topomap` 同款投影：把 info 里 picks 的传感器位置投到 2D，最外电极归一化到 ~0.9 圆
+    半径（头罩圆比电极分布大一圈，对标 MNE 实测最外电极在 ~0.906 head_radius、不顶圈）。失败 → None。"""
+    try:
+        from mne.channels.layout import _find_topomap_coords  # type: ignore
+    except Exception:
+        return None
+    try:
+        wanted = set(names)
+        picks = [i for i, ch in enumerate(info["ch_names"]) if ch in wanted]
+        if len(picks) < 3:
+            return None
+        coords = np.asarray(_find_topomap_coords(info, picks=picks), dtype="float64")
+        if coords.ndim != 2 or coords.shape[0] != len(picks):
+            return None
+        rr = np.hypot(coords[:, 0], coords[:, 1])
+        rmax = float(rr.max())
+        if not np.isfinite(rmax) or rmax <= 0:
+            return None
+        scale = 0.9 / rmax
+        out: dict[str, list[float]] = {}
+        for k, idx in enumerate(picks):
+            out[info["ch_names"][idx]] = [
+                round(float(coords[k, 0] * scale), 4),
+                round(float(coords[k, 1] * scale), 4),
+            ]
+        return out or None
+    except Exception:
+        # 别名电极重叠 / 缺 montage / 跨版本 API 变动等 → 交回退处理
+        return None
+
+
+def _azimuthal_fallback_xy(np, info, names) -> dict[str, list[float]] | None:
+    """回退：手写方位等距投影（电极质心为心、按最大极角归一 + 留 0.9 余量）。MNE 投影不可用时才用。"""
+    pts = collect_positions(np, info, names)
+    if len(pts) < 3:
+        return None
+    names_list = list(pts.keys())
+    arr = np.asarray([pts[nm] for nm in names_list], dtype="float64")
+    # 退化点云（电极近共面、z 无展开）→ 方位投影无意义，宁可不画
+    z_span = float(np.ptp(arr[:, 2]))
+    xy_span = float(max(float(np.ptp(arr[:, 0])), float(np.ptp(arr[:, 1]))) or 1.0)
+    if z_span <= 1e-6 * xy_span:
+        return None
+    center = arr.mean(axis=0)
+    thetas: list[float] = []
+    phis: list[float] = []
+    for xyz in arr:
+        v = xyz - center
+        norm = float(np.linalg.norm(v))
+        if norm <= 0:
+            thetas.append(0.0)
+            phis.append(0.0)
+            continue
+        vz = max(-1.0, min(1.0, float(v[2]) / norm))
+        thetas.append(float(np.arccos(vz)))
+        phis.append(float(np.arctan2(float(v[1]), float(v[0]))))
+    theta_max = max(thetas) or 1.0
+    out: dict[str, list[float]] = {}
+    for nm, th, ph in zip(names_list, thetas, phis):
+        r = th / theta_max * 0.9
+        out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
+    return out or None
