@@ -46,7 +46,7 @@ function memSet(key: string, v: StudyOutputTimeseries) {
 }
 
 // 二进制解码：b"EEGBIN01" + u32(metaLen,LE) + meta(JSON utf8) + f64 times[n] + f32 data[n_ch*n_times]（µV，C-order）
-function decodeBinary(buf: ArrayBuffer): StudyOutputTimeseries {
+export function decodeBinary(buf: ArrayBuffer): StudyOutputTimeseries {
   const dv = new DataView(buf)
   const metaLen = dv.getUint32(8, true)
   const metaStart = 12

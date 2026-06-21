@@ -204,6 +204,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, dataApi } from '@/api/client'
+import { decodeBinary } from '@/composables/observe/plotCache'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
@@ -488,12 +489,23 @@ async function fetchInputTs(params: Record<string, number | undefined>): Promise
   const key = JSON.stringify(params)
   const hit = tsCache.get(key)
   if (hit) return hit
-  const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
-  const data = res.data
-  // JSON 取数通道值是伏特(V)；只有二进制端点才换算 µV。TimeCourseCanvas 期望 µV，这里统一 V→µV。
-  if (data && data.unit !== 'uV' && Array.isArray(data.channels)) {
-    for (const ch of data.channels) ch.values = ch.values.map((v) => v * 1e6)
-    data.unit = 'uV'
+  let data: StudyOutputTimeseries
+  try {
+    // 二进制端点(EEGBIN01)：体积小 3–5 倍、免 JSON 序列化/解析、且已是 µV（省 V→µV 那 18 万次循环）。失败回退 JSON。
+    const res = await dataApi.get(inputTsUrl, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
+    const buf = res.data as ArrayBuffer
+    if (!buf || buf.byteLength < 12) throw new Error('empty binary')
+    const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 8))
+    if (magic !== 'EEGBIN01') throw new Error('bad magic')
+    data = decodeBinary(buf) // 已是 µV，无需再换算
+  } catch {
+    const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
+    data = res.data
+    // JSON 通道值是伏特(V)；TimeCourseCanvas 期望 µV，统一 V→µV。
+    if (data && data.unit !== 'uV' && Array.isArray(data.channels)) {
+      for (const ch of data.channels) ch.values = ch.values.map((v) => v * 1e6)
+      data.unit = 'uV'
+    }
   }
   tsCache.set(key, data)
   return data

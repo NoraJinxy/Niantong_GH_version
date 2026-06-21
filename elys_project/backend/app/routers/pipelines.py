@@ -2379,6 +2379,7 @@ def get_pipeline_node_input_timeseries(
     index: int | None = Query(default=None, ge=0),
     max_points: int = Query(default=2000, ge=50, le=8000),
     max_channels: int = Query(default=64, ge=1, le=256),
+    format: str = Query(default="json"),
     l_freq: float | None = Query(default=None),
     h_freq: float | None = Query(default=None),
     notch: float | None = Query(default=None),
@@ -2396,11 +2397,18 @@ def get_pipeline_node_input_timeseries(
             detail={"code": "PIPELINE_NODE_INPUT_NOT_FOUND", "message": "该节点没有可用的输入数据（确认其上游已成功运行）。"},
         )
     try:
-        return build_input_timeseries(
+        payload = build_input_timeseries(
             study, data_info,
             tmin=tmin, tmax=tmax, max_points=max_points, max_channels=max_channels,
             l_freq=l_freq, h_freq=h_freq, notch=notch,
         )
+        if str(format).lower() == "binary":
+            # 二进制：与 StudyOutput timeseries 同格式(EEGBIN01)，体积小 3–5 倍、免 JSON 序列化、已换算 µV；前端复用 decodeBinary。
+            from fastapi import Response
+            from app.pipeline.timeseries import encode_timeseries_binary
+
+            return Response(content=encode_timeseries_binary(payload), media_type="application/octet-stream")
+        return payload
     except StudyOutputPreviewError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
     except RuntimeError as exc:
