@@ -169,13 +169,15 @@ class StorageService:
         study_root: str | Path | None = None,
         refresh: bool = False,
     ) -> Path:
-        """返回一个本地可读文件路径（供 MNE 等需要真实路径的库使用）。
-        local：直接解析；oss：下载对象到 scratch（已下载过且非 refresh 则复用，做最简缓存）。"""
+        """返回一个本地可读文件路径（供 MNE 等需要真实路径的库使用）。local：直接解析；oss：下载对象到 scratch。
+        缓存复用仅限 content-addressed key（study 产物 outputs/{sha}/…，内容变 key 就变 → 复用安全）；
+        可变 key（dataset BIDS 同四元组覆盖，key 不变内容变）每次重下，否则会读到 scratch 里的旧字节。"""
         if self.backend != "oss":
             return self.resolve_path(uri, study_id=study_id, study_root=study_root)
         key = self.oss_key(uri, study_root=study_root)
         local = self._scratch_path(key)
-        if refresh or not local.exists():
+        cacheable = _is_content_addressed_key(key)
+        if refresh or not cacheable or not local.exists():
             local.parent.mkdir(parents=True, exist_ok=True)
             self._oss_bucket().get_object_to_file(key, str(local))
         return local
@@ -349,3 +351,12 @@ def _safe_join(root: Path, parts: list[str]) -> Path:
     except ValueError as exc:
         raise StorageUriError("Resolved path escapes its storage root.") from exc
     return target
+
+
+_SHA256_SEGMENT_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _is_content_addressed_key(key: str) -> bool:
+    """key 含 64 位 hex 段（=sha256 内容寻址，如 studies/{id}/outputs/ab/<sha>/…）即视为不可变、可缓存。
+    dataset BIDS 文件（datasets/{asset}/BIDSdata/sub-…）无此段 → 可变 → 不缓存、每次重下。"""
+    return any(_SHA256_SEGMENT_RE.match(seg) for seg in str(key).split("/"))

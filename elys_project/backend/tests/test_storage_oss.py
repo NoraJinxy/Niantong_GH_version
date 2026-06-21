@@ -69,3 +69,15 @@ def test_delete_and_exists_idempotent_on_bad_input(tmp_path):
     assert svc.exists("") is False
     svc.delete("")
     assert svc.exists("not-a-uri-no-scheme") is False
+
+
+def test_content_addressed_key_detection():
+    """缓存复用只认 content-addressed key：study 产物(含 sha256 段)可缓存；dataset 可变 key 不缓存。
+    回归：dataset BIDS 同四元组重传覆盖同 key 但内容变，若误判可缓存会读到 scratch 旧字节。"""
+    from app.services.storage import _is_content_addressed_key
+
+    sha = "a" * 64
+    assert _is_content_addressed_key(f"studies/123/outputs/aa/{sha}/x-epo.fif") is True
+    assert _is_content_addressed_key("datasets/ds1/BIDSdata/sub-01/eeg/sub-01_task-x_eeg.fif") is False
+    assert _is_content_addressed_key("datasets/ds1/sourcedata/original_uploads/upload-001/files/a.edf") is False
+    assert _is_content_addressed_key("legacy-studies/202605000001/derivatives/x.fif") is False

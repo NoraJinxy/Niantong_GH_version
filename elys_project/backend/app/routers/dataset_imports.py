@@ -490,8 +490,9 @@ def _persist_import_file_to_oss(local_path: Path | None, storage_uri: str | None
     path = Path(local_path)
     if not path.is_file():
         return
-    if service.exists(storage_uri):
-        return
+    # 不能用 exists() 跳过：dataset BIDS 文件（canonical FIF/sidecar）按 sub/ses/task/run 定 key，
+    # 同四元组重传覆盖同 key 但内容变了 → 必须无条件上传（persist=put_object 覆盖），否则 OSS 留旧字节。
+    # （study_output_store 那处 exists() 跳过是安全的：那是 content-addressed key，内容变 key 就变。）
     service.persist(path, storage_uri)
 
 
