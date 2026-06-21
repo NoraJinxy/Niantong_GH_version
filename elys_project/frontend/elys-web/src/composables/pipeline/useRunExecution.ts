@@ -68,6 +68,16 @@ export function useRunExecution(options: RunExecutionOptions) {
       .filter(Boolean)
       .slice(0, 3)
   })
+  // 运行警告（如 Epoch 跳过了上游没有的条件）：读 result_json.warnings（severity=warning）。
+  // 后端已按「一个节点一条」聚合，这里整条显示；最多 3 条防刷屏（更多看 Manifest tab 的「警告 N」）。
+  const latestPipelineExecutionWarnings = computed(() => {
+    const warnings = latestPipelineExecution.value?.result_json?.warnings
+    if (!Array.isArray(warnings)) return []
+    return warnings
+      .map((item) => (isRecord(item) ? String(item.message || item.code || '') : String(item)))
+      .filter(Boolean)
+      .slice(0, 3)
+  })
   const executionJobByNodeId = computed(() => {
     const map = new Map<string, PipelineJob>()
     for (const job of executionJobs.value) map.set(job.node_id, job)
@@ -232,6 +242,7 @@ export function useRunExecution(options: RunExecutionOptions) {
     runPolling,
     runPollingError,
     latestPipelineExecutionIssues,
+    latestPipelineExecutionWarnings,
     executionJobByNodeId,
     runArtifactsByJobId,
     executionPanelJobRows,

@@ -414,6 +414,37 @@ def test_execute_epochs_output_emits_warning_for_skipped_conditions(monkeypatch)
     assert "nogo" in warning["message"]
 
 
+def test_execute_epochs_output_aggregates_skips_across_datasets(monkeypatch):
+    """多个数据集都跳同一条件 → 聚合成「一个节点一条」警告（N/M 个数据集），不逐数据集刷屏。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(disp_mod, "read_raw_from_data_info", lambda data_info, **kw: object())
+
+    def fake_processor(raw, params):
+        return FakeEpochs({"go": 1}, count=10), {"skipped_conditions": ["nogo"]}
+
+    store = FakeStudyOutputStore()
+    infos = [
+        {"fif_path": "sub-01_task-rest_eeg.fif", "bids_subject_id": "sub-01", "task": "rest"},
+        {"fif_path": "sub-02_task-rest_eeg.fif", "bids_subject_id": "sub-02", "task": "rest"},
+    ]
+    ctx = _make_context(params={"split_by": "none"})
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=infos)}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
+
+    assert result.status == "success"
+    assert result.dataset_count == 2
+    assert len(result.warnings) == 1  # 两个数据集聚合成一条警告，而非两条
+    assert "2/2" in result.warnings[0]["message"]
+    assert "nogo" in result.warnings[0]["message"]
+
+
 # =============================================================================
 # Group 4: _execute_evoked_output ERP condition 推断
 # =============================================================================

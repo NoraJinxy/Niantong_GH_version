@@ -1341,6 +1341,7 @@ class NodeDispatcher:
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
+        skipped_by_condition: dict[str, int] = {}  # condition 名 → 在几个数据集里切不出（循环后聚合成一条警告，避免多数据集刷屏）
 
         # split_by 决定输出 cardinality：none → 一进一出；condition → 一进 N 出
         split_mode = str(context.params.get("split_by") or "none").strip().lower()
@@ -1350,26 +1351,14 @@ class NodeDispatcher:
                 raw = read_raw_from_data_info(data_info, preload=True)
                 epochs, diagnostics = processor(raw, context.params)
 
-                # 勾了但这份数据切不出的 condition → 节点 warning（不阻断；其余 condition 正常输出）
+                # 勾了但这份数据切不出的 condition → 累积，循环后按条件聚合成「一个节点一条」警告
                 skipped = (
                     list(diagnostics.get("skipped_conditions") or [])
                     if isinstance(diagnostics, dict)
                     else []
                 )
-                if skipped:
-                    warnings.append(
-                        self._issue(
-                            code="PIPELINE_EPOCH_CONDITIONS_SKIPPED",
-                            message=(
-                                f"数据集 {self._source_dataset_id(data_info) or index}："
-                                f"勾选的条件「{', '.join(skipped)}」在该数据中不存在或无匹配试次，"
-                                "已跳过（其余条件正常切分）。"
-                            ),
-                            node_id=node_id,
-                            node_type=node_type,
-                            severity="warning",
-                        )
-                    )
+                for _name in skipped:
+                    skipped_by_condition[_name] = skipped_by_condition.get(_name, 0) + 1
 
                 if split_mode == "condition":
                     # 按 condition 拆分 —— 每个 event label 一组 sub-epochs，单独保存
@@ -1415,6 +1404,23 @@ class NodeDispatcher:
                     )
                 )
                 break
+
+        # 按条件聚合跳过情况，每个节点最多一条警告（其余条件正常切分；只 warning 不 block）
+        if skipped_by_condition:
+            n_total = len(input_data_infos)
+            summary = "；".join(
+                f"{name}（{cnt}/{n_total} 个数据集无匹配）"
+                for name, cnt in skipped_by_condition.items()
+            )
+            warnings.append(
+                self._issue(
+                    code="PIPELINE_EPOCH_CONDITIONS_SKIPPED",
+                    message=f"勾选的部分条件在数据中无匹配、已跳过（其余正常切分）：{summary}",
+                    node_id=node_id,
+                    node_type=node_type,
+                    severity="warning",
+                )
+            )
 
         emitted_data_infos = [] if errors else output_data_infos
         output = NodeOutput(

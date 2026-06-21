@@ -245,6 +245,7 @@
             <span v-if="runPolling">轮询中</span>
             <span v-if="runArtifacts.length">{{ runArtifacts.length }} 个产物</span>
             <span v-for="issue in latestPipelineExecutionIssues" :key="issue">{{ issue }}</span>
+            <span v-for="warn in latestPipelineExecutionWarnings" :key="'w-' + warn" class="warn">⚠ {{ warn }}</span>
           </div>
           <div v-if="runPollingError" class="validation">
             <span class="error">{{ runPollingError }}</span>
@@ -1380,6 +1381,7 @@ const {
   runPolling,
   runPollingError,
   latestPipelineExecutionIssues,
+  latestPipelineExecutionWarnings,
   executionJobByNodeId,
   runArtifactsByJobId,
   executionPanelJobRows,
