@@ -12,6 +12,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
 )
+# 全局 gzip：所有 >1KB 响应自动压缩。JSON 浮点文本可省约 2–3x 出网流量（观察页 PSD/TFR/ICA 等全受益），
+# 浏览器透明解压、前端零改动。二进制 octet-stream 已紧凑，gzip 顺带处理、无害。
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(auth_router)
 app.include_router(admin_router)
