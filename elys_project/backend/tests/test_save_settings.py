@@ -490,6 +490,74 @@ def test_apply_save_settings_no_spec_uses_fallback_template():
     assert out["tags"] == []
 
 
+# ---- 四元组命名（P1 修重名：run/session 进名字） --------------------------
+
+def test_render_template_optional_segment_included_when_present():
+    out = render_template(
+        "{subject}[_{session}]_{task}[_{run}]_{node_title}",
+        {"subject": "sub-01", "session": "ses-b", "task": "task-rest", "run": "run-14", "node_title": "Filter"},
+    )
+    assert out == "sub-01_ses-b_task-rest_run-14_Filter"
+
+
+def test_render_template_optional_segment_omitted_when_missing():
+    # 无 session / 无 run → 两可选段连同下划线一起消失，不留 __ 空洞
+    out = render_template(
+        "{subject}[_{session}]_{task}[_{run}]_{node_title}",
+        {"subject": "sub-01", "task": "task-rest", "node_title": "Filter"},
+    )
+    assert out == "sub-01_task-rest_Filter"
+
+
+def test_apply_save_settings_includes_session_and_run():
+    """逐数据集产物名带上 BIDS 四元组（session/run），不再只 subject_task。"""
+    out = apply_save_settings(
+        db=_FakeDb(rows=[]),
+        study_id="study-1",
+        node=_node(),
+        node_spec=_spec_butter(),
+        params={},
+        topology={"butter-1": ROLE_LEAF},
+        bids_entities={"bids_subject_id": "sub-09", "session": "ses-b", "task": "task-rest", "run": "run-14"},
+        index=0,
+    )
+    assert out["display_name"] == "sub-09_ses-b_task-rest_run-14_Butter"
+
+
+def test_apply_save_settings_runs_get_distinct_names_without_suffix():
+    """同被试/任务的不同 run → 名字天然不同，不靠 (N) 退化区分（P1 核心修复）。"""
+    # 库里已有 run-01 的产物，现在落 run-14：base 不同 → 不触发 (N)
+    db = _FakeDb(rows=[("sub-09_ses-b_task-rest_run-01_Butter",)])
+    out = apply_save_settings(
+        db=db,
+        study_id="study-1",
+        node=_node(),
+        node_spec=_spec_butter(),
+        params={},
+        topology={"butter-1": ROLE_LEAF},
+        bids_entities={"bids_subject_id": "sub-09", "session": "ses-b", "task": "task-rest", "run": "run-14"},
+        index=0,
+    )
+    assert out["display_name"] == "sub-09_ses-b_task-rest_run-14_Butter"
+    assert "(2)" not in out["display_name"]
+
+
+def test_apply_save_settings_group_template_not_upgraded():
+    """组级模板（不含 {subject}，如 Grand Average）保持 spec 原样，不被四元组策略污染。"""
+    spec = {"save": {"step_label": "grandavg", "name_template_default": "Grand Average", "data_type": "evoked"}}
+    out = apply_save_settings(
+        db=_FakeDb(rows=[]),
+        study_id="study-1",
+        node={"id": "ga-1", "type": "eeg/group/average", "title": "Grand Average"},
+        node_spec=spec,
+        params={},
+        topology={"ga-1": ROLE_LEAF},
+        bids_entities={"bids_subject_id": "sub-01", "task": "task-rest"},
+        index=0,
+    )
+    assert out["display_name"] == "Grand Average"
+
+
 if __name__ == "__main__":
     # 简易自跑模式：可不依赖 pytest 直接 python -m tests.test_save_settings
     import traceback

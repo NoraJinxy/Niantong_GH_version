@@ -32,6 +32,15 @@ from app.pipeline.topology import ROLE_INTERMEDIATE
 
 
 _TEMPLATE_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+# 可选段 [..]：段内任一占位符缺值则整段省略（连同段内连接符），避免单 run/无 session 数据出现 __ 空洞
+_OPTIONAL_SEGMENT = re.compile(r"\[([^\[\]]*)\]")
+
+# 逐数据集产物的默认命名策略：BIDS 四元组(subject/session/task/run) + condition + 节点名。
+# session/run/condition 缺值时其可选段自然省略，单 run 数据收缩成 sub_task_节点。
+# 任何 spec 模板里含 {subject} 的「逐数据集」命名都升级走这条——修复历史模板只用 subject_task
+# 丢 run/session、同被试多 run 全部重名靠 (N) 退化的缺陷；不含 {subject} 的组级模板
+# (Grand Average / Unit Stack / Group Compare) 保持 spec 原样，因其本就是跨被试聚合产物。
+DEFAULT_NAME_TEMPLATE = "{subject}[_{session}]_{task}[_{run}][_{condition}]_{node_title}"
 
 # 中间节点的默认缓存保留天数（cleanup task 在到期后清理磁盘文件）
 DEFAULT_INTERMEDIATE_RETENTION_DAYS = 7
@@ -56,36 +65,53 @@ def retention_expiry_after_user_action(*, keep: bool, cache_eligible: bool) -> d
     return datetime.utcnow() + timedelta(days=days)
 
 
+def _resolve_value(name: str, ctx: dict[str, Any]) -> str | None:
+    """解析单个占位符 → 字符串值；缺失/空 → None（供可选段判定省略、必需段回落字面）。"""
+    if name == "subject":
+        value = ctx.get("subject") or ctx.get("bids_subject_id") or ctx.get("subject_id")
+        return str(value) if value else None
+    if name == "bids_subject_id":
+        value = ctx.get("bids_subject_id") or ctx.get("subject")
+        return str(value) if value else None
+    if name == "index":
+        value = ctx.get("index")
+        return str(value) if value is not None else None
+    value = ctx.get(name)
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
 def render_template(template: str, ctx: dict[str, Any]) -> str:
     """渲染模板字符串，支持 {subject} {task} {session} {run} {condition}
     {node_title} {step_label} {data_type} {index} {bids_subject_id} 等占位符。
 
-    缺失变量回落为 '{name?}' 字面值（不抛错，便于夜班批处理不被一个缺字段炸掉）。
+    可选段语法 `[..]`：段内任一占位符缺值 → 整段省略（连同段内的连接符），用于
+    `{subject}[_{session}]_{task}[_{run}]_{node_title}` 在无 session / 单 run 数据上
+    自然收缩、不留 `__` 空洞；段内占位符齐全时去掉方括号、就地渲染。
+
+    必需占位符（方括号外）缺失回落为 '{name?}' 字面值（不抛错，便于夜班批处理不被一个缺字段炸掉）。
     模板为空时返回空串。
     """
     if not template:
         return ""
 
-    def resolve(name: str) -> str:
-        if name == "subject":
-            value = (
-                ctx.get("subject")
-                or ctx.get("bids_subject_id")
-                or ctx.get("subject_id")
-            )
-            return str(value) if value else "{subject?}"
-        if name == "bids_subject_id":
-            value = ctx.get("bids_subject_id") or ctx.get("subject")
-            return str(value) if value else "{bids_subject_id?}"
-        if name == "index":
-            value = ctx.get("index")
-            return str(value) if value is not None else "{index?}"
-        value = ctx.get(name)
-        if value in (None, ""):
-            return f"{{{name}?}}"
-        return str(value)
+    # 1) 先消化可选段 [..]：任一占位符缺值 → 整段丢弃；否则去括号、段内占位符就地渲染
+    def render_optional(match: "re.Match[str]") -> str:
+        inner = match.group(1)
+        for nm in _TEMPLATE_PATTERN.findall(inner):
+            if _resolve_value(nm, ctx) is None:
+                return ""
+        return _TEMPLATE_PATTERN.sub(lambda m: _resolve_value(m.group(1), ctx) or "", inner)
 
-    return _TEMPLATE_PATTERN.sub(lambda match: resolve(match.group(1)), template)
+    body = _OPTIONAL_SEGMENT.sub(render_optional, template)
+
+    # 2) 必需占位符（段外）：缺值回落字面 {name?}
+    def render_required(match: "re.Match[str]") -> str:
+        value = _resolve_value(match.group(1), ctx)
+        return value if value is not None else f"{{{match.group(1)}?}}"
+
+    return _TEMPLATE_PATTERN.sub(render_required, body)
 
 
 def merge_tags(*sources: Any, ctx: dict[str, Any] | None = None) -> list[str]:
@@ -226,6 +252,7 @@ def apply_save_settings(
     bids_entities: dict[str, Any] | None = None,
     split_value: str | None = None,
     index: int = 0,
+    display_name_override: str | None = None,
 ) -> dict[str, Any]:
     """组合 spec.save + 拓扑 + BIDS + 用户参数，返回保存配置 dict。
 
@@ -265,15 +292,28 @@ def apply_save_settings(
         "index": index + 1,
     }
 
-    # 2) 选模板（用户 override > spec.split 模板 > spec.default 模板 > 兜底）
+    # 2) 选模板（用户 override > 调用方显式名 override > spec.split 模板 > spec.default 模板 > 兜底）
+    #    display_name_override：dispatcher 拿到运行期信息（如组平均的 unit 数）后拼好的成品名，
+    #    比静态模板更准；用户在节点参数里显式给的模板仍最高优先。
     user_template_raw = params.get("display_name_template") or params.get("display_name")
     user_template = str(user_template_raw or "").strip()
     if split_value:
         spec_template = save_cfg.get("name_template_default_split") or save_cfg.get("name_template_default")
     else:
         spec_template = save_cfg.get("name_template_default")
-    template = user_template or spec_template or "{subject}_{task}_{node_title}"
-    rendered_base = render_template(template, ctx).strip()
+    # 逐数据集命名统一走四元组默认策略：spec 模板含 {subject}（按被试命名的逐数据集产物）
+    # 或 spec 未定义模板时，一律用 DEFAULT_NAME_TEMPLATE 补齐 session/run（condition 由可选段
+    # 自动决定，不再需要 _split 变体）；不含 {subject} 的组级模板（Grand Average 等）按 spec 原样。
+    if spec_template and "{subject}" not in spec_template:
+        per_dataset_template = spec_template
+    else:
+        per_dataset_template = DEFAULT_NAME_TEMPLATE
+    if user_template:
+        rendered_base = render_template(user_template, ctx).strip()
+    elif display_name_override:
+        rendered_base = str(display_name_override).strip()
+    else:
+        rendered_base = render_template(per_dataset_template, ctx).strip()
     if not rendered_base:
         rendered_base = f"{node_title or 'node'}-{index + 1}"
 
@@ -322,6 +362,7 @@ def apply_save_settings(
 
 __all__ = [
     "render_template",
+    "DEFAULT_NAME_TEMPLATE",
     "merge_tags",
     "resolve_display_name_conflict",
     "default_keep_for_role",
