@@ -834,6 +834,7 @@ def get_study_output_tfr_cube(
     dataset_id: UUID,
     max_freqs: int = Query(default=60, ge=4, le=200),
     max_times: int = Query(default=120, ge=8, le=400),
+    format: str = Query(default="json"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -851,7 +852,30 @@ def get_study_output_tfr_cube(
             detail={"code": "DERIVED_DATASET_NOT_TFR", "message": "该结果不是时频(TFR)类型。"},
         )
     try:
-        return build_tfr_cube(study, dataset, max_freqs=max_freqs, max_times=max_times)
+        payload = build_tfr_cube(study, dataset, max_freqs=max_freqs, max_times=max_times)
+        if str(format).lower() == "binary":
+            # 二进制(ELYSBIN1)：cube 是观察数据里唯一真大的(~1.8MB)，只把 channels[].data 大数组(n_ch×nf×nt, C-order)
+            # 转 f4，freqs/times/坐标等小字段留 meta JSON。编码任何异常 → 回退 JSON(前端也会再回退)，绝不致页面坏。
+            try:
+                import numpy as np  # noqa: PLC0415
+                from fastapi import Response  # noqa: PLC0415
+                from app.pipeline.binary_codec import encode_arrays_binary  # noqa: PLC0415
+
+                chans = payload.get("channels") or []
+                nf = len(payload.get("freqs") or [])
+                nt = len(payload.get("times") or [])
+                cube = np.ascontiguousarray(np.asarray([c.get("data") or [] for c in chans], dtype="<f4"))
+                if cube.shape == (len(chans), nf, nt):
+                    meta = {k: v for k, v in payload.items() if k != "channels"}
+                    meta["channels"] = [{"name": c.get("name"), "x": c.get("x"), "y": c.get("y")} for c in chans]
+                    meta["cube_shape"] = [len(chans), nf, nt]
+                    return Response(
+                        content=encode_arrays_binary(meta, [("cube", "f4", cube.reshape(-1))]),
+                        media_type="application/octet-stream",
+                    )
+            except Exception:  # noqa: BLE001 — 二进制编码失败回退 JSON
+                pass
+        return payload
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,

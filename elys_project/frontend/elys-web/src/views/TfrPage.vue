@@ -390,6 +390,7 @@ import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { decodeElysBin } from '@/composables/observe/binaryCodec'
 import { api } from '@/api/client'
 import '@/components/observe/observePage.css'
 
@@ -417,6 +418,27 @@ const tfrCubeFetch = useTieredFetch<StudyOutputTfrCube>({
   endpoint: (p) => `/studies/${studyId}/outputs/${String(p.oid)}/tfr/cube`,
   keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.max_freqs)}::${String(p.max_times)}`,
   memMax: 8,
+  // 二进制(ELYSBIN1)：cube 大数组转 f4，省掉 JSON.parse ~46 万数的 CPU + 缩体积。
+  // 按后端 C-order(n_ch,nf,nt) 严格镜像重组；形状不符即抛 → useTieredFetch 自动回退 JSON，绝不渲染错数据。
+  decodeBinary: (buf) => {
+    const { meta, arrays } = decodeElysBin(buf)
+    const cube = arrays.cube
+    const m = meta as unknown as StudyOutputTfrCube
+    const nf = m.freqs?.length ?? 0
+    const nt = m.times?.length ?? 0
+    const chans = (m.channels ?? []) as StudyOutputTfrCube['channels']
+    if (!cube || cube.length !== chans.length * nf * nt) throw new Error('cube shape mismatch')
+    for (let ci = 0; ci < chans.length; ci++) {
+      const base = ci * nf * nt
+      const rows: number[][] = []
+      for (let f = 0; f < nf; f++) {
+        const off = base + f * nt
+        rows.push(Array.from(cube.subarray(off, off + nt)))
+      }
+      chans[ci].data = rows
+    }
+    return m
+  },
 })
 const tfrFetch = useTieredFetch<StudyOutputTfr>({
   namespace: 'tfr',
