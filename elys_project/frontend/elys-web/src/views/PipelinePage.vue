@@ -238,20 +238,27 @@
             </span>
           </div>
           <div v-if="latestPipelineExecution" class="validation">
-            <span :class="latestPipelineExecution.status === 'completed' ? 'ok' : latestPipelineExecution.status === 'waiting_user_input' ? 'warn' : 'error'">
-              运行 #{{ latestPipelineExecution.execution_seq }} {{ formatPipelineExecutionStatus(latestPipelineExecution.status) }}
-            </span>
-            <span>{{ latestPipelineExecution.node_count }} 节点 · {{ latestPipelineExecution.dataset_count }} 数据集</span>
-            <span v-if="runPolling">轮询中</span>
-            <span v-if="runArtifacts.length">{{ runArtifacts.length }} 个产物</span>
-            <span v-for="issue in latestPipelineExecutionIssues" :key="issue">{{ issue }}</span>
-            <span v-for="warn in latestPipelineExecutionWarnings" :key="'w-' + warn" class="warn">⚠ {{ warn }}</span>
+            <template v-if="latestExecutionStale">
+              <span class="stale">
+                运行 #{{ latestPipelineExecution.execution_seq }}（基于旧版本 v{{ latestPipelineExecution.pipeline_version }}）· 工作流已修改，此运行状态已过期，请重新运行
+              </span>
+            </template>
+            <template v-else>
+              <span :class="latestPipelineExecution.status === 'completed' ? 'ok' : latestPipelineExecution.status === 'waiting_user_input' ? 'warn' : 'error'">
+                运行 #{{ latestPipelineExecution.execution_seq }} {{ formatPipelineExecutionStatus(latestPipelineExecution.status) }}
+              </span>
+              <span>{{ latestPipelineExecution.node_count }} 节点 · {{ latestPipelineExecution.dataset_count }} 数据集</span>
+              <span v-if="runPolling">轮询中</span>
+              <span v-if="runArtifacts.length">{{ runArtifacts.length }} 个产物</span>
+              <span v-for="issue in latestPipelineExecutionIssues" :key="issue">{{ issue }}</span>
+              <span v-for="warn in latestPipelineExecutionWarnings" :key="'w-' + warn" class="warn">⚠ {{ warn }}</span>
+            </template>
           </div>
           <div v-if="runPollingError" class="validation">
             <span class="error">{{ runPollingError }}</span>
           </div>
-          <!-- UI Phase (docs_v2/6-05) P1-2: 步骤进度可视化 -->
-          <div v-if="executionPanelJobRows.length" class="run-stepbar">
+          <!-- UI Phase (docs_v2/6-05) P1-2: 步骤进度可视化（过期运行不显示——节点链对不上当前图、徒增困惑） -->
+          <div v-if="executionPanelJobRows.length && !latestExecutionStale" class="run-stepbar">
             <ol class="run-stepbar__list">
               <li
                 v-for="(job, idx) in executionPanelJobRows"
@@ -271,7 +278,7 @@
             </ol>
           </div>
 
-          <details v-if="executionPanelJobRows.length" class="run-panel-details">
+          <details v-if="executionPanelJobRows.length && !latestExecutionStale" class="run-panel-details">
             <summary>步骤详情</summary>
             <div class="run-panel">
               <div v-for="job in executionPanelJobRows" :key="job.id" class="run-node-row">
@@ -682,7 +689,7 @@
             </template>
           </div>
 
-          <div v-if="showIcaInteractionPanel" class="ica-interaction-panel">
+          <div v-if="showIcaInteractionPanel && !latestExecutionStale" class="ica-interaction-panel">
             <div class="ica-interaction-panel__head">
               <strong>ICA 成分确认</strong>
               <small>Decision v{{ icaInteraction?.decision_version || 1 }}</small>
@@ -1420,6 +1427,27 @@ const {
     if (executionDetailTab.value === 'lineage') void loadExecutionLineage(executionId)
   },
 })
+
+// 「最近运行」是否已过期：用户改了图（加删节点 / 改参 / 保存升版本）后，footer 里这条运行对应的是
+// 改动前的工作流——再亮它的「等待确认 / 成功」状态和旧节点链，会让人误以为是当前状态（甚至诱导去
+// resume，而运行快照是冻结的、改了上游再续跑会带错继续）。命中任一即判过期：
+//   ① 有未保存编辑（dirty）；② 运行的 pipeline_version 与当前工作流版本不一致；
+//   ③ 兜底：运行步骤里有「当前图已删掉的节点」（版本号没升但图确实变了，如把 Artifact Mark 换成 ICA）。
+const latestExecutionStale = computed(() => {
+  const exec = latestPipelineExecution.value
+  if (!exec) return false
+  if (dirty.value) return true
+  const cur = currentPipeline.value
+  if (cur && typeof exec.pipeline_version === 'number' && exec.pipeline_version !== cur.version) return true
+  const graphIds = new Set(definition.value.graph.nodes.map((node) => node.id))
+  return executionPanelJobRows.value.some((job) => !graphIds.has(job.node_id))
+})
+// 一旦运行转「过期」（如改了某个参数 → dirty），立刻重绘画布把旧运行徽标抹掉；
+// 转回「不过期」由新运行的 refreshRunState→applyRunStateToCanvas 正常接管。
+watch(latestExecutionStale, (stale) => {
+  if (stale) applyLiteGraphRunState()
+})
+
 // LoadData 数据源（数据集加载 / 解析预览 / 参数规范化 / 运行覆盖）见 composables/pipeline/useLoadData。
 // 手选右栏 UI 在 LoadDataPanel.vue（独立组件），这里只把解构喂给 <LoadDataPanel>，template 零改。
 // markDirty / updateLiteGraphNode 为下方 hoisted 函数，仅在交互回调触发，无 TDZ。
@@ -2306,6 +2334,12 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     statusMessage.value = '该节点本次运行没有执行记录，先运行工作流再查看'
     return
   }
+  // 过期运行（改图后）禁止在「等待确认」节点上续跑：运行快照已冻结，改了上游再 resume 会带旧数据继续跑错；
+  // 正确做法是重新运行（见 failure_recovery 经验）。
+  if (job.status === 'waiting_user_input' && latestExecutionStale.value) {
+    statusMessage.value = '工作流已修改，这次「等待确认」的运行已过期——请重新运行，不要在旧运行上继续（数据快照已冻结）。'
+    return
+  }
   // ICA 成分剔除：Apply ICA 节点在 waiting_user_input 时双击 → 打开富审核台（地形图墙 + 整体去除前后对比 → 提交剔除 → 续跑）
   if (job.node_type === ICA_APPLY_NODE_TYPE && job.status === 'waiting_user_input') {
     void openIcaReviewerForJob(job)
@@ -2464,7 +2498,8 @@ function applyLiteGraphRunState() {
 }
 
 function applyLiteGraphNodeRunState(graphNode: LiteGraphNode, nodeId: string, spec?: NodeSpec | null) {
-  const job = jobForNodeId(nodeId)
+  // 运行已过期（改图后）⇒ 当成无 job 处理：节点回到中性外观，不再挂着上一版运行的「成功 / 等待确认」徽标。
+  const job = latestExecutionStale.value ? null : jobForNodeId(nodeId)
   if (!job) {
     graphNode.color = '#D4DDE8'
     graphNode.boxcolor = categoryColor(spec?.category)
@@ -5438,6 +5473,12 @@ function describeError(error: unknown, fallback: string) {
 .validation .error,
 .state-text--error {
   color: var(--c-danger);
+}
+
+/* 过期运行（改图后旧运行）——弱化成 muted，不抢眼、明确「这不是当前状态」 */
+.validation .stale {
+  color: var(--c-text-muted);
+  font-weight: 500;
 }
 
 .run-panel {
