@@ -3,14 +3,11 @@
     <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
       <div class="topo-cap-right">
         <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
-          <span>{{ loLabel ?? axisLabel(barLo) }}</span>
+          <span style="min-width: 30px; text-align: right; font-variant-numeric: tabular-nums;">{{ loLabel ?? axisLabel(barLo) }}</span>
           <span :style="{ width: '88px', height: '9px', borderRadius: '2px', border: '1px solid var(--c-border)', background: barGradient }"></span>
-          <span>{{ hiLabel ?? axisLabel(barHi) }}</span>
+          <span style="min-width: 30px; text-align: left; font-variant-numeric: tabular-nums;">{{ hiLabel ?? axisLabel(barHi) }}</span>
           <span style="margin-left: 2px;">{{ unit }}</span>
         </span>
-        <button v-if="cells.length" type="button" class="topo-expand" title="放大查看全部地形图（双击地形图亦可）" aria-label="放大查看全部地形图" @click="openExpanded">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
-        </button>
       </div>
     </div>
     <div class="topo-cards" :class="{ 'is-grid': layout === 'grid' }" @dblclick="openExpanded">
@@ -480,10 +477,6 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
 .topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .topo-cap-right { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
-/* 「放大」入口：低噪声药丸按钮，给非技术受众一个显式可发现的开关（双击同样可开） */
-.topo-expand { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; color: var(--c-text-3); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
-.topo-expand:hover { color: var(--c-text); background: var(--c-bg-soft); }
-.topo-expand svg { flex-shrink: 0; }
 .topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; cursor: var(--cursor-zoom); }
 .topo-card { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--c-border); border-top-width: 2px; border-radius: var(--r-sm); background: var(--c-surface); padding: 4px 4px 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .topo-hd { font-size: 9px; font-weight: 600; color: var(--c-text-2); display: flex; align-items: center; gap: 4px; max-width: 100%; }
