@@ -119,8 +119,15 @@ def channel_positions_2d(info, names) -> dict[str, list[float]] | None:
 
 
 def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
-    """MNE `plot_topomap` 同款投影：把 info 里 picks 的传感器位置投到 2D，最外电极归一化到 ~0.9 圆
-    半径（头罩圆比电极分布大一圈，对标 MNE 实测最外电极在 ~0.906 head_radius、不顶圈）。失败 → None。"""
+    """MNE `plot_topomap` 同款投影：把 info 里 picks 的传感器位置投到 2D，主流外圈电极
+    （Fpz/Oz/T7…）落到头罩圆边（~0.95 半径）。失败 → None。
+
+    归一化基准用半径的 **95 分位**而非绝对最大值：biosemi64 实测里只有 Iz/P9/P10 这三颗
+    枕下/耳后极端电极独占最大半径，主流外圈（含 Oz）只到它们的 ~0.904——若按 max 归一，
+    主流圈就被压到 ~0.81 圆内「缩一圈」。改按 95 分位（≈主流外圈那一环）归一后，Oz 等直接
+    顶到 ~0.95；放大后那几颗枕下/耳后极端电极**自然落到圆外一点（~1.05，用户接受、同 MNE：
+    低位电极落在 head outline 外）**，仅对离谱坐标钳到 1.15 防越出 viewBox。无极端电极的
+    稀疏帽（10-20）下 95 分位≈max，行为不变。"""
     try:
         from mne.channels.layout import _find_topomap_coords  # type: ignore
     except Exception:
@@ -134,16 +141,22 @@ def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
         if coords.ndim != 2 or coords.shape[0] != len(picks):
             return None
         rr = np.hypot(coords[:, 0], coords[:, 1])
-        rmax = float(rr.max())
-        if not np.isfinite(rmax) or rmax <= 0:
+        r_ref = float(np.percentile(rr, 95.0))
+        if not np.isfinite(r_ref) or r_ref <= 0:
+            r_ref = float(rr.max())
+        if not np.isfinite(r_ref) or r_ref <= 0:
             return None
-        scale = 0.9 / rmax
+        scale = 0.95 / r_ref
         out: dict[str, list[float]] = {}
         for k, idx in enumerate(picks):
-            out[info["ch_names"][idx]] = [
-                round(float(coords[k, 0] * scale), 4),
-                round(float(coords[k, 1] * scale), 4),
-            ]
+            x = float(coords[k, 0]) * scale
+            y = float(coords[k, 1]) * scale
+            r = float(np.hypot(x, y))
+            if r > 1.15:  # 只防离谱坐标越出 viewBox；主流圈到 0.95，个别枕下/耳后极端电极自然落圆外一点（用户可接受、同 MNE 低位电极落 head outline 外）
+                f = 1.15 / r
+                x *= f
+                y *= f
+            out[info["ch_names"][idx]] = [round(x, 4), round(y, 4)]
         return out or None
     except Exception:
         # 别名电极重叠 / 缺 montage / 跨版本 API 变动等 → 交回退处理
@@ -151,7 +164,8 @@ def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
 
 
 def _azimuthal_fallback_xy(np, info, names) -> dict[str, list[float]] | None:
-    """回退：手写方位等距投影（电极质心为心、按最大极角归一 + 留 0.9 余量）。MNE 投影不可用时才用。"""
+    """回退：手写方位等距投影（电极质心为心、按极角 95 分位归一到 ~0.95 + 极端电极自然落圆外一点、仅离谱坐标钳 1.15）。
+    与 MNE 路同口径（避开极端电极独占 theta_max 把主流圈压缩「缩一圈」）。MNE 投影不可用时才用。"""
     pts = collect_positions(np, info, names)
     if len(pts) < 3:
         return None
@@ -175,9 +189,9 @@ def _azimuthal_fallback_xy(np, info, names) -> dict[str, list[float]] | None:
         vz = max(-1.0, min(1.0, float(v[2]) / norm))
         thetas.append(float(np.arccos(vz)))
         phis.append(float(np.arctan2(float(v[1]), float(v[0]))))
-    theta_max = max(thetas) or 1.0
+    theta_ref = float(np.percentile(np.asarray(thetas, dtype="float64"), 95.0)) or (max(thetas) or 1.0)
     out: dict[str, list[float]] = {}
     for nm, th, ph in zip(names_list, thetas, phis):
-        r = th / theta_max * 0.9
+        r = min(th / theta_ref * 0.95, 1.15)  # 主流圈→~0.95，个别极端电极自然落圆外一点（只防离谱越界）
         out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
     return out or None
