@@ -1,5 +1,5 @@
 <template>
-  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag, 'tcc-selshadow': selectShadow }">
+  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag, 'tcc-selshadow': selectShadow, 'tcc-solidcursor': solidCursor }">
     <div v-if="loading" class="tcc-loading">加载中…</div>
   </div>
 </template>
@@ -49,6 +49,10 @@ const props = withDefaults(
     locked?: boolean
     /** 锁定时刻（x 显示单位）：非 null 时各子图在该处画一条常驻竖线。 */
     lockedX?: number | null
+    /** 实时游标联动（x 显示单位）：父层广播当前悬停 x，非 null 时各子图同位画一条实时竖线（区别于锁定线）。 */
+    syncCursorX?: number | null
+    /** 只留一根自绘竖实线：藏掉 uPlot 原生虚线十字（观察页用；ICA/伪迹页不传则保留原生十字）。 */
+    solidCursor?: boolean
     /** 受控视图缩放（滚轮手势，父层广播给所有子图保持 facet 同窗）：x 可见范围（显示单位，null=数据全幅）。 */
     viewMin?: number | null
     viewMax?: number | null
@@ -75,7 +79,7 @@ const props = withDefaults(
     /** 框选时显示原生选区阴影（伪迹审核框选坏段用，给拖动实时视觉反馈）。默认 false：观察页仍自绘 region、隐藏原生选区。 */
     selectShadow?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false, selectShadow: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, syncCursorX: null, solidCursor: false, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false, selectShadow: false },
 )
 
 const emit = defineEmits<{
@@ -125,6 +129,7 @@ const BAD_SEG_EDGE = 'rgba(214, 40, 40, 0.85)' // 坏段左右边界线：实色
 const REGION_LINE = 'rgba(63, 94, 143, 0.32)'
 const REF_LINE = '#C4CCD8'
 const LOCK_LINE = '#D9822B' // 锁定标记：琥珀色，区别于参考线/区间
+const SYNC_LINE = 'rgba(63, 94, 143, 0.5)' // 实时游标联动线：elys 蓝半透，比锁定线细淡
 /** spread 归一化满量程：优先用 props.yMax，否则取数据峰值绝对值。 */
 function effYMax(): number {
   if (props.yMax != null && props.yMax > 0) return props.yMax
@@ -260,8 +265,9 @@ function drawLegend(u: uPlot, forceShow = false) {
   const swatchW = 18 * dpr
   const gap = 7 * dpr
   ctx.save()
-  // 图例字号固定 CSS px（不随子图缩放）：多视图 facet 子图小而密时原 15px 显小看不清，调到 18px
-  ctx.font = `${18 * dpr}px var(--ff-mono, monospace)`
+  // 图例字号固定 CSS px（不随子图缩放）。必须用有效 monospace：canvas 不解析 var(--ff-mono)，
+  // 带它会让整条 font 失效→回退默认小字（这正是多图下图例显小的真因）。16px 在 facet 子图里清晰不抢戏。
+  ctx.font = `${16 * dpr}px monospace`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   const items = props.series.slice(0, max).map((s) => ({
@@ -345,6 +351,130 @@ function drawLocked(u: uPlot) {
   ctx.restore()
 }
 
+// 实时游标联动：父层广播 syncCursorX 时，在每张子图同位画一条实时竖线（比锁定线细淡）。
+function drawSyncCursor(u: uPlot) {
+  if (props.syncCursorX == null) return
+  const ctx = u.ctx
+  const { left, top, width, height } = u.bbox
+  const x = u.valToPos(props.syncCursorX, 'x', true)
+  if (x < left || x > left + width) return
+  ctx.save()
+  ctx.strokeStyle = SYNC_LINE
+  ctx.lineWidth = 1 * PX_RATIO
+  ctx.beginPath()
+  ctx.moveTo(x, top)
+  ctx.lineTo(x, top + height)
+  ctx.stroke()
+  ctx.restore()
+}
+
+// 最近采样下标（xs 升序）：游标 x → 最近的数据点
+function nearestIdx(xs: number[], x: number): number {
+  const n = xs.length
+  if (!n) return -1
+  if (x <= xs[0]) return 0
+  if (x >= xs[n - 1]) return n - 1
+  let lo = 0
+  let hi = n - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (xs[mid] < x) lo = mid + 1
+    else hi = mid
+  }
+  return lo > 0 && Math.abs(xs[lo - 1] - x) <= Math.abs(xs[lo] - x) ? lo - 1 : lo
+}
+
+// 游标读数（仅 solidCursor 观察页）：游标 x 处每条曲线交点画小圆点 + 同色数值（曲线多于 READOUT_MAX 则只点不标，防糊）；
+// 底部黑字标时刻（白底圆角药丸）。位置取 u.data（含 spread 偏移），数值取 props.data（原始 µV）。
+function drawCursorReadout(u: uPlot) {
+  if (!props.solidCursor) return
+  const cx = props.syncCursorX ?? props.lockedX
+  if (cx == null) return
+  const xs = props.data[0] as number[] | undefined
+  if (!xs || !xs.length) return
+  const idx = nearestIdx(xs, cx)
+  if (idx < 0) return
+  const ctx = u.ctx
+  const { left, top, width, height } = u.bbox
+  const xPos = u.valToPos(cx, 'x', true)
+  if (xPos < left - 1 || xPos > left + width + 1) return
+  const DOT_R = 3
+  const READOUT_MAX = 5 // 曲线多于此则只画圆点、不标数字（防糊）
+  const DOT_MAX = 24 // 曲线多于此则连圆点都不画（防糊 + 省每帧 N 个 arc）
+
+  const rows: { yPos: number; uv: number; color: string; labelY: number }[] = []
+  for (let si = 0; si < props.series.length; si++) {
+    const plotted = (u.data[si + 1] as number[] | undefined)?.[idx]
+    const uv = (props.data[si + 1] as number[] | undefined)?.[idx]
+    if (plotted == null || !Number.isFinite(plotted) || uv == null || !Number.isFinite(uv)) continue
+    const yPos = u.valToPos(plotted, 'y', true)
+    if (yPos < top - 1 || yPos > top + height + 1) continue
+    rows.push({ yPos, uv, color: props.series[si].color, labelY: yPos })
+  }
+
+  ctx.save()
+  // 圆点：同色实心 + 白描边，浮在曲线上（不太粗）；曲线太多(>DOT_MAX)则跳过——既防糊又省每帧 N 个 arc
+  if (rows.length <= DOT_MAX) for (const r of rows) {
+    ctx.beginPath()
+    ctx.arc(xPos, r.yPos, DOT_R * PX_RATIO, 0, Math.PI * 2)
+    ctx.fillStyle = r.color
+    ctx.fill()
+    ctx.lineWidth = 1.5 * PX_RATIO
+    ctx.strokeStyle = '#fff'
+    ctx.stroke()
+  }
+  // 同色数值：仅曲线 ≤ READOUT_MAX 才标；纵向去叠防重、按游标左右侧避让出界
+  if (rows.length && rows.length <= READOUT_MAX) {
+    ctx.font = `${11 * PX_RATIO}px monospace`
+    ctx.textBaseline = 'middle'
+    ctx.lineJoin = 'round'
+    const lh = 14 * PX_RATIO
+    const toRight = xPos < left + width * 0.65
+    const lx = xPos + (toRight ? 1 : -1) * (DOT_R + 6) * PX_RATIO
+    ctx.textAlign = toRight ? 'left' : 'right'
+    rows.sort((a, b) => a.yPos - b.yPos)
+    let prev = -Infinity
+    for (const r of rows) {
+      let ly = Math.max(top + lh / 2, r.yPos)
+      if (ly < prev + lh) ly = prev + lh
+      prev = ly
+      r.labelY = ly
+    }
+    const overflow = rows[rows.length - 1].labelY - (top + height - lh / 2)
+    if (overflow > 0) for (const r of rows) r.labelY -= overflow
+    for (const r of rows) {
+      const txt = r.uv.toFixed(2)
+      ctx.lineWidth = 3 * PX_RATIO
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)'
+      ctx.strokeText(txt, lx, r.labelY)
+      ctx.fillStyle = r.color
+      ctx.fillText(txt, lx, r.labelY)
+    }
+  }
+  // 底部时刻：黑字白底圆角药丸，居中于游标、贴底（出界则钳进绘图区）
+  const ttxt = String(Math.round(cx * 10) / 10)
+  ctx.font = `${11 * PX_RATIO}px monospace`
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'center'
+  const padX = 5 * PX_RATIO
+  const pillW = ctx.measureText(ttxt).width + padX * 2
+  const pillH = 16 * PX_RATIO
+  const px = Math.max(left, Math.min(left + width - pillW, xPos - pillW / 2))
+  const py = top + height - pillH - 2 * PX_RATIO
+  const rrCtx = ctx as unknown as { roundRect?: (x: number, y: number, w: number, h: number, r: number) => void }
+  ctx.fillStyle = 'rgba(255,255,255,0.95)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.16)'
+  ctx.lineWidth = PX_RATIO
+  ctx.beginPath()
+  if (typeof rrCtx.roundRect === 'function') rrCtx.roundRect(px, py, pillW, pillH, 4 * PX_RATIO)
+  else ctx.rect(px, py, pillW, pillH)
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = '#1d2731'
+  ctx.fillText(ttxt, px + pillW / 2, py + pillH / 2)
+  ctx.restore()
+}
+
 // x 数据真实极值（非退化）：每次重绘都从 u.data[0] 现算、强制 min<max。
 // 规避 uPlot 偶发把某子图 x scale 留成 min===max（→ valToPos ±Inf → 曲线画到画外 → 空图）。
 function xExtent(u: uPlot): [number, number] {
@@ -402,7 +532,8 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
   const dense = exportMode ? false : props.denseAxes
   const hideX = exportMode ? false : props.hideXLabels
   const hideY = exportMode ? false : props.hideYLabels
-  const axisFont = dense ? '11px var(--ff-mono, monospace)' : '13px var(--ff-mono, monospace)'
+  // 用有效的 monospace（canvas 不解析 var(--ff-mono)，带它整条 font 失效→回退默认小字）；多图(dense)下也提到 12px 保证可读
+  const axisFont = dense ? '12px monospace' : '13px monospace'
   // 共享 facet 轴：非边缘格把刻度标签置空（仍占同样刻度区宽度以对齐网格）
   const blank = (_u: uPlot, splits: number[]): string[] => splits.map(() => '')
 
@@ -413,7 +544,7 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
         grid: { show: false },
         ticks: { show: false },
         size: 70,
-        font: '12px var(--ff-mono, monospace)',
+        font: '12px monospace',
         splits: () => Array.from({ length: n }, (_, k) => k),
         values: (_u, splits) => splits.map((c) => {
           const nm = props.series[n - 1 - Math.round(c)]?.name ?? ''
@@ -461,7 +592,8 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
           label: s.name,
           stroke: s.color,
           // 命中本格高亮目标：加粗、其余压细；本格无该目标则统一 1.25
-          width: hlActive ? (s.name === props.highlight ? 2.6 : 0.7) : 1.25,
+          width: 1.25,
+          alpha: hlActive ? (s.name === props.highlight ? 1 : 0.3) : 1,
           points: { show: false },
           ...(splinePaths ? { paths: splinePaths } : {}),
         }))
@@ -469,7 +601,7 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
-      draw: [(u: uPlot) => { drawBadSegments(u); drawLegend(u, exportMode); if (!exportMode) drawLocked(u); drawMarkers(u) }],
+      draw: [(u: uPlot) => { drawBadSegments(u); drawLegend(u, exportMode); if (!exportMode) { drawSyncCursor(u); drawLocked(u); drawCursorReadout(u) } drawMarkers(u) }],
       setSelect: [
         (u: uPlot) => {
           const sel = u.select
@@ -488,8 +620,9 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
           // 只记下最新下标 + 排一帧；真正 emit 交给 flushCursor（每帧一次、下标变了才发）
           pendingIdx = (u.cursor.idx ?? null) as number | null
           if (!cursorRaf) cursorRaf = requestAnimationFrame(flushCursor)
-          // 最近曲线检测（overlay 模式）：比较游标 Y 与各序列当前值，实时 emit，去重
-          if (props.displayMode !== 'spread') {
+          // 最近曲线检测（overlay 模式）：比较游标 Y 与各序列当前值，找最近可点的那条。
+          // 仅「可点选(pickable=焦点开)」时才跑——否则这段每次鼠标移动都对 N 条曲线算 valToPos，是焦点关时的纯浪费（lastNearName 只被 line-pick 用，而 line-pick 也要 pickable）。
+          if (props.pickable && props.displayMode !== 'spread') {
             const top = u.cursor.top ?? -1
             const idx = u.cursor.idx ?? -1
             let name = ''
@@ -556,20 +689,19 @@ function flushCursor() {
   emit('cursor', { x: Number(xv), items })
 }
 
-// 高亮就地生效：只改各 series 线宽再 redraw（保留缩放/游标），不重建整图。
+// 高亮就地生效：只改各 series 的 alpha 再 redraw（保留缩放/游标），不重建整图。
+// 复刻旧 hover 视觉：聚焦那条 alpha 1、其余压到 0.3 半透明，线宽全程不变——不用「加粗/压细」区分。
 // （原来 highlight 进了重建监听 → 每次悬停右栏一行都 destroy+new 54 条 series，是头号卡顿源。）
 function applyHighlight() {
   const u = chart.value
   if (!u) return
   const hlActive = !!props.highlight && props.series.some((s) => s.name === props.highlight)
   for (let i = 0; i < props.series.length; i++) {
-    const us = u.series[i + 1] as unknown as { width?: number } | undefined
+    const us = u.series[i + 1] as unknown as { alpha?: number } | undefined
     if (!us) continue
-    // 单一高亮档：目标 2.6、其余 0.7（与 buildOpts 初次渲染一致，消除「悬停 vs 锁定」线宽不一致）。
-    // 焦点 hover/锁定的区别交给右栏行 ● 标记与持久性表达，不再用线宽强弱区分。
-    us.width = hlActive ? (props.series[i].name === props.highlight ? 2.6 : 0.7) : 1.25
+    us.alpha = hlActive ? (props.series[i].name === props.highlight ? 1 : 0.3) : 1
   }
-  u.redraw(false) // false=不重建路径，仅用现有路径按新线宽重描，最省
+  u.redraw(false) // false=不重建路径，仅用现有路径按新 alpha 重描，最省
 }
 
 function rebuild() {
@@ -770,7 +902,7 @@ watch(
 watch(() => props.highlight, () => applyHighlight())
 // 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
 watch(
-  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.bands, props.markers, props.badSegments, props.markedChannels],
+  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.syncCursorX, props.bands, props.markers, props.badSegments, props.markedChannels],
   () => {
     const u = chart.value
     if (!u) return
@@ -779,7 +911,8 @@ watch(
     if (!props.region && u.select && u.select.width > 0) {
       u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false)
     }
-    u.redraw()
+    u.redraw(false) // false=不重建 63 条 series 路径、只重跑 draw 钩子（区间/图例/游标线/读数点）。
+    // 游标移动时本 watch（含 syncCursorX）每帧触发——重建全部曲线路径正是「多曲线游标滞后」的主因，故这里只重绘覆盖层。
   },
   { deep: true },
 )
@@ -866,9 +999,14 @@ defineExpose({ getExportCanvas })
 .tcc-pan { cursor: grab; }
 .tcc-pan:active { cursor: grabbing; }
 .tcc-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--c-text-3); font-size: 13px; }
-/* 锁定态：隐藏跟随鼠标的十字线（琥珀锁定标记线由 drawLocked 画在 canvas 上，不受影响） */
+/* 锁定态：隐藏原生十字线（琥珀锁定标记线由 drawLocked 画在 canvas 上，不受影响） */
 .tcc-locked :deep(.u-cursor-x),
 .tcc-locked :deep(.u-cursor-y) { display: none !important; }
+/* solidCursor（观察页）：游标只留一根自绘竖实线（实时 SYNC_LINE 蓝 / 锁定 LOCK_LINE 琥珀），
+   故一律藏掉原生虚线十字；原生 cursor 仍 show:true 后台跟踪（读数 / 选线照常）。
+   ICA / 伪迹页不传 solidCursor → 保留原生十字，不受影响。 */
+.tcc-solidcursor :deep(.u-cursor-x),
+.tcc-solidcursor :deep(.u-cursor-y) { display: none !important; }
 /* 隐藏 uPlot 原生框选高亮（.u-select 灰矩形）：统计区间统一由自绘 region 着色带（淡蓝 + 虚线框、所有 facet 子图同步）表达。
    拖拽时 setSelect hook 实时 emit→region 带即时跟随，原生层多余；留着会与淡蓝带两色并存、且各子图残留旧灰带（多次框选更明显）。 */
 :deep(.u-select) { display: none !important; }
