@@ -120,13 +120,13 @@ def channel_positions_2d(info, names) -> dict[str, list[float]] | None:
 
 def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
     """MNE `plot_topomap` 同款投影：把 info 里 picks 的传感器位置投到 2D，主流外圈电极
-    （Fpz/Oz/T7…）落到头罩圆边内一丝（~0.99 半径）。失败 → None。
+    （Fpz/Oz/T7…）落到头罩圆边内一丝（~0.95 半径）。失败 → None。
 
     归一化基准用半径的 **80 分位**而非绝对最大值：耳后/下方扩展电极（biosemi64 的 Iz/P9/P10≈3 颗；
     easycap/BrainVision 64 的 F9/O9/F10/P9/PO9/PO10≈6 颗）独占最大半径，主流外圈（Fpz/Oz/T7）
     其实物理半径一样、只到这些扩展电极的 ~0.9——若按 max 或 95 分位归一，扩展电极多的 easycap 帽
     会把 95 分位也占掉、主流圈被压到 0.9「缩一圈」。改按 **80 分位**（稳稳落在主流外圈那一环、避开
-    各帽数量不一的扩展电极）归一后，**任何帽的主流外圈都落到 ~0.99 圆边内一丝**（统一可比，无需按帽设不同
+    各帽数量不一的扩展电极）归一后，**任何帽的主流外圈都落到 ~0.95 圆内**（统一可比，无需按帽设不同
     半径）；比主流更外的扩展电极**自然落到圆外（~1.1，用户接受、同 MNE：低位电极落 head outline
     外）**，仅离谱坐标钳到 1.15 防越 viewBox。稀疏帽（10-20，无扩展电极）下 80 分位≈外圈，行为不变。"""
     try:
@@ -147,7 +147,7 @@ def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
             r_ref = float(rr.max())
         if not np.isfinite(r_ref) or r_ref <= 0:
             return None
-        scale = 0.99 / r_ref
+        scale = 0.95 / r_ref
         out: dict[str, list[float]] = {}
         for k, idx in enumerate(picks):
             x = float(coords[k, 0]) * scale
@@ -165,7 +165,7 @@ def _mne_topomap_xy(np, info, names) -> dict[str, list[float]] | None:
 
 
 def _azimuthal_fallback_xy(np, info, names) -> dict[str, list[float]] | None:
-    """回退：手写方位等距投影（电极质心为心、按极角 80 分位归一到 ~0.99 圆边内一丝 + 扩展电极自然落圆外一点、仅离谱坐标钳 1.15）。
+    """回退：手写方位等距投影（电极质心为心、按极角 80 分位归一到 ~0.95 圆内 + 扩展电极自然落圆外一点、仅离谱坐标钳 1.15）。
     与 MNE 路同口径（避开极端电极独占 theta_max 把主流圈压缩「缩一圈」）。MNE 投影不可用时才用。"""
     pts = collect_positions(np, info, names)
     if len(pts) < 3:
@@ -193,6 +193,6 @@ def _azimuthal_fallback_xy(np, info, names) -> dict[str, list[float]] | None:
     theta_ref = float(np.percentile(np.asarray(thetas, dtype="float64"), 80.0)) or (max(thetas) or 1.0)
     out: dict[str, list[float]] = {}
     for nm, th, ph in zip(names_list, thetas, phis):
-        r = min(th / theta_ref * 0.99, 1.15)  # 主流圈→0.99(贴边、留一丝余量)，扩展电极自然落圆外一点（只防离谱越界）
+        r = min(th / theta_ref * 0.95, 1.15)  # 主流圈→0.95(圆内留余量)，扩展电极自然落圆外一点（只防离谱越界）
         out[nm] = [round(r * float(np.cos(ph)), 4), round(r * float(np.sin(ph)), 4)]
     return out or None
