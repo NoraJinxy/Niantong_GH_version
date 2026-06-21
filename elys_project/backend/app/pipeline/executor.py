@@ -701,6 +701,12 @@ class PipelineExecutor:
         job.error_json = error_json
         if job.started_at:
             job.duration_ms = max(0, int((finished_at - job.started_at).total_seconds() * 1000))
+        # 每节点耗时打点：duration_ms 已落库（经 /jobs 端点可读），这里再打一行 worker 日志，
+        # 方便云端跑完直接 `journalctl -u elys-worker | grep "pipeline node"` 逐节点看谁慢。
+        logger.info(
+            "pipeline node done: node=%s type=%s status=%s duration_ms=%s trace=%s",
+            job.node_id, job.node_type, status, job.duration_ms, job.trace_code,
+        )
 
     @staticmethod
     def _params_for_job(node: dict[str, Any], job: PipelineJob) -> dict[str, Any]:

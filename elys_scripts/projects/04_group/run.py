@@ -12,10 +12,11 @@
 分组（engine/group/stack.align_and_stack），多类一起喂会被混成一锅。所以合并工作流也是各 condition 独立分支。
 
 链路（每条分支）：
-  ERP：LoadData(explicit, 12 条 sensory) → Bandpass(0.1-30) → Notch → Bad Channels [→ Re-reference]
-       → Epoch(只切该 condition) → Baseline → ERP Average → Group Merge → Grand Average
-  PSD：LoadData(explicit, rest) → Bandpass(1-45) → Notch → Bad Channels [→ Re-reference]
+  ERP：LoadData(explicit, 12 条 sensory) [→ Resample 250Hz] → Bandpass(0.1-30) → Notch → Bad Channels
+       [→ Re-reference] → Epoch(只切该 condition) → Baseline → ERP Average → Group Merge → Grand Average
+  PSD：LoadData(explicit, rest) [→ Resample 250Hz] → Bandpass(1-45) → Notch → Bad Channels [→ Re-reference]
        → Epoch(只切该标签, 0-60s) → PSD(Welch) → Group Merge → Grand Average
+  （Resample 为可选降采样，由 config_local.RESAMPLE_SFREQ 控制，置 None 关闭——见该配置项说明。）
 
 LoadData 为什么用 explicit 而非 filter：前端 LoadData 面板是「explicit-by-design」（task #61，
 Selected File = dataset_ids = 真正输入），filter 模式后端能跑但卡片显示「未选择数据」。所以这里先
@@ -40,6 +41,13 @@ import ui                                          # noqa: E402
 
 # 跑 Grand Average 需要这两个 Group 节点都已部署
 GROUP_NODE_TYPES = {"eeg/group/merge", "eeg/group/average"}
+
+
+def _resample_sfreq():
+    """降采样目标采样率。读 config_local.RESAMPLE_SFREQ（该文件被 .gitignore 忽略、每台机各自维护），
+    缺省 = 250Hz（默认开降采样）；本地 config 置 None / 0 即关闭。getattr 兜底：干净环境的
+    config_local 没这行也不会 AttributeError，只是回落到默认 250。"""
+    return getattr(lconfig, "RESAMPLE_SFREQ", 250)
 
 
 def _sensory_filter() -> dict:
@@ -144,28 +152,34 @@ def build_definition(codes: list[str], dataset_ids: list[str], use_group: bool, 
         # link id 用 src-dst（每条边天然唯一），不数 links 长度。
         links.append({"id": f"{src}-{dst}", "from": {"node": src, "port": "output"}, "to": {"node": dst, "port": "input"}})
 
-    # ── 共享预处理段（一行）──────────────────────────────────────────────
-    nodes.append({"id": "ld", "type": "eeg/data/load", "title": "LoadData (sensory)", "position": [80, 80],
-                  "params": {"selection_mode": "explicit", "dataset_ids": dataset_ids, "dataset_filter": {}}})
-    nodes.append({"id": "bw", "type": "eeg/filter/apply", "title": "Bandpass (IIR)", "position": [400, 80],
-                  "params": {"filter_type": "bandpass", "method": "iir",
-                             "l_freq": lconfig.BANDPASS_L, "h_freq": lconfig.BANDPASS_H, "order": 4}})
-    nodes.append({"id": "nf", "type": "eeg/filter/apply", "title": "Notch", "position": [720, 80],
-                  "params": {"filter_type": "notch", "notch_freq": lconfig.NOTCH_FREQ, "notch_harmonics": 3}})
-    nodes.append({"id": "bc", "type": "eeg/preproc/bad_channels", "title": "Bad Channels", "position": [1040, 80],
-                  "params": {"method": lconfig.BAD_CHAN_METHOD, "action": lconfig.BAD_CHAN_ACTION}})
-    add_link("ld", "bw")
-    add_link("bw", "nf")
-    add_link("nf", "bc")
-
-    prev = "bc"
-    branch_x = 1360
+    # ── 共享预处理段（一行；节点用 list 顺排，位置/连线按下标自动算，插 Resample 不用挪坐标）──
+    shared: list[tuple[str, str, str, dict]] = [
+        ("ld", "eeg/data/load", "LoadData (sensory)",
+         {"selection_mode": "explicit", "dataset_ids": dataset_ids, "dataset_filter": {}}),
+    ]
+    rs_sfreq = _resample_sfreq()
+    if rs_sfreq:   # 可选降采样：紧跟 LoadData，砍掉下游所有重节点的 1000Hz 线性放大
+        shared.append(("rs", "eeg/preproc/resample", f"Resample ({int(rs_sfreq)}Hz)",
+                       {"sfreq": rs_sfreq}))
+    shared += [
+        ("bw", "eeg/filter/apply", "Bandpass (IIR)",
+         {"filter_type": "bandpass", "method": "iir",
+          "l_freq": lconfig.BANDPASS_L, "h_freq": lconfig.BANDPASS_H, "order": 4}),
+        ("nf", "eeg/filter/apply", "Notch",
+         {"filter_type": "notch", "notch_freq": lconfig.NOTCH_FREQ, "notch_harmonics": 3}),
+        ("bc", "eeg/preproc/bad_channels", "Bad Channels",
+         {"method": lconfig.BAD_CHAN_METHOD, "action": lconfig.BAD_CHAN_ACTION}),
+    ]
     if use_reref:
-        nodes.append({"id": "rr", "type": "eeg/preproc/rereference", "title": "Re-reference", "position": [1360, 80],
-                      "params": {"ref_channels": lconfig.REF_SENSORY}})
-        add_link("bc", "rr")
-        prev = "rr"
-        branch_x = 1680
+        shared.append(("rr", "eeg/preproc/rereference", "Re-reference",
+                       {"ref_channels": lconfig.REF_SENSORY}))
+    for si, (nid, ntype, title, params) in enumerate(shared):
+        nodes.append({"id": nid, "type": ntype, "title": title, "position": [80 + si * 320, 80], "params": params})
+        if si > 0:
+            add_link(shared[si - 1][0], nid)
+
+    prev = shared[-1][0]
+    branch_x = 80 + len(shared) * 320
 
     # ── 每个 condition 一条分支（纵向错开 240px）─────────────────────────
     for bi, code in enumerate(codes):
@@ -226,6 +240,10 @@ def build_rest_psd_definition(codes: list[str], ids_by_code: dict[str, list[str]
             (f"bc-{cname}", "eeg/preproc/bad_channels", f"Bad Channels {cname}",
              {"method": lconfig.BAD_CHAN_METHOD, "action": lconfig.BAD_CHAN_ACTION}),
         ]
+        rs_sfreq = _resample_sfreq()
+        if rs_sfreq:   # 可选降采样：插在 LoadData 后、Bandpass 前（位置/连线按下标自动算）
+            chain.insert(1, (f"rs-{cname}", "eeg/preproc/resample", f"Resample {cname} ({int(rs_sfreq)}Hz)",
+                             {"sfreq": rs_sfreq}))
         if use_reref:
             chain.append((f"rr-{cname}", "eeg/preproc/rereference", f"Re-reference {cname}",
                           {"ref_channels": lconfig.REF_REST}))

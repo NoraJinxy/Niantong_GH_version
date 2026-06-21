@@ -98,6 +98,12 @@ WORKER_MEMORY_MAX="10G"
 # Celery 并发数 = worker 同时跑几个任务（prefork 进程数）。不设则默认=CPU 核数（8 核机=8），8 个 MNE
 # 重转换/重跑并行会挤爆上面的内存护栏（撞 MemoryMax 被 OOM 杀→任务回炉、长期 queued）。导入与 pipeline
 # 共用这一个 worker 池，调试单机压到 2 = 最多俩任务并行、稳且可预测；要严格一个个来设 1，机器更壮可调大。
+# 下面这个 "2" 只是兜底默认：实际可在 profile（profiles/*.env 的 WORKER_CONCURRENCY，连同 MemoryHigh/Max）
+# 里改、由 deploy_remote.ps1 透传成 --worker-concurrency，不必动本脚本。
+# 【上线前先量 RSS】把并发往上提（3/4）前，务必先在计算服实测单条任务的常驻内存峰值：
+#   跑一条 64 导 ERP/PSD，期间 `systemctl status elys-worker` 或 `cat /sys/fs/cgroup/.../memory.peak`
+#   看 worker cgroup 峰值 RSS；按「并发数 × 单任务峰值 < MemoryMax，且给同机 PG 留 ~6G」定档，
+#   提并发时同步上调 WORKER_MEMORY_HIGH/MAX，别盲拉——否则撞 10G 护栏 OOM、吞吐反降。
 WORKER_CONCURRENCY="2"
 SRC="/tmp/elys_project"
 STUDIES_DIR="/mnt/elys_data/studies"

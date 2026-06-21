@@ -79,6 +79,12 @@ param(
 
     [string]$ExtraAptPackages = "",
 
+    [string]$WorkerConcurrency = "",
+
+    [string]$WorkerMemoryHigh = "",
+
+    [string]$WorkerMemoryMax = "",
+
     [ValidateSet("true", "false")]
     [string]$UseCnMirrors = "true",
 
@@ -200,6 +206,9 @@ Apply-ProfileValue $ProfileValues "SSH_PORT" "Port" { param($v) $script:Port = [
 Apply-ProfileValue $ProfileValues "STUDIES_DIR" "StudiesDir" { param($v) $script:StudiesDir = $v }
 Apply-ProfileValue $ProfileValues "DATA_UPSTREAM" "DataUpstream" { param($v) $script:DataUpstream = $v }
 Apply-ProfileValue $ProfileValues "EXTRA_APT_PACKAGES" "ExtraAptPackages" { param($v) $script:ExtraAptPackages = $v }
+Apply-ProfileValue $ProfileValues "WORKER_CONCURRENCY" "WorkerConcurrency" { param($v) $script:WorkerConcurrency = $v }
+Apply-ProfileValue $ProfileValues "WORKER_MEMORY_HIGH" "WorkerMemoryHigh" { param($v) $script:WorkerMemoryHigh = $v }
+Apply-ProfileValue $ProfileValues "WORKER_MEMORY_MAX" "WorkerMemoryMax" { param($v) $script:WorkerMemoryMax = $v }
 Apply-ProfileValue $ProfileValues "USE_CN_MIRRORS" "UseCnMirrors" { param($v) $script:UseCnMirrors = $v }
 Apply-ProfileValue $ProfileValues "SSH_KEY_PATH" "SshKeyPath" { param($v) $script:SshKeyPath = $v }
 
@@ -805,7 +814,21 @@ try {
     if ($ResetNodeModules) {
         $resetNodeModulesArg = " --reset-node-modules"
     }
-    $computeCmd = "rm -rf $RemoteTmp && mkdir -p $RemoteTmp && tar -xzf /tmp/elys_project.tar.gz -C $RemoteTmp && chmod +x $RemoteDeploy && rm -f /tmp/elys_project.tar.gz && $RemoteDeploy --role compute --entry-domain ${EntryDomain} --data-domain ${DataDomain} --entry-public-ip ${EntryServerIP} --compute-public-ip ${ComputeServerIP} --entry-access-host ${EntryAccessHost} --data-access-host ${DataAccessHost} --public-scheme ${PublicScheme} --studies-dir '${StudiesDir}' --extra-apt-packages '${ExtraAptPackages}' --use-cn-mirrors ${UseCnMirrors}${resetDbArg}${resetStorageArg}${resetDataRootArg}${resetVenvArg}"
+    # Worker tuning (compute-only): only pass a flag when the profile/CLI set it, so an empty value
+    # leaves deploy.sh on its built-in defaults (concurrency=2, MemoryHigh=9G, MemoryMax=10G).
+    $workerConcurrencyArg = ""
+    if (-not [string]::IsNullOrWhiteSpace($WorkerConcurrency)) {
+        $workerConcurrencyArg = " --worker-concurrency ${WorkerConcurrency}"
+    }
+    $workerMemoryHighArg = ""
+    if (-not [string]::IsNullOrWhiteSpace($WorkerMemoryHigh)) {
+        $workerMemoryHighArg = " --worker-memory-high ${WorkerMemoryHigh}"
+    }
+    $workerMemoryMaxArg = ""
+    if (-not [string]::IsNullOrWhiteSpace($WorkerMemoryMax)) {
+        $workerMemoryMaxArg = " --worker-memory-max ${WorkerMemoryMax}"
+    }
+    $computeCmd = "rm -rf $RemoteTmp && mkdir -p $RemoteTmp && tar -xzf /tmp/elys_project.tar.gz -C $RemoteTmp && chmod +x $RemoteDeploy && rm -f /tmp/elys_project.tar.gz && $RemoteDeploy --role compute --entry-domain ${EntryDomain} --data-domain ${DataDomain} --entry-public-ip ${EntryServerIP} --compute-public-ip ${ComputeServerIP} --entry-access-host ${EntryAccessHost} --data-access-host ${DataAccessHost} --public-scheme ${PublicScheme} --studies-dir '${StudiesDir}' --extra-apt-packages '${ExtraAptPackages}' --use-cn-mirrors ${UseCnMirrors}${workerConcurrencyArg}${workerMemoryHighArg}${workerMemoryMaxArg}${resetDbArg}${resetStorageArg}${resetDataRootArg}${resetVenvArg}"
     Invoke-Remote -ServerIP $ComputeServerIP -Command $computeCmd
     Write-LocalOk "Remote compute deployment complete"
 
