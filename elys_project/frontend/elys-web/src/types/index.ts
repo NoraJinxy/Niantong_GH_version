@@ -217,6 +217,150 @@ export interface DashboardSummaryResponse {
   recent_activity: DashboardRecentActivityItem[]
 }
 
+// ---- 平台运维面板（admin ops console，第一期只读） ----
+export type AdminHealthStatus = 'healthy' | 'degraded' | 'down' | 'warning' | 'critical' | 'unknown'
+export type AdminAttentionSeverity = 'danger' | 'warn'
+
+export interface AdminHealthLight {
+  status: AdminHealthStatus
+  [key: string]: unknown
+}
+
+export interface AdminAttentionItem {
+  kind: string
+  severity: AdminAttentionSeverity
+  count: number
+  label: string
+}
+
+export interface AdminOverviewResponse {
+  generated_at: string
+  counts: {
+    users: { total: number; active: number; admins: number }
+    studies: { total: number; active: number; archived: number }
+    datasets: { total: number; by_status: Record<string, number> }
+    dataset_versions: { total: number; published: number; by_state: Record<string, number> }
+    recordings: number
+    subjects: number
+    study_outputs: { total: number; kept: number }
+    pipelines: number
+    executions: { total: number; by_status: Record<string, number> }
+    pending_reviews: { withdrawals: number; publicizations: number }
+    async_tasks: { queued: number; running: number }
+  }
+  execution_states: Record<string, number>
+  health: {
+    api: AdminHealthLight
+    db: AdminHealthLight
+    redis: AdminHealthLight
+    worker: AdminHealthLight & { online: boolean; worker_count: number; note: string | null }
+    disk: AdminHealthLight & { percent: number | null; free: number | null; total: number | null }
+  }
+  attention: AdminAttentionItem[]
+  resources_summary: {
+    cpu_percent: number | null
+    mem_percent: number | null
+    disk_percent: number | null
+  }
+}
+
+export interface AdminExecutionItem {
+  id: string
+  study_id: string
+  study_name: string | null
+  pipeline_id: number
+  pipeline_name: string | null
+  execution_seq: number
+  status: string
+  trigger: string
+  node_count: number
+  started_at: string | null
+  age_seconds: number | null
+  suspected_stuck: boolean
+}
+
+export interface AdminLockItem {
+  id: string
+  study_id: string | null
+  study_name: string | null
+  resource_id: string
+  locked_at: string | null
+  expires_at: string | null
+  age_seconds: number | null
+  expired: boolean
+}
+
+export interface AdminFailureItem {
+  id: string
+  study_id: string
+  study_name: string | null
+  pipeline_id: number
+  pipeline_name: string | null
+  execution_seq: number
+  finished_at: string | null
+  error_message: string | null
+}
+
+export interface AdminRuntimeResponse {
+  generated_at: string
+  queue: {
+    running: number
+    queued: number
+    waiting_user_input: number
+    failed_recent: number
+    async_queued: number
+    async_running: number
+  }
+  workers: {
+    online: boolean
+    worker_count: number
+    active: number
+    reserved: number
+    workers: Array<{ name: string; active: number; reserved: number }>
+    error: string | null
+  }
+  resources: {
+    psutil_available: boolean
+    cpu_percent: number | null
+    cpu_count: number | null
+    load_avg: number[] | null
+    mem: { total: number; used: number; available: number; percent: number } | null
+    disk: { path: string; total: number; used: number; free: number; percent: number | null } | null
+    error?: string | null
+  }
+  executions: AdminExecutionItem[]
+  stuck_executions: AdminExecutionItem[]
+  locks: AdminLockItem[]
+  recent_failures: AdminFailureItem[]
+}
+
+export interface AdminAuditEvent {
+  id: string
+  action: string
+  event_scope: string
+  actor_id: string | null
+  actor_name: string | null
+  resource_kind: string | null
+  resource_id: string | null
+  resource_label: string | null
+  study_id: string | null
+  occurred_at: string | null
+  metadata: Record<string, unknown>
+  has_snapshot: boolean
+}
+
+export interface AdminAuditEventsResponse {
+  events: AdminAuditEvent[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AdminAuditFacets {
+  actions: string[]
+  resource_kinds: string[]
+}
+
 export interface StudyActivityItem {
   id: string
   event_type: string

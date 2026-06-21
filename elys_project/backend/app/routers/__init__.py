@@ -3,6 +3,7 @@ Purpose: FastAPI routers entry point.
 Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_v2/2-50.
 """
 
+from .admin import router as admin_router
 from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .dataset_assets import asset_router as dataset_assets_router
@@ -23,6 +24,7 @@ from .study_outputs import router as study_outputs_router
 from .studies import router as studies_router
 
 __all__ = [
+    "admin_router",
     "auth_router",
     "dashboard_router",
     "dataset_assets_router",

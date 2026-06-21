@@ -89,6 +89,7 @@ def _full_reset_on_startup() -> None:
     logger.info("startup full reset: storage cleared at %s", storage_root)
 
 from app.routers import (
+    admin_router,
     auth_router,
     dashboard_router,
     dataset_assets_router,
@@ -143,6 +144,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(dashboard_router)
 app.include_router(studies_router)
 app.include_router(dataset_assets_router)

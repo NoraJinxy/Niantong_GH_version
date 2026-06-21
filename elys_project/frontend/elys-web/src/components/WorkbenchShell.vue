@@ -23,7 +23,7 @@
         <button class="icon-btn" type="button" title="搜索">
           <AppIcon name="search" :size="16" />
         </button>
-        <RouterLink class="icon-btn icon-btn--preview" to="/admin" title="设置：预览模块，尚未接入真实数据集和运行记录数据">
+        <RouterLink v-if="isAdmin" class="icon-btn" to="/admin" title="平台运维面板">
           <AppIcon name="settings" :size="16" />
         </RouterLink>
         <div class="user-chip" :title="`${user?.full_name || user?.username || 'PI'} · ${roleText}`">
@@ -38,7 +38,7 @@
 
     <div class="app" :class="{ 'app--immersive': !showSidebar }">
       <aside v-if="showSidebar" class="sidebar workbench-sidebar">
-        <template v-for="group in sideNavGroups" :key="group.title">
+        <template v-for="group in visibleSideNavGroups" :key="group.title">
           <div class="sidebar__title">{{ group.title }}</div>
           <RouterLink
             v-for="item in group.items"
@@ -92,6 +92,14 @@ const props = withDefaults(
 
 const auth = useAuthStore()
 const { user } = storeToRefs(auth)
+
+const isAdmin = computed(() => !!user.value?.roles?.includes('admin'))
+// adminOnly 的侧栏项（运维面板）只给管理员看；非管理员即便误入 /admin 也会被路由守卫弹回工作台。
+const visibleSideNavGroups = computed(() =>
+  sideNavGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !item.adminOnly || isAdmin.value) }))
+    .filter((group) => group.items.length),
+)
 
 const activeTopKey = computed(() => props.activeTopKey || props.activeKey)
 const showSidebar = computed(() => props.showSidebar !== false)

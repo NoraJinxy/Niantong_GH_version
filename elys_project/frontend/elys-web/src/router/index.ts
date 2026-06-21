@@ -128,20 +128,20 @@ const router = createRouter({
     {
       path: '/admin',
       name: 'Admin',
-      component: () => import('@/views/StaticWorkbenchPage.vue'),
-      meta: { requiresAuth: true, pageKey: 'admin' },
+      component: () => import('@/views/AdminConsolePage.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true, pageKey: 'admin' },
     },
     {
       path: '/admin/withdrawals',
       name: 'AdminWithdrawals',
       component: () => import('@/views/AdminWithdrawalsPage.vue'),
-      meta: { requiresAuth: true, pageKey: 'admin' },
+      meta: { requiresAuth: true, requiresAdmin: true, pageKey: 'admin' },
     },
     {
       path: '/admin/publicizations',
       name: 'AdminPublicizations',
       component: () => import('@/views/AdminPublicizationsPage.vue'),
-      meta: { requiresAuth: true, pageKey: 'admin' },
+      meta: { requiresAuth: true, requiresAdmin: true, pageKey: 'admin' },
     },
     {
       path: '/observe',
@@ -206,6 +206,9 @@ router.beforeEach((to, _from, next) => {
   auth.init()
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     next({ path: '/login', query: { redirect: to.fullPath } })
+  } else if (to.meta.requiresAdmin && !auth.user?.roles?.includes('admin')) {
+    // 管理员路由门禁：非 admin（含未登录已被上一分支拦截）一律回工作台，不暴露运维面板。
+    next('/dashboard')
   } else if (to.path === '/login' && auth.isAuthenticated) {
     next('/dashboard')
   } else {

@@ -4,6 +4,7 @@ export interface WorkbenchNavItem {
   to: string
   icon: string
   status?: 'live' | 'preview'
+  adminOnly?: boolean
 }
 
 export interface WorkbenchNavGroup {
@@ -64,7 +65,7 @@ export const sideNavGroups: WorkbenchNavGroup[] = [
       { key: 'ica', label: '独立成分审核', to: '/ica', icon: 'preprocess', status: 'preview' },
       { key: 'statistics', label: '统计分析', to: '/statistics', icon: 'stats', status: 'preview' },
       { key: 'ml', label: '机器学习', to: '/ml', icon: 'cpu', status: 'preview' },
-      { key: 'admin', label: '管理面板', to: '/admin', icon: 'admin', status: 'preview' },
+      { key: 'admin', label: '运维面板', to: '/admin', icon: 'admin', status: 'live', adminOnly: true },
     ],
   },
   {
