@@ -80,3 +80,11 @@ cd "elys_scripts\oss_smoke"; .\enable_oss_remote.ps1
 
 `enable_oss_remote.ps1` 用 **systemd drop-in**（`/etc/systemd/system/<svc>.service.d/oss.conf`）注入，能扛住「重部署清空→跑 s3」循环（drop-in 在 .d/，重部署重写主 .service 不动它，重启自动合并）。凭证经 SSH 写进服务器 root-only 文件，不入仓库。
 
+### 调试期：每次部署自动清空 OSS 桶（零参数）
+
+`s2_deploy.cmd`（以及 `s23`，它会调 s2_deploy）在部署前会自动跑 `clear_oss.py` 清空 OSS 测试桶，**让 OSS 跟本地 RESET 一样每轮干净起点**。无需任何参数。
+
+- **安全门控**：仅当 active profile 的 `RESET_STORAGE=true`（且非 `KEEP_EXISTING_DATA`）时才清——和本地存储 RESET 同条件。生产 profile（`RESET_STORAGE=false`）绝不会清，**不会变成删库地雷**。
+- **尽力而为**：没凭证 / 没装 oss2 / 没 python / 网络错 → 打印并跳过，**绝不阻断部署**。
+- 凭证非交互解析：环境变量 → Windows 用户级注册表 → `~/.elys/oss.env`。走公网 endpoint 本机清。
+
