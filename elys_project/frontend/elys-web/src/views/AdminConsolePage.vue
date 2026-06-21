@@ -120,145 +120,144 @@
       </section>
 
       <!-- ================= 运行与负荷 ================= -->
+      <!-- 骨架优先：卡片框架即时显示，数字 — / 列表「读取中」占位，数据到再填 -->
       <section v-show="activeTab === 'runtime'" class="ops-section">
-        <div v-if="loadingRuntime && !runtime" class="ops-loading">
-          <span class="spinner spinner--dark"></span> 正在读取运行状态…
+        <div class="ops-grid-2">
+          <div class="ops-card">
+            <div class="ops-card__head"><h2>执行队列 · 实时</h2><span>全平台</span></div>
+            <div class="ops-queue">
+              <div class="ops-queue__stat is-info"><strong>{{ runtime?.queue.running ?? '—' }}</strong><span>运行中</span></div>
+              <div class="ops-queue__stat is-warn"><strong>{{ runtime?.queue.queued ?? '—' }}</strong><span>排队</span></div>
+              <div class="ops-queue__stat"><strong>{{ runtime?.queue.waiting_user_input ?? '—' }}</strong><span>等确认</span></div>
+              <div class="ops-queue__stat is-danger"><strong>{{ runtime?.queue.failed_recent ?? '—' }}</strong><span>失败(24h)</span></div>
+            </div>
+            <div class="ops-subtle">
+              上传/导入异步任务：{{ runtime?.queue.async_running ?? '—' }} 运行 · {{ runtime?.queue.async_queued ?? '—' }} 排队
+            </div>
+          </div>
+
+          <div class="ops-card">
+            <div class="ops-card__head">
+              <h2>计算 worker</h2>
+              <span v-if="runtime" :class="runtime.workers.online ? 'ops-ok' : 'ops-bad'">
+                {{ runtime.workers.online ? `${runtime.workers.worker_count} 个在线` : '离线 · inline 降级' }}
+              </span>
+              <span v-else class="ops-muted">检测中…</span>
+            </div>
+            <div class="ops-queue">
+              <div class="ops-queue__stat is-info"><strong>{{ runtime?.workers.active ?? '—' }}</strong><span>active</span></div>
+              <div class="ops-queue__stat is-warn"><strong>{{ runtime?.workers.reserved ?? '—' }}</strong><span>reserved</span></div>
+            </div>
+            <div v-if="runtime?.workers.workers.length" class="ops-worker-list">
+              <div v-for="w in runtime.workers.workers" :key="w.name" class="ops-worker-row">
+                <code>{{ w.name }}</code>
+                <span>active {{ w.active }} · reserved {{ w.reserved }}</span>
+              </div>
+            </div>
+            <div v-else-if="runtime && !runtime.workers.online" class="ops-subtle ops-bad">
+              worker 不在线，pipeline 正在 web 请求线程同步执行（共享队列瓶颈）。
+            </div>
+          </div>
         </div>
 
-        <template v-else-if="runtime">
-          <div class="ops-grid-2">
-            <div class="ops-card">
-              <div class="ops-card__head"><h2>执行队列 · 实时</h2><span>全平台</span></div>
-              <div class="ops-queue">
-                <div class="ops-queue__stat is-info"><strong>{{ runtime.queue.running }}</strong><span>运行中</span></div>
-                <div class="ops-queue__stat is-warn"><strong>{{ runtime.queue.queued }}</strong><span>排队</span></div>
-                <div class="ops-queue__stat"><strong>{{ runtime.queue.waiting_user_input }}</strong><span>等确认</span></div>
-                <div class="ops-queue__stat is-danger"><strong>{{ runtime.queue.failed_recent }}</strong><span>失败(24h)</span></div>
-              </div>
-              <div class="ops-subtle">
-                上传/导入异步任务：{{ runtime.queue.async_running }} 运行 · {{ runtime.queue.async_queued }} 排队
-              </div>
+        <div class="ops-card">
+          <div class="ops-card__head"><h2>计算服负荷</h2><span>{{ resourceHostLabel }}</span></div>
+          <div v-if="runtime && !runtime.resources.psutil_available" class="ops-subtle">
+            psutil 未安装（待云端部署 pip install），仅磁盘可读。
+          </div>
+          <div class="ops-bars">
+            <div class="ops-bar">
+              <div class="ops-bar__head"><span>CPU</span><span>{{ pct(runtime?.resources.cpu_percent) }}</span></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill is-info" :style="{ width: barWidth(runtime?.resources.cpu_percent) }"></div></div>
             </div>
+            <div class="ops-bar">
+              <div class="ops-bar__head"><span>内存</span><span>{{ memLabel }}</span></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill is-warn" :style="{ width: barWidth(runtime?.resources.mem?.percent) }"></div></div>
+            </div>
+            <div class="ops-bar">
+              <div class="ops-bar__head"><span>磁盘 · 存储盘</span><span>{{ diskLabel }}</span></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill" :class="diskFillTone" :style="{ width: barWidth(runtime?.resources.disk?.percent) }"></div></div>
+            </div>
+          </div>
+          <div v-if="runtime?.resources.load_avg" class="ops-subtle">
+            负载均值 (1/5/15min)：{{ runtime.resources.load_avg.join(' · ') }} · {{ runtime.resources.cpu_count }} 核
+          </div>
+        </div>
 
-            <div class="ops-card">
-              <div class="ops-card__head">
-                <h2>计算 worker</h2>
-                <span :class="runtime.workers.online ? 'ops-ok' : 'ops-bad'">
-                  {{ runtime.workers.online ? `${runtime.workers.worker_count} 个在线` : '离线 · inline 降级' }}
-                </span>
-              </div>
-              <div class="ops-queue">
-                <div class="ops-queue__stat is-info"><strong>{{ runtime.workers.active }}</strong><span>active</span></div>
-                <div class="ops-queue__stat is-warn"><strong>{{ runtime.workers.reserved }}</strong><span>reserved</span></div>
-              </div>
-              <div v-if="runtime.workers.workers.length" class="ops-worker-list">
-                <div v-for="w in runtime.workers.workers" :key="w.name" class="ops-worker-row">
-                  <code>{{ w.name }}</code>
-                  <span>active {{ w.active }} · reserved {{ w.reserved }}</span>
+        <div class="ops-card" :class="{ 'ops-card--alert': stuckOrLocks.length }">
+          <div class="ops-card__head">
+            <h2>卡死执行与锁</h2>
+            <span>running 超 10 分钟 / 未释放的执行锁</span>
+          </div>
+          <div v-if="!runtime" class="ops-loading-inline"><span class="spinner spinner--dark"></span> 读取中…</div>
+          <EmptyState v-else-if="!stuckOrLocks.length" icon="check" title="没有卡死或泄漏的锁" description="所有执行锁都在正常生命周期内。" compact quiet />
+          <div v-else class="ops-list">
+            <div v-for="row in stuckOrLocks" :key="row.key" class="ops-list__row is-alert">
+              <span class="ops-list__dot is-danger"></span>
+              <div class="ops-list__body">
+                <div class="ops-list__title">
+                  <strong>{{ row.title }}</strong>
+                  <span class="ops-tag is-danger">{{ row.tag }}</span>
                 </div>
+                <p>{{ row.detail }}</p>
               </div>
-              <div v-else-if="!runtime.workers.online" class="ops-subtle ops-bad">
-                worker 不在线，pipeline 正在 web 请求线程同步执行（共享队列瓶颈）。
-              </div>
+              <span class="ops-list__meta">{{ formatDuration(row.age) }}</span>
             </div>
           </div>
+        </div>
 
-          <div class="ops-card">
-            <div class="ops-card__head"><h2>计算服负荷</h2><span>{{ resourceHostLabel }}</span></div>
-            <div v-if="!runtime.resources.psutil_available" class="ops-subtle">
-              psutil 未安装（待云端部署 pip install），仅磁盘可读。
-            </div>
-            <div class="ops-bars">
-              <div class="ops-bar">
-                <div class="ops-bar__head"><span>CPU</span><span>{{ pct(runtime.resources.cpu_percent) }}</span></div>
-                <div class="ops-bar__track"><div class="ops-bar__fill is-info" :style="{ width: barWidth(runtime.resources.cpu_percent) }"></div></div>
-              </div>
-              <div class="ops-bar">
-                <div class="ops-bar__head"><span>内存</span><span>{{ memLabel }}</span></div>
-                <div class="ops-bar__track"><div class="ops-bar__fill is-warn" :style="{ width: barWidth(runtime.resources.mem?.percent) }"></div></div>
-              </div>
-              <div class="ops-bar">
-                <div class="ops-bar__head"><span>磁盘 · 存储盘</span><span>{{ diskLabel }}</span></div>
-                <div class="ops-bar__track"><div class="ops-bar__fill" :class="diskFillTone" :style="{ width: barWidth(runtime.resources.disk?.percent) }"></div></div>
-              </div>
-            </div>
-            <div v-if="runtime.resources.load_avg" class="ops-subtle">
-              负载均值 (1/5/15min)：{{ runtime.resources.load_avg.join(' · ') }} · {{ runtime.resources.cpu_count }} 核
-            </div>
-          </div>
-
-          <div class="ops-card" :class="{ 'ops-card--alert': stuckOrLocks.length }">
-            <div class="ops-card__head">
-              <h2>卡死执行与锁</h2>
-              <span>running 超 10 分钟 / 未释放的执行锁</span>
-            </div>
-            <EmptyState v-if="!stuckOrLocks.length" icon="check" title="没有卡死或泄漏的锁" description="所有执行锁都在正常生命周期内。" compact quiet />
-            <div v-else class="ops-list">
-              <div v-for="row in stuckOrLocks" :key="row.key" class="ops-list__row is-alert">
-                <span class="ops-list__dot is-danger"></span>
-                <div class="ops-list__body">
-                  <div class="ops-list__title">
-                    <strong>{{ row.title }}</strong>
-                    <span class="ops-tag is-danger">{{ row.tag }}</span>
-                  </div>
-                  <p>{{ row.detail }}</p>
+        <div class="ops-card">
+          <div class="ops-card__head"><h2>运行中执行</h2><span>{{ runtime ? runtime.executions.length + ' 条' : '读取中' }}</span></div>
+          <div v-if="!runtime" class="ops-loading-inline"><span class="spinner spinner--dark"></span> 读取中…</div>
+          <EmptyState v-else-if="!runtime.executions.length" icon="clock" title="当前没有运行中的执行" description="没有 running / 排队 / 等确认的执行。" compact quiet />
+          <div v-else class="ops-list">
+            <RouterLink
+              v-for="ex in runtime.executions"
+              :key="ex.id"
+              class="ops-list__row"
+              :to="executionRoute(ex)"
+              target="_blank"
+              rel="opener"
+            >
+              <span class="ops-list__dot" :class="`is-${statusTone(ex.status)}`"></span>
+              <div class="ops-list__body">
+                <div class="ops-list__title">
+                  <strong>{{ ex.pipeline_name || ('Pipeline #' + ex.pipeline_id) }}</strong>
+                  <span class="ops-muted">运行 #{{ ex.execution_seq }}</span>
+                  <span class="ops-tag">{{ statusLabel(ex.status) }}</span>
                 </div>
-                <span class="ops-list__meta">{{ formatDuration(row.age) }}</span>
+                <p>{{ ex.study_name || ex.study_id }} · {{ ex.node_count }} 节点 · 触发 {{ ex.trigger }}</p>
               </div>
-            </div>
+              <span class="ops-list__meta">{{ formatDuration(ex.age_seconds) }}</span>
+            </RouterLink>
           </div>
+        </div>
 
-          <div class="ops-card">
-            <div class="ops-card__head"><h2>运行中执行</h2><span>{{ runtime.executions.length }} 条</span></div>
-            <EmptyState v-if="!runtime.executions.length" icon="clock" title="当前没有运行中的执行" description="没有 running / 排队 / 等确认的执行。" compact quiet />
-            <div v-else class="ops-list">
-              <RouterLink
-                v-for="ex in runtime.executions"
-                :key="ex.id"
-                class="ops-list__row"
-                :to="executionRoute(ex)"
-                target="_blank"
-                rel="opener"
-              >
-                <span class="ops-list__dot" :class="`is-${statusTone(ex.status)}`"></span>
-                <div class="ops-list__body">
-                  <div class="ops-list__title">
-                    <strong>{{ ex.pipeline_name || ('Pipeline #' + ex.pipeline_id) }}</strong>
-                    <span class="ops-muted">运行 #{{ ex.execution_seq }}</span>
-                    <span class="ops-tag">{{ statusLabel(ex.status) }}</span>
-                  </div>
-                  <p>{{ ex.study_name || ex.study_id }} · {{ ex.node_count }} 节点 · 触发 {{ ex.trigger }}</p>
+        <div class="ops-card">
+          <div class="ops-card__head"><h2>最近失败</h2><span>近 24 小时 · 跨研究项</span></div>
+          <div v-if="!runtime" class="ops-loading-inline"><span class="spinner spinner--dark"></span> 读取中…</div>
+          <EmptyState v-else-if="!runtime.recent_failures.length" icon="check" title="近 24 小时无失败执行" description="平台运行平稳。" compact quiet />
+          <div v-else class="ops-list">
+            <RouterLink
+              v-for="fail in runtime.recent_failures"
+              :key="fail.id"
+              class="ops-list__row"
+              :to="failureRoute(fail)"
+              target="_blank"
+              rel="opener"
+            >
+              <span class="ops-list__dot is-danger"></span>
+              <div class="ops-list__body">
+                <div class="ops-list__title">
+                  <strong>{{ fail.pipeline_name || ('Pipeline #' + fail.pipeline_id) }}</strong>
+                  <span class="ops-muted">运行 #{{ fail.execution_seq }}</span>
                 </div>
-                <span class="ops-list__meta">{{ formatDuration(ex.age_seconds) }}</span>
-              </RouterLink>
-            </div>
+                <p>{{ fail.study_name || fail.study_id }} · {{ fail.error_message || '未记录错误摘要' }}</p>
+              </div>
+              <span class="ops-list__meta">{{ formatRelativeTime(fail.finished_at) }}</span>
+            </RouterLink>
           </div>
-
-          <div class="ops-card">
-            <div class="ops-card__head"><h2>最近失败</h2><span>近 24 小时 · 跨研究项</span></div>
-            <EmptyState v-if="!runtime.recent_failures.length" icon="check" title="近 24 小时无失败执行" description="平台运行平稳。" compact quiet />
-            <div v-else class="ops-list">
-              <RouterLink
-                v-for="fail in runtime.recent_failures"
-                :key="fail.id"
-                class="ops-list__row"
-                :to="failureRoute(fail)"
-                target="_blank"
-                rel="opener"
-              >
-                <span class="ops-list__dot is-danger"></span>
-                <div class="ops-list__body">
-                  <div class="ops-list__title">
-                    <strong>{{ fail.pipeline_name || ('Pipeline #' + fail.pipeline_id) }}</strong>
-                    <span class="ops-muted">运行 #{{ fail.execution_seq }}</span>
-                  </div>
-                  <p>{{ fail.study_name || fail.study_id }} · {{ fail.error_message || '未记录错误摘要' }}</p>
-                </div>
-                <span class="ops-list__meta">{{ formatRelativeTime(fail.finished_at) }}</span>
-              </RouterLink>
-            </div>
-          </div>
-        </template>
+        </div>
       </section>
 
       <!-- ================= 审计与安全 ================= -->
@@ -727,6 +726,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: var(--s-6);
+  color: var(--c-text-3);
+  font-size: 13px;
+}
+.ops-loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 2px;
   color: var(--c-text-3);
   font-size: 13px;
 }

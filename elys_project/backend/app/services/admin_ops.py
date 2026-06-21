@@ -118,24 +118,31 @@ def probe_celery(settings, *, with_tasks: bool = True) -> dict[str, Any]:
 
         timeout = float(getattr(settings, "CELERY_WORKER_PING_TIMEOUT_SECONDS", 0.5) or 0.5)
         inspector = celery_app.control.inspect(timeout=timeout)
-        ping = inspector.ping() or {}
-        if ping:
-            result["online"] = True
-            result["worker_count"] = len(ping)
-            if with_tasks:
-                active = inspector.active() or {}
-                reserved = inspector.reserved() or {}
+        if with_tasks:
+            # active/reserved 两次广播即可，在线与 worker 数直接从回复者推出——省掉单独的 ping
+            # 那次广播（运行面板首屏少等一个超时）。
+            active = inspector.active() or {}
+            reserved = inspector.reserved() or {}
+            names = sorted(set(active) | set(reserved))
+            if names:
+                result["online"] = True
+                result["worker_count"] = len(names)
                 total_active = total_reserved = 0
                 workers: list[dict[str, Any]] = []
-                for name in ping.keys():
-                    a = len(active.get(name, []) or [])
-                    r = len(reserved.get(name, []) or [])
+                for name in names:
+                    a = len(active.get(name) or [])
+                    r = len(reserved.get(name) or [])
                     total_active += a
                     total_reserved += r
                     workers.append({"name": name, "active": a, "reserved": r})
                 result["active"] = total_active
                 result["reserved"] = total_reserved
                 result["workers"] = workers
+        else:
+            ping = inspector.ping() or {}
+            if ping:
+                result["online"] = True
+                result["worker_count"] = len(ping)
     except Exception as exc:  # noqa: BLE001
         result["error"] = str(exc)
 
