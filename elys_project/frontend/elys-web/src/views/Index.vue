@@ -26,28 +26,22 @@
           <span class="badge badge--primary">
             <span class="dot"></span>脑电（EEG）分析 · 在线工作台
           </span>
-          <h1 class="mt-3 hero-title">
+          <h1 class="hero-title">
             <span class="hero-title__line"><span class="hero-title__mark">念</span>隐于微，</span>
             <span class="hero-title__line"><span class="hero-title__mark">析</span>显于明</span>
           </h1>
           <p>
-            给做脑电研究的医生、心理与神经科学家：把上传、清洗、分析、出图这套过去要写代码才能跑的流程，搬进浏览器里点几下完成——从原始数据到可发表的 ERP、时频、功率谱结果，全程可复现、可协作。底层遵循国际通用的脑电数据组织规范（BIDS）、采用学界主流的开源算法库（MNE-Python）；统计、作图、机器学习模块持续上线中。
+            面向科研的脑电（EEG）数据分析平台 —— 数据管理、预处理、分析与可视化整合在一个在线工作台中，无需自行搭建环境或编写代码。遵循 BIDS 国际数据规范、集成 MNE-Python 主流算法，支持 Web 端协作，复现性与效率兼得；统计、作图、机器学习模块持续上线中。
           </p>
           <div class="hero__cta">
             <RouterLink class="btn btn--primary btn--lg" to="/dashboard">立即体验工作台</RouterLink>
             <a class="btn btn--lg" href="#workflow">看分析流程示例</a>
           </div>
-          <div class="hero__quote">
-            三步上手：① 新建研究项（你的分析项目空间）→ ② 上传脑电数据 → ③ 搭好分析流程，一键跑出结果。
-          </div>
         </div>
 
         <div class="hero__visual">
-          <div class="row row--between mb-3">
+          <div class="mb-3">
             <strong>典型工作流：P300 标准分析</strong>
-            <span class="badge badge--success">
-              <span class="dot"></span>已完成
-            </span>
           </div>
           <div class="pipeline-mock">
             <div class="pl-node is-success">
@@ -101,39 +95,53 @@
     </section>
 
     <section id="features" class="feature-grid">
-      <div class="feat">
-        <div class="feat__icon">
-          <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M3 7h18M3 12h18M3 17h12" />
-          </svg>
-        </div>
-        <h3>从预处理到结果，一条龙跑通</h3>
-        <p class="muted">
-          滤波、去伪迹（ICA）、分段、ERP / 时频 / 功率谱分析，结果可在线观察。统计、作图、机器学习模块陆续上线。
-        </p>
-      </div>
       <div class="feat feat--accent">
         <div class="feat__icon">
           <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" />
+            <path d="M4 6h5v5H4z" />
+            <path d="M15 13h5v5h-5z" />
+            <path d="M9 9h3a3 3 0 0 1 3 3v1" />
           </svg>
         </div>
-        <h3>遵循国际标准，算法可信</h3>
+        <h3>一条链路，连贯跑通</h3>
         <p class="muted">
-          数据按国际通用的脑电组织规范（BIDS）管理，分析采用学界广泛使用的开源算法库（MNE-Python）——既好复现，又跟得上方法前沿。
+          滤波、去伪迹（ICA）、分段，到诱发电位（ERP）、频谱、时频分析，结果直接在网页上看——不用切工具、不用写代码。统计、作图、机器学习正在开发中。
         </p>
       </div>
       <div class="feat">
         <div class="feat__icon">
           <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M5 21V8l7-5 7 5v13" />
-            <path d="M9 21v-7h6v7" />
+            <path d="M12 3l8 3v6c0 4.5-3.2 7.5-8 9-4.8-1.5-8-4.5-8-9V6z" />
+            <path d="M9 12l2 2 4-4" />
           </svg>
         </div>
-        <h3>安全与权限</h3>
+        <h3>方法主流，复现省心</h3>
         <p class="muted">
-          数据导入即自动抹除姓名、出生日期等可识别身份信息（去标识化）；访问全程需登录鉴权，原始文件不对公网开放、按研究项做权限隔离。传输加密（HTTPS）随上线逐步启用。
+          数据按国际通用脑电规范（BIDS）的命名风格组织，便于迁移与共享；分析采用学界广泛使用的开源算法库（MNE-Python），换台机器也能复现，论文方法部分有据可依。
+        </p>
+      </div>
+      <div class="feat">
+        <div class="feat__icon">
+          <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M10 8.5l5 3.5-5 3.5z" />
+          </svg>
+        </div>
+        <h3>三步上手，无需代码</h3>
+        <p class="muted">
+          上传数据集、建立研究项、配好工作流，点击运行看结果——第一次用也不会卡在门口，无需装软件或写代码。
+        </p>
+      </div>
+      <div class="feat">
+        <div class="feat__icon">
+          <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M6 11h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+        </div>
+        <h3>隐私优先，访问可控</h3>
+        <p class="muted">
+          数据导入时自动去除文件中的姓名、出生日期等可识别身份信息（去标识化）；访问需登录，原始文件不对未授权用户开放，并按研究项隔离。传输加密（HTTPS）随上线逐步启用。
         </p>
       </div>
     </section>
@@ -152,13 +160,13 @@
         <div class="nav-cards">
           <div class="nav-card">
             <span class="nav-card__num">01</span>
-            <div class="nav-card__title"><AppIcon name="studies" :size="16" /> 创建研究项</div>
-            <div class="nav-card__hint">你的分析项目空间，含成员与权限。</div>
+            <div class="nav-card__title"><AppIcon name="import" :size="16" /> 上传数据集</div>
+            <div class="nav-card__hint">导入后自动登记原始文件、规范目录与标准格式（FIF）。</div>
           </div>
           <div class="nav-card">
             <span class="nav-card__num">02</span>
-            <div class="nav-card__title"><AppIcon name="import" :size="16" /> 上传脑电数据</div>
-            <div class="nav-card__hint">导入后自动登记原始文件、规范目录与标准格式（FIF）。</div>
+            <div class="nav-card__title"><AppIcon name="studies" :size="16" /> 建立研究项</div>
+            <div class="nav-card__hint">你的分析项目空间，含成员与权限。</div>
           </div>
           <div class="nav-card">
             <span class="nav-card__num">03</span>
