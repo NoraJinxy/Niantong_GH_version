@@ -242,6 +242,18 @@
               <span class="stale">
                 运行 #{{ latestPipelineExecution.execution_seq }}（基于旧版本 v{{ latestPipelineExecution.pipeline_version }}）· 工作流已修改，此运行状态已过期，请重新运行
               </span>
+              <!-- 过期运行若仍占着运行锁（尤其卡在「等待确认」、而它等的节点已被删，无从推进），
+                   这里给一个直接的取消出口：取消后释放锁，即可重新运行——根治「改图后无法运行」的死锁。 -->
+              <button
+                v-if="canCancelLatestExecution"
+                class="button button--danger validation__action"
+                type="button"
+                :disabled="Boolean(executionActionLoading)"
+                title="取消这个仍占着运行锁的过期运行；取消后即可重新运行"
+                @click="cancelLatestExecution"
+              >
+                {{ executionActionLoading === 'cancel' ? '取消中…' : '取消此运行' }}
+              </button>
             </template>
             <template v-else>
               <span :class="latestPipelineExecution.status === 'completed' ? 'ok' : latestPipelineExecution.status === 'waiting_user_input' ? 'warn' : 'error'">
@@ -5479,6 +5491,13 @@ function describeError(error: unknown, fallback: string) {
 .validation .stale {
   color: var(--c-text-muted);
   font-weight: 500;
+}
+
+/* 底栏内嵌的「取消此运行」——压成与状态行齐平的小按钮，不撑高状态栏 */
+.validation .validation__action {
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .run-panel {

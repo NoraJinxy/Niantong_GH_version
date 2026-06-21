@@ -114,12 +114,16 @@ export function useRunControl(options: RunControlOptions) {
 
     runningPipeline.value = true
     statusMessage.value = '正在运行工作流...'
-    resetRunTracking()
     try {
       const selectionOverride = buildRunSelectionOverridePayload()
       const res = await pipelineApi.run(selectedStudyId.value, currentPipeline.value.id, {
         ...(Object.keys(selectionOverride).length ? { selection_override: selectionOverride } : {}),
       })
+      // 运行成功创建后才清掉上一条运行的展示、切到新运行。
+      // 不能在发请求前就 reset：若 run 被拒（如「单活跃运行」限制——上一条还卡在等待确认），
+      // 提前 reset 会把上一条运行从界面抹掉（顶栏徽标变「暂无运行」、取消抽屉也打不开），
+      // 而它仍占着运行锁 → 用户既不能推进又找不到取消入口 = 死锁。失败时保留引用，仍可取消。
+      resetRunTracking()
       latestPipelineExecution.value = res.data
       activeExecutionId.value = res.data.id
       await refreshRunState(res.data.id)
