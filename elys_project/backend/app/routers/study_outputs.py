@@ -45,7 +45,7 @@ from app.pipeline.timeseries import build_auto_artifacts, build_timeseries
 from app.pipeline.psd_view import build_psd_lines
 from app.pipeline.stat_view import build_stat_view
 from app.pipeline.tfr_view import build_tfr_cube, build_tfr_heatmap, build_tfr_topomap
-from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail, build_ica_preview
+from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail, build_ica_labels, build_ica_preview
 from app.pipeline.save_settings import retention_expiry_after_user_action
 from app.services.audit_events import record_audit_event
 from app.services.execution_dependencies import ArtifactDependencyError, assert_artifact_can_be_deleted
@@ -618,7 +618,10 @@ def get_study_output_ica_components(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """ICA 成分网格：总览 + 每成分地形图（电极权重落 2D 坐标）+ 解释方差 + 主导通道。"""
+    """ICA 成分网格（快路径）：总览 + 每成分地形图（电极权重落 2D 坐标）+ 主导通道。
+
+    只载 ICA 矩阵、不碰源 raw、不跑 ICLabel，让首屏秒出；方差% / ICLabel 标签 / 自动建议走 /labels 异步补。
+    """
     study = get_study_for_read(study_id, db, current_user)
     dataset = get_study_output_or_404(db, study.id, dataset_id)
     if dataset.deleted_at is not None:
@@ -628,6 +631,38 @@ def get_study_output_ica_components(
         )
     try:
         return build_ica_components(study, dataset)
+    except StudyOutputPreviewError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "study_output_id": str(dataset_id)},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "ICA_ENGINE_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+
+
+@router.get("/studies/{study_id}/outputs/{dataset_id}/ica-components/labels")
+def get_study_output_ica_labels(
+    study_id: str,
+    dataset_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ICA 成分标签（慢路径，异步补）：载入源 raw → 每成分解释方差% + ICLabel 自动分类 + 建议剔除。
+
+    与网格端点分离——前端先拿网格秒出，再拉这个把方差 / 标签 / 默认勾选补上。必须注册在 /{index} 之前。
+    """
+    study = get_study_for_read(study_id, db, current_user)
+    dataset = get_study_output_or_404(db, study.id, dataset_id)
+    if dataset.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，ICA 成分不可用。"},
+        )
+    try:
+        return build_ica_labels(study, dataset)
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,

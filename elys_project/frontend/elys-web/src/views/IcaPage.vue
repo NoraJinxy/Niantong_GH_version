@@ -11,7 +11,8 @@
           <template v-if="overview.total_variance_explained != null">
             · 解释方差 {{ overview.total_variance_explained.toFixed(1) }}%
           </template>
-          <template v-if="overview.iclabel_available"> · ICLabel 已自动标注</template>
+          <template v-if="labelsLoading"> · <span class="ica-live">标注加载中…</span></template>
+          <template v-else-if="overview.iclabel_available"> · ICLabel 已自动标注</template>
         </span>
         <span class="ica-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实 ICA 数据' : '查看模式' }}</span>
         <div style="flex: 1"></div>
@@ -237,7 +238,17 @@ interface IcaComponentsResponse {
   has_source_raw: boolean
   iclabel_available?: boolean
   suggested_exclude?: number[]
+  labels_pending?: boolean // 快路径标记：true→去拉 /labels 补方差+ICLabel
   components: IcaComponent[]
+}
+// /labels 慢路径（异步补）：每成分方差% + ICLabel 标签 + 建议剔除
+interface IcaLabelsResponse {
+  has_source_raw: boolean
+  iclabel_available: boolean
+  total_variance_explained: number | null
+  suggested_exclude: number[]
+  variances: Record<string, number>
+  iclabel: Record<string, IcaLabel>
 }
 interface IcaDetail {
   index: number
@@ -286,6 +297,8 @@ const isLive = computed(() => Boolean(studyId && outputId))
 const jobContext = computed(() => Boolean(isLive.value && executionId && jobId && decisionVersion > 0))
 
 const loading = ref(false)
+const labelsLoading = ref(false) // 阶段二（方差+ICLabel）异步加载中
+let serverHadExclude = false // 服务端已存人工决策（有则不套用 ICLabel 默认建议）
 const error = ref('')
 const overview = ref<IcaComponentsResponse | null>(null)
 const components = ref<IcaComponent[]>([])
@@ -411,6 +424,7 @@ const previewData = computed<number[][]>(() => {
   return [p.times, p.original.map((v) => v * 1e6), p.filtered.map((v) => v * 1e6)]
 })
 
+// 阶段一（快）：成分地形图网格——秒出，不等 raw / ICLabel。
 async function load() {
   if (!isLive.value) return
   loading.value = true
@@ -419,22 +433,51 @@ async function load() {
     const res = await dataApi.get<IcaComponentsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components`)
     overview.value = res.data
     components.value = res.data.components || []
-    // 通道默认首通道
     if (res.data.ch_names?.length && !cmpChannel.value) cmpChannel.value = res.data.ch_names[0]
-    // 默认剔除集：已保存的人工决策优先；否则用 ICLabel 自动建议（auto-flag + human-confirm，可取消）。
-    const serverExclude = res.data.exclude || []
-    const suggested = res.data.suggested_exclude || []
-    setExcluded(new Set(serverExclude.length ? serverExclude : suggested))
+    // 已存人工决策先生效（空则等 /labels 回来用 ICLabel 建议）
+    serverHadExclude = (res.data.exclude || []).length > 0
+    setExcluded(new Set(res.data.exclude || []))
+    document.title = `ICA 审核 · ${res.data.n_components} 成分 — 念析`
     if (components.value.length) {
       selectComponent(selectedIndex.value ?? components.value[0].index)
     }
-    document.title = `ICA 审核 · ${res.data.n_components} 成分 — 念析`
+    // 阶段二（慢，异步）：方差 + ICLabel 标签 + 默认勾选——网格已显示，不挡首屏。
+    if (res.data.labels_pending !== false) loadLabels()
   } catch (err: unknown) {
     error.value = describeError(err)
     components.value = []
     overview.value = null
   } finally {
     loading.value = false
+  }
+}
+
+// 阶段二：拉方差 + ICLabel，合并进已显示的成分网格；无已存决策则套用 ICLabel 建议作默认勾选。
+async function loadLabels() {
+  labelsLoading.value = true
+  try {
+    const res = await dataApi.get<IcaLabelsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components/labels`)
+    const vmap = res.data.variances || {}
+    const lmap = res.data.iclabel || {}
+    components.value = components.value.map((c) => ({
+      ...c,
+      explained_variance: vmap[String(c.index)] ?? c.explained_variance ?? null,
+      iclabel: lmap[String(c.index)] ?? c.iclabel ?? null,
+    }))
+    if (overview.value) {
+      overview.value = {
+        ...overview.value,
+        iclabel_available: res.data.iclabel_available,
+        total_variance_explained: res.data.total_variance_explained,
+      }
+    }
+    if (!serverHadExclude && (res.data.suggested_exclude || []).length) {
+      setExcluded(new Set(res.data.suggested_exclude))
+    }
+  } catch {
+    /* 标签加载失败：网格照常用，只是没方差 / 标签（best-effort） */
+  } finally {
+    labelsLoading.value = false
   }
 }
 

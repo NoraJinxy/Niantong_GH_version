@@ -352,55 +352,92 @@ def _ica_cache_set(key: str, entry: dict[str, Any]) -> None:
                 _ICA_CACHE.pop(old_key, None)
 
 
-def _load_ica_and_raw(study: Any, artifact: Any) -> tuple[str, Any, Any, dict[str, Any]]:
-    """载入 ICA + 源 raw，命中缓存则复用已载入对象（不再每请求重读整个 FIF）。返回 (key, ica, raw, entry)。"""
+def _ensure_ica(study: Any, artifact: Any) -> tuple[str, Any, dict[str, Any]]:
+    """载入 ICA 矩阵（轻，不碰源 raw），命中缓存复用。返回 (key, ica, entry)。"""
     from .previews import resolve_study_output_path  # noqa: PLC0415
 
     key = _ica_cache_key(artifact)
-    entry = _ica_cache_get(key)
-    if entry and entry.get("loaded"):
-        return key, entry["ica"], entry["raw"], entry
+    entry = _ica_cache_get(key) or {}
+    if entry.get("ica") is None:
+        mne = _mne()
+        entry["ica"] = mne.preprocessing.read_ica(str(resolve_study_output_path(study, artifact)), verbose="ERROR")
+        _ica_cache_set(key, entry)
+    return key, entry["ica"], entry
 
-    mne = _mne()
-    ica = mne.preprocessing.read_ica(str(resolve_study_output_path(study, artifact)), verbose="ERROR")
-    raw = _load_source_raw(study, artifact)
-    entry = entry or {}
-    entry.update({"ica": ica, "raw": raw, "loaded": True})
-    _ica_cache_set(key, entry)
-    return key, ica, raw, entry
+
+def _ensure_raw(study: Any, artifact: Any, key: str, entry: dict[str, Any]) -> Any:
+    """惰性载入源 raw（preload 整份 FIF，重活），命中缓存复用。raw=None 也记 raw_loaded、不反复重试。"""
+    if not entry.get("raw_loaded"):
+        entry["raw"] = _load_source_raw(study, artifact)
+        entry["raw_loaded"] = True
+        _ica_cache_set(key, entry)
+    return entry.get("raw")
+
+
+def _has_source_ref(artifact: Any) -> bool:
+    """不载入 raw、仅看 preview_json 是否带 source_ref（供快路径标注 has_source_raw）。"""
+    preview = getattr(artifact, "preview_json", None)
+    return isinstance(preview, dict) and isinstance(preview.get("source_ref"), dict)
 
 
 def build_ica_components(study: Any, artifact: Any) -> dict[str, Any]:
-    """端点用：解析 ICA artifact 路径载入 ICA（+回溯源 raw），返回总览 + 每成分地形图网格。
+    """端点用（**快路径**）：只载 ICA 矩阵 → 出成分地形图网格，**不碰源 raw、不跑 ICLabel**，让首屏秒出。
 
-    结果按 artifact 内容身份缓存：同一 ICA 重开 / 刷新直接命中内存，跳过 raw 重载 + ICLabel 重跑。
+    地形图只需解混矩阵 + 电极坐标（与 raw 无关）；方差% / ICLabel 标签 / 自动建议由
+    build_ica_labels（`/labels` 端点）在网格显示后异步补。结果按 artifact 内容身份缓存。
     """
-    key, ica, raw, entry = _load_ica_and_raw(study, artifact)
-    if entry.get("result") is not None:
-        return entry["result"]
+    key, ica, entry = _ensure_ica(study, artifact)
+    if entry.get("grid_result") is not None:
+        return entry["grid_result"]
 
-    overview = ica_overview(ica, raw)
-    components = component_topographies(ica, raw)
-
-    # ICLabel 自动分类（best-effort）：给每成分附 {类别 / 中文名 / 置信度 / 是否建议剔除}，
-    # 并汇总 suggested_exclude 作为前端默认勾选（auto-flag + human-confirm）。失败则无标签、不影响主流程。
-    iclabel = classify_iclabel(ica, raw)
-    suggested_exclude: list[int] = []
-    for comp in components:
-        info = iclabel.get(comp["index"])
-        comp["iclabel"] = info
-        if info and info.get("suggested"):
-            suggested_exclude.append(comp["index"])
-
+    overview = ica_overview(ica, None)  # 不传 raw → 跳过总方差（异步补）
+    components = component_topographies(ica, None)  # 不传 raw → 地形图秒出、无方差
     result = {
         **overview,
         "study_output_id": str(getattr(artifact, "id", "") or ""),
-        "has_source_raw": raw is not None,
-        "iclabel_available": bool(iclabel),
-        "suggested_exclude": sorted(suggested_exclude),
+        "has_source_raw": _has_source_ref(artifact),
+        "iclabel_available": False,  # 占位：标签由 /labels 异步补
+        "suggested_exclude": [],
+        "labels_pending": _has_source_ref(artifact),  # 提示前端去拉 /labels
         "components": components,
     }
-    entry["result"] = result
+    entry["grid_result"] = result
+    _ica_cache_set(key, entry)
+    return result
+
+
+def build_ica_labels(study: Any, artifact: Any) -> dict[str, Any]:
+    """端点用（**慢路径，异步补**）：载入源 raw，算每成分解释方差% + ICLabel 自动分类 + 建议剔除。
+
+    与快路径网格分离——网格秒出后前端再拉这个把方差 / 标签 / 默认勾选补上。结果按 artifact 内容身份缓存。
+    """
+    key, ica, entry = _ensure_ica(study, artifact)
+    if entry.get("labels_result") is not None:
+        return entry["labels_result"]
+    raw = _ensure_raw(study, artifact, key, entry)
+
+    n_components = int(getattr(ica, "n_components_", 0) or 0)
+    variances = _all_component_variances(ica, raw, n_components) if raw is not None else {}
+    iclabel = classify_iclabel(ica, raw)
+    suggested = sorted(i for i, info in iclabel.items() if info.get("suggested"))
+
+    total_var: float | None = None
+    if raw is not None:
+        try:
+            evr = ica.get_explained_variance_ratio(raw)
+            total_var = float(evr.get("eeg", 0.0)) * 100 if isinstance(evr, dict) else None
+        except Exception:
+            total_var = None
+
+    result = {
+        "has_source_raw": raw is not None,
+        "iclabel_available": bool(iclabel),
+        "total_variance_explained": total_var,
+        "suggested_exclude": suggested,
+        "variances": {str(i): round(v, 1) for i, v in variances.items()},
+        "iclabel": {str(i): info for i, info in iclabel.items()},
+    }
+    entry["labels_result"] = result
     _ica_cache_set(key, entry)
     return result
 
@@ -417,7 +454,8 @@ def build_ica_component_detail(
     """端点用：单成分时域 + 频谱（+可选去除前后对比，需源 raw）。复用缓存的 ica+raw，不重读 FIF。"""
     from .previews import StudyOutputPreviewError  # noqa: PLC0415
 
-    _key, ica, raw, _entry = _load_ica_and_raw(study, artifact)
+    key, ica, entry = _ensure_ica(study, artifact)
+    raw = _ensure_raw(study, artifact, key, entry)
     if raw is None:
         raise StudyOutputPreviewError(
             "ICA_SOURCE_RAW_UNAVAILABLE",
@@ -446,7 +484,8 @@ def build_ica_preview(
     """
     from .previews import StudyOutputPreviewError  # noqa: PLC0415
 
-    _key, ica, raw, _entry = _load_ica_and_raw(study, artifact)
+    key, ica, entry = _ensure_ica(study, artifact)
+    raw = _ensure_raw(study, artifact, key, entry)
     if raw is None:
         raise StudyOutputPreviewError(
             "ICA_SOURCE_RAW_UNAVAILABLE",
