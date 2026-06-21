@@ -9,6 +9,8 @@ Related: app/routers/pipelines.py, app/pipeline/previews.py（复用路径解析
 
 from __future__ import annotations
 
+import os
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,32 @@ def _numpy():
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("NumPy is required for timeseries.") from exc
     return numpy
+
+
+# 进程内「已 preload 的 Raw」缓存：伪迹审核来回切窗 + 全程概览复用同一份，避免每次取数都重读 FIF。
+# 键=路径+mtime（文件变更自动失效）；LRU 限 4 个文件（计算服内存有限，够覆盖单用户审核期）。
+# 只读共享安全：调用方对 raw[picks, start:stop] 取到的是副本、滤波在副本上做，不改缓存对象本身。
+_RAW_CACHE: "OrderedDict[str, Any]" = OrderedDict()
+_RAW_CACHE_MAX = 4
+
+
+def _load_raw_cached(path: Path):
+    mne = _mne()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0.0
+    key = f"{path}|{mtime}"
+    hit = _RAW_CACHE.get(key)
+    if hit is not None:
+        _RAW_CACHE.move_to_end(key)
+        return hit
+    raw = mne.io.read_raw_fif(path, preload=True, verbose="ERROR")
+    _RAW_CACHE[key] = raw
+    _RAW_CACHE.move_to_end(key)
+    while len(_RAW_CACHE) > _RAW_CACHE_MAX:
+        _RAW_CACHE.popitem(last=False)
+    return raw
 
 
 def _data_picks(mne, info, max_channels: int):
@@ -242,7 +270,7 @@ def _apply_view_filter(np, data, sfreq, l_freq, h_freq, notch):
 def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels, l_freq=None, h_freq=None, notch=None) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()
-    raw = mne.io.read_raw_fif(path, preload=False, verbose="ERROR")
+    raw = _load_raw_cached(path)  # 缓存复用：切窗 / 概览不再每次重读 FIF
     sfreq = float(raw.info["sfreq"])
     n_times = int(raw.n_times)
     total = n_times / sfreq if sfreq > 0 else 0.0
