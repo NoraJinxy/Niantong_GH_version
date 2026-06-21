@@ -69,6 +69,40 @@ describe('computeFlowLayout', () => {
     expect(layout.get('b')).toEqual([110, 20])
   })
 
+  it('并行分支各成一块、互不交错：两条独立链 S1/S2 不被层深排序搅在一起', () => {
+    // 两条独立链 a→b→c 与 x→y→z（无任何跨链连线）。旧逻辑按层深排序会得到 a,x,b,y,c,z 交错；
+    // 新逻辑按连通分量分块：a/b/c 一块、x/y/z 一块，各自折行后上下堆叠，绝不交错。
+    const ids1 = ['a', 'b', 'c']
+    const ids2 = ['x', 'y', 'z']
+    const nodes = [...ids1, ...ids2].map((id) => ({ id }))
+    const links = [...chain(...ids1), ...chain(...ids2)]
+    const layout = computeFlowLayout(nodes, links, GRID)
+    // aspect=1、两块各 3 个 → cols=3：每块铺成一行（3 宽 × 共 2 行最贴方形画布）。
+    // 块一（a/b/c）整体在块二（x/y/z）上方：块一最大 y < 块二最小 y，两块绝不交错。
+    const block1MaxY = Math.max(layout.get('a')![1], layout.get('b')![1], layout.get('c')![1])
+    const block2MinY = Math.min(layout.get('x')![1], layout.get('y')![1], layout.get('z')![1])
+    expect(block1MaxY).toBeLessThan(block2MinY)
+    // 块一三节点同一行、顺流向右 a<b<c
+    expect(layout.get('a')![1]).toBe(layout.get('b')![1])
+    expect(layout.get('b')![1]).toBe(layout.get('c')![1])
+    expect(layout.get('a')![0]).toBeLessThan(layout.get('b')![0])
+    expect(layout.get('b')![0]).toBeLessThan(layout.get('c')![0])
+    // 块二三节点同一行、顺流向右 x<y<z
+    expect(layout.get('x')![1]).toBe(layout.get('z')![1])
+    expect(layout.get('x')![0]).toBeLessThan(layout.get('z')![0])
+  })
+
+  it('单连通图行为不变：仍是原「居中折行」（与分块前逐像素一致）', () => {
+    // 回归护栏：上面 n=4/5/7 用例已逐像素锁住；这里再确认一条 6 节点链不受分块改动影响。
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+    const layout = computeFlowLayout(ids.map((id) => ({ id })), chain(...ids), GRID)
+    // n=6, aspect=1 → cols=3 → 2 行 3-3
+    expect(layout.get('a')).toEqual([0, 0])
+    expect(layout.get('c')).toEqual([200, 0])
+    expect(layout.get('d')).toEqual([0, 100])
+    expect(layout.get('f')).toEqual([200, 100])
+  })
+
   it('忽略悬空 / 自环连线，不抛错', () => {
     const nodes = [{ id: 'a' }, { id: 'b' }]
     const links = [

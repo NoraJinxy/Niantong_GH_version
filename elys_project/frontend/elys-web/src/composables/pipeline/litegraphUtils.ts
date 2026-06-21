@@ -213,16 +213,21 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
  * 行尾换到下一行行首（像文字折行 / 打字机回车），每个节点的「出→入」方向恒定向右，一眼可辨流向。
  * 换行处那条「回扫线」（上行最右 → 下行最左）就像段落换行，人一看就懂。
  *
- * 排序规则：
+ * 分块：先按「连通分量」把节点分成若干互不连线的块——典型如 Group 分析里 S1 / S2 两条独立链。每块各自
+ *   折行、整体居中、上下堆叠，块间留空隙。这样并行分支不会被「按层深排序」交错成一锅（S1 第一步紧挨 S2
+ *   第一步……）。散落的未连线单节点汇成一块一起折行，免得一堆孤立节点排成一长竖列。单块（单连通图）时
+ *   整体退化成原来的「居中折行」，行为不变。
+ *
+ * 排序规则（块内）：
  *   1) 算每个节点的「层深 depth」= 从任一根节点到它的最长路径长度（Kahn 拓扑排序 + 松弛）。
  *      这样节点一定排在其所有上游之后；末端 ERP/TFR/PSD 这类同层分叉会聚在一起。
- *   2) 同层按节点在原数组里的先后做稳定排序，最终展平成一条线性序列。
- *   3) 序列折行铺进网格，**每行一律左→右**（不反向）；折行方式见下「方案 B 居中折行」。
+ *   2) 同层按节点在原数组里的先后做稳定排序，块内展平成一条线性序列。
+ *   3) 序列折行铺进网格，**每行一律左→右**（不反向）；折行方式见下「居中折行」。
  *
- * 折行（方案 B「居中折行」）——把旧的「左对齐打字机网格」收顺成自然居中：
- *   · 行数 rows 按画布宽高比挑：枚举 1..n，令网格整体宽高比（cols·gapX : rows·gapY）最接近画布，
- *     同分取更少行（偏好填满的宽行）。画布够宽时自然退化成单行顺流。
- *   · 节点尽量均分到各行（行与行个数差 ≤1），杜绝「3-3-1」那种末行只剩一个的孤儿。
+ * 折行（「居中折行」）——把旧的「左对齐打字机网格」收顺成自然居中：
+ *   · 列数 cols 按画布宽高比挑：每块折成 ceil(size/cols) 行，令所有块堆叠后的总网格宽高比（cols·gapX :
+ *     总行数·gapY）最接近画布，同分取更多列（偏好填满的宽行）。画布够宽时自然退化成单行顺流。
+ *   · 每块内节点尽量均分到各行（行与行个数差 ≤1），杜绝「3-3-1」那种末行只剩一个的孤儿。
  *   · 每行水平居中（窄行落在最宽行正中），换行回扫线短而对称，不再是左对齐时那条横跨整行的长回扫。
  *   （调用方按节点实际宽高传 gapX/gapY，所以节点越高、行越少。）
  *
@@ -274,43 +279,95 @@ export function computeFlowLayout(
     }
   }
 
-  const sequence = [...ids].sort((a, b) => {
+  // —— 连通分量分块 —— 把无向连通的节点归到一「块」：每条独立链（如 S1 / S2 两条并行分支）各成一块，
+  // 各自折行、整体居中、上下堆叠，不再被「按层深排序」交错打散成一锅。散落的未连线单节点汇成一块一起
+  // 折行（沿用旧行为，免得一堆孤立节点被竖排成一列）。只有一块（单连通图）时整体退化成原「居中折行」。
+  const parent = new Map<string, string>()
+  for (const id of ids) parent.set(id, id)
+  const find = (x: string): string => {
+    let root = x
+    while (parent.get(root) !== root) root = parent.get(root)!
+    let cur = x
+    while (parent.get(cur) !== root) {
+      const nxt = parent.get(cur)!
+      parent.set(cur, root) // 路径压缩
+      cur = nxt
+    }
+    return root
+  }
+  for (const [from, kids] of children) {
+    for (const to of kids) {
+      const ra = find(from)
+      const rb = find(to)
+      if (ra !== rb) parent.set(ra, rb)
+    }
+  }
+
+  const byDepthThenOrder = (a: string, b: string): number => {
     const da = depth.get(a) || 0
     const db = depth.get(b) || 0
     if (da !== db) return da - db
     return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0)
-  })
+  }
+  const minOrder = (members: string[]): number =>
+    members.reduce((m, id) => Math.min(m, orderIndex.get(id) ?? 0), Infinity)
 
-  // 方案 B「居中折行」：① 按画布宽高比挑「行数 rows」，令网格整体宽高比最接近画布（同分取更少行、
-  // 偏好填满的宽行 → 画布够宽时自然退化成单行顺流）；② 节点尽量均分到各行（行间个数差 ≤1，杜绝
-  // 「3-3-1」那种末行只剩一个的孤儿）；③ 每行水平居中（窄行落在最宽行正中），回扫线短而对称。
-  let rows = 1
+  const groups = new Map<string, string[]>()
+  for (const id of ids) {
+    const root = find(id)
+    if (!groups.has(root)) groups.set(root, [])
+    groups.get(root)!.push(id)
+  }
+  const blocks: string[][] = []
+  const loose: string[] = []
+  for (const members of groups.values()) {
+    if (members.length >= 2) blocks.push(members.slice().sort(byDepthThenOrder))
+    else loose.push(members[0])
+  }
+  if (loose.length) blocks.push(loose.sort(byDepthThenOrder))
+  blocks.sort((a, b) => minOrder(a) - minOrder(b)) // 块的上下顺序按各自最小原始序，跟节点数组一致
+
+  // 选「列数 cols」：每块折成 ceil(size/cols) 行，令所有块堆叠后的总网格宽高比最贴画布；同分取更多列
+  //（总行更少 → 偏宽，画布够宽时单行顺流）。降序枚举 + 严格更优 ⇒ 同分保留更大 cols。单块时与原「按行数选」等价。
+  const sizes = blocks.map((b) => b.length)
+  const maxSize = Math.max(...sizes)
+  let cols = 1
   let bestScore = Infinity
-  for (let r = 1; r <= n; r += 1) {
-    const colsNeeded = Math.ceil(n / r)
-    const gridAspect = (colsNeeded * gapX) / (r * gapY)
+  for (let c = maxSize; c >= 1; c -= 1) {
+    const totalRows = sizes.reduce((s, sz) => s + Math.ceil(sz / c), 0)
+    const gridAspect = (c * gapX) / (totalRows * gapY)
     const score = Math.abs(Math.log(gridAspect / aspect))
     if (score < bestScore - 1e-9) {
       bestScore = score
-      rows = r
+      cols = c
     }
   }
 
-  const base = Math.floor(n / rows)
-  const extra = n % rows
-  const rowSizes = Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
-  const maxCols = Math.max(...rowSizes)
-  const centerX = marginX + ((maxCols - 1) * gapX) / 2
+  // 每块在 cols 约束下均分行（行间个数差 ≤1，杜绝「末行只剩一个」的孤儿）；所有行水平居中到同一中线、
+  // 上下堆叠，块与块之间留一道空隙以示「这是另一条链」。
+  const blockRowSizes = blocks.map((members) => {
+    const rows = Math.max(1, Math.ceil(members.length / cols))
+    const base = Math.floor(members.length / rows)
+    const extra = members.length % rows
+    return Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
+  })
+  const globalMaxCols = Math.max(...blockRowSizes.map((rs) => rs[0]))
+  const centerX = marginX + ((globalMaxCols - 1) * gapX) / 2
+  const blockGapY = blocks.length > 1 ? Math.round(gapY * 0.4) : 0
 
-  let i = 0
-  for (let r = 0; r < rows; r += 1) {
-    const size = rowSizes[r]
-    const rowStartX = centerX - ((size - 1) * gapX) / 2 // 本行整体居中
-    for (let c = 0; c < size; c += 1) {
-      layout.set(sequence[i], [Math.round(rowStartX + c * gapX), marginY + r * gapY])
-      i += 1
+  let y = marginY
+  blocks.forEach((members, bi) => {
+    let idx = 0
+    for (const size of blockRowSizes[bi]) {
+      const rowStartX = centerX - ((size - 1) * gapX) / 2 // 本行整体居中
+      for (let c = 0; c < size; c += 1) {
+        layout.set(members[idx], [Math.round(rowStartX + c * gapX), Math.round(y)])
+        idx += 1
+      }
+      y += gapY
     }
-  }
+    if (bi < blocks.length - 1) y += blockGapY
+  })
 
   return layout
 }

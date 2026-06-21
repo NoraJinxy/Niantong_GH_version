@@ -2116,6 +2116,10 @@ function initLiteGraphCanvas() {
     syncDefinitionFromLiteGraph(false)
   }
   liteGraphCanvas.onNodeDeselected = () => {
+    // 程序化重建画布（syncDefinitionToLiteGraph 里的 clear+重加）会顺带触发「取消选中」，
+    // 不守卫的话会把 selectedNodeId 擦空 → 重建后 3179 行恢复选中被跳过 → 检查器空白
+    //（整理布局 / 增删节点等都走这条路，正是「点完整理布局右栏空了」的真凶）。
+    if (syncingGraph) return
     const selected = Object.values(liteGraphCanvas?.selected_nodes || {})
     if (!selected.length) selectedNodeId.value = ''
   }
@@ -2760,18 +2764,40 @@ function autoArrangeGraph(options: { markAsDirty?: boolean } = {}) {
   fitGraphToView()
 }
 
-/** 判断当前布局是否「退化」：单行（脚本生成的一字长蛇阵）或单列（叠罗汉）。
+/** 判断当前布局是否「退化」，需要加载时自动整理：
+ *  ① 单行（脚本生成的一字长蛇阵）或单列（叠罗汉）；
+ *  ② 内容远比画布「扁宽」——多条并行分支（如 Group 的 S1/S2）各占一长行时，整张图比画布宽太多，
+ *     fit 到画布会把节点压到看不清（用户反馈「缩到最小都看不清」）。整理后会折成贴画布的紧凑块。
  *  节点 < 4 个不折腾。坐标按 ~48px 量化分桶，容忍轻微抖动。 */
 function graphLayoutIsDegenerate(): boolean {
   const nodes = definition.value.graph.nodes
   if (nodes.length < 4) return false
   const rows = new Set<number>()
   const cols = new Set<number>()
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
   for (const node of nodes) {
-    rows.add(Math.round(Number(node.position?.[1] ?? 0) / 48))
-    cols.add(Math.round(Number(node.position?.[0] ?? 0) / 48))
+    const x = Number(node.position?.[0] ?? 0)
+    const y = Number(node.position?.[1] ?? 0)
+    rows.add(Math.round(y / 48))
+    cols.add(Math.round(x / 48))
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x + NODE_CARD_WIDTH > maxX) maxX = x + NODE_CARD_WIDTH
+    if (y + NODE_CARD_MIN_HEIGHT > maxY) maxY = y + NODE_CARD_MIN_HEIGHT
   }
-  return rows.size <= 1 || cols.size <= 1
+  if (rows.size <= 1 || cols.size <= 1) return true
+  // 内容宽高比远超画布（约 1.8 倍以上）⇒ 太扁，自动整理成贴画布的紧凑块。
+  const W = liteGraphCanvasEl.value?.width || 0
+  const H = liteGraphCanvasEl.value?.height || 0
+  if (W > 2 && H > 2) {
+    const contentAspect = Math.max(1, maxX - minX) / Math.max(1, maxY - minY)
+    const canvasAspect = W / H
+    if (contentAspect > canvasAspect * 1.8) return true
+  }
+  return false
 }
 
 /** 加载工作流后整理视图：退化布局（脚本一字排开）自动整理（不标脏，保存时才落库），否则只适应屏幕。
