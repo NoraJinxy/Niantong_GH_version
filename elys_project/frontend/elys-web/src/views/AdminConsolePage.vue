@@ -1,5 +1,6 @@
 <template>
-  <WorkbenchShell active-key="admin" active-top-key="dashboard">
+  <!-- 版心对齐 Dashboard/Datasets：隐藏侧栏 + 1200 居中 + 两侧留白，不占满全屏。仅本页生效。 -->
+  <WorkbenchShell active-key="admin" active-top-key="dashboard" :show-sidebar="false" :narrow="true" :style="{ '--content-w': '1200px', '--page-pad-x': '0px' }">
     <div class="page__header ops-header">
       <div class="ops-header__heading">
         <h1 class="page__title">平台运维面板</h1>
