@@ -27,6 +27,16 @@ import {
   type LiteGraphNode,
 } from './litegraphUtils'
 
+// node type 经 LiteGraph.registerNodeType 全局注册、进程内只注册一次：其自绘（onDrawForeground）闭包会永久
+// 指向「首次挂载」那次 useLiteGraphNodeTypes 的运行态实例。从 /artifact /ica 这类顶级路由重挂返回后，
+// PipelinePage 整个换了新实例（新 useRunExecution → 新 executionJobByNodeId），但全局旧类的自绘闭包仍读旧
+// 实例——旧实例停在导航前的 waiting_user_input → 徽标永远卡「等待确认」，而节点框颜色走当前实例已是新态，
+// 同一节点两处对不上（0fd4122 修了数据重载，没修「自绘读旧闭包」这条路，故症状复发）。
+// 解法：自绘不读构造期闭包，改读这两个模块级「当前挂载」转发器；每次 useLiteGraphNodeTypes()（= 每次 setup）
+// 更新成当前实例的取值器，自绘每帧读它即永远拿到当前 PipelinePage 的实时运行态 / 图实例。
+let activeJobForNodeId: (nodeId: string) => { status: string } | null = () => null
+let activeGetLiteGraph: () => LGraph | null = () => null
+
 type ElysPipelineNodeConstructor = typeof LGraphNode & { desc?: string }
 
 interface LiteGraphNodeTypesOptions {
@@ -38,6 +48,10 @@ interface LiteGraphNodeTypesOptions {
 
 export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
   const { nodeSpecs, jobForNodeId, getLiteGraph, defaultParams } = options
+  // 关键：把「当前挂载」的运行态 / 图取值器登记到模块级转发器（见上）。全局注册的节点自绘只认这两个转发器，
+  // 不认构造期闭包——否则从 /artifact /ica 重挂返回后，徽标会卡在首挂旧实例的「等待确认」。
+  activeJobForNodeId = jobForNodeId
+  activeGetLiteGraph = getLiteGraph
 
   const registeredLiteGraphTypes = new Set<string>()
 
@@ -148,7 +162,9 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
           }
 
           const nodeId = getLiteGraphNodeId(node)
-          const job = jobForNodeId(nodeId)
+          // 运行状态徽标：走模块级转发器拿「当前挂载」的运行态，绝不读构造期闭包 jobForNodeId
+          //（全局注册一次，闭包冻在首挂实例 → 重挂返回后会卡「等待确认」，详见文件顶部注释）。
+          const job = activeJobForNodeId(nodeId)
           if (job) drawNodeStatusBadge(ctx, width, job.status)
 
           // 保存状态指示胶囊：直接看 LiteGraph 实际链接，不依赖 definition.value.graph（避开 sync 时序问题）。
@@ -167,7 +183,7 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
           const nodeType = String((node as { type?: unknown }).type || '')
           if (nodeType && !NO_SAVE_ICON_NODE_TYPES.has(nodeType)) {
             // 先用 BFS 判 LoadData 可达性 —— 不可达就一定不画（用户 override 也无效）
-            const reachableSet = liteGraphReachableFromLoadData(getLiteGraph())
+            const reachableSet = liteGraphReachableFromLoadData(activeGetLiteGraph())
             if (reachableSet.has(nodeId)) {
               const params = (node.properties || {}) as Record<string, unknown>
               const override = String((params.retention as string | undefined) || '').trim().toLowerCase()
