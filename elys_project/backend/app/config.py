@@ -49,7 +49,10 @@ class Settings(BaseSettings):
     OSS_ACCESS_KEY_ID: str = ""                            # 走 env / RAM 角色，勿入库
     OSS_ACCESS_KEY_SECRET: str = ""                        # 走 env / RAM 角色，勿入库
     OSS_PREFIX: str = ""                                   # 可选：桶内统一前缀（多环境共用一桶时隔离）
-    OSS_SCRATCH_ROOT: str = "/mnt/elys_data/scratch/oss"   # oss 后端把对象下载到这里供 MNE 读
+    # 放 storage 根下：deploy.sh 已把 /mnt/elys_data/storage chown www-data + chmod 2775，worker 可在其下建子目录；
+    # /mnt/elys_data/scratch 那种新顶级目录 www-data 无权创建(父 /mnt/elys_data 属 root)→ Permission denied。
+    # 顺带随 RESET_STORAGE 一起被清(find rm storage 根下)，scratch 每轮干净。
+    OSS_SCRATCH_ROOT: str = "/mnt/elys_data/storage/oss_scratch"   # oss 后端把对象下载到这里供 MNE 读
 
     CORS_ORIGINS: str = (
         "http://elysbrain.site,"
