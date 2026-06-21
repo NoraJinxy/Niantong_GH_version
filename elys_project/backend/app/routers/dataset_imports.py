@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.engine.preprocess.montage_autobind import autobind_montage
+from app.services.storage import StorageService
 from app.models import (
     DatasetAsset,
     DatasetFile,
@@ -477,6 +478,36 @@ def guess_dataset_file_mime_type(relative_path: str) -> str | None:
     return None
 
 
+def _persist_import_file_to_oss(local_path: Path | None, storage_uri: str | None) -> None:
+    """OSS 后端：把一份导入文件（原始上传 / canonical FIF / sidecar）上传到对象存储；local no-op。
+    上传到该文件登记的 storage_uri 对应 key——与下游 io.py materialize 读取用的是同一 key，故读写对得上。
+    已存在同 key 对象则跳过。"""
+    if not local_path or not storage_uri:
+        return
+    service = StorageService()
+    if service.backend != "oss":
+        return
+    path = Path(local_path)
+    if not path.is_file():
+        return
+    if service.exists(storage_uri):
+        return
+    service.persist(path, storage_uri)
+
+
+def _oss_relabel_move(old_path: Path, new_path: Path) -> None:
+    """OSS 后端：relabel 把派生文件本地 move 到新 BIDS 路径后，同步把对象搬到新 key、删旧 key；local no-op。"""
+    service = StorageService()
+    if service.backend != "oss":
+        return
+    new_ref = dataset_storage_reference_for_path(new_path)
+    if new_ref and Path(new_path).is_file():
+        service.persist(new_path, new_ref[0])
+    old_ref = dataset_storage_reference_for_path(old_path)
+    if old_ref:
+        service.delete(old_ref[0])
+
+
 def add_dataset_file_record(
     db: Session,
     *,
@@ -498,6 +529,9 @@ def add_dataset_file_record(
     normalized_logical_path = normalize_storage_logical_path(logical_path) if logical_path else None
     resolved_storage_uri = storage_uri or study_storage_uri(study, normalized_path)
     mime_reference = normalized_logical_path or normalized_path
+    # OSS 后端：把这份导入文件上传到对象存储（local no-op）。target_path 是本地文件、
+    # resolved_storage_uri 是登记的逻辑身份——下游 io.py materialize 据此读回。
+    _persist_import_file_to_oss(target_path, resolved_storage_uri)
     record = DatasetFile(
         study_id=study.id,
         recording_id=dataset.id,
@@ -799,6 +833,7 @@ def relabel_recording(
                 if new_path.exists():
                     new_path.unlink()
                 shutil.move(str(old_path), str(new_path))
+                _oss_relabel_move(old_path, new_path)
 
         # recordings / recording_versions / dataset_files 路径字段按新 BIDS 实体重算
         new_fif_path = relative_to_study(study, new_base.with_name(new_base.name + "_eeg.fif"))
