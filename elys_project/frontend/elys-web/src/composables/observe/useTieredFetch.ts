@@ -22,6 +22,8 @@ export interface TieredFetchOptions<T> {
   fromJson?: (data: unknown) => T
   /** 内存 LRU 上限（条）。 */
   memMax?: number
+  /** 取数客户端：观察 StudyOutput 端点(/psd /tfr 等)走 api(入口)；时域/审核走 dataApi(计算)。默认 dataApi。 */
+  client?: typeof dataApi
 }
 
 export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
@@ -38,11 +40,12 @@ export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
     }
   }
 
+  const client = opts.client ?? dataApi
   async function fetchNetwork(params: Record<string, unknown>): Promise<T> {
     const url = opts.endpoint(params)
     if (opts.decodeBinary) {
       try {
-        const res = await dataApi.get(url, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
+        const res = await client.get(url, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
         const buf = res.data as ArrayBuffer
         if (!buf || buf.byteLength < 12) throw new Error('empty binary')
         return opts.decodeBinary(buf)
@@ -50,7 +53,7 @@ export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
         /* 二进制不可用/解码失败 → 回退 JSON */
       }
     }
-    const res = await dataApi.get(url, { params })
+    const res = await client.get(url, { params })
     return opts.fromJson ? opts.fromJson(res.data) : (res.data as T)
   }
 

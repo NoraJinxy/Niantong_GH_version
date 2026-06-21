@@ -441,7 +441,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputPsd } from '@/types'
-import { pipelineApi } from '@/api/pipelines'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
@@ -456,6 +455,8 @@ import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
+import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { api } from '@/api/client'
 import '@/components/observe/observePage.css'
 
 const cellTimeCourseRefs: any[] = []
@@ -483,6 +484,14 @@ const FREQ_WINDOWS = [
 // ---------- 查询参数 ----------
 const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
+
+// PSD 三级缓存：gzip 已覆盖带宽，这里走 JSON + IndexedDB（跨会话重开同结果秒回）。键用 outputId（内容寻址、产物不变键不变）。
+const psdFetch = useTieredFetch<StudyOutputPsd>({
+  namespace: 'psd',
+  client: api,
+  endpoint: (p) => `/studies/${studyId}/outputs/${String(p.oid)}/psd`,
+  keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.max_channels)}`,
+})
 const outputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 const datasetId = outputIds[0] || ''
 const isMultiOutput = outputIds.length > 1
@@ -1147,8 +1156,8 @@ async function load() {
   try {
     const settled = await Promise.allSettled(
       outputIds.map(async (oid, i) => {
-        const res = await pipelineApi.getStudyOutputPsd(studyId, oid, { maxChannels: MAX_CHANNELS })
-        return [i, res.data] as const
+        const { data } = await psdFetch.fetch({ oid, max_channels: MAX_CHANNELS })
+        return [i, data] as const
       }),
     )
     if (myId !== loadSeq) return
