@@ -376,7 +376,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
-import { pipelineApi } from '@/api/pipelines'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
 import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 // HeatmapCanvas 实例数组（v-for 中按 ci 填入），exportCell 读取以触发高清重绘
@@ -390,6 +389,8 @@ import { loadOutputLabels } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
+import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { api } from '@/api/client'
 import '@/components/observe/observePage.css'
 
 // ---------- 常量 ----------
@@ -407,6 +408,22 @@ const TIME_WINDOWS = [
 // ---------- 查询参数 ----------
 const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
+
+// TFR 三级缓存(JSON+IndexedDB，client=api)：cube/单通道热图都是信号派生、不可变，键用 outputId(内容寻址)。
+// gzip 覆盖带宽，这里收益=跨会话重开秒回（尤其 1.8MB 的 cube）。
+const tfrCubeFetch = useTieredFetch<StudyOutputTfrCube>({
+  namespace: 'tfr_cube',
+  client: api,
+  endpoint: (p) => `/studies/${studyId}/outputs/${String(p.oid)}/tfr/cube`,
+  keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.max_freqs)}::${String(p.max_times)}`,
+  memMax: 8,
+})
+const tfrFetch = useTieredFetch<StudyOutputTfr>({
+  namespace: 'tfr',
+  client: api,
+  endpoint: (p) => `/studies/${studyId}/outputs/${String(p.oid)}/tfr`,
+  keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.channel ?? '')}::${String(p.max_freqs)}::${String(p.max_times)}`,
+})
 const urlOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 // 数据集列表：URL 带的在前，挂载后自动发现「同研究项下其它 TFR 产物」追加进来（可勾选并排对比，免手动拼 URL）
 const outputIds = ref<string[]>([...urlOutputIds])
@@ -841,8 +858,8 @@ async function loadCubes() {
   const myId = ++cubeSeq
   const settled = await Promise.allSettled(
     need.map(async (seg) => {
-      const res = await pipelineApi.getStudyOutputTfrCube(studyId, outputIds.value[seg], { maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
-      return [seg, res.data] as const
+      const { data } = await tfrCubeFetch.fetch({ oid: outputIds.value[seg], max_freqs: MAX_FREQS, max_times: MAX_TIMES })
+      return [seg, data] as const
     }),
   )
   if (myId !== cubeSeq) return
@@ -1048,8 +1065,7 @@ async function bootstrap() {
   loading.value = true
   error.value = ''
   try {
-    const res = await pipelineApi.getStudyOutputTfr(studyId, urlOutputIds[0], { maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
-    const d = res.data
+    const { data: d } = await tfrFetch.fetch({ oid: urlOutputIds[0], max_freqs: MAX_FREQS, max_times: MAX_TIMES })
     primaryMeta.value = d
     allChanNames.value = d.ch_names_all
     defaultChannel.value = d.channel
@@ -1084,8 +1100,8 @@ async function syncLoad() {
   try {
     const settled = await Promise.allSettled(
       pairs.map(async ([seg, ch]) => {
-        const res = await pipelineApi.getStudyOutputTfr(studyId, outputIds.value[seg], { channel: ch, maxFreqs: MAX_FREQS, maxTimes: MAX_TIMES })
-        return [seg, ch, res.data] as const
+        const { data } = await tfrFetch.fetch({ oid: outputIds.value[seg], channel: ch, max_freqs: MAX_FREQS, max_times: MAX_TIMES })
+        return [seg, ch, data] as const
       }),
     )
     if (myId !== loadSeq) return

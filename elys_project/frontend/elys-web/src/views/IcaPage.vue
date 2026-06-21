@@ -210,6 +210,7 @@ import TopoStrip from '@/components/observe/TopoStrip.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import { useIcaComparison } from '@/composables/observe/useIcaComparison'
 import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
+import { useTieredFetch } from '@/composables/observe/useTieredFetch'
 
 // ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
 interface TopoPoint { name: string; x: number; y: number; weight: number }
@@ -285,6 +286,14 @@ function qstr(key: string, fallback = ''): string {
 
 const studyId = qstr('studyId') || qstr('study')
 const outputId = qstr('study_output_id') || qstr('dd')
+
+// ICA 成分详情(时程+频谱，信号派生、不可变)三级缓存：重点击同一成分秒回。键用 outputId+成分序号。
+// 注：成分网格(components)含可变的 exclude 决策，不进 IDB（避免陈旧命中显示旧决策），且本就小、gzip 够。
+const icaDetailFetch = useTieredFetch<IcaDetail>({
+  namespace: 'ica_detail',
+  endpoint: (p) => `/studies/${studyId}/outputs/${outputId}/ica-components/${String(p.index)}`,
+  keyOf: (p) => `${studyId}::${outputId}::${String(p.index)}::${String(p.max_seconds)}`,
+})
 // 交互上下文（从工作流 waiting_user_input 的 ICA Apply 节点打开时带上），用于提交剔除决策
 const executionId = qstr('executionId') || qstr('execution_id')
 const jobId = qstr('jobId') || qstr('job_id')
@@ -483,11 +492,9 @@ async function selectComponent(index: number) {
   const myId = ++detailSeq
   detailLoading.value = true
   try {
-    const res = await dataApi.get<IcaDetail>(`/studies/${studyId}/outputs/${outputId}/ica-components/${index}`, {
-      params: { max_seconds: WINDOW_SECONDS },
-    })
+    const { data } = await icaDetailFetch.fetch({ index, max_seconds: WINDOW_SECONDS })
     if (myId !== detailSeq) return
-    detail.value = res.data
+    detail.value = data
   } catch {
     if (myId === detailSeq) detail.value = null
   } finally {
