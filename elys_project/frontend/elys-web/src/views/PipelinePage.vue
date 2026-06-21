@@ -1440,21 +1440,51 @@ const {
   },
 })
 
-// 「最近运行」是否已过期：用户改了图（加删节点 / 改参 / 保存升版本）后，footer 里这条运行对应的是
-// 改动前的工作流——再亮它的「等待确认 / 成功」状态和旧节点链，会让人误以为是当前状态（甚至诱导去
-// resume，而运行快照是冻结的、改了上游再续跑会带错继续）。命中任一即判过期：
-//   ① 有未保存编辑（dirty）；② 运行的 pipeline_version 与当前工作流版本不一致；
-//   ③ 兜底：运行步骤里有「当前图已删掉的节点」（版本号没升但图确实变了，如把 Artifact Mark 换成 ICA）。
+// 「最近运行」是否已过期：判据 = 运行冻结的定义快照与「当前已保存的工作流定义」内容是否不同
+// （忽略节点坐标 / ui 等装饰，只看节点 id/type/参数 + 连线）。真改了图（参数 / 拓扑）才算过期；
+// 仅 dirty 标志或版本号变化（含未改内容的「空保存」）都不算——它们会被画布假动作 / 运行前自动保存
+// 搞脏，曾导致刚跑出来、停在「等待确认」的运行被误判过期、双击打不开（实测 dirty / versionMismatch
+// 两类误判）。兜底：拿不到快照 / 当前定义时，只看运行步骤里是否有「当前图已删掉的节点」（改图删节点的
+// 死锁场景）。
+function stableForSignature(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableForSignature)
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = stableForSignature((value as Record<string, unknown>)[key])
+        return acc
+      }, {} as Record<string, unknown>)
+  }
+  return value
+}
+function graphContentSignature(definitionLike: unknown): string | null {
+  const graph = (definitionLike && typeof definitionLike === 'object'
+    ? (definitionLike as Record<string, unknown>).graph
+    : null) as { nodes?: unknown[]; links?: unknown[] } | null
+  if (!graph || !Array.isArray(graph.nodes)) return null
+  const nodes = graph.nodes
+    .map((item) => {
+      const node = (item || {}) as Record<string, unknown>
+      return { id: String(node.id ?? ''), type: String(node.type ?? ''), params: stableForSignature(node.params ?? {}) }
+    })
+    .sort((a, b) => a.id.localeCompare(b.id))
+  const links = (Array.isArray(graph.links) ? graph.links : [])
+    .map((link) => JSON.stringify(stableForSignature(link)))
+    .sort()
+  return JSON.stringify({ nodes, links })
+}
 const latestExecutionStale = computed(() => {
   const exec = latestPipelineExecution.value
   if (!exec) return false
-  if (dirty.value) return true
-  const cur = currentPipeline.value
-  if (cur && typeof exec.pipeline_version === 'number' && exec.pipeline_version !== cur.version) return true
+  const snapSig = graphContentSignature(exec.definition_snapshot)
+  const curSig = graphContentSignature(currentPipeline.value?.definition_json)
+  if (snapSig !== null && curSig !== null) return snapSig !== curSig
+  // 兜底：快照或当前定义缺失 → 只看运行节点是否已从当前图删除。
   const graphIds = new Set(definition.value.graph.nodes.map((node) => node.id))
   return executionPanelJobRows.value.some((job) => !graphIds.has(job.node_id))
 })
-// 一旦运行转「过期」（如改了某个参数 → dirty），立刻重绘画布把旧运行徽标抹掉；
+// 一旦运行转「过期」（改了图），立刻重绘画布把旧运行徽标抹掉；
 // 转回「不过期」由新运行的 refreshRunState→applyRunStateToCanvas 正常接管。
 watch(latestExecutionStale, (stale) => {
   if (stale) applyLiteGraphRunState()
@@ -2180,10 +2210,10 @@ function initLiteGraphCanvas() {
     if (!selected.length) selectedNodeId.value = ''
   }
   canvas.onNodeDblClicked = (node: LGraphNode) => openNodeWaveform(node)
-  liteGraphCanvas.onNodeMoved = () => scheduleLiteGraphSync(true)
-  canvas.onAfterChange = () => scheduleLiteGraphSync(true)
+  liteGraphCanvas.onNodeMoved = () => scheduleLiteGraphSyncOnMove()
+  canvas.onAfterChange = () => scheduleLiteGraphSyncOnMove()
 
-  graph.onAfterChange = () => scheduleLiteGraphSync(true)
+  graph.onAfterChange = () => scheduleLiteGraphSyncOnMove()
   graph.onConnectionChange = () => scheduleLiteGraphSync(true)
   liteGraph.onNodeAdded = () => scheduleLiteGraphSync(true)
   graph.onNodeRemoved = () => scheduleLiteGraphSync(true)
@@ -3246,6 +3276,32 @@ function syncDefinitionToLiteGraph() {
   if (selectedNodeId.value) selectLiteGraphNode(selectedNodeId.value)
   liteGraphCanvas.setDirty(true, true)
   syncingGraph = false
+}
+
+// LiteGraph 把「在节点上点一下(零位移)」也当成拖动:mousedown 设 node_dragged、mouseup 无条件触发
+// onNodeMoved/afterChange。若这些事件直接 markDirty,光点一下节点就把图标成「未保存」,进而让
+// latestExecutionStale 因 dirty 立刻判真,挡住对「等待确认」节点的双击打开(自锁)。故移动/afterChange
+// 只在节点位置确实变化时才标脏;节点增删与连线变化另有 onNodeAdded/onNodeRemoved/onConnectionChange 兜底。
+function liteGraphPositionsChanged(): boolean {
+  if (!liteGraph) return false
+  const prev = new Map(definition.value.graph.nodes.map((node) => [node.id, node.position]))
+  const nodes = liteGraphNodes(liteGraph)
+  if (prev.size !== nodes.length) return true
+  for (const node of nodes) {
+    const id = getLiteGraphNodeId(node)
+    if (!id) continue
+    const before = prev.get(id)
+    if (!before) return true
+    if (Number(before[0]) !== Number(node.pos?.[0] || 0) || Number(before[1]) !== Number(node.pos?.[1] || 0)) {
+      return true
+    }
+  }
+  return false
+}
+
+function scheduleLiteGraphSyncOnMove() {
+  // 位置真的变了→标脏;否则只把定义同步回来(不标脏),保持 definition 与画布一致供下次比较。
+  scheduleLiteGraphSync(liteGraphPositionsChanged())
 }
 
 function scheduleLiteGraphSync(markAsDirty: boolean) {
