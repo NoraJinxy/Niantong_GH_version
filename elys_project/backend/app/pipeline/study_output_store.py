@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from app.config import get_settings
+from app.services.storage import StorageService
 
 from .contracts import StudyOutputSummary
 
@@ -232,6 +233,8 @@ class StudyOutputStore:
                 shutil.move(str(staged), str(final_path))
                 published_new = True
             try:
+                # OSS 后端：把最终产物（目录递归逐文件）上传到对象存储（local 后端 no-op）。
+                self._persist_to_oss(final_path)
                 summary = self._register_study_output(
                     storage_path=self._storage_path(final_path),
                     file_size=file_size,
@@ -288,6 +291,9 @@ class StudyOutputStore:
                 shutil.move(str(temp_path), str(final_path))
                 published_new = True
             try:
+                # OSS 后端：把最终产物上传到对象存储（local 后端 no-op）。放进 try 内，
+                # 上传失败则与注册失败同样回滚本次刚落地的本地文件（published_new 才删）。
+                self._persist_to_oss(final_path)
                 summary = self._register_study_output(
                     storage_path=self._storage_path(final_path),
                     file_size=file_size,
@@ -616,6 +622,25 @@ class StudyOutputStore:
 
     def _storage_uri(self, storage_path: str) -> str:
         return f"elys://studies/{self.study_id}/{storage_path}"
+
+    def _persist_to_oss(self, final_path: Path) -> None:
+        """OSS 后端：把已落到本地 content-addressed 路径的产物上传到对象存储；local 后端 no-op。
+        逻辑身份用 _storage_uri 派生的 elys://studies/... URI（StorageService 据此算对象 key），
+        与下游 io.py materialize 下载用的是同一 key，故读写对得上。目录则递归逐文件上传；
+        已存在同 key 对象（content-addressed，字节相同）则跳过，避免重复上传。"""
+        service = StorageService()
+        if service.backend != "oss":
+            return
+        base_uri = self._storage_uri(self._storage_path(final_path))
+        if final_path.is_dir():
+            for item in sorted(p for p in final_path.rglob("*") if p.is_file()):
+                rel = item.relative_to(final_path).as_posix()
+                uri = f"{base_uri}/{rel}"
+                if not service.exists(uri):
+                    service.persist(item, uri)
+            return
+        if not service.exists(base_uri):
+            service.persist(final_path, base_uri)
 
     @staticmethod
     def _safe_name(value: str) -> str:
