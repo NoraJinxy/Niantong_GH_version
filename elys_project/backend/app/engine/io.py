@@ -29,13 +29,13 @@ DEFAULT_SUFFIX: dict[MneFifKind, str] = {
 
 
 def read_raw_from_data_info(data_info: Any, preload: bool = True):
-    path = resolve_path_reference(data_info, ("storage_uri", "fif_abs_path", "fif_path"))
+    path = materialize_reference(data_info, ("storage_uri", "fif_abs_path", "fif_path"))
     mne = _mne()
     return mne.io.read_raw_fif(path, preload=preload, verbose="ERROR")
 
 
 def read_epochs_from_data_info(data_info: Any, preload: bool = True):
-    path = resolve_path_reference(
+    path = materialize_reference(
         data_info,
         ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
     )
@@ -44,7 +44,7 @@ def read_epochs_from_data_info(data_info: Any, preload: bool = True):
 
 
 def read_ica_from_data_info(data_info: Any):
-    path = resolve_path_reference(
+    path = materialize_reference(
         data_info,
         (
             "storage_uri",
@@ -63,7 +63,7 @@ def read_ica_from_data_info(data_info: Any):
 
 def read_evoked_from_data_info(data_info: Any):
     """读单条 ERP(-ave.fif)→ mne.Evoked。一个 artifact 存一个 condition,取首个。"""
-    path = resolve_path_reference(
+    path = materialize_reference(
         data_info,
         ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
     )
@@ -76,7 +76,7 @@ def read_evoked_from_data_info(data_info: Any):
 
 def read_tfr_from_data_info(data_info: Any):
     """读时频(-tfr.h5)→ mne.time_frequency.AverageTFR。read_tfrs 返回 list,取首个。"""
-    path = resolve_path_reference(
+    path = materialize_reference(
         data_info,
         ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
     )
@@ -218,6 +218,33 @@ def resolve_path_reference(reference: Any, keys: tuple[str, ...]) -> Path:
     if missing_paths:
         raise FileNotFoundError(f"Referenced FIF path does not exist: {missing_paths[0]}")
     raise ValueError(f"Reference does not contain any usable path key: {', '.join(keys)}")
+
+
+def materialize_reference(reference: Any, keys: tuple[str, ...]) -> Path:
+    """把数据引用变成「本地可读文件路径」，供 MNE 等需要真实路径的库使用。
+    local 后端：等价于 resolve_path_reference（按 key 找已存在的本地文件，行为完全不变）。
+    oss 后端：取第一个带 scheme 的 URI key，用 StorageService.materialize 下载到 scratch 再返回。
+    （STORAGE_BACKEND=local 时这层是透明的——OSS 接线不改变本地路径下的任何行为。）"""
+    service = StorageService()
+    if service.backend != "oss":
+        return resolve_path_reference(reference, keys)
+    study_id = _get_reference_value(reference, "study_id")
+    study_root = _get_reference_value(reference, "study_root")
+    last_error: Exception | None = None
+    for key in keys:
+        value = _get_reference_value(reference, key)
+        if not value:
+            continue
+        text = str(value)
+        if "://" not in text:  # oss 后端只认逻辑 URI；裸本地路径无法从对象存储取
+            continue
+        try:
+            return service.materialize(text, study_id=study_id, study_root=study_root)
+        except Exception as exc:  # noqa: BLE001 — 该候选取不到就试下一个 key
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ValueError(f"OSS backend: no URI-bearing key among: {', '.join(keys)}")
 
 
 def _resolve_reference_path(value: Any, reference: Any) -> Path:
