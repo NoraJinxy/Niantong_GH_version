@@ -6,6 +6,9 @@
         <p class="page__subtitle">面向管理员的平台全量视角：系统在做什么、负荷如何、有什么问题。第一期为只读监测。</p>
       </div>
       <div class="ops-header__actions">
+        <span v-if="loading" class="ops-loading-pill">
+          <span class="spinner spinner--dark"></span> 检索中 {{ progress.done }}/{{ progress.total }}
+        </span>
         <span class="ops-refresh-hint" :class="{ 'is-on': autoRefresh }">
           <span class="ops-refresh-hint__dot"></span>
           {{ autoRefresh ? '自动刷新 6s' : '自动刷新已停' }}
@@ -39,6 +42,10 @@
         </button>
       </nav>
 
+      <div class="ops-progress" :class="{ 'is-active': loading }">
+        <div class="ops-progress__bar" :style="{ width: progressPct + '%' }"></div>
+      </div>
+
       <div v-if="errorMessage" class="alert alert--danger mb-4">
         <AppIcon name="warning" :size="18" />
         <div class="alert__body">{{ errorMessage }}</div>
@@ -64,9 +71,9 @@
           </div>
         </div>
 
-        <div v-if="overview && overview.attention.length" class="ops-attention">
+        <div v-if="attentionItems.length" class="ops-attention">
           <div
-            v-for="(item, idx) in overview.attention"
+            v-for="(item, idx) in attentionItems"
             :key="idx"
             class="ops-attention__row"
             :class="`is-${item.severity}`"
@@ -85,12 +92,12 @@
               class="ops-metric"
               :class="{ 'is-loading': metric.loading }"
             >
-              <span class="ops-metric__chip" :class="`is-${metric.tone}`"><AppIcon :name="metric.icon" :size="18" /></span>
-              <div class="ops-metric__body">
-                <div class="ops-metric__label">{{ metric.label }}</div>
-                <div class="ops-metric__value">{{ metric.value }}</div>
-                <div class="ops-metric__hint">{{ metric.hint }}</div>
+              <div class="ops-metric__top">
+                <span class="ops-metric__ico" :class="`is-${metric.tone}`"><AppIcon :name="metric.icon" :size="16" /></span>
+                <span class="ops-metric__label">{{ metric.label }}</span>
               </div>
+              <div class="ops-metric__value">{{ metric.value }}</div>
+              <div class="ops-metric__hint">{{ metric.hint }}</div>
             </div>
           </div>
         </div>
@@ -139,48 +146,50 @@
           <div class="ops-card">
             <div class="ops-card__head">
               <h2>计算 worker</h2>
-              <span v-if="runtime" :class="runtime.workers.online ? 'ops-ok' : 'ops-bad'">
-                {{ runtime.workers.online ? `${runtime.workers.worker_count} 个在线` : '离线 · inline 降级' }}
+              <span v-if="system" :class="system.workers.online ? 'ops-ok' : 'ops-bad'">
+                {{ system.workers.online ? `${system.workers.worker_count} 个在线` : '离线 · inline 降级' }}
               </span>
               <span v-else class="ops-muted">检测中…</span>
             </div>
             <div class="ops-queue">
-              <div class="ops-queue__stat is-info"><strong>{{ runtime?.workers.active ?? '—' }}</strong><span>active</span></div>
-              <div class="ops-queue__stat is-warn"><strong>{{ runtime?.workers.reserved ?? '—' }}</strong><span>reserved</span></div>
+              <div class="ops-queue__stat is-info"><strong>{{ system?.workers.active ?? '—' }}</strong><span>active</span></div>
+              <div class="ops-queue__stat is-warn"><strong>{{ system?.workers.reserved ?? '—' }}</strong><span>reserved</span></div>
             </div>
-            <div v-if="runtime?.workers.workers.length" class="ops-worker-list">
-              <div v-for="w in runtime.workers.workers" :key="w.name" class="ops-worker-row">
+            <div v-if="system?.workers.workers.length" class="ops-worker-list">
+              <div v-for="w in system.workers.workers" :key="w.name" class="ops-worker-row">
                 <code>{{ w.name }}</code>
                 <span>active {{ w.active }} · reserved {{ w.reserved }}</span>
               </div>
             </div>
-            <div v-else-if="runtime && !runtime.workers.online" class="ops-subtle ops-bad">
+            <div v-else-if="system && !system.workers.online" class="ops-subtle ops-bad">
               worker 不在线，pipeline 正在 web 请求线程同步执行（共享队列瓶颈）。
             </div>
+            <div v-else-if="!system" class="ops-subtle">检测中…</div>
           </div>
         </div>
 
         <div class="ops-card">
           <div class="ops-card__head"><h2>计算服负荷</h2><span>{{ resourceHostLabel }}</span></div>
-          <div v-if="runtime && !runtime.resources.psutil_available" class="ops-subtle">
+          <div v-if="system && !system.resources.psutil_available" class="ops-subtle">
             psutil 未安装（待云端部署 pip install），仅磁盘可读。
           </div>
+          <div v-else-if="!system" class="ops-subtle">检测中…</div>
           <div class="ops-bars">
             <div class="ops-bar">
-              <div class="ops-bar__head"><span>CPU</span><span>{{ pct(runtime?.resources.cpu_percent) }}</span></div>
-              <div class="ops-bar__track"><div class="ops-bar__fill is-info" :style="{ width: barWidth(runtime?.resources.cpu_percent) }"></div></div>
+              <div class="ops-bar__head"><span>CPU</span><span>{{ pct(system?.resources.cpu_percent) }}</span></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill is-info" :style="{ width: barWidth(system?.resources.cpu_percent) }"></div></div>
             </div>
             <div class="ops-bar">
               <div class="ops-bar__head"><span>内存</span><span>{{ memLabel }}</span></div>
-              <div class="ops-bar__track"><div class="ops-bar__fill is-warn" :style="{ width: barWidth(runtime?.resources.mem?.percent) }"></div></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill is-warn" :style="{ width: barWidth(system?.resources.mem?.percent) }"></div></div>
             </div>
             <div class="ops-bar">
               <div class="ops-bar__head"><span>磁盘 · 存储盘</span><span>{{ diskLabel }}</span></div>
-              <div class="ops-bar__track"><div class="ops-bar__fill" :class="diskFillTone" :style="{ width: barWidth(runtime?.resources.disk?.percent) }"></div></div>
+              <div class="ops-bar__track"><div class="ops-bar__fill" :class="diskFillTone" :style="{ width: barWidth(system?.resources.disk?.percent) }"></div></div>
             </div>
           </div>
-          <div v-if="runtime?.resources.load_avg" class="ops-subtle">
-            负载均值 (1/5/15min)：{{ runtime.resources.load_avg.join(' · ') }} · {{ runtime.resources.cpu_count }} 核
+          <div v-if="system?.resources.load_avg" class="ops-subtle">
+            负载均值 (1/5/15min)：{{ system.resources.load_avg.join(' · ') }} · {{ system.resources.cpu_count }} 核
           </div>
         </div>
 
@@ -338,9 +347,11 @@ import type {
   AdminAuditFacets,
   AdminExecutionItem,
   AdminFailureItem,
+  AdminHealthResponse,
   AdminHealthStatus,
   AdminOverviewResponse,
   AdminRuntimeResponse,
+  AdminSystemResponse,
 } from '@/types'
 
 type TabKey = 'overview' | 'runtime' | 'audit'
@@ -356,27 +367,58 @@ const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
 const activeTab = ref<TabKey>('overview')
 
 const overview = ref<AdminOverviewResponse | null>(null)
+const health = ref<AdminHealthResponse | null>(null)
 const runtime = ref<AdminRuntimeResponse | null>(null)
-const loadingOverview = ref(false)
-const loadingRuntime = ref(false)
+const system = ref<AdminSystemResponse | null>(null)
 const errorMessage = ref('')
 const autoRefresh = ref(true)
 
-const anyLoading = computed(() => loadingOverview.value || loadingRuntime.value || auditLoading.value)
+// 真实进度：done/total = 当前 tab 已完成 / 应发的请求数。每个 tab 并行发两请求——「快路径」
+// 纯 DB（计数/队列/执行，~100ms 先到）+「慢探测」（worker/CPU/磁盘，0.5~1.2s 后到）；进度条按
+// 实际完成的请求数推进（DB 到 → 50%，探测到 → 100%），不是假动画。
+const progress = reactive({ done: 0, total: 0 })
+const loading = computed(() => progress.total > 0 && progress.done < progress.total)
+const progressPct = computed(() => (progress.total ? Math.round((progress.done / progress.total) * 100) : 0))
+const anyLoading = computed(() => loading.value || auditLoading.value)
 
-// ---- 总览 ----
-async function loadOverview(silent = false) {
-  if (!silent) loadingOverview.value = true
-  try {
-    const res = await adminApi.overview()
-    overview.value = res.data
-    errorMessage.value = ''
-  } catch (err: any) {
-    if (!silent) errorMessage.value = err?.response?.data?.detail || '读取平台总览失败'
-  } finally {
-    loadingOverview.value = false
-  }
+function beginLoad(total: number, silent: boolean) {
+  if (silent) return
+  progress.total = total
+  progress.done = 0
 }
+function stepLoad(silent: boolean) {
+  if (silent) return
+  progress.done += 1
+}
+
+// ---- 总览：快路径(overview) + 慢探测(health) 并行 ----
+async function loadOverviewTab(silent = false) {
+  beginLoad(2, silent)
+  await Promise.all([
+    adminApi
+      .overview()
+      .then((res) => {
+        overview.value = res.data
+        errorMessage.value = ''
+      })
+      .catch((err: any) => {
+        if (!silent) errorMessage.value = err?.response?.data?.detail || '读取平台总览失败'
+      })
+      .finally(() => stepLoad(silent)),
+    adminApi
+      .health()
+      .then((res) => {
+        health.value = res.data
+      })
+      .catch(() => {})
+      .finally(() => stepLoad(silent)),
+  ])
+}
+
+const attentionItems = computed(() => [
+  ...(overview.value?.attention || []),
+  ...(health.value?.attention || []),
+])
 
 const HEALTH_DEFS = [
   { key: 'api', label: 'API', icon: 'pulse' },
@@ -387,7 +429,7 @@ const HEALTH_DEFS = [
 ] as const
 
 const healthItems = computed(() => {
-  const h = overview.value?.health
+  const h = health.value?.health
   return HEALTH_DEFS.map((def) => {
     if (!h) {
       return { ...def, status: 'unknown' as AdminHealthStatus, detail: '检测中…', loading: true }
@@ -462,18 +504,28 @@ const execSegments = computed(() => {
     .map((s) => ({ ...s, pct: Math.round((s.value / total) * 1000) / 10 }))
 })
 
-// ---- 运行与负荷 ----
-async function loadRuntime(silent = false) {
-  if (!silent) loadingRuntime.value = true
-  try {
-    const res = await adminApi.runtime()
-    runtime.value = res.data
-    errorMessage.value = ''
-  } catch (err: any) {
-    if (!silent) errorMessage.value = err?.response?.data?.detail || '读取运行状态失败'
-  } finally {
-    loadingRuntime.value = false
-  }
+// ---- 运行与负荷：快路径(runtime) + 慢探测(system) 并行 ----
+async function loadRuntimeTab(silent = false) {
+  beginLoad(2, silent)
+  await Promise.all([
+    adminApi
+      .runtime()
+      .then((res) => {
+        runtime.value = res.data
+        errorMessage.value = ''
+      })
+      .catch((err: any) => {
+        if (!silent) errorMessage.value = err?.response?.data?.detail || '读取运行状态失败'
+      })
+      .finally(() => stepLoad(silent)),
+    adminApi
+      .system()
+      .then((res) => {
+        system.value = res.data
+      })
+      .catch(() => {})
+      .finally(() => stepLoad(silent)),
+  ])
 }
 
 const stuckOrLocks = computed(() => {
@@ -502,23 +554,23 @@ const stuckOrLocks = computed(() => {
 })
 
 const resourceHostLabel = computed(() => {
-  const r = runtime.value?.resources
+  const r = system.value?.resources
   if (!r) return ''
   if (r.cpu_count) return `${r.cpu_count} 核`
   return ''
 })
 const memLabel = computed(() => {
-  const m = runtime.value?.resources.mem
+  const m = system.value?.resources.mem
   if (!m) return '—'
   return `${formatFileSize(m.used)} / ${formatFileSize(m.total)} · ${m.percent}%`
 })
 const diskLabel = computed(() => {
-  const d = runtime.value?.resources.disk
+  const d = system.value?.resources.disk
   if (!d) return '—'
   return `${formatFileSize(d.used)} / ${formatFileSize(d.total)} · ${d.percent ?? '?'}%`
 })
 const diskFillTone = computed(() => {
-  const p = runtime.value?.resources.disk?.percent
+  const p = system.value?.resources.disk?.percent
   if (p == null) return 'is-ok'
   if (p >= 92) return 'is-danger'
   if (p >= 80) return 'is-warn'
@@ -587,8 +639,8 @@ function auditNext() {
 
 // ---- 共用 ----
 function refreshActive() {
-  if (activeTab.value === 'overview') void loadOverview()
-  else if (activeTab.value === 'runtime') void loadRuntime()
+  if (activeTab.value === 'overview') void loadOverviewTab()
+  else if (activeTab.value === 'runtime') void loadRuntimeTab()
   else void loadAudit()
 }
 
@@ -635,7 +687,7 @@ function failureRoute(fail: AdminFailureItem): RouteLocationRaw {
 
 // 切到某 tab 时按需首次加载
 watch(activeTab, (tab) => {
-  if (tab === 'runtime' && !runtime.value) void loadRuntime()
+  if (tab === 'runtime' && !runtime.value && !system.value) void loadRuntimeTab()
   if (tab === 'audit' && !auditLoaded) {
     auditLoaded = true
     void loadAuditFacets()
@@ -643,19 +695,20 @@ watch(activeTab, (tab) => {
   }
 })
 
-// 自动刷新：仅刷当前可见 tab 的监测数据（审计不轮询）
+// 自动刷新：仅刷当前可见 tab 的监测数据（审计不轮询）。silent=true 不动进度条、数据原地替换。
 const POLL_INTERVAL_MS = 6000
 let pollTimer: ReturnType<typeof setInterval> | null = null
 function poll() {
   if (!autoRefresh.value) return
   if (typeof document !== 'undefined' && document.hidden) return
-  if (activeTab.value === 'overview' && !loadingOverview.value) void loadOverview(true)
-  else if (activeTab.value === 'runtime' && !loadingRuntime.value) void loadRuntime(true)
+  if (loading.value) return
+  if (activeTab.value === 'overview') void loadOverviewTab(true)
+  else if (activeTab.value === 'runtime') void loadRuntimeTab(true)
 }
 
 onMounted(() => {
   if (!isAdmin.value) return
-  void loadOverview()
+  void loadOverviewTab()
   pollTimer = setInterval(poll, POLL_INTERVAL_MS)
 })
 onUnmounted(() => {
@@ -693,6 +746,34 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(16, 185, 129, .14);
 }
 .ops-guard { padding: var(--s-6) 0; }
+
+.ops-loading-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 真实进度条：宽度 = 已完成请求 / 总请求；加载完淡出（不空占视觉） */
+.ops-progress {
+  height: 3px;
+  margin-bottom: 14px;
+  background: var(--c-bg-tint);
+  border-radius: 999px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.ops-progress.is-active { opacity: 1; }
+.ops-progress__bar {
+  height: 100%;
+  width: 0;
+  background: var(--c-primary);
+  border-radius: 999px;
+  transition: width .35s ease;
+}
 
 .ops-tabs {
   display: flex;
@@ -809,33 +890,21 @@ onUnmounted(() => {
   gap: 12px;
 }
 .ops-metric {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  padding: 13px 15px;
+  border-radius: var(--r-md);
+  padding: 15px 17px;
+  transition: background .15s ease;
 }
-.ops-metric__chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  color: var(--c-text-2);
-  background: var(--c-bg-tint);
-  border-radius: var(--r);
-}
-.ops-metric__chip.is-info { color: var(--c-info); background: var(--c-info-soft); }
-.ops-metric__chip.is-accent { color: var(--c-accent); background: var(--c-accent-soft); }
-.ops-metric__chip.is-ok { color: var(--c-success); background: var(--c-success-soft); }
-.ops-metric__chip.is-warn { color: var(--c-warning); background: var(--c-warning-soft); }
-.ops-metric__body { min-width: 0; }
-.ops-metric__label { color: var(--c-text-2); font-size: 12px; font-weight: 600; }
-.ops-metric__value { font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; margin: 1px 0; }
-.ops-metric__hint { overflow: hidden; color: var(--c-text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.ops-metric:hover { background: var(--c-bg-tint); }
+.ops-metric__top { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+.ops-metric__ico { display: inline-flex; color: var(--c-text-3); }
+.ops-metric__ico.is-info { color: var(--c-info); }
+.ops-metric__ico.is-accent { color: var(--c-accent); }
+.ops-metric__ico.is-ok { color: var(--c-success); }
+.ops-metric__ico.is-warn { color: var(--c-warning); }
+.ops-metric__label { color: var(--c-text-2); font-size: 12.5px; font-weight: 600; }
+.ops-metric__value { font-size: 30px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+.ops-metric__hint { margin-top: 8px; overflow: hidden; color: var(--c-text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 执行状态分布：比例条 + 图例 */
 .ops-distbar {

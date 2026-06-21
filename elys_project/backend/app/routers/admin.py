@@ -29,14 +29,26 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 @router.get("/overview")
 def get_overview(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """总览：实体计数数字墙 + 执行状态分布 + 健康灯（API/DB/Redis/worker/磁盘）+ 告警摘要。"""
-    return admin_ops.build_admin_overview(db, get_settings())
+    """总览·快路径（纯 DB）：实体计数数字墙 + 执行状态分布 + DB 告警。健康灯走 /health。"""
+    return admin_ops.build_admin_overview(db)
+
+
+@router.get("/health")
+def get_health(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """总览·慢探测：API/DB/Redis/worker/磁盘 健康灯 + 探测告警（worker 离线 / 磁盘）。"""
+    return admin_ops.build_admin_health(db, get_settings())
 
 
 @router.get("/runtime")
 def get_runtime(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """运行与负荷：全平台执行队列实时列表 + worker active/reserved + 卡死执行与锁 + 系统资源 + 最近失败。"""
-    return admin_ops.build_admin_runtime(db, get_settings())
+    """运行与负荷·快路径（纯 DB）：执行队列 + 卡死执行与锁 + 最近失败。worker/资源走 /system。"""
+    return admin_ops.build_admin_runtime(db)
+
+
+@router.get("/system")
+def get_system(_: User = Depends(require_admin)):
+    """运行与负荷·慢探测：Celery worker active/reserved + 计算服 CPU/内存/磁盘。"""
+    return admin_ops.build_admin_system(get_settings())
 
 
 @router.get("/audit-events")

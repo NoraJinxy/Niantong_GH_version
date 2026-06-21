@@ -233,6 +233,7 @@ export interface AdminAttentionItem {
   label: string
 }
 
+// 总览·快路径（纯 DB）：计数 + 执行状态分布 + DB 告警。健康灯走 AdminHealthResponse。
 export interface AdminOverviewResponse {
   generated_at: string
   counts: {
@@ -249,19 +250,22 @@ export interface AdminOverviewResponse {
     async_tasks: { queued: number; running: number }
   }
   execution_states: Record<string, number>
-  health: {
-    api: AdminHealthLight
-    db: AdminHealthLight
-    redis: AdminHealthLight
-    worker: AdminHealthLight & { online: boolean; worker_count: number; note: string | null }
-    disk: AdminHealthLight & { percent: number | null; free: number | null; total: number | null }
-  }
   attention: AdminAttentionItem[]
-  resources_summary: {
-    cpu_percent: number | null
-    mem_percent: number | null
-    disk_percent: number | null
-  }
+}
+
+export interface AdminHealth {
+  api: AdminHealthLight
+  db: AdminHealthLight
+  redis: AdminHealthLight
+  worker: AdminHealthLight & { online: boolean; worker_count: number; note: string | null }
+  disk: AdminHealthLight & { percent: number | null; free: number | null; total: number | null }
+}
+
+// 总览·慢探测：健康灯 + 探测告警（worker 离线 / 磁盘）
+export interface AdminHealthResponse {
+  generated_at: string
+  health: AdminHealth
+  attention: AdminAttentionItem[]
 }
 
 export interface AdminExecutionItem {
@@ -301,6 +305,26 @@ export interface AdminFailureItem {
   error_message: string | null
 }
 
+export interface AdminWorkers {
+  online: boolean
+  worker_count: number
+  active: number
+  reserved: number
+  workers: Array<{ name: string; active: number; reserved: number }>
+  error: string | null
+}
+
+export interface AdminResources {
+  psutil_available: boolean
+  cpu_percent: number | null
+  cpu_count: number | null
+  load_avg: number[] | null
+  mem: { total: number; used: number; available: number; percent: number } | null
+  disk: { path: string; total: number; used: number; free: number; percent: number | null } | null
+  error?: string | null
+}
+
+// 运行与负荷·快路径（纯 DB）：队列 + 执行 + 锁 + 失败。worker/资源走 AdminSystemResponse。
 export interface AdminRuntimeResponse {
   generated_at: string
   queue: {
@@ -311,27 +335,17 @@ export interface AdminRuntimeResponse {
     async_queued: number
     async_running: number
   }
-  workers: {
-    online: boolean
-    worker_count: number
-    active: number
-    reserved: number
-    workers: Array<{ name: string; active: number; reserved: number }>
-    error: string | null
-  }
-  resources: {
-    psutil_available: boolean
-    cpu_percent: number | null
-    cpu_count: number | null
-    load_avg: number[] | null
-    mem: { total: number; used: number; available: number; percent: number } | null
-    disk: { path: string; total: number; used: number; free: number; percent: number | null } | null
-    error?: string | null
-  }
   executions: AdminExecutionItem[]
   stuck_executions: AdminExecutionItem[]
   locks: AdminLockItem[]
   recent_failures: AdminFailureItem[]
+}
+
+// 运行与负荷·慢探测：worker + 计算服资源
+export interface AdminSystemResponse {
+  generated_at: string
+  workers: AdminWorkers
+  resources: AdminResources
 }
 
 export interface AdminAuditEvent {

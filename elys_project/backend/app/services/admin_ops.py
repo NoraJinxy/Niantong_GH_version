@@ -426,18 +426,14 @@ def build_recent_failures(db: Session, now: datetime, limit: int = FAILURE_TOP_L
 # --------------------------------------------------------------------------- #
 # 顶层构建器
 # --------------------------------------------------------------------------- #
-def build_admin_overview(db: Session, settings) -> dict[str, Any]:
+# 拆分原则：把「快的 DB 检索」与「慢的外部探测」分到不同端点，让前端两请求并行——DB 内容先到先
+# 渲染（~100ms），探测（Celery 广播必等满超时 + psutil 采样窗口）后到后补位，不再被混在一起拖慢。
+# overview / runtime = 纯 DB（快）；health / system = 探测（慢）。
+def build_admin_overview(db: Session) -> dict[str, Any]:
+    """纯 DB 快路径：实体计数 + 执行状态分布 + DB 可判的告警（失败 / 卡死 / 等确认）。无任何探测。"""
     now = datetime.utcnow()
     counts = build_counts(db)
     states = execution_state_distribution(db)
-
-    # 总览只要「worker 在不在线」→ ping-only（不取 active/reserved，省两次广播超时）；磁盘只读
-    # shutil（瞬时，不跑 psutil）。CPU/内存等重采样留给「运行与负荷」tab。
-    db_health = probe_db(db)
-    redis_health = probe_redis(settings)
-    celery = probe_celery(settings, with_tasks=False)
-    disk = read_disk(settings)
-    disk_state = _disk_status(disk)
 
     stuck_count = _count(
         db,
@@ -452,6 +448,33 @@ def build_admin_overview(db: Session, settings) -> dict[str, Any]:
         PipelineExecution.finished_at >= now - timedelta(hours=FAILURE_WINDOW_HOURS),
     )
     waiting = states.get("waiting_user_input", 0)
+
+    attention: list[dict[str, Any]] = []
+    if failed_recent:
+        attention.append({"kind": "failed", "severity": "danger", "count": failed_recent, "label": f"{failed_recent} 条执行近 24h 失败"})
+    if stuck_count:
+        attention.append({"kind": "stuck", "severity": "danger", "count": stuck_count, "label": f"{stuck_count} 条执行疑似卡死（running 超 {PIPELINE_EXECUTION_STALE_AFTER_SECONDS // 60} 分钟）"})
+    if waiting:
+        attention.append({"kind": "waiting", "severity": "warn", "count": waiting, "label": f"{waiting} 条执行等待人工确认"})
+
+    return {
+        "generated_at": now,
+        "counts": counts,
+        "execution_states": states,
+        "attention": attention,
+    }
+
+
+def build_admin_health(db: Session, settings) -> dict[str, Any]:
+    """慢探测路径：API / DB / Redis / worker / 磁盘 健康灯 + 探测可判的告警（worker 离线 / 磁盘）。
+
+    worker 探测只 ping（一次广播）；磁盘走 shutil（瞬时）。CPU/内存重采样在 /system，不在这里。"""
+    now = datetime.utcnow()
+    db_health = probe_db(db)
+    redis_health = probe_redis(settings)
+    celery = probe_celery(settings, with_tasks=False)
+    disk = read_disk(settings)
+    disk_state = _disk_status(disk)
 
     health = {
         "api": {"status": "healthy"},
@@ -472,36 +495,18 @@ def build_admin_overview(db: Session, settings) -> dict[str, Any]:
     }
 
     attention: list[dict[str, Any]] = []
-    if failed_recent:
-        attention.append({"kind": "failed", "severity": "danger", "count": failed_recent, "label": f"{failed_recent} 条执行近 24h 失败"})
-    if stuck_count:
-        attention.append({"kind": "stuck", "severity": "danger", "count": stuck_count, "label": f"{stuck_count} 条执行疑似卡死（running 超 {PIPELINE_EXECUTION_STALE_AFTER_SECONDS // 60} 分钟）"})
     if not celery["online"]:
         attention.append({"kind": "worker_offline", "severity": "warn", "count": 0, "label": "计算 worker 离线，正在 inline 降级执行"})
     if disk_state in ("warning", "critical"):
         attention.append({"kind": "disk", "severity": "danger" if disk_state == "critical" else "warn", "count": 0, "label": f"磁盘占用 {disk.get('percent')}%"})
-    if waiting:
-        attention.append({"kind": "waiting", "severity": "warn", "count": waiting, "label": f"{waiting} 条执行等待人工确认"})
 
-    return {
-        "generated_at": now,
-        "counts": counts,
-        "execution_states": states,
-        "health": health,
-        "attention": attention,
-        "resources_summary": {
-            "cpu_percent": None,
-            "mem_percent": None,
-            "disk_percent": disk.get("percent") if disk else None,
-        },
-    }
+    return {"generated_at": now, "health": health, "attention": attention}
 
 
-def build_admin_runtime(db: Session, settings) -> dict[str, Any]:
+def build_admin_runtime(db: Session) -> dict[str, Any]:
+    """纯 DB 快路径：队列计数 + 运行中执行 + 卡死 + 锁 + 最近失败。worker/资源探测在 /system。"""
     now = datetime.utcnow()
     states = execution_state_distribution(db)
-    celery = probe_celery(settings)
-    resources = read_resources(settings)
     executions = build_platform_executions(db, now)
     locks = build_execution_locks(db, now)
     failures = build_recent_failures(db, now)
@@ -524,12 +529,19 @@ def build_admin_runtime(db: Session, settings) -> dict[str, Any]:
     return {
         "generated_at": now,
         "queue": queue,
-        "workers": celery,
-        "resources": resources,
         "executions": executions,
         "stuck_executions": stuck,
         "locks": locks,
         "recent_failures": failures,
+    }
+
+
+def build_admin_system(settings) -> dict[str, Any]:
+    """慢探测路径：Celery worker（active/reserved 两次广播）+ psutil CPU/内存 + 磁盘。"""
+    return {
+        "generated_at": datetime.utcnow(),
+        "workers": probe_celery(settings, with_tasks=True),
+        "resources": read_resources(settings),
     }
 
 
