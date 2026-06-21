@@ -46,58 +46,77 @@
       </div>
 
       <!-- ================= 总览 ================= -->
+      <!-- 骨架优先：无数据时各区即时显示占位（检测中 / —），不空等整屏 spinner -->
       <section v-show="activeTab === 'overview'" class="ops-section">
-        <div v-if="loadingOverview && !overview" class="ops-loading">
-          <span class="spinner spinner--dark"></span> 正在读取平台状态…
+        <div class="ops-health">
+          <div
+            v-for="item in healthItems"
+            :key="item.key"
+            class="ops-health__light"
+            :class="[`is-${healthTone(item.status)}`, { 'is-loading': item.loading }]"
+          >
+            <span class="ops-health__icon"><AppIcon :name="item.icon" :size="16" /></span>
+            <div class="ops-health__text">
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.detail }}</span>
+            </div>
+            <span class="ops-health__dot"></span>
+          </div>
         </div>
 
-        <template v-else-if="overview">
-          <div class="ops-health">
-            <div
-              v-for="item in healthItems"
-              :key="item.key"
-              class="ops-health__light"
-              :class="`is-${healthTone(item.status)}`"
-            >
-              <span class="ops-health__dot"></span>
-              <div class="ops-health__text">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.detail }}</span>
-              </div>
-            </div>
+        <div v-if="overview && overview.attention.length" class="ops-attention">
+          <div
+            v-for="(item, idx) in overview.attention"
+            :key="idx"
+            class="ops-attention__row"
+            :class="`is-${item.severity}`"
+          >
+            <AppIcon name="warning" :size="16" />
+            <span>{{ item.label }}</span>
           </div>
+        </div>
 
-          <div v-if="overview.attention.length" class="ops-attention">
-            <div
-              v-for="(item, idx) in overview.attention"
-              :key="idx"
-              class="ops-attention__row"
-              :class="`is-${item.severity}`"
-            >
-              <AppIcon name="warning" :size="16" />
-              <span>{{ item.label }}</span>
-            </div>
-          </div>
-
+        <div class="ops-card">
+          <div class="ops-card__head"><h2>平台概览</h2><span>全平台计数</span></div>
           <div class="ops-metrics">
-            <div v-for="metric in metricCards" :key="metric.label" class="ops-metric">
-              <div class="ops-metric__label">{{ metric.label }}</div>
-              <div class="ops-metric__value">{{ metric.value }}</div>
-              <div class="ops-metric__hint">{{ metric.hint }}</div>
-            </div>
-          </div>
-
-          <div class="ops-card">
-            <div class="ops-card__head"><h2>执行状态分布</h2><span>全平台 · 所有研究项</span></div>
-            <div class="ops-states">
-              <div v-for="s in executionStateCards" :key="s.key" class="ops-state" :class="`is-${s.tone}`">
-                <span class="ops-state__dot"></span>
-                <strong>{{ s.value }}</strong>
-                <span>{{ s.label }}</span>
+            <div
+              v-for="metric in metricCards"
+              :key="metric.key"
+              class="ops-metric"
+              :class="{ 'is-loading': metric.loading }"
+            >
+              <span class="ops-metric__chip" :class="`is-${metric.tone}`"><AppIcon :name="metric.icon" :size="18" /></span>
+              <div class="ops-metric__body">
+                <div class="ops-metric__label">{{ metric.label }}</div>
+                <div class="ops-metric__value">{{ metric.value }}</div>
+                <div class="ops-metric__hint">{{ metric.hint }}</div>
               </div>
             </div>
           </div>
-        </template>
+        </div>
+
+        <div class="ops-card">
+          <div class="ops-card__head"><h2>执行状态分布</h2><span>全平台 · 所有研究项</span></div>
+          <template v-if="execTotal > 0">
+            <div class="ops-distbar">
+              <span
+                v-for="s in execSegments"
+                :key="s.key"
+                class="ops-distbar__seg"
+                :class="`is-${s.tone}`"
+                :style="{ width: s.pct + '%' }"
+                :title="`${s.label} ${s.value}`"
+              ></span>
+            </div>
+            <div class="ops-distlegend">
+              <span v-for="s in executionStateCards" :key="s.key" class="ops-distlegend__item">
+                <span class="ops-distlegend__dot" :class="`is-${s.tone}`"></span>
+                {{ s.label }} <strong>{{ s.value }}</strong>
+              </span>
+            </div>
+          </template>
+          <EmptyState v-else icon="pulse" title="暂无执行记录" description="平台还没有任何分析运行。" compact quiet />
+        </div>
       </section>
 
       <!-- ================= 运行与负荷 ================= -->
@@ -360,26 +379,28 @@ async function loadOverview(silent = false) {
   }
 }
 
+const HEALTH_DEFS = [
+  { key: 'api', label: 'API', icon: 'pulse' },
+  { key: 'db', label: '数据库', icon: 'database' },
+  { key: 'redis', label: 'Redis', icon: 'layers' },
+  { key: 'worker', label: '计算 worker', icon: 'cpu' },
+  { key: 'disk', label: '磁盘', icon: 'server' },
+] as const
+
 const healthItems = computed(() => {
   const h = overview.value?.health
-  if (!h) return [] as Array<{ key: string; label: string; status: AdminHealthStatus; detail: string }>
-  return [
-    { key: 'api', label: 'API', status: h.api.status, detail: '服务在线' },
-    { key: 'db', label: '数据库', status: h.db.status, detail: h.db.status === 'healthy' ? '连接正常' : '连接异常' },
-    { key: 'redis', label: 'Redis', status: h.redis.status, detail: h.redis.status === 'healthy' ? '连接正常' : '连接异常' },
-    {
-      key: 'worker',
-      label: '计算 worker',
-      status: h.worker.status,
-      detail: h.worker.online ? `${h.worker.worker_count} 个在线` : (h.worker.note || '离线'),
-    },
-    {
-      key: 'disk',
-      label: '磁盘',
-      status: h.disk.status,
-      detail: h.disk.percent != null ? `${h.disk.percent}% 已用` : '未知',
-    },
-  ]
+  return HEALTH_DEFS.map((def) => {
+    if (!h) {
+      return { ...def, status: 'unknown' as AdminHealthStatus, detail: '检测中…', loading: true }
+    }
+    const node = h[def.key] as { status: AdminHealthStatus; [k: string]: unknown }
+    let detail = ''
+    if (def.key === 'api') detail = '服务在线'
+    else if (def.key === 'db' || def.key === 'redis') detail = node.status === 'healthy' ? '连接正常' : '连接异常'
+    else if (def.key === 'worker') detail = h.worker.online ? `${h.worker.worker_count} 个在线` : (h.worker.note || '离线')
+    else if (def.key === 'disk') detail = h.disk.percent != null ? `${h.disk.percent}% 已用` : '未知'
+    return { ...def, status: node.status, detail, loading: false }
+  })
 })
 
 function healthTone(status: AdminHealthStatus): string {
@@ -389,19 +410,35 @@ function healthTone(status: AdminHealthStatus): string {
   return 'muted'
 }
 
+const METRIC_DEFS = [
+  { key: 'users', label: '活跃用户', icon: 'users', tone: 'info' },
+  { key: 'studies', label: '研究项', icon: 'studies', tone: 'accent' },
+  { key: 'datasets', label: '数据集', icon: 'database', tone: 'info' },
+  { key: 'recordings', label: '采集记录', icon: 'wave', tone: 'ok' },
+  { key: 'outputs', label: '产物', icon: 'layers', tone: 'accent' },
+  { key: 'pipelines', label: '分析流程', icon: 'pipeline', tone: 'info' },
+  { key: 'reviews', label: '待审核', icon: 'check', tone: 'warn' },
+  { key: 'tasks', label: '异步任务', icon: 'activity', tone: 'info' },
+] as const
+
 const metricCards = computed(() => {
   const c = overview.value?.counts
-  if (!c) return []
-  return [
-    { label: '活跃用户', value: c.users.active, hint: `共 ${c.users.total} · ${c.users.admins} 管理员` },
-    { label: '研究项', value: c.studies.total, hint: `${c.studies.active} 活跃 · ${c.studies.archived} 归档` },
-    { label: '数据集', value: c.datasets.total, hint: `${c.dataset_versions.published} 个已发布版本` },
-    { label: '采集记录', value: c.recordings, hint: `${c.subjects} 名被试` },
-    { label: '产物', value: c.study_outputs.total, hint: `${c.study_outputs.kept} 个保留` },
-    { label: '分析流程', value: c.pipelines, hint: `${c.executions.total} 次运行` },
-    { label: '待审核', value: c.pending_reviews.withdrawals + c.pending_reviews.publicizations, hint: `撤回 ${c.pending_reviews.withdrawals} · 转公开 ${c.pending_reviews.publicizations}` },
-    { label: '异步任务', value: c.async_tasks.running + c.async_tasks.queued, hint: `${c.async_tasks.running} 运行 · ${c.async_tasks.queued} 排队` },
-  ]
+  return METRIC_DEFS.map((def) => {
+    if (!c) return { ...def, value: '—' as string | number, hint: '读取中', loading: true }
+    let value = 0
+    let hint = ''
+    switch (def.key) {
+      case 'users': value = c.users.active; hint = `共 ${c.users.total} · ${c.users.admins} 管理员`; break
+      case 'studies': value = c.studies.total; hint = `${c.studies.active} 活跃 · ${c.studies.archived} 归档`; break
+      case 'datasets': value = c.datasets.total; hint = `${c.dataset_versions.published} 个已发布版本`; break
+      case 'recordings': value = c.recordings; hint = `${c.subjects} 名被试`; break
+      case 'outputs': value = c.study_outputs.total; hint = `${c.study_outputs.kept} 个保留`; break
+      case 'pipelines': value = c.pipelines; hint = `${c.executions.total} 次运行`; break
+      case 'reviews': value = c.pending_reviews.withdrawals + c.pending_reviews.publicizations; hint = `撤回 ${c.pending_reviews.withdrawals} · 转公开 ${c.pending_reviews.publicizations}`; break
+      case 'tasks': value = c.async_tasks.running + c.async_tasks.queued; hint = `${c.async_tasks.running} 运行 · ${c.async_tasks.queued} 排队`; break
+    }
+    return { ...def, value: value as string | number, hint, loading: false }
+  })
 })
 
 const executionStateCards = computed(() => {
@@ -415,6 +452,15 @@ const executionStateCards = computed(() => {
     { key: 'completed', label: '完成', value: s.completed || 0, tone: 'ok' },
     { key: 'canceled', label: '已取消', value: s.canceled || 0, tone: 'muted' },
   ]
+})
+
+const execTotal = computed(() => executionStateCards.value.reduce((sum, s) => sum + s.value, 0))
+const execSegments = computed(() => {
+  const total = execTotal.value
+  if (!total) return [] as Array<{ key: string; label: string; value: number; tone: string; pct: number }>
+  return executionStateCards.value
+    .filter((s) => s.value > 0)
+    .map((s) => ({ ...s, pct: Math.round((s.value / total) * 1000) / 10 }))
 })
 
 // ---- 运行与负荷 ----
@@ -694,12 +740,24 @@ onUnmounted(() => {
 .ops-health__light {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 13px;
+  gap: 10px;
+  flex: 1 1 170px;
+  padding: 10px 14px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r);
-  min-width: 150px;
+  box-shadow: var(--shadow-sm);
+}
+.ops-health__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--c-text-2);
+  background: var(--c-bg-tint);
+  border-radius: var(--r-sm);
 }
 .ops-health__dot {
   width: 9px;
@@ -711,11 +769,17 @@ onUnmounted(() => {
 .ops-health__light.is-ok .ops-health__dot { background: var(--c-success); box-shadow: 0 0 0 3px rgba(16,185,129,.14); }
 .ops-health__light.is-warn .ops-health__dot { background: var(--c-warning); box-shadow: 0 0 0 3px rgba(245,158,11,.14); }
 .ops-health__light.is-bad .ops-health__dot { background: var(--c-danger); box-shadow: 0 0 0 3px rgba(239,68,68,.14); }
-.ops-health__text { display: flex; flex-direction: column; min-width: 0; }
+.ops-health__light.is-ok .ops-health__icon { color: var(--c-success); background: var(--c-success-soft); }
+.ops-health__light.is-warn .ops-health__icon { color: var(--c-warning); background: var(--c-warning-soft); }
+.ops-health__light.is-bad .ops-health__icon { color: var(--c-danger); background: var(--c-danger-soft); }
+.ops-health__text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .ops-health__text strong { font-size: 13px; }
 .ops-health__text span { color: var(--c-text-3); font-size: 11px; }
 .ops-health__light.is-warn .ops-health__text span { color: var(--c-warning); }
 .ops-health__light.is-bad .ops-health__text span { color: var(--c-danger); }
+.ops-health__light.is-loading,
+.ops-metric.is-loading { animation: ops-pulse 1.3s ease-in-out infinite; }
+@keyframes ops-pulse { 0%, 100% { opacity: .5; } 50% { opacity: .82; } }
 
 /* 告警条 */
 .ops-attention { display: grid; gap: 8px; }
@@ -734,17 +798,72 @@ onUnmounted(() => {
 /* 数字墙 */
 .ops-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px;
 }
 .ops-metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
   border-radius: var(--r);
   padding: 13px 15px;
 }
+.ops-metric__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  color: var(--c-text-2);
+  background: var(--c-bg-tint);
+  border-radius: var(--r);
+}
+.ops-metric__chip.is-info { color: var(--c-info); background: var(--c-info-soft); }
+.ops-metric__chip.is-accent { color: var(--c-accent); background: var(--c-accent-soft); }
+.ops-metric__chip.is-ok { color: var(--c-success); background: var(--c-success-soft); }
+.ops-metric__chip.is-warn { color: var(--c-warning); background: var(--c-warning-soft); }
+.ops-metric__body { min-width: 0; }
 .ops-metric__label { color: var(--c-text-2); font-size: 12px; font-weight: 600; }
-.ops-metric__value { font-size: 24px; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; margin: 2px 0; }
-.ops-metric__hint { color: var(--c-text-3); font-size: 11px; }
+.ops-metric__value { font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; margin: 1px 0; }
+.ops-metric__hint { overflow: hidden; color: var(--c-text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 执行状态分布：比例条 + 图例 */
+.ops-distbar {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--c-bg-tint);
+}
+.ops-distbar__seg { height: 100%; min-width: 2px; }
+.ops-distbar__seg.is-info { background: var(--c-info); }
+.ops-distbar__seg.is-warn { background: var(--c-warning); }
+.ops-distbar__seg.is-danger { background: var(--c-danger); }
+.ops-distbar__seg.is-ok { background: var(--c-success); }
+.ops-distbar__seg.is-muted { background: var(--c-text-3); }
+.ops-distlegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+}
+.ops-distlegend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-2);
+  font-size: 12px;
+}
+.ops-distlegend__item strong { font-variant-numeric: tabular-nums; }
+.ops-distlegend__dot { width: 9px; height: 9px; border-radius: 999px; background: var(--c-text-3); }
+.ops-distlegend__dot.is-info { background: var(--c-info); }
+.ops-distlegend__dot.is-warn { background: var(--c-warning); }
+.ops-distlegend__dot.is-danger { background: var(--c-danger); }
+.ops-distlegend__dot.is-ok { background: var(--c-success); }
+.ops-distlegend__dot.is-muted { background: var(--c-text-3); }
 
 /* 卡片 */
 .ops-card {

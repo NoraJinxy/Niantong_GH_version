@@ -55,9 +55,10 @@ PLATFORM_EXECUTION_LIMIT = 60
 FAILURE_TOP_LIMIT = 12
 
 # celery inspect 探测结果短 TTL 缓存（每进程一份）：总览灯 + 运行面板可能在几秒内各探一次，
-# 用 3s 缓存去重，避免对 broker 重复广播。
+# 用 3s 缓存去重，避免对 broker 重复广播。按 light/full 两档分别缓存（总览只要 ping，运行面板才要
+# active/reserved）。
 _CELERY_PROBE_TTL_SECONDS = 3.0
-_celery_probe_cache: dict[str, Any] = {"checked_at": 0.0, "value": None}
+_celery_probe_cache: dict[str, dict[str, Any]] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -89,16 +90,20 @@ def probe_redis(settings) -> dict[str, Any]:
         return {"status": "down", "error": str(exc)}
 
 
-def probe_celery(settings) -> dict[str, Any]:
-    """探测 Celery worker：在线与否、worker 数、active/reserved 任务数。
+def probe_celery(settings, *, with_tasks: bool = True) -> dict[str, Any]:
+    """探测 Celery worker：在线与否、worker 数，可选 active/reserved 任务数。
 
-    结果带 3s TTL 缓存。worker 离线 = 平台正在 inline 降级跑（web 请求线程同步整条 pipeline），
-    是「上传与跑流程抢同一队列」这个总根因最直接的运维读数，故放在最显眼处。
+    每次 `inspect` 是一次「广播 + 等满超时收集回复」，所以多调一次方法就多等一个超时。总览只需要
+    「worker 在不在线」→ `with_tasks=False` 只做一次 ping（首屏不再串三次广播被拖到 ~10s）；运行与
+    负荷 tab 才 `with_tasks=True` 取 active/reserved。结果按档分别带 3s TTL 缓存。worker 离线 =
+    平台正在 inline 降级跑（web 请求线程同步整条 pipeline），是「上传与跑流程抢同一队列」总根因
+    最直接的运维读数。
     """
+    key = "full" if with_tasks else "light"
     now = time.monotonic()
-    cached = _celery_probe_cache.get("value")
-    if cached is not None and (now - float(_celery_probe_cache.get("checked_at") or 0.0)) < _CELERY_PROBE_TTL_SECONDS:
-        return cached
+    cached = _celery_probe_cache.get(key)
+    if cached is not None and (now - float(cached.get("checked_at") or 0.0)) < _CELERY_PROBE_TTL_SECONDS:
+        return cached["value"]
 
     result: dict[str, Any] = {
         "online": False,
@@ -112,30 +117,48 @@ def probe_celery(settings) -> dict[str, Any]:
         from app.tasks.celery_app import celery_app  # noqa: PLC0415
 
         timeout = float(getattr(settings, "CELERY_WORKER_PING_TIMEOUT_SECONDS", 0.5) or 0.5)
-        inspector = celery_app.control.inspect(timeout=max(timeout, 1.0))
+        inspector = celery_app.control.inspect(timeout=timeout)
         ping = inspector.ping() or {}
         if ping:
             result["online"] = True
             result["worker_count"] = len(ping)
-            active = inspector.active() or {}
-            reserved = inspector.reserved() or {}
-            total_active = total_reserved = 0
-            workers: list[dict[str, Any]] = []
-            for name in ping.keys():
-                a = len(active.get(name, []) or [])
-                r = len(reserved.get(name, []) or [])
-                total_active += a
-                total_reserved += r
-                workers.append({"name": name, "active": a, "reserved": r})
-            result["active"] = total_active
-            result["reserved"] = total_reserved
-            result["workers"] = workers
+            if with_tasks:
+                active = inspector.active() or {}
+                reserved = inspector.reserved() or {}
+                total_active = total_reserved = 0
+                workers: list[dict[str, Any]] = []
+                for name in ping.keys():
+                    a = len(active.get(name, []) or [])
+                    r = len(reserved.get(name, []) or [])
+                    total_active += a
+                    total_reserved += r
+                    workers.append({"name": name, "active": a, "reserved": r})
+                result["active"] = total_active
+                result["reserved"] = total_reserved
+                result["workers"] = workers
     except Exception as exc:  # noqa: BLE001
         result["error"] = str(exc)
 
-    _celery_probe_cache["checked_at"] = now
-    _celery_probe_cache["value"] = result
+    _celery_probe_cache[key] = {"checked_at": now, "value": result}
     return result
+
+
+def read_disk(settings) -> dict[str, Any] | None:
+    """只读存储盘用量（shutil，瞬时，不依赖 psutil）。总览的磁盘灯与运行面板共用。"""
+    try:
+        import shutil  # noqa: PLC0415
+
+        root = settings.ELYS_STORAGE_ROOT
+        du = shutil.disk_usage(root)
+        return {
+            "path": root,
+            "total": int(du.total),
+            "used": int(du.used),
+            "free": int(du.free),
+            "percent": round(du.used / du.total * 100, 1) if du.total else None,
+        }
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def read_resources(settings) -> dict[str, Any]:
@@ -172,21 +195,7 @@ def read_resources(settings) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         res["error"] = str(exc)
 
-    try:
-        import shutil  # noqa: PLC0415
-
-        root = settings.ELYS_STORAGE_ROOT
-        du = shutil.disk_usage(root)
-        res["disk"] = {
-            "path": root,
-            "total": int(du.total),
-            "used": int(du.used),
-            "free": int(du.free),
-            "percent": round(du.used / du.total * 100, 1) if du.total else None,
-        }
-    except Exception:  # noqa: BLE001
-        res["disk"] = None
-
+    res["disk"] = read_disk(settings)
     return res
 
 
@@ -415,11 +424,12 @@ def build_admin_overview(db: Session, settings) -> dict[str, Any]:
     counts = build_counts(db)
     states = execution_state_distribution(db)
 
+    # 总览只要「worker 在不在线」→ ping-only（不取 active/reserved，省两次广播超时）；磁盘只读
+    # shutil（瞬时，不跑 psutil）。CPU/内存等重采样留给「运行与负荷」tab。
     db_health = probe_db(db)
     redis_health = probe_redis(settings)
-    celery = probe_celery(settings)
-    resources = read_resources(settings)
-    disk = resources.get("disk")
+    celery = probe_celery(settings, with_tasks=False)
+    disk = read_disk(settings)
     disk_state = _disk_status(disk)
 
     stuck_count = _count(
@@ -473,8 +483,8 @@ def build_admin_overview(db: Session, settings) -> dict[str, Any]:
         "health": health,
         "attention": attention,
         "resources_summary": {
-            "cpu_percent": resources.get("cpu_percent"),
-            "mem_percent": (resources.get("mem") or {}).get("percent"),
+            "cpu_percent": None,
+            "mem_percent": None,
             "disk_percent": disk.get("percent") if disk else None,
         },
     }
