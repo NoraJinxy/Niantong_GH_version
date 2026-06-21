@@ -573,7 +573,7 @@ onMounted(load)
 .ica-spec-chans { font-size: 11px; }
 
 /* 通道列表：chip 点选（不下拉），可换行滚动 */
-.ica-chan { flex-shrink: 0; border-top: 1px solid var(--c-border); max-height: 116px; display: flex; flex-direction: column; }
+.ica-chan { flex-shrink: 0; border-top: 1px solid var(--c-border); max-height: 196px; display: flex; flex-direction: column; }
 .ica-chan-list { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 .ica-chan-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; line-height: 1.5; }
 .ica-chan-chip:hover { border-color: var(--c-primary); color: var(--c-text); }
