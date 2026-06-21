@@ -4,7 +4,7 @@
   "title": "Grand Average",
   "category": "group",
   "phase": "phase2",
-  "description": "对 unit_stack 沿 unit 轴求均值与 SEM（grand average），并回吐成原形态：ERP→evoked、PSD→psd_grandavg、TFR→tfr，可直接在对应观察页渲染。通吃 ERP / PSD / TFR。",
+  "description": "对 unit_stack 沿 unit 轴求均值与标准误（SEM，即跨被试的均值标准误），并回吐成原形态：ERP→evoked、PSD→psd_grandavg、TFR→tfr，可直接在对应观察页渲染。通吃 ERP / PSD / TFR。",
   "tags": ["group", "average", "grand-average", "sem", "erp", "psd", "tfr"],
   "inputs": [
     {
