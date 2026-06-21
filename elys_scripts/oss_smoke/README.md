@@ -57,4 +57,26 @@ $env:OSS_AK="LTAI..."; $env:OSS_SK="..."
 | `oss_smoke.py` | 独立冒烟脚本（只依赖 oss2，本地/服务器都能跑） |
 | `run_oss_smoke_remote.ps1` | 从 Windows 一键在计算服务器上跑内网冒烟 |
 
-> 这一步只验证网络与权限，**不改 ELYS 后端**。验通过后再进 OSS-1/OSS-4（给 StorageService 装 OSS 字节后端）。
+> 这一步只验证网络与权限，**不改 ELYS 后端**。
+
+## 3. 把后端切到 OSS + 端到端测试
+
+后端默认 `STORAGE_BACKEND=local`（行为同从前，OSS 桶保持空）。要让数据真进 OSS：
+
+```powershell
+# 1) 正常部署（拿到接好 OSS 的新代码 + 装上 oss2；此时仍 local）
+.\s2_deploy_remote.cmd
+
+# 2) 把后端切到 OSS（systemd drop-in 注入 STORAGE_BACKEND=oss + 内网 endpoint + 凭证，重启服务）
+cd "elys_scripts\oss_smoke"; .\enable_oss_remote.ps1
+
+# 3) 前端上传一份数据 → 跑一遍流程
+
+# 4) 去 OSS 控制台看「文件数量」从 0 变 N，桶里出现 datasets/ 和 studies/ 前缀对象 = 真在用 OSS
+
+# 想切回 local：
+.\enable_oss_remote.ps1 -Disable
+```
+
+`enable_oss_remote.ps1` 用 **systemd drop-in**（`/etc/systemd/system/<svc>.service.d/oss.conf`）注入，能扛住「重部署清空→跑 s3」循环（drop-in 在 .d/，重部署重写主 .service 不动它，重启自动合并）。凭证经 SSH 写进服务器 root-only 文件，不入仓库。
+
