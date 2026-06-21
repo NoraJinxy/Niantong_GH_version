@@ -44,13 +44,10 @@
           <section class="ica-left">
             <div class="ica-sec-head">
               <span>成分 · {{ components.length }}</span>
-              <label class="ic-sort">
-                <select v-model="sortMode" class="ic-sort-sel">
-                  <option value="variance">方差 ↓</option>
-                  <option value="iclabel">伪迹概率 ↓</option>
-                  <option value="index">编号</option>
-                </select>
-              </label>
+              <div class="ica-sortseg" role="group" aria-label="成分排序">
+                <button type="button" :class="{ 'is-on': sortMode === 'index' }" @click="sortMode = 'index'">编号</button>
+                <button type="button" :class="{ 'is-on': sortMode === 'iclabel' }" @click="sortMode = 'iclabel'">伪迹概率 ↓</button>
+              </div>
             </div>
             <div class="ica-sec-hint">单击看频谱/时域 · 勾选框 / 双击 = 标记剔除（红色 = 已标记，ICLabel 建议的伪迹已默认勾选）</div>
             <div class="ica-wall-body">
@@ -369,8 +366,9 @@ function cellPoints(c: IcaComponent): TopoCell['points'] {
   return c.topography.map((p) => ({ name: p.name, x: p.x, y: p.y, value: p.weight / m }))
 }
 
-// 成分墙排序：默认按方差↓；可切「伪迹概率↓」（先看 ICLabel 判为伪迹且置信度高的）或编号。
-const sortMode = ref<'index' | 'variance' | 'iclabel'>('variance')
+// 成分墙排序：默认「编号」(稳定 native 顺序)；可切「伪迹概率↓」(ICLabel 判为伪迹且置信度高的顶上来，
+// 对审核最有用)。去掉「方差↓」——ICA 不按方差排是固有属性，且高方差≠是伪迹(α 也高方差却要留)，对挑伪迹无益。
+const sortMode = ref<'index' | 'iclabel'>('index')
 function artifactScore(c: IcaComponent): number {
   const l = c.iclabel
   if (!l || l.category === 'brain' || l.category === 'other' || l.probability == null) return -1
@@ -378,9 +376,7 @@ function artifactScore(c: IcaComponent): number {
 }
 const sortedComponents = computed(() => {
   const list = [...components.value]
-  if (sortMode.value === 'variance') {
-    list.sort((a, b) => (b.explained_variance ?? -Infinity) - (a.explained_variance ?? -Infinity))
-  } else if (sortMode.value === 'iclabel') {
+  if (sortMode.value === 'iclabel') {
     list.sort((a, b) => artifactScore(b) - artifactScore(a))
   }
   return list
@@ -557,8 +553,12 @@ onMounted(load)
 .ica-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px 2px; font-size: 13px; font-weight: 600; color: var(--c-text); }
 .ica-sec-head--sub { font-size: 12px; padding: 8px 12px 4px; }
 .ica-sec-hint { padding: 0 12px 6px; font-size: 11px; color: var(--c-text-3); border-bottom: 1px solid var(--c-border); }
-.ic-sort { display: inline-flex; align-items: center; }
-.ic-sort-sel { font-size: 12px; padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; }
+/* 成分排序：二选一分段切换条（编号 / 伪迹概率），替代下拉 */
+.ica-sortseg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-sm); overflow: hidden; }
+.ica-sortseg button { font-size: 12px; padding: 2px 9px; border: none; background: var(--c-surface); color: var(--c-text-3); cursor: pointer; line-height: 1.6; }
+.ica-sortseg button + button { border-left: 1px solid var(--c-border); }
+.ica-sortseg button:hover { color: var(--c-text-2); }
+.ica-sortseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-wall-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
 
 /* 选中成分频谱（替代原右栏） */
