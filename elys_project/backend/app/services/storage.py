@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
@@ -111,6 +112,139 @@ class StorageService:
     def study_root(self, study_id: str) -> Path:
         identifier = _safe_identifier(study_id, "study_id")
         return _safe_join(Path(self.settings.STUDIES_STORAGE_ROOT), [identifier])
+
+    # ===== 字节读写后端（local / oss）—— OSS 迁移 A 阶段 (OSS-1) =====
+    # 逻辑身份永远是 elys:// URI；物理后端由 settings.STORAGE_BACKEND 决定。
+    #   local：直接读写 URI 解析出的本地 Path（与历史行为完全一致）。
+    #   oss  ：URI → 对象 key，下载到 scratch 供 MNE 读 / 把产物上传回桶。
+    # 这些方法为 OSS-5/6 接线预备；STORAGE_BACKEND=local 时全部走本地分支，零行为变化。
+
+    @property
+    def backend(self) -> str:
+        return (self.settings.STORAGE_BACKEND or "local").strip().lower()
+
+    def oss_key_for_reference(self, ref: "StorageReference") -> str:
+        """elys:// URI → OSS 对象 key：{prefix}{namespace}/{id}/{relative_path}。
+        legacy study:// 与新 elys://studies/ 同为 namespace='studies' 却映射到不同本地根
+        (STUDIES_DIR vs STUDIES_STORAGE_ROOT)——key 也必须区分，否则 OSS 上两者会互相覆盖。"""
+        ident = ref.dataset_asset_id or ref.study_id or ""
+        namespace = "legacy-studies" if ref.scheme == "study" else ref.namespace
+        key = "/".join(p for p in (namespace, ident, ref.relative_path) if p)
+        prefix = (self.settings.OSS_PREFIX or "").strip().strip("/")
+        return f"{prefix}/{key}" if prefix else key
+
+    def oss_key(self, uri: str | Path, *, study_root: str | Path | None = None) -> str:
+        return self.oss_key_for_reference(self.resolve_uri(str(uri), study_root=study_root))
+
+    def _oss_bucket(self):
+        bucket = getattr(self, "_oss_bucket_cache", None)
+        if bucket is not None:
+            return bucket
+        endpoint = (self.settings.OSS_ENDPOINT or "").strip()
+        name = (self.settings.OSS_BUCKET or "").strip()
+        ak = (self.settings.OSS_ACCESS_KEY_ID or "").strip()
+        sk = (self.settings.OSS_ACCESS_KEY_SECRET or "").strip()
+        if not endpoint or not name:
+            raise StorageUriError("OSS backend requires OSS_ENDPOINT and OSS_BUCKET.")
+        if not ak or not sk:
+            raise StorageUriError("OSS backend requires OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET (inject via env).")
+        try:
+            import oss2  # noqa: PLC0415
+        except ImportError as exc:  # pragma: no cover - 部署装了 oss2 才会走 oss 后端
+            raise StorageUriError("oss2 is not installed; add oss2 to backend requirements.") from exc
+        ep = endpoint if endpoint.startswith(("http://", "https://")) else f"https://{endpoint}"
+        bucket = oss2.Bucket(oss2.Auth(ak, sk), ep, name)
+        self._oss_bucket_cache = bucket
+        return bucket
+
+    def _scratch_path(self, key: str) -> Path:
+        root = Path(self.settings.OSS_SCRATCH_ROOT).expanduser()
+        return _safe_join(root, _safe_logical_parts(key))
+
+    def materialize(
+        self,
+        uri: str | Path,
+        *,
+        study_id: str | None = None,
+        study_root: str | Path | None = None,
+        refresh: bool = False,
+    ) -> Path:
+        """返回一个本地可读文件路径（供 MNE 等需要真实路径的库使用）。
+        local：直接解析；oss：下载对象到 scratch（已下载过且非 refresh 则复用，做最简缓存）。"""
+        if self.backend != "oss":
+            return self.resolve_path(uri, study_id=study_id, study_root=study_root)
+        key = self.oss_key(uri, study_root=study_root)
+        local = self._scratch_path(key)
+        if refresh or not local.exists():
+            local.parent.mkdir(parents=True, exist_ok=True)
+            self._oss_bucket().get_object_to_file(key, str(local))
+        return local
+
+    def persist(
+        self,
+        local_path: str | Path,
+        uri: str | Path,
+        *,
+        study_id: str | None = None,
+        study_root: str | Path | None = None,
+    ) -> None:
+        """把本地产物写进存储。local：移动到解析路径；oss：上传到对象 key。"""
+        local_path = Path(local_path)
+        if self.backend != "oss":
+            target = self.resolve_path(uri, study_id=study_id, study_root=study_root)
+            if local_path.resolve() == target.resolve():
+                return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(local_path), str(target))
+            return
+        self._oss_bucket().put_object_from_file(self.oss_key(uri, study_root=study_root), str(local_path))
+
+    def exists(self, uri: str | Path, *, study_id: str | None = None, study_root: str | Path | None = None) -> bool:
+        if self.backend != "oss":
+            try:
+                return self.resolve_path(uri, study_id=study_id, study_root=study_root).exists()
+            except (StorageUriError, ValueError):
+                return False
+        try:
+            key = self.oss_key(uri, study_root=study_root)
+        except (StorageUriError, ValueError):
+            return False
+        return self._oss_bucket().object_exists(key)
+
+    def read_bytes(self, uri: str | Path, *, study_id: str | None = None, study_root: str | Path | None = None) -> bytes:
+        if self.backend != "oss":
+            return self.resolve_path(uri, study_id=study_id, study_root=study_root).read_bytes()
+        return self._oss_bucket().get_object(self.oss_key(uri, study_root=study_root)).read()
+
+    def write_bytes(
+        self,
+        uri: str | Path,
+        data: bytes,
+        *,
+        study_id: str | None = None,
+        study_root: str | Path | None = None,
+    ) -> None:
+        if self.backend != "oss":
+            target = self.resolve_path(uri, study_id=study_id, study_root=study_root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            return
+        self._oss_bucket().put_object(self.oss_key(uri, study_root=study_root), data)
+
+    def delete(self, uri: str | Path, *, study_id: str | None = None, study_root: str | Path | None = None) -> None:
+        if self.backend != "oss":
+            try:
+                path = self.resolve_path(uri, study_id=study_id, study_root=study_root)
+            except (StorageUriError, ValueError):
+                return
+            if path.exists():
+                path.unlink()
+            return
+        try:
+            key = self.oss_key(uri, study_root=study_root)
+        except (StorageUriError, ValueError):
+            return
+        self._oss_bucket().delete_object(key)
 
     def _resolve_legacy_study_uri(
         self,

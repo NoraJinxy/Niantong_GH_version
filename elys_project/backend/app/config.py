@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     DATASETS_STORAGE_ROOT: str = "/mnt/elys_data/storage/datasets"
     STUDIES_STORAGE_ROOT: str = "/mnt/elys_data/storage/studies"
     TRASH_STORAGE_ROOT: str = "/mnt/elys_data/storage/trash"
+
+    # ===== 存储后端（OSS 迁移 A 阶段）=====
+    # STORAGE_BACKEND=local 时一切照旧（读写本地 FS）；=oss 时经 StorageService 走对象存储。
+    # 凭证只从环境变量注入（部署时写进后端服务 env / 用 RAM 角色），绝不写进仓库。
+    STORAGE_BACKEND: str = "local"                         # local | oss
+    OSS_ENDPOINT: str = ""                                 # 计算服上用内网域名 oss-cn-shenzhen-internal.aliyuncs.com
+    OSS_BUCKET: str = ""                                   # 例：elys-oss-test1
+    OSS_ACCESS_KEY_ID: str = ""                            # 走 env / RAM 角色，勿入库
+    OSS_ACCESS_KEY_SECRET: str = ""                        # 走 env / RAM 角色，勿入库
+    OSS_PREFIX: str = ""                                   # 可选：桶内统一前缀（多环境共用一桶时隔离）
+    OSS_SCRATCH_ROOT: str = "/mnt/elys_data/scratch/oss"   # oss 后端把对象下载到这里供 MNE 读
+
     CORS_ORIGINS: str = (
         "http://elysbrain.site,"
         "https://elysbrain.site,"
