@@ -895,6 +895,7 @@ def get_study_output_psd(
     channel: str | None = Query(default=None),
     max_freqs: int = Query(default=300, ge=8, le=2000),
     max_channels: int = Query(default=64, ge=1, le=256),
+    format: str = Query(default="json"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -912,7 +913,33 @@ def get_study_output_psd(
             detail={"code": "DERIVED_DATASET_NOT_PSD", "message": "该结果不是功率谱(PSD)类型。"},
         )
     try:
-        return build_psd_lines(study, dataset, channel=channel, max_freqs=max_freqs, max_channels=max_channels)
+        payload = build_psd_lines(study, dataset, channel=channel, max_freqs=max_freqs, max_channels=max_channels)
+        if str(format).lower() == "binary":
+            # 二进制(ELYSBIN1)：power 矩阵(n_ch×nf)+共享 freqs 转 f4，频带/通道名等小字段留 meta。
+            # 形状校验 + 编码异常一律回退 JSON，绝不致页面坏。
+            try:
+                import numpy as np  # noqa: PLC0415
+                from fastapi import Response  # noqa: PLC0415
+                from app.pipeline.binary_codec import encode_arrays_binary  # noqa: PLC0415
+
+                chs = payload.get("channels") or []
+                freqs = payload.get("freqs") or []
+                nf = len(freqs)
+                power = np.ascontiguousarray(np.asarray([c.get("power") or [] for c in chs], dtype="<f4"))
+                if power.shape == (len(chs), nf):
+                    meta = {k: v for k, v in payload.items() if k not in ("freqs", "channels")}
+                    meta["channels"] = [{kk: vv for kk, vv in c.items() if kk != "power"} for c in chs]
+                    meta["n_freqs"] = nf
+                    return Response(
+                        content=encode_arrays_binary(
+                            meta,
+                            [("freqs", "f4", np.asarray(freqs, dtype="<f4")), ("power", "f4", power.reshape(-1))],
+                        ),
+                        media_type="application/octet-stream",
+                    )
+            except Exception:  # noqa: BLE001 — 二进制编码失败回退 JSON
+                pass
+        return payload
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,
