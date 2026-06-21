@@ -89,13 +89,9 @@
 
         <template v-else-if="ts">
           <div class="am-ctoolbar">
-            <button class="btn btn--xs" :disabled="winStart <= rangeMin" title="上一窗" @click="shiftWindow(-1)"><AppIcon name="chevrons-left" :size="14" /></button>
-            <button class="btn btn--xs" :disabled="winStart <= rangeMin" title="后退" @click="stepWindow(-1)"><AppIcon name="chevron-left" :size="14" /></button>
-            <span class="am-time">{{ winStart.toFixed(1) }} s</span>
-            <button class="btn btn--xs" :disabled="winStart >= rangeMax - winLen" title="前进" @click="stepWindow(1)"><AppIcon name="chevron-right" :size="14" /></button>
-            <button class="btn btn--xs" :disabled="winStart >= rangeMax - winLen" title="下一窗" @click="shiftWindow(1)"><AppIcon name="chevrons-right" :size="14" /></button>
             <label class="am-num">窗长 <input type="number" v-model.number="visibleWinLen" min="1" step="1" /> s</label>
             <label class="am-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
+            <span class="am-hint">← → 移窗 · 滚轮缩放 · Ctrl+滚轮调幅 · 拖动框选坏段 · 右键删段 · 下方全程概览拖动定位</span>
             <span class="am-modeswitch">
               <button :class="{ on: displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
               <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
@@ -118,9 +114,11 @@
               :bad-segments="badSegments"
               :marked-channels="badChannelList"
               channel-pickable
+              select-shadow
               :show-legend="false"
               @select="onSelect"
               @channel-pick="toggleChannel"
+              @context-x="removeSegmentAt"
               @cursor="onCursor"
               @amp="ampScale = $event"
               @zoom="onZoom"
@@ -129,12 +127,26 @@
             />
           </div>
 
-          <div class="am-overview" v-if="overviewEnv.length" @click="seekOverview">
-            <div class="am-ov-cap">全程概览 · 点击跳窗</div>
+          <div
+            class="am-overview"
+            v-if="overviewEnv.length"
+            @pointerdown="ovPointerDown"
+            @pointermove="ovPointerMove"
+            @pointerup="ovPointerUp"
+            @pointercancel="ovPointerUp"
+          >
+            <div class="am-ov-cap">全程概览 · 拖动定位窗口</div>
             <svg :viewBox="`0 0 ${OV_W} 34`" preserveAspectRatio="none" class="am-ov-svg">
-              <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(55,138,221,0.16)" />
+              <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(55,138,221,0.18)" stroke="rgba(55,138,221,0.65)" stroke-width="0.8" />
               <polyline :points="ovPolyline" fill="none" stroke="#E24B4A" stroke-width="1.2" />
             </svg>
+            <div class="am-ov-axis">
+              <span
+                v-for="(tk, i) in ovTicks"
+                :key="i"
+                :style="{ left: tk.pct + '%', transform: i === 0 ? 'none' : i === ovTicks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }"
+              >{{ tk.label }}</span>
+            </div>
           </div>
         </template>
       </div>
@@ -180,7 +192,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, dataApi } from '@/api/client'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -321,8 +333,19 @@ const ovPolyline = computed(() => {
   const maxAbs = Math.max(1e-9, ...env)
   return env.map((v, i) => `${((o.times[i] - t0) / span * OV_W).toFixed(1)},${(31 - (v / maxAbs) * 28).toFixed(1)}`).join(' ')
 })
-const ovWinX = computed(() => ((winStart.value - rangeMin.value) / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
+const ovDragStart = ref<number | null>(null) // 全览带拖动中的预览窗口起点：拖动时只移指示块、不发请求，松手才取数
+const ovWinX = computed(() => (((ovDragStart.value ?? winStart.value) - rangeMin.value) / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
 const ovWinW = computed(() => (winLen.value / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
+// 全览带时间刻度：等分 5 段，标出对应秒数（否则看不出当前窗在整段记录的哪个时间）
+const ovTicks = computed(() => {
+  const lo = rangeMin.value, hi = rangeMax.value, span = hi - lo
+  if (!(span > 0)) return [] as { pct: number; label: string }[]
+  const N = 5
+  return Array.from({ length: N + 1 }, (_, i) => {
+    const t = lo + (i / N) * span
+    return { pct: (i / N) * 100, label: `${t.toFixed(t < 10 ? 1 : 0)}s` }
+  })
+})
 
 const canApply = computed(() => jobContext.value && !applying.value)
 const applyLabel = computed(() => {
@@ -340,6 +363,12 @@ function toggleChannel(name: string) {
   badChannels.value = next
 }
 function removeSegment(index: number) { badSegments.value = badSegments.value.filter((_, i) => i !== index) }
+// 右键波形落点处的坏段 → 删除（TimeCourseCanvas 右键 emit context-x）
+function removeSegmentAt(x: number | null) {
+  if (x == null) return
+  const idx = badSegments.value.findIndex((s) => x >= s.onset && x <= s.onset + s.duration)
+  if (idx >= 0) badSegments.value = badSegments.value.filter((_, i) => i !== idx)
+}
 function clearAll() { badSegments.value = []; badChannels.value = new Set() }
 
 function onSelect(region: { x0: number; x1: number } | null) {
@@ -374,12 +403,25 @@ function setWinStart(v: number) {
   const clamped = Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, v))
   winStart.value = Math.round(clamped * 1000) / 1000
 }
-function seekOverview(ev: MouseEvent) {
-  const el = ev.currentTarget as HTMLElement
+// 全览带：按光标 x 算出「窗口起点」（光标落点居中），拖动定位
+function ovStartFromClientX(clientX: number, el: HTMLElement): number {
   const rect = el.getBoundingClientRect()
-  const ratio = (ev.clientX - rect.left) / Math.max(1, rect.width)
-  const target = rangeMin.value + ratio * (rangeMax.value - rangeMin.value)
-  setWinStart(target - winLen.value / 2)
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)))
+  const target = rangeMin.value + ratio * (rangeMax.value - rangeMin.value) - winLen.value / 2
+  return Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, target))
+}
+function ovPointerDown(e: PointerEvent) {
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement)
+}
+function ovPointerMove(e: PointerEvent) {
+  if (ovDragStart.value == null) return // 仅按下后才跟随，悬停不动
+  ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement)
+}
+function ovPointerUp() {
+  if (ovDragStart.value == null) return
+  setWinStart(ovDragStart.value) // 松手才真正取数（拖动途中只移指示块，避免每帧打后端）
+  ovDragStart.value = null
 }
 function seekToSegment(seg: ArtifactBadSegment) { setWinStart(seg.onset - winLen.value / 2) }
 function onZoom(view: { min: number; max: number } | null) {
@@ -520,6 +562,15 @@ function describeError(err: unknown): string {
 }
 
 onMounted(reload)
+
+// 键盘左右移窗（顶部箭头已撤；← →=步进 1/4 窗，Shift+← →=整窗翻页）
+function onKeydown(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+  if (e.key === 'ArrowLeft') { e.preventDefault(); (e.shiftKey ? shiftWindow : stepWindow)(-1) }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); (e.shiftKey ? shiftWindow : stepWindow)(1) }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -555,13 +606,17 @@ onMounted(reload)
 .am-time { font-variant-numeric: tabular-nums; padding: 0 4px; min-width: 48px; text-align: center; }
 .am-num { display: inline-flex; align-items: center; gap: 3px; color: var(--c-text-2); margin-left: 6px; }
 .am-num input { width: 46px; padding: 2px 4px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 5px; }
+.am-hint { font-size: 11px; color: var(--c-text-3); margin-left: 8px; }
 .am-modeswitch { margin-left: auto; display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
 .am-modeswitch button { padding: 2px 9px; font-size: 12px; border: none; background: transparent; color: var(--c-text-2); cursor: pointer; }
 .am-modeswitch button.on { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
 .am-chart { flex: 1; min-height: 380px; position: relative; }
-.am-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: pointer; }
+.am-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: grab; touch-action: none; user-select: none; }
+.am-overview:active { cursor: grabbing; }
 .am-ov-cap { font-size: 10px; color: var(--c-text-3); margin-bottom: 1px; }
 .am-ov-svg { width: 100%; height: 34px; display: block; }
+.am-ov-axis { position: relative; height: 12px; margin-top: 1px; }
+.am-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .am-marklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }

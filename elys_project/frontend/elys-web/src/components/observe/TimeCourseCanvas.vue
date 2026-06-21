@@ -1,5 +1,5 @@
 <template>
-  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag }">
+  <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag, 'tcc-selshadow': selectShadow }">
     <div v-if="loading" class="tcc-loading">加载中…</div>
   </div>
 </template>
@@ -72,8 +72,10 @@ const props = withDefaults(
     channelPickable?: boolean
     /** 按住拖动 = 平移时间轴（替代默认的「拖动框选区间」）。ICA 审核页用；观察页默认 false 保留框选统计。 */
     panOnDrag?: boolean
+    /** 框选时显示原生选区阴影（伪迹审核框选坏段用，给拖动实时视觉反馈）。默认 false：观察页仍自绘 region、隐藏原生选区。 */
+    selectShadow?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false, selectShadow: false },
 )
 
 const emit = defineEmits<{
@@ -82,6 +84,8 @@ const emit = defineEmits<{
   (e: 'lock', payload: { x: number; items: CursorItem[] }): void
   /** 右键：上报落点的数据 x（落在图区外/无法定位时为 null），由父层决定撤区间还是解锁游标。 */
   (e: 'unlock', x: number | null): void
+  /** 右键落点数据 x（伪迹审核用来删除该处坏段；与 unlock 并行发，互不影响）。 */
+  (e: 'context-x', x: number | null): void
   /** 滚轮缩放时间轴：新可见范围（显示单位），null=退回全幅。父层广播给所有子图。 */
   (e: 'zoom', view: { min: number; max: number } | null): void
   /** Ctrl+滚轮调幅度：新幅度系数。 */
@@ -661,6 +665,7 @@ function onHostContextMenu(e: MouseEvent) {
     }
   }
   emit('unlock', x)
+  emit('context-x', x) // 伪迹审核：父层据此删除落点处坏段（观察页不绑则无副作用）
 }
 function onHostMouseLeave() {
   if (lastLineHover !== '') { lastLineHover = ''; emit('line-hover', '') }
@@ -867,4 +872,6 @@ defineExpose({ getExportCanvas })
 /* 隐藏 uPlot 原生框选高亮（.u-select 灰矩形）：统计区间统一由自绘 region 着色带（淡蓝 + 虚线框、所有 facet 子图同步）表达。
    拖拽时 setSelect hook 实时 emit→region 带即时跟随，原生层多余；留着会与淡蓝带两色并存、且各子图残留旧灰带（多次框选更明显）。 */
 :deep(.u-select) { display: none !important; }
+/* 伪迹审核框选坏段：放出原生选区阴影并染成红，给拖动实时区间反馈（覆盖上面的全局隐藏）。 */
+.tcc-selshadow :deep(.u-select) { display: block !important; background: rgba(226, 75, 74, 0.18) !important; border-left: 2px solid rgba(214, 40, 40, 0.7); border-right: 2px solid rgba(214, 40, 40, 0.7); }
 </style>
