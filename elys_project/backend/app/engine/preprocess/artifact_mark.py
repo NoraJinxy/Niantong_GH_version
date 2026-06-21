@@ -249,11 +249,16 @@ def auto_detect_artifacts(raw: Any, params: dict[str, Any] | None = None) -> dic
                     "hf_uv": round(float(hf_uv[idx]), 1),
                 })
 
+    # 坏段只在「好通道」上找：坏道本身高幅是「坏道」问题，若把坏道也算进来，其全程高幅会让跨通道峰值
+    # 几乎处处超阈 → 合并出几十段铺满全程的假坏段（5 坏道 → 55 段就是这么来的）。先排除坏道再找瞬态伪迹。
+    bad_set = set(bad_channels)
+    seg_picks = [int(i) for i in eeg_picks if work.ch_names[i] not in bad_set] or [int(i) for i in eeg_picks]
+
     segments: list[dict[str, Any]] = []
     try:
         annot, _amp_bads = mne.preprocessing.annotate_amplitude(
             work, peak=peak_uv * 1e-6, flat=flat_uv * 1e-6, bad_percent=5.0,
-            min_duration=max(0.02, min_dur), picks="eeg", verbose="ERROR",
+            min_duration=max(0.02, min_dur), picks=seg_picks, verbose="ERROR",
         )
         first_time = float(getattr(work, "first_time", 0.0) or 0.0)
         for onset, dur in zip(annot.onset, annot.duration):
@@ -263,16 +268,24 @@ def auto_detect_artifacts(raw: Any, params: dict[str, Any] | None = None) -> dic
     except Exception:
         pass  # annotate_amplitude 不可用/失败 → 仅靠下面的掩码兜底
 
-    if len(eeg_picks) >= 1:
-        eeg_data = work.get_data(picks=eeg_picks)
+    if seg_picks:
+        eeg_data = work.get_data(picks=seg_picks)
         abs_peak_uv = np.max(np.abs(eeg_data), axis=0) * 1e6
         segments.extend(_segments_from_mask(abs_peak_uv >= peak_uv, sfreq, pad=0.03, min_dur=min_dur))
 
     segments = _merge_segments(segments, gap=merge_gap)
+    # 保守兜底：自动坏段覆盖超过总时长一半，几乎必是阈值不适配本数据的整体性误检——宁可一段不报，
+    # 交用户手动框选（自动检测是「建议」，刷屏式假阳性比漏报更糟）。坏道建议照常返回。
+    total_dur = float(work.n_times) / sfreq if sfreq > 0 else 0.0
+    seg_cover = sum(s["duration"] for s in segments)
+    segments_suppressed = total_dur > 0 and seg_cover > 0.5 * total_dur
+    if segments_suppressed:
+        segments = []
     return {
         "bad_channels": bad_channels,
         "bad_segments": segments,
         "n_bad_channels": len(bad_channels),
         "n_bad_segments": len(segments),
         "channel_metrics": channel_metrics,
+        "segments_suppressed": segments_suppressed,
     }

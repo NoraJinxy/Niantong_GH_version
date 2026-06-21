@@ -519,7 +519,7 @@ async function autoDetect() {
   autoRunning.value = true
   autoMsg.value = ''
   try {
-    const res = await dataApi.post<{ bad_channels: string[]; bad_segments: ArtifactBadSegment[]; n_bad_channels?: number; n_bad_segments?: number }>(
+    const res = await dataApi.post<{ bad_channels: string[]; bad_segments: ArtifactBadSegment[]; n_bad_channels?: number; n_bad_segments?: number; segments_suppressed?: boolean }>(
       autoArtifactsUrl, {},
     )
     const sugCh = Array.isArray(res.data.bad_channels) ? res.data.bad_channels : []
@@ -528,7 +528,9 @@ async function autoDetect() {
     sugCh.forEach((n) => ch.add(String(n)))
     badChannels.value = ch
     sugSeg.forEach((s) => mergeInSegment({ onset: Number(s.onset), duration: Number(s.duration), source: 'auto' }))
-    autoMsg.value = `自动检测：建议 ${sugCh.length} 坏道 / ${sugSeg.length} 坏段，已并入（可再手动增删）。`
+    autoMsg.value = res.data.segments_suppressed
+      ? `自动检测：建议 ${sugCh.length} 坏道；坏段疑似整体性误检（覆盖过广）已自动略过，请手动框选。`
+      : `自动检测：建议 ${sugCh.length} 坏道 / ${sugSeg.length} 坏段，已并入（可再手动增删）。`
   } catch (err: unknown) { autoMsg.value = '自动检测失败：' + describeError(err) } finally { autoRunning.value = false }
 }
 
@@ -619,7 +621,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.am-marklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.am-marklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
 .am-marklist li { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
 .am-marklist li:hover { background: var(--c-bg-soft, #eef1f5); }
 .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
