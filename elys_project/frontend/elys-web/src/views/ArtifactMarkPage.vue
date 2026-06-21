@@ -631,7 +631,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <style scoped>
 :deep(.page) { padding: 0; }
-.am-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr) 232px; grid-template-rows: 56px 1fr; min-height: calc(100vh - var(--header-h)); }
+.am-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr) 232px; grid-template-rows: 56px 1fr; height: calc(100vh - var(--header-h)); overflow: hidden; }
 .am-toolbar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-3); padding: 0 var(--s-5); background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
 .am-title { display: flex; align-items: center; gap: 8px; }
 .am-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
@@ -640,7 +640,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-perf { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .am-perf-u { opacity: 0.7; }
 
-.am-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+.am-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .am-card { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 6px 7px; }
 /* 通道卡吃掉左栏剩余高度，让「整列滚动条」消失——只在通道列表内部滚 */
 .am-card--grow { flex: 1 1 auto; min-height: 90px; display: flex; flex-direction: column; }
@@ -669,7 +669,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-clear:disabled { opacity: .45; cursor: not-allowed; }
 .am-automsg { font-size: 11px; color: var(--c-text-3); margin: 0; line-height: 1.5; }
 
-.am-center { grid-column: 2; padding: var(--s-3); min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.am-center { grid-column: 2; padding: var(--s-3); min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 .am-ctoolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 4px 6px; font-size: 12px; }
 .am-time { font-variant-numeric: tabular-nums; padding: 0 4px; min-width: 48px; text-align: center; }
 .am-num { display: inline-flex; align-items: center; gap: 3px; color: var(--c-text-2); margin-left: 6px; }
@@ -690,7 +690,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-ov-axis { position: relative; height: 12px; margin-top: 1px; }
 .am-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .am-marklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
 .am-marklist li { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
 .am-marklist li:hover { background: var(--c-bg-soft, #eef1f5); }
