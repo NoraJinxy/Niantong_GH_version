@@ -53,6 +53,8 @@ export function useFacetGrid(opts: {
   overlayDim: Ref<'seg' | 'chan' | 'none'>
   /** 段标签（子图标题用）。 */
   segLabel: (seg: number) => string
+  /** 行列对调（仅矩阵、两个分面维都在时生效）：把自动的「行=facetDims[0]」与列互换。 */
+  swapAxes?: Ref<boolean>
   /** 注入数据：返回本格的 AlignedData + series 配置（含颜色）。 */
   buildCell: (input: FacetCellInput) => { data: number[][]; series: { name: string; color: string }[] }
 }): FacetGrid {
@@ -68,9 +70,14 @@ export function useFacetGrid(opts: {
     if (opts.chans().length > 1 && ov !== 'chan') dims.push('chan')
     return dims
   })
-  const rowFactor = computed<Factor>(() => (facetDims.value.length >= 2 ? facetDims.value[0] : 'none'))
-  const colFactor = computed<Factor>(() => {
+  // 分面维顺序：默认 [seg, chan]；swapAxes 时对调（仅两维都分面才有意义）
+  const orderedFacetDims = computed<Factor[]>(() => {
     const d = facetDims.value
+    return opts.swapAxes?.value && d.length >= 2 ? [d[1], d[0]] : d
+  })
+  const rowFactor = computed<Factor>(() => (orderedFacetDims.value.length >= 2 ? orderedFacetDims.value[0] : 'none'))
+  const colFactor = computed<Factor>(() => {
+    const d = orderedFacetDims.value
     return d.length >= 2 ? d[1] : d.length === 1 ? d[0] : 'none'
   })
 

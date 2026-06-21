@@ -3,6 +3,7 @@
     <!-- 顶部信息条（全屏时隐去，让绘图区吃满；退出全屏的按钮在工具条上仍可见） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
+        <WorkspaceBackButton class="ov-back" />
         <span class="ov-badge" :style="{ background: typeColor }">{{ typeShort }}</span>
         <div class="ov-id-text">
           <div class="ov-title">{{ displayName }}<span class="ov-region">{{ dataTypeLabel }}</span></div>
@@ -30,16 +31,20 @@
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
             </div>
             <div v-show="!collapsed.dataset" class="ov-sec-body">
-              <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
+              <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选 · ↑↓ 调顺序">
                 <div
-                  v-for="(oid, i) in outputIds"
-                  :key="oid"
+                  v-for="(i, pos) in displayOrder"
+                  :key="outputIds[i]"
                   class="ov-li"
                   :class="{ 'is-sel': selectedSegs.has(i) }"
                   @click="segSel.onClick(i, $event)"
                 >
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
+                  <span class="ov-li-ord">
+                    <button class="ov-ord-btn" :disabled="pos === 0" title="上移" @click.stop="moveSeg(i, -1)">↑</button>
+                    <button class="ov-ord-btn" :disabled="pos === displayOrder.length - 1" title="下移" @click.stop="moveSeg(i, 1)">↓</button>
+                  </span>
                 </div>
               </div>
               <div v-else class="ov-li is-static">
@@ -154,6 +159,14 @@
                 </button>
               </div>
               <p class="ov-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图（按行 / 列）。</p>
+              <template v-if="effectiveOverlay === 'none' && rowFactor !== 'none' && colFactor !== 'none'">
+                <div class="ov-grid2-lbl" style="margin-top: 6px">行（纵向铺）</div>
+                <div class="ov-ovpick">
+                  <button type="button" class="ov-ovbtn" :class="{ 'is-on': !swapAxes }" @click="swapAxes = false">{{ segKindLabel }}</button>
+                  <button type="button" class="ov-ovbtn" :class="{ 'is-on': swapAxes }" @click="swapAxes = true">通道</button>
+                </div>
+                <p class="ov-sec-hint">选谁当「行」纵向铺，另一个自动当「列」。当前 {{ facetRowLabel }} × {{ facetColLabel }}（行 × 列）。</p>
+              </template>
               <div class="ov-grid2-lbl" style="margin-top: 6px">配色</div>
               <div class="ov-pal" ref="palRef">
                 <!-- 当前色板：名字 + 色卡条，点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
@@ -235,6 +248,9 @@
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
           </div>
+          <div v-if="hasOverlap" class="ov-tg">
+            <button class="ov-ctb" :class="{ 'is-on': focusEnabled }" :title="displayMode === 'spread' ? '聚焦：开启后在右栏「聚焦曲线」列表点选即高亮它、淡化其余（排列模式下单击图不触发，请用列表点选）；关闭则单击曲线不响应' : '聚焦：开启后单击曲线或右栏「聚焦曲线」列表项即高亮它、淡化其余；关闭则单击曲线不响应'" @click="focusEnabled = !focusEnabled">◎ 焦点</button>
+          </div>
           <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
             <span class="ov-help-trigger">🖱 操作提示</span>
             <div v-if="showHelp" class="ov-help-pop">
@@ -297,7 +313,7 @@
                     :region="statsActive ? region : null"
                     :ref-lines="refLinesOn"
                     :highlight="effectiveFocus"
-                    :pickable="hasOverlap"
+                    :pickable="hasOverlap && focusEnabled"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
@@ -345,7 +361,6 @@
         <div class="ov-right-head">
           <strong><span class="ov-right-dot"></span>统计结果</strong>
           <div class="ov-right-btns">
-            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条曲线重叠时可用）：直接单击图中某条曲线即进入——加粗它、淡化其余、右栏显示其峰/谷与潜伏；点此开关可一键退出聚焦">◎ 焦点</button>
             <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
@@ -395,7 +410,23 @@
               <span class="ov-focus-lat text-mono">@ {{ fmtX(focusStat.troughLat) }} {{ xUnit }}</span>
             </div>
           </div>
-          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条曲线，即可聚焦查看其最大 / 最小与潜伏。</div>
+          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">开启工具条「◎ 焦点」后，单击曲线或在下方列表点选，即可聚焦查看其最大 / 最小与潜伏。</div>
+          <!-- 聚焦目标持久列表：焦点开即出现，不依赖「区间统计」；点选某条=高亮它、淡化其余（口径=series.name，与画布一致）。 -->
+          <div v-if="hasOverlap && focusEnabled && focusTargets.length" class="ov-focus-picker" style="margin-top: 8px">
+            <div class="ov-sec-mini">聚焦曲线（点选高亮）</div>
+            <div class="ov-hover-list">
+              <div
+                v-for="t in focusTargets" :key="t.name"
+                class="ov-hover-row is-pick"
+                :class="{ 'is-hl': effectiveFocus === t.name, 'is-dim': effectiveFocus && effectiveFocus !== t.name }"
+                @click="onLinePick(t.name)"
+              >
+                <span class="ov-li-dot" :style="{ background: t.color }"></span>
+                <span class="ov-hover-name">{{ t.name }}</span>
+                <span v-if="effectiveFocus === t.name" class="ov-row-pin" title="当前聚焦 · 点击取消">●</span>
+              </div>
+            </div>
+          </div>
 
           <!-- ② 区间统计：默认关——点开关或图上横向框选才出条件对比 + 明细表 + 图上着色带；精确范围输入收纳于此（从旧左栏面板迁来）。三页（时域/频域/时频）统一为此「默认关、按需开」模式。 -->
           <div class="ov-stat-block">
@@ -474,6 +505,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputTimeseries } from '@/types'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
@@ -534,6 +566,9 @@ const selectedSegs = segSel.selected
 // 叠加维度（#6）：数据集/条件/Epoch(=seg) 或 通道(chan) 三选一在子图内叠加；其余维度自动拆成子图(行/列)。
 // 默认叠加 seg，按通道分面——避免单格几十条叠成意大利面。
 const overlayDim = ref<'seg' | 'chan' | 'none'>('seg')
+// 行列对调（叠加=矩阵、两维都分面时）：false→行=数据集·列=通道；true→行=通道·列=数据集。
+// 单分面维(单行/单列)自动流式换行(auto-fit)，无需开关。
+const swapAxes = ref(false)
 // effectiveOverlay / facetDims / rowFactor / colFactor / cells / facetStyle / 共享轴
 // 统一由 useFacetGrid 引擎派生（见下方调用，与 PSD/TFR 同源）；本页只注入数据访问 buildCell。
 const reqTmin = ref<number | null>(null) // 秒
@@ -627,14 +662,28 @@ const hoverItems = computed(() => (hoverExpanded.value ? hoverItemsAll.value : h
 const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——焦点机制唯一选择态，取代原 hover/锁定/下拉三套
 // 信号重叠：任一子图画了 ≥2 条曲线时，「突出一条、压细其余」才有意义；单线时焦点自动隐身（按钮藏起）。
 const hasOverlap = computed(() => cells.value.some((c) => c.series.length >= 2))
-// 画布高亮（按通道名）：仅「重叠 + 焦点开」生效；选中谁高亮谁，未选则取自动主角（focusStat=峰值最大）。鼠标悬停不再参与。
-const effectiveFocus = computed(() => (hasOverlap.value && focusEnabled.value ? (selectedCurve.value || focusStat.value?.chan || '') : ''))
-// 单击曲线 / 读数行 / 明细行：重叠时即可单击——单击某条即【进入聚焦（自动开焦点开关）+ 选中它】；
-// 再点同一条 / 点空白 = 取消选中（回自动主角，仍在聚焦态）；彻底退出聚焦走 ◎ 焦点开关。
+// 焦点可选目标：当前所有子图实际画出的曲线（series.name 去重），与「区间统计」开关无关。
+// 口径=series.name（与画布 applyHighlight 的 series.name===highlight 一致），点选即高亮。
+const focusTargets = computed<{ name: string; color: string }[]>(() => {
+  const seen = new Map<string, string>()
+  for (const cell of cells.value) for (const s of cell.series) if (!seen.has(s.name)) seen.set(s.name, s.color)
+  return [...seen].map(([name, color]) => ({ name, color }))
+})
+// 画布高亮（按 series.name）：仅「重叠 + 焦点开」生效；选中谁高亮谁，未选取自动主角。
+// 自动主角=峰值最大那条，但仅当它确实是已画出的一条曲线时（避免「焦点=通道名」口径与「曲线=数据集名」不符致高亮落空）；否则退首条。
+const effectiveFocus = computed(() => {
+  if (!(hasOverlap.value && focusEnabled.value)) return ''
+  if (selectedCurve.value) return selectedCurve.value
+  const peak = focusStat.value?.chan
+  if (peak && focusTargets.value.some((t) => t.name === peak)) return peak
+  return focusTargets.value[0]?.name || ''
+})
+// 单击曲线 / 读数行 / 明细行：仅「焦点已开」时响应——焦点关时单击曲线无效（不进焦点、不选线、不自动开开关）。
+// 焦点开时：单击某条=选中它，再点同一条 / 点空白=取消选中（回自动主角，仍在聚焦态）；开/关焦点只走 ◎ 焦点按钮。
 function onLinePick(name: string) {
+  if (!focusEnabled.value) return
   if (!hasOverlap.value) return
   if (!name) { selectedCurve.value = ''; return }
-  if (!focusEnabled.value) focusEnabled.value = true
   selectedCurve.value = selectedCurve.value === name ? '' : name
 }
 // 统计区间（显示单位）；默认跟随时间窗，用户拖拽/输入后固定
@@ -655,7 +704,19 @@ const collapsed = reactive<Record<string, boolean>>({
 })
 
 // ---------- 主 / 段 ----------
-const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
+// 数据集展示顺序（多产物对比）：segOrderRaw 记用户用 ↑/↓ 调过的完整排列（空=自然序）。
+// 颜色按 seg 绝对下标编码（segColor），重排只换排列、不改色——数据集与其颜色始终绑定。
+const segOrderRaw = ref<number[]>([])
+// seg → 名次：在 segOrderRaw 里的取其位置，不在的回退自身下标（未排序时即自然数字序，与旧行为一致）。
+// 只读 segOrderRaw、不读 segCount —— 避免与 segCount←ts←primarySeg←sortedSegs 这条链形成响应式环。
+const segRank = computed(() => {
+  const m = new Map<number, number>()
+  segOrderRaw.value.forEach((seg, rank) => m.set(seg, rank))
+  return m
+})
+const sortedSegs = computed(() =>
+  [...selectedSegs.value].sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b)),
+)
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const ts = computed<StudyOutputTimeseries | null>(
   () => tsMap.value.get(primarySeg.value) ?? tsMap.value.values().next().value ?? null,
@@ -687,6 +748,26 @@ const segOptions = computed(() =>
     : ts.value?.segment_options ?? null,
 )
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
+// 左栏数据集列表的展示顺序：segOrderRaw 前缀 + 补齐 [0..segCount) 中缺失项（自然序在后）。
+// 仅此处读 segCount；segRank/sortedSegs 不读，故不会回指自己造成环。
+const displayOrder = computed<number[]>(() => {
+  const n = segCount.value
+  const seen = new Set<number>()
+  const out: number[] = []
+  for (const i of segOrderRaw.value) if (i >= 0 && i < n && !seen.has(i)) { seen.add(i); out.push(i) }
+  for (let i = 0; i < n; i++) if (!seen.has(i)) out.push(i)
+  return out
+})
+// ↑/↓：在当前展示序里与相邻项交换，落成完整排列写回 segOrderRaw。
+function moveSeg(seg: number, dir: -1 | 1) {
+  const cur = displayOrder.value
+  const from = cur.indexOf(seg)
+  const to = from + dir
+  if (from < 0 || to < 0 || to >= cur.length) return
+  const next = [...cur]
+  ;[next[from], next[to]] = [next[to], next[from]]
+  segOrderRaw.value = next
+}
 
 // 叠加维度可选项（label 随段类型变化）：seg 只 1 个值时不列出
 const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() => {
@@ -706,10 +787,12 @@ function segLabel(seg: number) {
   if (!isMultiOutput && ts.value?.segment_kind === 'epoch') return `#${seg + 1}`
   const t = tsMap.value.get(seg)
   if (isMultiOutput) {
-    // 多产物对比：数据集名 =「被试 · 条件」，多被试时 condition 重复必须带被试区分；缺则退化数据集 N
-    const subj = fmtSubject(t?.subject)
-    const combined = [subj, t?.segment_label || ''].filter(Boolean).join(' · ')
-    return combined || labelCache[seg] || `数据集 ${seg + 1}`
+    // 数据集名统一优先用 StudyOutput 元数据缓存（loadOutputLabels：被试·条件 || display_name）——
+    // 全列表同一套拼法，避免「选中谁=加载谁」把已加载项降级成光秃秃的被试名
+    // （曾出现：已选 S5 显示「S5」，未选项却显示「Grand Average · S4 (12 runs)」）。
+    // 缓存未就绪时才退回已加载数据的「被试 · 段标签」，最后退「数据集 N」。
+    const fromLoaded = [fmtSubject(t?.subject), t?.segment_label || ''].filter(Boolean).join(' · ')
+    return labelCache[seg] || fromLoaded || `数据集 ${seg + 1}`
   }
   if (t?.segment_label) return t.segment_label
   return ts.value?.segment_options?.[seg] ?? `#${seg + 1}`
@@ -789,6 +872,7 @@ const { effectiveOverlay, facetDims, rowFactor, colFactor, cells, facetStyle, le
   chans: () => orderedChans.value,
   segCount: () => segCount.value,
   overlayDim,
+  swapAxes,
   segLabel,
   buildCell: ({ segs, chans, multiSeg, multiChan, segIsGrid }) => {
     let xs: number[] = []
@@ -815,6 +899,10 @@ const { effectiveOverlay, facetDims, rowFactor, colFactor, cells, facetStyle, le
     return { data: [xs, ...cols], series }
   },
 })
+
+// 行/列因素的中文标签（「行列对调」按钮显示当前行/列是谁）
+const facetRowLabel = computed(() => (rowFactor.value === 'seg' ? segKindLabel.value : rowFactor.value === 'chan' ? '通道' : '—'))
+const facetColLabel = computed(() => (colFactor.value === 'seg' ? segKindLabel.value : colFactor.value === 'chan' ? '通道' : '—'))
 
 const hasCurves = computed(() => allChanNames.value.length > 0 && (ts.value?.times.length || 0) > 1)
 
@@ -1140,12 +1228,9 @@ async function load() {
     const m = new Map<number, StudyOutputTimeseries>()
     for (const s of ok) {
       m.set(s.value[0], s.value[1])
-      if (isMultiOutput && s.value[1].segment_label) {
-        const r = s.value[1]
-        const subj = fmtSubject(r.subject)
-        labelCache[s.value[0]] = [subj, r.segment_label].filter(Boolean).join(' · ')
-      }
     }
+    // 数据集名不再从已加载数据回写 labelCache（曾把已选项降级成光秃秃的被试名）；
+    // 列表名统一由 loadOutputLabels（StudyOutput 元数据）提供，保证「选中/未选」一致。
     tsMap.value = m
     const failed = settled.length - ok.length
     partialNote.value = failed > 0 ? `部分结果未能加载（${failed} 个），仅显示可用的 ${ok.length} 个。` : ''
@@ -1281,8 +1366,9 @@ function toggleStats() {
   }
 }
 
-// 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配是客户端过滤，不触发）
-watch([() => sortedSegs.value.join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
+// 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配、数据集排序是客户端的，不触发）。
+// 注意键是「成员级」（按下标数字序 join），只认勾了哪些、不认展示顺序——重排 ↑/↓ 不该整批重取。
+watch([() => [...selectedSegs.value].sort((a, b) => a - b).join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
   resetZoom() // 取新窗口的数据 = 新视图，清掉旧的视觉缩放
   void load()
 })
