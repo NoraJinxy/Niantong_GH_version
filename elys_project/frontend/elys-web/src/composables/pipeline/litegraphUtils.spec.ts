@@ -46,8 +46,8 @@ describe('computeFlowLayout', () => {
     expect(layout.get('e')).toEqual([150, 100])
   })
 
-  it('按拓扑层深排序，压过节点在数组里的原始顺序', () => {
-    // 给的顺序故意打乱成 [d,c,b,a]；真实依赖：a→b, a→c, b→d
+  it('分叉图走分层布局：层深=列，b/c 在中间列分上下两行不重叠', () => {
+    // 给的顺序故意打乱成 [d,c,b,a]；真实依赖：a→b, a→c, b→d（a 有两个下游 ⇒ 分叉 ⇒ 分层布局）
     const nodes = [{ id: 'd' }, { id: 'c' }, { id: 'b' }, { id: 'a' }]
     const links = [
       { from: { node: 'a' }, to: { node: 'b' } },
@@ -55,11 +55,43 @@ describe('computeFlowLayout', () => {
       { from: { node: 'b' }, to: { node: 'd' } },
     ]
     const layout = computeFlowLayout(nodes, links, GRID)
-    // 深度 a=0 < {b,c}=1 < d=2 → 根 a 必在原点，最深的 d 必在最后一行（i=3 → 行1）
-    expect(layout.get('a')).toEqual([0, 0])
-    expect(layout.get('d')![1]).toBe(100)
-    // a 一定排在 b/c/d 之前（y 更小或同行更靠序列前）
-    expect(layout.get('a')![1]).toBeLessThanOrEqual(layout.get('d')![1])
+    // 层深 a=0 < {b,c}=1 < d=2 → 列坐标按层深：a 最左、b/c 中列、d 最右
+    expect(layout.get('a')![0]).toBe(0)
+    expect(layout.get('b')![0]).toBe(100)
+    expect(layout.get('c')![0]).toBe(100)
+    expect(layout.get('d')![0]).toBe(200)
+    // b、c 同列但分处上下两行（不重叠）
+    expect(layout.get('b')![1]).not.toBe(layout.get('c')![1])
+    // 单节点层（a、d）落在垂直中线、彼此等高
+    expect(layout.get('a')![1]).toBe(layout.get('d')![1])
+  })
+
+  it('分叉图分层布局：共享主干扇出多条并行支，每支落在自己的水平行、互不交叉', () => {
+    // 主干 t0→t1，t1 扇出 a/b/c 三支，每支再各走一步：a1→a2, b1→b2, c1→c2
+    const ids = ['t0', 't1', 'a1', 'a2', 'b1', 'b2', 'c1', 'c2']
+    const nodes = ids.map((id) => ({ id }))
+    const links = [
+      { from: { node: 't0' }, to: { node: 't1' } },
+      { from: { node: 't1' }, to: { node: 'a1' } },
+      { from: { node: 't1' }, to: { node: 'b1' } },
+      { from: { node: 't1' }, to: { node: 'c1' } },
+      { from: { node: 'a1' }, to: { node: 'a2' } },
+      { from: { node: 'b1' }, to: { node: 'b2' } },
+      { from: { node: 'c1' }, to: { node: 'c2' } },
+    ]
+    const layout = computeFlowLayout(nodes, links, GRID)
+    // 层深=列：t0(0) t1(1) {a1,b1,c1}(2) {a2,b2,c2}(3)
+    expect(layout.get('t0')![0]).toBe(0)
+    expect(layout.get('t1')![0]).toBe(100)
+    expect(layout.get('a1')![0]).toBe(200)
+    expect(layout.get('a2')![0]).toBe(300)
+    // 关键：每条支首尾同一水平行（连线平直、不交叉）
+    expect(layout.get('a1')![1]).toBe(layout.get('a2')![1])
+    expect(layout.get('b1')![1]).toBe(layout.get('b2')![1])
+    expect(layout.get('c1')![1]).toBe(layout.get('c2')![1])
+    // 三支分处三条不同的行，互不重叠
+    const branchRows = new Set([layout.get('a1')![1], layout.get('b1')![1], layout.get('c1')![1]])
+    expect(branchRows.size).toBe(3)
   })
 
   it('marginX/marginY 平移整张网格', () => {

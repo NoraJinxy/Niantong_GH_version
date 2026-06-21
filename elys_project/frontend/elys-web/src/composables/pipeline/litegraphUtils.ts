@@ -214,9 +214,14 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
  * 换行处那条「回扫线」（上行最右 → 下行最左）就像段落换行，人一看就懂。
  *
  * 分块：先按「连通分量」把节点分成若干互不连线的块——典型如 Group 分析里 S1 / S2 两条独立链。每块各自
- *   折行、整体居中、上下堆叠，块间留空隙。这样并行分支不会被「按层深排序」交错成一锅（S1 第一步紧挨 S2
- *   第一步……）。散落的未连线单节点汇成一块一起折行，免得一堆孤立节点排成一长竖列。单块（单连通图）时
- *   整体退化成原来的「居中折行」，行为不变。
+ *   布局、整体居中、上下堆叠，块间留空隙。这样并行分支不会被「按层深排序」交错成一锅。散落的未连线单节点
+ *   汇成一块一起折行，免得一堆孤立节点排成一长竖列。
+ *
+ * 两种块内布局，按「该分量内部是否分叉」自动选（分叉＝某层深有 >1 个节点）：
+ *   ① 纯线性链（每层 1 个节点，如单条 pipeline / S1·S2 各自）→「居中折行」，把长链折成贴画布的紧凑网格（见下）。
+ *   ② 分叉图（共享主干后扇出 S3/S4/S5 多条并行支）→「分层布局」（Sugiyama 式）：层深=列，层内用 barycenter
+ *      多趟扫描重排消交叉，每层垂直居中 ⇒ 主干居中、每条支稳定落在自己的水平行、连线平直不打架。代价是宽度
+ *      随流程深度铺开（这是「不交叉」的必要代价）。折行会把分叉支交错折进各行 → 连线必然横跨，故分叉图不折行。
  *
  * 排序规则（块内）：
  *   1) 算每个节点的「层深 depth」= 从任一根节点到它的最长路径长度（Kahn 拓扑排序 + 松弛）。
@@ -318,55 +323,192 @@ export function computeFlowLayout(
     if (!groups.has(root)) groups.set(root, [])
     groups.get(root)!.push(id)
   }
-  const blocks: string[][] = []
-  const loose: string[] = []
+  const compBlocks: string[][] = [] // 真实连通分量（≥2 节点）
+  const loose: string[] = [] // 散落的未连线单节点
   for (const members of groups.values()) {
-    if (members.length >= 2) blocks.push(members.slice().sort(byDepthThenOrder))
+    if (members.length >= 2) compBlocks.push(members.slice().sort(byDepthThenOrder))
     else loose.push(members[0])
   }
-  if (loose.length) blocks.push(loose.sort(byDepthThenOrder))
-  blocks.sort((a, b) => minOrder(a) - minOrder(b)) // 块的上下顺序按各自最小原始序，跟节点数组一致
 
-  // 选「列数 cols」：每块折成 ceil(size/cols) 行，令所有块堆叠后的总网格宽高比最贴画布；同分取更多列
-  //（总行更少 → 偏宽，画布够宽时单行顺流）。降序枚举 + 严格更优 ⇒ 同分保留更大 cols。单块时与原「按行数选」等价。
-  const sizes = blocks.map((b) => b.length)
-  const maxSize = Math.max(...sizes)
-  let cols = 1
-  let bestScore = Infinity
-  for (let c = maxSize; c >= 1; c -= 1) {
-    const totalRows = sizes.reduce((s, sz) => s + Math.ceil(sz / c), 0)
-    const gridAspect = (c * gapX) / (totalRows * gapY)
-    const score = Math.abs(Math.log(gridAspect / aspect))
-    if (score < bestScore - 1e-9) {
-      bestScore = score
-      cols = c
+  // 某连通分量内部「同一层深有 >1 个节点」⇒ 它是分叉结构（如共享预处理后扇出 S3/S4/S5 多条并行支）。
+  // 这种用「分层布局」（层深=列、层内重排消交叉）才能让每条支落在自己的水平行、连线平直不打架；
+  // 纯线性链（每层 1 个）则继续用「居中折行」压缩宽度。注意是按「分量内部」判，S1/S2 两条独立链各自线性、不算分叉。
+  const blockHasBranching = (members: string[]): boolean => {
+    const perDepth = new Map<number, number>()
+    for (const id of members) {
+      const d = depth.get(id) || 0
+      perDepth.set(d, (perDepth.get(d) || 0) + 1)
     }
+    return [...perDepth.values()].some((count) => count > 1)
   }
 
-  // 每块在 cols 约束下均分行（行间个数差 ≤1，杜绝「末行只剩一个」的孤儿）；所有行水平居中到同一中线、
-  // 上下堆叠，块与块之间留一道空隙以示「这是另一条链」。
-  const blockRowSizes = blocks.map((members) => {
-    const rows = Math.max(1, Math.ceil(members.length / cols))
-    const base = Math.floor(members.length / rows)
-    const extra = members.length % rows
-    return Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
-  })
-  const globalMaxCols = Math.max(...blockRowSizes.map((rs) => rs[0]))
-  const centerX = marginX + ((globalMaxCols - 1) * gapX) / 2
-  const blockGapY = blocks.length > 1 ? Math.round(gapY * 0.4) : 0
+  if (!compBlocks.some(blockHasBranching)) {
+    // —— 全是线性链：居中折行 + 上下堆叠（原行为，紧凑）——
+    const blocks = compBlocks.slice()
+    if (loose.length) blocks.push(loose.slice().sort(byDepthThenOrder))
+    blocks.sort((a, b) => minOrder(a) - minOrder(b)) // 块的上下顺序按各自最小原始序，跟节点数组一致
 
-  let y = marginY
-  blocks.forEach((members, bi) => {
+    // 选「列数 cols」：每块折成 ceil(size/cols) 行，令所有块堆叠后的总网格宽高比最贴画布；同分取更多列
+    //（总行更少 → 偏宽，画布够宽时单行顺流）。降序枚举 + 严格更优 ⇒ 同分保留更大 cols。单块时与原「按行数选」等价。
+    const sizes = blocks.map((b) => b.length)
+    const maxSize = Math.max(...sizes)
+    let cols = 1
+    let bestScore = Infinity
+    for (let c = maxSize; c >= 1; c -= 1) {
+      const totalRows = sizes.reduce((s, sz) => s + Math.ceil(sz / c), 0)
+      const gridAspect = (c * gapX) / (totalRows * gapY)
+      const score = Math.abs(Math.log(gridAspect / aspect))
+      if (score < bestScore - 1e-9) {
+        bestScore = score
+        cols = c
+      }
+    }
+
+    // 每块在 cols 约束下均分行（行间个数差 ≤1，杜绝「末行只剩一个」的孤儿）；所有行水平居中到同一中线、
+    // 上下堆叠，块与块之间留一道空隙以示「这是另一条链」。
+    const blockRowSizes = blocks.map((members) => {
+      const rows = Math.max(1, Math.ceil(members.length / cols))
+      const base = Math.floor(members.length / rows)
+      const extra = members.length % rows
+      return Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
+    })
+    const globalMaxCols = Math.max(...blockRowSizes.map((rs) => rs[0]))
+    const centerX = marginX + ((globalMaxCols - 1) * gapX) / 2
+    const blockGapY = blocks.length > 1 ? Math.round(gapY * 0.4) : 0
+
+    let y = marginY
+    blocks.forEach((members, bi) => {
+      let idx = 0
+      for (const size of blockRowSizes[bi]) {
+        const rowStartX = centerX - ((size - 1) * gapX) / 2 // 本行整体居中
+        for (let c = 0; c < size; c += 1) {
+          layout.set(members[idx], [Math.round(rowStartX + c * gapX), Math.round(y)])
+          idx += 1
+        }
+        y += gapY
+      }
+      if (bi < blocks.length - 1) y += blockGapY
+    })
+
+    return layout
+  }
+
+  // —— 有分叉分量：分层布局（Sugiyama 式）——
+  // 反向邻接（找父节点）供层内重排用 barycenter。
+  const parentsOf = new Map<string, string[]>()
+  for (const id of ids) parentsOf.set(id, [])
+  for (const [from, kids] of children) {
+    for (const to of kids) parentsOf.get(to)!.push(from)
+  }
+
+  type Block = { pos: Map<string, [number, number]>; width: number; height: number }
+
+  // 线性 / 散块仍用「居中折行」，返回归一化到 (0,0) 起点的相对坐标 + 包围盒，供堆叠。
+  const foldBlock = (members: string[]): Block => {
+    const seq = members.slice().sort(byDepthThenOrder)
+    const total = seq.length
+    let rows = 1
+    let best = Infinity
+    for (let r = 1; r <= total; r += 1) {
+      const colsNeeded = Math.ceil(total / r)
+      const ga = (colsNeeded * gapX) / (r * gapY)
+      const score = Math.abs(Math.log(ga / aspect))
+      if (score < best - 1e-9) {
+        best = score
+        rows = r
+      }
+    }
+    const base = Math.floor(total / rows)
+    const extra = total % rows
+    const rowSizes = Array.from({ length: rows }, (_, r) => base + (r < extra ? 1 : 0))
+    const maxCols = Math.max(...rowSizes)
+    const pos = new Map<string, [number, number]>()
     let idx = 0
-    for (const size of blockRowSizes[bi]) {
-      const rowStartX = centerX - ((size - 1) * gapX) / 2 // 本行整体居中
+    for (let r = 0; r < rows; r += 1) {
+      const size = rowSizes[r]
+      const rowStartX = ((maxCols - size) * gapX) / 2 // 窄行在块内居中
       for (let c = 0; c < size; c += 1) {
-        layout.set(members[idx], [Math.round(rowStartX + c * gapX), Math.round(y)])
+        pos.set(seq[idx], [rowStartX + c * gapX, r * gapY])
         idx += 1
       }
-      y += gapY
     }
-    if (bi < blocks.length - 1) y += blockGapY
+    return { pos, width: (maxCols - 1) * gapX, height: (rows - 1) * gapY }
+  }
+
+  // 分叉块：层深=列；层内用 barycenter（取相邻层邻居的平均位次）多趟扫描重排消交叉；
+  // 每层垂直居中 ⇒ 主干居中、每条支稳定落在自己的水平行（连线平直不交叉）。
+  const layeredBlock = (members: string[]): Block => {
+    const memberSet = new Set(members)
+    let maxDepth = 0
+    for (const id of members) maxDepth = Math.max(maxDepth, depth.get(id) || 0)
+    const layers: string[][] = Array.from({ length: maxDepth + 1 }, () => [])
+    for (const id of members) layers[depth.get(id) || 0].push(id)
+    for (const layer of layers) layer.sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0))
+
+    const orderInLayer = new Map<string, number>()
+    const reindex = () => {
+      for (const layer of layers) layer.forEach((id, i) => orderInLayer.set(id, i))
+    }
+    reindex()
+    const barycenter = (id: string, neighbors: Map<string, string[]>): number => {
+      const ns = (neighbors.get(id) || []).filter((n) => memberSet.has(n))
+      if (!ns.length) return orderInLayer.get(id) ?? 0 // 无邻居 ⇒ 保持原位
+      let sum = 0
+      for (const n of ns) sum += orderInLayer.get(n) ?? 0
+      return sum / ns.length
+    }
+    const sortByBary = (layer: string[], neighbors: Map<string, string[]>) => {
+      const bary = new Map<string, number>()
+      for (const id of layer) bary.set(id, barycenter(id, neighbors))
+      layer.sort((a, b) => {
+        const diff = (bary.get(a) ?? 0) - (bary.get(b) ?? 0)
+        if (Math.abs(diff) > 1e-9) return diff
+        return (orderInLayer.get(a) ?? 0) - (orderInLayer.get(b) ?? 0) // 稳定
+      })
+    }
+    for (let sweep = 0; sweep < 4; sweep += 1) {
+      for (let d = 1; d <= maxDepth; d += 1) {
+        sortByBary(layers[d], parentsOf)
+        reindex()
+      }
+      for (let d = maxDepth - 1; d >= 0; d -= 1) {
+        sortByBary(layers[d], children)
+        reindex()
+      }
+    }
+
+    const pos = new Map<string, [number, number]>()
+    for (let d = 0; d <= maxDepth; d += 1) {
+      const layer = layers[d]
+      for (let i = 0; i < layer.length; i += 1) {
+        pos.set(layer[i], [d * gapX, (i - (layer.length - 1) / 2) * gapY]) // 每层绕 0 居中
+      }
+    }
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const [, [, yy]] of pos) {
+      if (yy < minY) minY = yy
+      if (yy > maxY) maxY = yy
+    }
+    for (const [id, [xx, yy]] of pos) pos.set(id, [xx, yy - minY]) // 归一化到 y∈[0,height]
+    return { pos, width: maxDepth * gapX, height: maxY - minY }
+  }
+
+  const placed = compBlocks
+    .map((members) => ({ members, minOrd: minOrder(members) }))
+    .sort((a, b) => a.minOrd - b.minOrd)
+    .map(({ members }) => (blockHasBranching(members) ? layeredBlock(members) : foldBlock(members)))
+  if (loose.length) placed.push(foldBlock(loose))
+
+  const maxWidth = Math.max(0, ...placed.map((b) => b.width))
+  const stackCenterX = marginX + maxWidth / 2
+  const stackGapY = Math.round(gapY * 0.6) // 块间空隙比层内行距稍大，分隔不同子图
+  let yCursor = marginY
+  placed.forEach((block, bi) => {
+    for (const [id, [rx, ry]] of block.pos) {
+      layout.set(id, [Math.round(stackCenterX - block.width / 2 + rx), Math.round(yCursor + ry)])
+    }
+    yCursor += block.height + (bi < placed.length - 1 ? gapY + stackGapY : 0)
   })
 
   return layout
