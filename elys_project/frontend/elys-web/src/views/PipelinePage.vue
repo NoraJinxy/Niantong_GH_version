@@ -1973,16 +1973,24 @@ onMounted(async () => {
   if (selectedStudyId.value) {
     await Promise.all([loadPipelines(routeTarget()), loadDatasets(selectedStudyId.value), loadStudyMontages()])
   }
+  // 重挂返回路径（从 /artifact /ica router.back 回来，StudyLayout 连 keep-alive 已被卸载重建）：
+  // pipeline + 画布此刻才就绪，消费审核台旗标、按用户刚应用的确切执行强制重载，看到节点变「成功」。
+  const reviewedEid = peekReviewerFlag()
+  if (reviewedEid) {
+    clearReviewerFlag()
+    await forceLoadReviewedExecution(reviewedEid)
+  }
 })
 
-// 审核台「应用并返回」会写下这个旗标：返回工作流页后据此强制重载对应执行的运行态。
-// 覆盖两种返回路径——keep-alive 缓存命中（activeExecutionId 还在但画布是陈旧 waiting）
-// 与跳顶级路由 /artifact /ica 后工作区重挂（activeExecutionId 丢失）——单靠 activeExecutionId 都不可靠。
-function consumeReviewerAppliedFlag(): string {
+// 审核台「应用并返回」写下旗标：返回工作流页后据此强制重载用户刚应用的那次执行，看节点从「等待确认」变「成功」。
+// /artifact /ica 是顶级路由 → StudyLayout 连 keep-alive 一起卸载 → 本页重挂；onActivated 也会触发，但早于
+// onMounted 里的 loadPipelines（此刻 currentPipeline 未载、画布未建）。故分两条路：pipeline 已就绪（真 keep-alive
+// 命中）→ onActivated 即时强制重载；未就绪（重挂中）→ 把旗标留给 onMounted 末尾画布建好后处理，
+// 否则在 onActivated 空跑消费掉旗标、又被随后 loadPipelines 的 resetRunTracking 冲掉，节点就卡在 waiting。
+function peekReviewerFlag(): string {
   try {
     const raw = sessionStorage.getItem('elys:reviewer-applied')
     if (!raw) return ''
-    sessionStorage.removeItem('elys:reviewer-applied')
     const parsed = JSON.parse(raw) as { executionId?: unknown; at?: unknown }
     const eid = typeof parsed.executionId === 'string' ? parsed.executionId : ''
     const at = typeof parsed.at === 'number' ? parsed.at : 0
@@ -1991,20 +1999,28 @@ function consumeReviewerAppliedFlag(): string {
     return ''
   }
 }
+function clearReviewerFlag() {
+  try { sessionStorage.removeItem('elys:reviewer-applied') } catch { /* 隐私模式禁用 storage：忽略 */ }
+}
+// 强制按 id 重载该执行的运行态 + 显式同步画布徽标（不只靠 executionJobs 的 watch——重挂时画布刚建、可能错过那一拍）
+async function forceLoadReviewedExecution(eid: string) {
+  if (currentPipeline.value) {
+    await loadPipelineExecutionById(eid, currentPipeline.value)
+  } else {
+    activeExecutionId.value = eid // 让 refreshRunState 的「id 一致」守卫通过
+    await refreshRunState(eid)
+    startRunPolling(eid)
+  }
+  applyLiteGraphRunState()
+}
 
-// keep-alive：本页在容器 4-tab 中被缓存。切回时重绑快捷键 + 重算画布尺寸（隐藏期 ResizeObserver 不触发，防错位/糊）
-// 从审核台 router.back 回来：续跑已随 resume 推进，重载执行态看到节点从「等待确认」变「成功」。
 async function wakeRunStateOnReturn() {
-  const appliedEid = consumeReviewerAppliedFlag()
-  if (appliedEid) {
-    // 审核台应用返回：强制按 id 重载（loadPipelineExecutionById 设 activeExecutionId + 拉最新 jobs + 同步画布徽标），
-    // 覆盖 keep-alive 陈旧态与重挂丢 id；拿不到 pipeline（重挂时 onMounted 尚未载完）则退回普通刷新。
+  const reviewedEid = peekReviewerFlag()
+  if (reviewedEid) {
+    // pipeline 已就绪 = 真 keep-alive 命中：即时强制重载。未就绪 = 正在重挂 → 留旗标给 onMounted 末尾，别在这消费。
     if (currentPipeline.value) {
-      await loadPipelineExecutionById(appliedEid, currentPipeline.value)
-    } else {
-      activeExecutionId.value = appliedEid // 让 refreshRunState 的「id 一致」守卫通过
-      await refreshRunState(appliedEid)
-      startRunPolling(appliedEid)
+      clearReviewerFlag()
+      await forceLoadReviewedExecution(reviewedEid)
     }
     return
   }
