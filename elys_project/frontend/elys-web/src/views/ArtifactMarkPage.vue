@@ -9,18 +9,22 @@
           {{ chNames.length }} 通道 · {{ totalDuration.toFixed(1) }} s · {{ sfreq }} Hz
         </span>
         <span class="am-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实数据' : '查看模式' }}</span>
+        <span v-if="isLive && perf.firstPaint != null" class="am-perf" title="首屏分阶段耗时（诊断用，定位后会移除）">
+          <AppIcon name="clock" :size="13" />
+          初始化 {{ perf.mount ?? '·' }} · 拿交互 {{ perf.interaction ?? '·' }} · 取首窗 {{ perf.window ?? '·' }} · 渲染 {{ perf.render ?? '·' }} · 概览 {{ perf.overview ?? '…' }}<span class="am-perf-u"> ms</span>
+        </span>
         <div style="flex: 1"></div>
         <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="reload">刷新</button>
       </div>
 
-      <!-- 左栏：地形图 + 通道 + 滤波 + 信息 + 自动/清空 -->
+      <!-- 左栏：地形图 + 通道 + 滤波 + 信息（检测 / 清空已移到右栏） -->
       <aside class="am-left" v-if="isLive">
         <div class="am-card" v-if="topoCells.length">
           <div class="am-card-h">实时地形图 · 跟随游标</div>
           <TopoStrip :cells="topoCells" :vmax="topoVmax" subtitle="" unit="µV" />
         </div>
 
-        <div class="am-card" v-if="ts">
+        <div class="am-card am-card--grow" v-if="ts">
           <div class="am-card-h">通道 · 点名标坏道</div>
           <ul class="am-chanlist">
             <li
@@ -61,13 +65,6 @@
           </div>
         </div>
 
-        <button class="btn btn--block am-auto" :disabled="autoRunning || !jobContext" @click="autoDetect">
-          <AppIcon name="sparkles" :size="15" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
-        </button>
-        <button class="btn btn--block" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
-          <AppIcon name="eraser" :size="15" /> 清空
-        </button>
-        <p v-if="autoMsg" class="muted text-sm">{{ autoMsg }}</p>
       </aside>
 
       <!-- 中栏：工具条 + 波形 + 全览带 -->
@@ -90,6 +87,9 @@
         <template v-else-if="ts">
           <div class="am-ctoolbar">
             <label class="am-num">窗长 <input type="number" v-model.number="visibleWinLen" min="1" step="1" /> s</label>
+            <span class="am-presets">
+              <button v-for="p in winPresets" :key="p.label" :class="{ on: isWinPreset(p.v) }" @click="setWinLen(p.v)">{{ p.label }}</button>
+            </span>
             <label class="am-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
             <span class="am-hint">← → 移窗 · 滚轮缩放 · Ctrl+滚轮调幅 · 拖动框选坏段 · 右键删段 · 下方全程概览拖动定位</span>
             <span class="am-modeswitch">
@@ -151,8 +151,17 @@
         </template>
       </div>
 
-      <!-- 右栏：坏段 / 坏道 / 处理方式 / 应用 -->
+      <!-- 右栏：检测工具 / 坏段 / 坏道 / 处理方式 / 应用 -->
       <aside class="am-right" v-if="isLive">
+        <div class="am-detect-group">
+          <button class="am-detect" :disabled="autoRunning || !jobContext" @click="autoDetect">
+            <AppIcon name="sparkles" :size="18" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
+          </button>
+          <button class="am-clear" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
+            <AppIcon name="eraser" :size="14" /> 清空标记
+          </button>
+          <p v-if="autoMsg" class="am-automsg">{{ autoMsg }}</p>
+        </div>
         <div class="am-card">
           <div class="am-card-h">坏段 · {{ badSegments.length }} 段（{{ totalBadSeconds.toFixed(2) }} s）</div>
           <ul class="am-marklist">
@@ -175,7 +184,7 @@
           <div class="am-card-h">坏道处理方式</div>
           <select v-model="channelAction" class="am-select">
             <option value="mark">仅标记（默认，不改数据）</option>
-            <option value="interpolate">球面样条插值修复（改数据，需坐标）</option>
+            <option value="interpolate">修复（改数据，需坐标）</option>
           </select>
         </div>
         <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn">
@@ -209,6 +218,10 @@ const GRAY = '#79859A'
 const PALETTE = ['#3F5E8F', '#2E8B9A', '#8A6FB0', '#B0794F', '#5E8F6B', '#9A6B6B']
 const PRIMARY = '#3F5E8F'
 const OV_W = 470
+
+// 首屏诊断探针：分阶段计时，定位「打开页面卡在取数还是初始化」。定位清楚后整套(perf/tSetup/计时点/计时条)可删。
+const tSetup = performance.now()
+const perf = ref<{ mount?: number; interaction?: number; window?: number; render?: number; firstPaint?: number; overview?: number }>({})
 
 const route = useRoute()
 function qstr(key: string, fallback = ''): string {
@@ -403,6 +416,30 @@ function setWinStart(v: number) {
   const clamped = Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, v))
   winStart.value = Math.round(clamped * 1000) / 1000
 }
+// 窗长档位：10s 是默认而非上限（参考 EEGLAB「Time range to display」/ MNE raw.plot 的 duration——两者都能任意拉长到整段记录）。
+// 滚轮只在已加载窗口内做精细缩放；要看更长一段直接点档位（一档=一次取数，契合「按窗取数」架构，不像内存里的 EEGLAB 能无限滚）。
+const winPresets = [
+  { v: 5, label: '5s' },
+  { v: 10, label: '10s' },
+  { v: 30, label: '30s' },
+  { v: 0, label: '全程' }, // 0 = 整段记录
+]
+function setWinLen(v: number) {
+  viewMin.value = null // 清掉滚轮缩放，回到整窗
+  viewMax.value = null
+  if (v <= 0) {
+    winLen.value = Math.max(1, Math.ceil(totalDuration.value || winLen.value))
+    winStart.value = rangeMin.value
+    return
+  }
+  winLen.value = Math.max(1, v)
+  setWinStart(winStart.value) // 用新窗长重新夹取起点
+}
+function isWinPreset(v: number): boolean {
+  if (viewMin.value != null) return false // 正在滚轮缩放，不高亮任何档位
+  if (v <= 0) return winLen.value >= (totalDuration.value || 0) - 0.5
+  return Math.abs(winLen.value - v) < 0.5
+}
 // 全览带：按光标 x 算出「窗口起点」（光标落点居中），拖动定位
 function ovStartFromClientX(clientX: number, el: HTMLElement): number {
   const rect = el.getBoundingClientRect()
@@ -490,11 +527,25 @@ async function reload() {
   if (!isLive.value) return
   loading.value = true
   error.value = ''
+  const t0 = performance.now() // 诊断探针
   try {
+    const tA = performance.now()
     await loadInteraction()
+    const tB = performance.now()
     await loadWindow() // 先画当前窗（快）→ 波形立即可见
+    const tC = performance.now()
+    // 各阶段耗时：拿交互(入口) / 取首窗(计算·可能读整文件) / 首屏可见(两者串行总和)
+    perf.value = { ...perf.value, interaction: Math.round(tB - tA), window: Math.round(tC - tB), firstPaint: Math.round(tC - t0) }
+    // 渲染：首窗数据 → 下一帧（含 Vue patch + TimeCourseCanvas/uPlot 首次绘制 63 通道）
+    requestAnimationFrame(() => { perf.value = { ...perf.value, render: Math.round(performance.now() - tC) } })
     document.title = `伪迹审核 · ${ts.value?.channels.length ?? 0} 通道 — 念析`
-    void loadOverview().catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
+    const tD = performance.now()
+    void loadOverview()
+      .then(() => {
+        perf.value = { ...perf.value, overview: Math.round(performance.now() - tD) }
+        console.log('[artifact 首屏耗时 ms]', { ...perf.value }) // 诊断探针，定位后可删
+      })
+      .catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
   } catch (err: unknown) {
     // 节点已不在「等待人工」态（已处理/已续跑）→ /interaction 404 → 友好提示而非裸错误
     const msg = describeError(err)
@@ -563,7 +614,10 @@ function describeError(err: unknown): string {
   return e?.message || '加载失败'
 }
 
-onMounted(reload)
+onMounted(() => {
+  perf.value = { ...perf.value, mount: Math.round(performance.now() - tSetup) } // 诊断探针：setup→挂载(组件初始化，不含取数)
+  void reload()
+})
 
 // 键盘左右移窗（顶部箭头已撤；← →=步进 1/4 窗，Shift+← →=整窗翻页）
 function onKeydown(e: KeyboardEvent) {
@@ -583,13 +637,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
 .am-source.is-real { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
 .am-source.is-demo { background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
+.am-perf { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.am-perf-u { opacity: 0.7; }
 
-.am-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.am-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
 .am-card { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 6px 7px; }
+/* 通道卡吃掉左栏剩余高度，让「整列滚动条」消失——只在通道列表内部滚 */
+.am-card--grow { flex: 1 1 auto; min-height: 90px; display: flex; flex-direction: column; }
 .am-card-h { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text-2); margin-bottom: 5px; }
 .am-tag-soft { font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
 .am-switch { margin-left: auto; font-size: 11px; color: var(--c-text-2); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
-.am-chanlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; }
+.am-chanlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; flex: 1; min-height: 0; overflow-y: auto; }
 .am-chan { display: flex; align-items: center; gap: 6px; padding: 2px 5px; border-radius: 5px; font-size: 12px; cursor: pointer; }
 .am-chan:hover { background: var(--c-bg-soft, #eef1f5); }
 .am-chan.is-bad { color: var(--c-text-3); text-decoration: line-through; }
@@ -601,13 +659,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-info { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; font-size: 12px; color: var(--c-text-3); }
 .am-info strong { color: var(--c-text); text-align: right; }
 .am-info strong.is-danger { color: var(--c-danger); }
-.am-auto { border-color: var(--c-primary); color: var(--c-primary); justify-content: center; gap: 6px; }
+/* 右栏检测工具：自动检测放大成主 CTA，清空作次级，成对置顶 */
+.am-detect-group { display: flex; flex-direction: column; gap: 6px; }
+.am-detect { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 11px 12px; font-size: 14px; font-weight: 600; color: var(--c-primary); background: rgba(46, 107, 255, .06); border: 1.5px solid var(--c-primary); border-radius: var(--r-sm, 7px); cursor: pointer; transition: background .12s; }
+.am-detect:hover:not(:disabled) { background: rgba(46, 107, 255, .12); }
+.am-detect:disabled { opacity: .5; cursor: not-allowed; }
+.am-clear { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 6px 10px; font-size: 12px; color: var(--c-text-2); background: transparent; border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); cursor: pointer; }
+.am-clear:hover:not(:disabled) { background: var(--c-bg-soft, #eef1f5); }
+.am-clear:disabled { opacity: .45; cursor: not-allowed; }
+.am-automsg { font-size: 11px; color: var(--c-text-3); margin: 0; line-height: 1.5; }
 
 .am-center { grid-column: 2; padding: var(--s-3); min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 .am-ctoolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 4px 6px; font-size: 12px; }
 .am-time { font-variant-numeric: tabular-nums; padding: 0 4px; min-width: 48px; text-align: center; }
 .am-num { display: inline-flex; align-items: center; gap: 3px; color: var(--c-text-2); margin-left: 6px; }
 .am-num input { width: 46px; padding: 2px 4px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 5px; }
+.am-presets { display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; margin-left: 2px; }
+.am-presets button { padding: 2px 8px; font-size: 11px; border: none; border-left: 1px solid var(--c-border); background: transparent; color: var(--c-text-2); cursor: pointer; }
+.am-presets button:first-child { border-left: none; }
+.am-presets button.on { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
 .am-hint { font-size: 11px; color: var(--c-text-3); margin-left: 8px; }
 .am-modeswitch { margin-left: auto; display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
 .am-modeswitch button { padding: 2px 9px; font-size: 12px; border: none; background: transparent; color: var(--c-text-2); cursor: pointer; }
