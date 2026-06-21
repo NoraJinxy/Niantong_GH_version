@@ -139,22 +139,32 @@
               <label class="ov-chk"><input type="checkbox" v-model="showStats" /> 统计结果（右栏）</label>
               <label class="ov-chk"><input type="checkbox" v-model="showGrid" /> 网格线</label>
               <label class="ov-chk"><input type="checkbox" v-model="showTopo" /> 地形图（频段功率）</label>
+              <div v-if="showTopo" class="ov-grid2-lbl" style="margin-top: 6px">色阶</div>
               <div v-if="showTopo" class="ov-topo-mode">
-                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'auto' }" @click="topoScaleMode = 'auto'">自动</button>
-                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'linked' }" @click="topoScaleMode = 'linked'">联动 Y 轴</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'auto' }" title="相对均值：每张图各自以全脑平均为基准着色，红=偏强、蓝=偏弱，看空间分布" @click="topoScaleMode = 'auto'">相对均值</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'linked' }" title="对齐主图：色阶跟随主图 dB 量程，多张图强弱可直接横向比较" @click="topoScaleMode = 'linked'">对齐主图</button>
               </div>
-              <div v-if="showTopo" class="ov-topo-mode" style="margin-top: 4px">
-                <button class="ov-mini2" :class="{ 'is-on': topoSource === 'band' }" @click="topoSource = 'band'">频段</button>
-                <button class="ov-mini2" :class="{ 'is-on': topoSource === 'custom' }" @click="topoSource = 'custom'">自定义</button>
-                <button class="ov-mini2" :class="{ 'is-on': topoSource === 'cursor' }" @click="topoSource = 'cursor'">跟随鼠标</button>
+              <div v-if="showTopo" class="ov-grid2-lbl" style="margin-top: 6px">频率</div>
+              <div v-if="showTopo && presentBands.length" class="psd-bandpills" style="margin-top: 4px">
+                <button
+                  v-for="b in presentBands"
+                  :key="b.name"
+                  type="button"
+                  class="psd-bandpill"
+                  :class="{ 'is-on': topoSource === 'range' && activeTopoBand === b.name }"
+                  :title="`${b.label} 频段 ${b.lo}–${b.hi} Hz（点选填入区间，可再手改）`"
+                  @click="selectTopoBand(b)"
+                >{{ b.label }} {{ b.lo }}–{{ b.hi }}</button>
+                <button
+                  type="button"
+                  class="psd-bandpill"
+                  :class="{ 'is-on': topoSource === 'cursor' }"
+                  title="跟随鼠标：移到谱线上实时更新该频率的地形图"
+                  @click="topoSource = 'cursor'"
+                >跟随鼠标</button>
               </div>
-              <div v-if="showTopo && topoSource === 'band' && presentBands.length" class="ov-row" style="margin-top: 4px">
-                <span class="ov-row-lbl">频段</span>
-                <select v-model="selectedBand" class="ov-csel" style="flex: 1; min-width: 0">
-                  <option v-for="b in presentBands" :key="b.name" :value="b.name">{{ b.label }} {{ b.lo }}–{{ b.hi }}</option>
-                </select>
-              </div>
-              <div v-if="showTopo && topoSource === 'custom'" class="ov-row" style="margin-top: 4px; gap: 4px; align-items: center; flex-wrap: nowrap">
+              <div v-if="showTopo && topoSource === 'range'" class="ov-row" style="margin-top: 4px; gap: 4px; align-items: center; flex-wrap: nowrap">
+                <span class="ov-row-lbl">区间</span>
                 <input v-model="topoCustomLoInput" class="ov-cin" type="number" step="0.5" placeholder="lo" style="width: 52px" @keydown.enter="applyTopoCustomRange" @change="applyTopoCustomRange" />
                 <span class="ov-dash">–</span>
                 <input v-model="topoCustomHiInput" class="ov-cin" type="number" step="0.5" placeholder="hi" style="width: 52px" @keydown.enter="applyTopoCustomRange" @change="applyTopoCustomRange" />
@@ -737,8 +747,6 @@ const statHiInput = ref<number | string>('')
 const statsEnabled = ref(false)
 const rangeEdit = ref(false) // 右栏内「精确范围输入 + 频段胶囊」折叠（从旧左栏面板迁来）
 const statsActive = computed(() => statsEnabled.value || regionUserSet.value)
-const selectedBand = ref<string>('alpha')
-const selectedBandLabel = computed(() => PSD_BANDS.find((b) => b.name === selectedBand.value)?.label ?? 'α')
 const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——焦点机制唯一选择态，取代原 hover/锁定/下拉三套
 // 信号重叠：任一子图画了 ≥2 条谱线时，「突出一条、压细其余」才有意义；单线时焦点自动隐身（按钮藏起）。
 const hasOverlap = computed(() => cells.value.some((c) => c.series.length >= 2))
@@ -754,7 +762,9 @@ function onLinePick(name: string) {
 }
 
 // 地形图频率来源：band（预设频段）| custom（自定义 Hz 区间）| cursor（跟随游标）
-const topoSource = ref<'band' | 'custom' | 'cursor'>('band')
+// 地形图取值源：range=频段/自定义区间（已合并）；cursor=跟随鼠标频率。
+// 频段只是「把上下界快捷填进区间」的预设——选了仍可手改 lo/hi（频段与自定义合并为一）。
+const topoSource = ref<'range' | 'cursor'>('range')
 const topoCustomLoInput = ref<number | string>('')
 const topoCustomHiInput = ref<number | string>('')
 const topoCustomLo = ref<number | null>(null)
@@ -767,18 +777,26 @@ function applyTopoCustomRange() {
     topoCustomHi.value = Math.max(lo, hi)
   }
 }
+// 点频段=把该频段上下界填入区间（切回 range；用户随后可随便改 lo/hi）
+function selectTopoBand(b: { lo: number; hi: number }) {
+  topoSource.value = 'range'
+  topoCustomLoInput.value = b.lo
+  topoCustomHiInput.value = b.hi
+  topoCustomLo.value = b.lo
+  topoCustomHi.value = b.hi
+}
+// 当前区间正好等于某频段 → 高亮该频段药丸
+const activeTopoBand = computed(() => PSD_BANDS.find((b) => b.lo === topoCustomLo.value && b.hi === topoCustomHi.value)?.name ?? null)
 
 // 数据里真实存在的频段（后端 bands 已跳过范围外的 δ/γ）→ 右栏/地形图只列这些,不硬塞幽灵频段
 const presentBands = computed(() => {
   const names = new Set((primaryPsd.value?.channels?.[0]?.bands ?? []).map((b) => b.name))
   return PSD_BANDS.filter((b) => names.has(b.name))
 })
-// selectedBand 始终落在存在的频段上:缺则取 alpha,无 alpha 取首个
+// 地形图区间默认落到 alpha（无则首个存在频段），仅首次（用户未设过 → topoCustomLo 仍空）
 watch(presentBands, (bands) => {
   if (!bands.length) return
-  if (!bands.some((b) => b.name === selectedBand.value)) {
-    selectedBand.value = bands.some((b) => b.name === 'alpha') ? 'alpha' : bands[0].name
-  }
+  if (topoCustomLo.value === null) selectTopoBand(bands.find((b) => b.name === 'alpha') ?? bands[0])
 }, { immediate: true })
 function fullRange(): { x0: number; x1: number } | null {
   if (!primaryPsd.value) return null
@@ -951,7 +969,7 @@ function cellPsdMarkers(cellSegs: number[]): { x: number; label: string; color: 
   return [{ x: row.iaf, label: `IAF ${row.iaf.toFixed(1)}`, color: '#BA7517' }]
 }
 
-// ---------- 频段地形图（selectedBand / 自定义区间 / 游标频率 → 头皮投影，复用 TopoStrip）----------
+// ---------- 频段地形图（区间[频段预设 / 手填] / 游标频率 → 头皮投影，复用 TopoStrip）----------
 const showTopo = ref(true)
 const topoScaleMode = ref<'auto' | 'linked'>('auto') // 色阶模式:自动(相对·去均值) / 联动 Y 轴(绝对)
 interface TopoCell {
@@ -959,14 +977,20 @@ interface TopoCell {
   label: string
   color: string
   points: { name: string; x: number; y: number; value: number }[] | null
+  // 空态原因（points=null 时）：缺省=真没 montage；否则=有 montage 但本源无值（区间无数据等）
+  emptyText?: string
 }
 const topoCells = computed<TopoCell[]>(() => {
   if (!showTopo.value) return []
   // 确定游标/自定义模式下的 Hz 参数
   const src = topoSource.value
   const cursorHz = src === 'cursor' ? (displayReadout.value?.x ?? null) : null
-  const custLo = src === 'custom' ? topoCustomLo.value : null
-  const custHi = src === 'custom' ? topoCustomHi.value : null
+  const custLo = src === 'range' ? topoCustomLo.value : null
+  const custHi = src === 'range' ? topoCustomHi.value : null
+  // 「有 montage 但本源算不出值」时的提示（区别于「真没 montage」那条）
+  const emptyHint = src === 'cursor'
+    ? (cursorHz === null ? '把鼠标移到谱线上查看' : '该频率无数据')
+    : (custLo === null || custHi === null ? '请设置频率区间' : '该区间内无数据')
   const out: TopoCell[] = []
   for (const seg of sortedSegs.value) {
     const psd = psdMap.value.get(seg)
@@ -983,18 +1007,16 @@ const topoCells = computed<TopoCell[]>(() => {
       const p = pos[ch.name]
       if (!p) continue
       let v: number | null = null
-      if (src === 'band') {
-        v = ch.bands.find((b) => b.name === selectedBand.value)?.value ?? null
-      } else if (src === 'cursor' && cursorHz !== null) {
+      if (src === 'cursor' && cursorHz !== null) {
         v = powerAtFreq(ch.power, psd.freqs, cursorHz)
-      } else if (src === 'custom' && custLo !== null && custHi !== null) {
+      } else if (src === 'range' && custLo !== null && custHi !== null) {
         v = avgPowerInRange(ch.power, psd.freqs, custLo, custHi)
       }
       if (v === null) continue
       raw.push({ name: ch.name, x: p[0], y: p[1], v })
     }
     if (!raw.length) {
-      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null })
+      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null, emptyText: emptyHint })
       continue
     }
     // 中心:联动模式用 Y 窗中点(白=窗口中心),否则用本图跨通道均值(白=全脑平均)
@@ -1015,10 +1037,11 @@ const topoSourceLabel = computed(() => {
     const cx = displayReadout.value?.x
     return cx != null ? `游标 ${cx.toFixed(1)} Hz` : '游标（待移入）'
   }
-  if (topoSource.value === 'custom' && topoCustomLo.value !== null && topoCustomHi.value !== null) {
-    return `${topoCustomLo.value}–${topoCustomHi.value} Hz`
+  if (topoCustomLo.value !== null && topoCustomHi.value !== null) {
+    const band = PSD_BANDS.find((b) => b.lo === topoCustomLo.value && b.hi === topoCustomHi.value)
+    return band ? `${band.label} ${band.lo}–${band.hi} Hz` : `${topoCustomLo.value}–${topoCustomHi.value} Hz`
   }
-  return selectedBandLabel.value
+  return '区间（待设）'
 })
 const topoSubtitle = computed(() =>
   topoScaleMode.value === 'linked'
@@ -1042,10 +1065,9 @@ const topoHiLabel = computed(() =>
   topoScaleMode.value === 'linked' && effectiveYDomain.value ? String(Math.round(effectiveYDomain.value[1])) : undefined,
 )
 const topoModeHint = computed(() => {
-  if (topoScaleMode.value === 'linked') return '联动：色标=谱线 Y(dB) 窗内的绝对功率；窗越窄越饱和（但会同时裁谱线）。'
-  if (topoSource.value === 'cursor') return '游标：移动鼠标到谱线上，地形图实时更新；双击锁定当前频率。'
-  if (topoSource.value === 'custom') return '自定义：输入频率区间（Hz），地形图取该范围功率均值。'
-  return '自动：相对全脑均值、按最大偏差定标；红=强、蓝=弱；频段见上方下拉。'
+  if (topoScaleMode.value === 'linked') return '对齐主图：色阶跟随主图 dB 量程，多张图强弱可直接横比（窗越窄越饱和，但会同时裁谱线）。'
+  if (topoSource.value === 'cursor') return '跟随鼠标：把鼠标移到谱线上，地形图实时更新该频率；双击锁定。'
+  return '点频段按钮即把其上下界填入区间、可再手改；地形图取该区间功率均值。红=高于全脑均值、蓝=低于。'
 })
 
 // ---------- 导出 ----------
