@@ -318,7 +318,7 @@
                   </span>
                   <span v-else class="rtree-folder__orphan">未归属工作流（历史结果）</span>
                   <span class="rtree-folder__stats">
-                    {{ g.rows.length }} 条 · {{ g.typeCount }} 类 · {{ g.subjectCount }} 被试
+                    {{ g.rows.length }} 条 · {{ g.typeCount }} 类 · {{ g.subjectCount }} 被试<template v-if="g.sessionCount > 1"> × {{ g.sessionCount }} 会话</template><template v-if="g.runCount > 1"> × {{ g.runCount }} run</template>
                     · <em class="is-kept">保存 {{ g.keptCount }}</em> · {{ formatSize(g.totalSize) }}
                   </span>
                   <button
@@ -806,8 +806,23 @@ interface ResultFolder {
   totalSize: number
   typeCount: number
   subjectCount: number
+  sessionCount: number
+  runCount: number
   keptCount: number
   isOrphan: boolean
+}
+
+// 组内行排序：按 BIDS 维度 被试→会话→run→条件→名字，让同被试相邻、run 顺序自然（数字感知）。
+function compareByBids(a: StudyOutput, b: StudyOutput): number {
+  const cmp = (x?: string | null, y?: string | null) =>
+    String(x || '').localeCompare(String(y || ''), undefined, { numeric: true, sensitivity: 'base' })
+  return (
+    cmp(a.bids_subject_id, b.bids_subject_id)
+    || cmp(a.session, b.session)
+    || cmp(a.run_label, b.run_label)
+    || cmp(a.condition, b.condition)
+    || cmp(a.display_name, b.display_name)
+  )
 }
 
 // 在 filtered 之上再聚合一层：一个文件夹 = 一个 (pipeline_name, pipeline_version)。
@@ -822,6 +837,7 @@ const groups = computed<ResultFolder[]>(() => {
   }
   const out: ResultFolder[] = []
   for (const [key, rows] of map) {
+    rows.sort(compareByBids) // 组内按 被试→会话→run 排序，同被试的多 run 相邻成块
     const head = rows[0]
     out.push({
       key,
@@ -832,6 +848,8 @@ const groups = computed<ResultFolder[]>(() => {
       totalSize: rows.reduce((s, r) => s + (r.file_size || 0), 0),
       typeCount: new Set(rows.map((r) => r.data_type)).size,
       subjectCount: new Set(rows.map((r) => r.bids_subject_id).filter(Boolean)).size,
+      sessionCount: new Set(rows.map((r) => r.session).filter(Boolean)).size,
+      runCount: new Set(rows.map((r) => r.run_label).filter(Boolean)).size,
       keptCount: rows.filter((r) => r.keep && !r.deleted_at).length,
     })
   }
