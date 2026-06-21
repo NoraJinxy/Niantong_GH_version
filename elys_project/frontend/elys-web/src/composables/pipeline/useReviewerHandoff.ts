@@ -51,25 +51,42 @@ export function useReviewerHandoff(ctx: ReviewerHandoffCtx) {
     applyMsg.value = ''
     applyError.value = false
     const base = `/studies/${ctx.studyId}/pipeline-executions/${ctx.executionId}/jobs/${ctx.jobId}`
+    // 1) 提交决策（关键落库，必须成功）
     try {
-      // 1) 提交决策（关键落库，必须成功）
       await api.post(`${base}/decision`, { ...ctx.buildBody(), decision_version: ctx.decisionVersion() })
-      // 2) 续跑（best-effort）：失败也已落库，回工作流可再「继续运行」，不挡返回
-      try {
-        await api.post(`${base}/resume`, {})
-      } catch {
-        /* 续跑失败：decision 已落库，工作流页可补触发；不阻断返回 */
-      }
-      applyDone.value = true
-      applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，正在返回工作流…`
-      // 3) 回工作流页（执行态已随 resume 推进，PipelinePage onActivated 会刷新看到续跑）
-      returnToPipeline()
     } catch (err) {
       applyError.value = true
-      applyMsg.value = describeError(err, '提交失败')
-    } finally {
+      applyMsg.value = '提交失败：' + describeError(err)
       applying.value = false
+      return
     }
+    // 2) 续跑（同步端点，跑完才返回）。不再吞错——失败 / 节点没被推进，都要明示而不是默默回到「等待确认」。
+    //    resume 返回该节点最新 job：status 仍是 waiting_user_input = 续跑没真正应用决策（后端问题），留在本页报明。
+    try {
+      const resp = await api.post<{ job?: { status?: string } }>(`${base}/resume`, {})
+      if (resp?.data?.job?.status === 'waiting_user_input') {
+        applyError.value = true
+        applyMsg.value = '已提交，但节点仍停在「等待确认」——续跑未推进该节点（请截图反馈）。'
+        applying.value = false
+        return
+      }
+    } catch (err) {
+      applyError.value = true
+      applyMsg.value = '已提交，但续跑失败：' + describeError(err)
+      applying.value = false
+      return
+    }
+    applying.value = false
+    applyDone.value = true
+    applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，正在返回工作流…`
+    // 3) 旗标通知工作流页：返回后强制按 id 重载该执行的运行态——覆盖「keep-alive 陈旧态」与
+    //    「跳顶级路由后工作区重挂、activeExecutionId 丢失」两种情况，确保看到续跑后的新状态。
+    try {
+      sessionStorage.setItem('elys:reviewer-applied', JSON.stringify({ executionId: ctx.executionId, at: Date.now() }))
+    } catch {
+      /* 隐私模式禁用 storage：忽略，退回工作流页常规刷新 */
+    }
+    returnToPipeline()
   }
 
   return { applying, applyDone, applyMsg, applyError, describeError, submitAndReturn, returnToPipeline }
