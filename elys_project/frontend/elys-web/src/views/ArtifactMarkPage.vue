@@ -205,6 +205,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, dataApi } from '@/api/client'
 import { decodeBinary } from '@/composables/observe/plotCache'
+import { idbGet, idbSet } from '@/composables/observe/idbCache'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
@@ -485,11 +486,13 @@ async function loadInteraction(): Promise<void> {
 }
 
 const tsCache = new Map<string, StudyOutputTimeseries>()
-async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
-  const key = JSON.stringify(params)
-  const hit = tsCache.get(key)
-  if (hit) return hit
-  let data: StudyOutputTimeseries
+// IndexedDB / 内存 共用的全局唯一键：含 study/execution/job（execution 是不可变快照 → 天然版本指纹，
+// 上游重跑=新 execution=新键，杜绝陈旧命中）+ 取数参数（窗口/采样/滤波）。
+function inputTsKey(params: Record<string, number | undefined>): string {
+  return `artifact::${studyId}::${executionId}::${jobId}::${JSON.stringify(params)}`
+}
+// 仅回源（二进制优先 / JSON 回退），供三级缓存未命中时调用
+async function fetchInputNetwork(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
   try {
     // 二进制端点(EEGBIN01)：体积小 3–5 倍、免 JSON 序列化/解析、且已是 µV（省 V→µV 那 18 万次循环）。失败回退 JSON。
     const res = await dataApi.get(inputTsUrl, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
@@ -497,17 +500,28 @@ async function fetchInputTs(params: Record<string, number | undefined>): Promise
     if (!buf || buf.byteLength < 12) throw new Error('empty binary')
     const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 8))
     if (magic !== 'EEGBIN01') throw new Error('bad magic')
-    data = decodeBinary(buf) // 已是 µV，无需再换算
+    return decodeBinary(buf) // 已是 µV，无需再换算
   } catch {
     const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
-    data = res.data
+    const data = res.data
     // JSON 通道值是伏特(V)；TimeCourseCanvas 期望 µV，统一 V→µV。
     if (data && data.unit !== 'uV' && Array.isArray(data.channels)) {
       for (const ch of data.channels) ch.values = ch.values.map((v) => v * 1e6)
       data.unit = 'uV'
     }
+    return data
   }
+}
+// 三级取数：内存 → IndexedDB（跨刷新/重开页面仍命中）→ 网络；命中即回填更近层。
+async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
+  const key = inputTsKey(params)
+  const mem = tsCache.get(key)
+  if (mem) return mem
+  const idb = await idbGet<StudyOutputTimeseries>(key)
+  if (idb) { tsCache.set(key, idb); return idb }
+  const data = await fetchInputNetwork(params)
   tsCache.set(key, data)
+  void idbSet(key, data) // best-effort 回填，失败静默
   return data
 }
 async function loadOverview() {
