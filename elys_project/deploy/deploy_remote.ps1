@@ -195,6 +195,18 @@ if ($Profile -eq "local") {
 }
 
 $ProfileValues = Read-EnvProfile -Path $ResolvedProfilePath
+# ACTIVE_SET（部署资源集）：把 ${ACTIVE_SET}_ENTRY_SERVER_IP/COMPUTE_SERVER_IP 解析进扁平键供下方 Apply 用。
+# 留空 -> 用扁平键（向后兼容，其它 profile 不受影响）。
+$ActiveSet = ""
+if ($ProfileValues.ContainsKey("ACTIVE_SET")) { $ActiveSet = "$($ProfileValues['ACTIVE_SET'])".Trim() }
+if ($ActiveSet) {
+    $setPrefix = $ActiveSet.ToUpper() + "_"
+    foreach ($k in @("ENTRY_SERVER_IP", "COMPUTE_SERVER_IP")) {
+        if ($ProfileValues.ContainsKey($setPrefix + $k) -and $ProfileValues[$setPrefix + $k]) {
+            $ProfileValues[$k] = $ProfileValues[$setPrefix + $k]
+        }
+    }
+}
 Apply-ProfileValue $ProfileValues "ENTRY_SERVER_IP" "EntryServerIP" { param($v) $script:EntryServerIP = $v }
 Apply-ProfileValue $ProfileValues "COMPUTE_SERVER_IP" "ComputeServerIP" { param($v) $script:ComputeServerIP = $v }
 Apply-ProfileValue $ProfileValues "ENTRY_DOMAIN" "EntryDomain" { param($v) $script:EntryDomain = $v }

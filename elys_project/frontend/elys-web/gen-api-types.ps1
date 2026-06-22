@@ -17,10 +17,15 @@ $repo = (Resolve-Path (Join-Path $webRoot "..\..\..")).Path
 if (-not $ComputeIP) {
   $profilePath = Join-Path $repo "elys_project\deploy\profiles\$Profile.env"
   if (-not (Test-Path $profilePath)) { throw "profile not found: $profilePath (pass -ComputeIP to override)" }
-  foreach ($line in Get-Content $profilePath) {
-    if ($line -match '^\s*COMPUTE_SERVER_IP\s*=\s*(.+?)\s*$') { $ComputeIP = $matches[1].Trim().Trim('"').Trim("'") }
+  $profileLines = Get-Content $profilePath
+  # ACTIVE_SET: read the ACTIVE set's COMPUTE_SERVER_IP (e.g. SETA_COMPUTE_SERVER_IP); flat if ACTIVE_SET empty.
+  $activeSet = ""
+  foreach ($line in $profileLines) { if ($line -match '^\s*ACTIVE_SET\s*=\s*(.+?)\s*$') { $activeSet = $matches[1].Trim().Trim('"').Trim("'") } }
+  $computeKey = if ($activeSet) { $activeSet.ToUpper() + "_COMPUTE_SERVER_IP" } else { "COMPUTE_SERVER_IP" }
+  foreach ($line in $profileLines) {
+    if ($line -match "^\s*$computeKey\s*=\s*(.+?)\s*$") { $ComputeIP = $matches[1].Trim().Trim('"').Trim("'") }
   }
-  if (-not $ComputeIP) { throw "COMPUTE_SERVER_IP not found in profile; pass -ComputeIP" }
+  if (-not $ComputeIP) { throw "$computeKey not found in profile; pass -ComputeIP" }
 }
 
 $url = "http://$ComputeIP/openapi.json"

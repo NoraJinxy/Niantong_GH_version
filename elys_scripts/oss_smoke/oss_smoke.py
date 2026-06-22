@@ -148,6 +148,7 @@ def _profile_oss_default(key: str, fallback: str) -> str:
     profile = os.environ.get("ELYS_DEPLOY_PROFILE", "aliyun-test")
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     path = os.path.join(root, "elys_project", "deploy", "profiles", f"{profile}.env")
+    values = {}
     try:
         with open(path, encoding="utf-8") as fh:
             for raw in fh:
@@ -155,13 +156,16 @@ def _profile_oss_default(key: str, fallback: str) -> str:
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, _, v = line.partition("=")
-                if k.strip().upper() == key:
-                    val = v.strip().strip('"').strip("'")
-                    if val:
-                        return val
+                values[k.strip().upper()] = v.strip().strip('"').strip("'")
     except OSError:
-        pass
-    return fallback
+        return fallback
+    # OSS_BUCKET 跟随 ACTIVE_SET（部署资源集）：${ACTIVE}_OSS_BUCKET 优先；OSS_REGION 等共享键直接取。
+    active = (values.get("ACTIVE_SET") or "").strip()
+    if key == "OSS_BUCKET" and active:
+        set_bucket = values.get(active.upper() + "_OSS_BUCKET")
+        if set_bucket:
+            return set_bucket
+    return values.get(key) or fallback
 
 
 def _resolve_endpoint(args) -> str:

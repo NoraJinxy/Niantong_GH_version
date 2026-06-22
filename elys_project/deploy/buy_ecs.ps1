@@ -297,15 +297,19 @@ if (-not $NoUpdateProfile -and $ip) {
     $profilePath = Join-Path $PSScriptRoot "profiles\$Profile.env"
     if (Test-Path $profilePath) {
         $lines = Get-Content -Path $profilePath -Encoding UTF8   # UTF-8 读，跟写回的 UTF8NoBom 一致，避免 mojibake
+        # ACTIVE_SET（部署资源集）：把 IP 写回 ACTIVE 集那行（如 SETA_COMPUTE_SERVER_IP）；无 ACTIVE_SET 则写扁平 COMPUTE_SERVER_IP。
+        $activeSet = ""
+        foreach ($l in $lines) { if ($l -match '^\s*ACTIVE_SET\s*=\s*(.+?)\s*$') { $activeSet = $matches[1].Trim().Trim('"').Trim("'") } }
+        $targetKey = if ($activeSet) { $activeSet.ToUpper() + "_COMPUTE_SERVER_IP" } else { "COMPUTE_SERVER_IP" }
         $hit = $false
         $out = foreach ($line in $lines) {
-            if ($line -match '^\s*COMPUTE_SERVER_IP=') { $hit = $true; "COMPUTE_SERVER_IP=$ip" }
+            if ($line -match "^\s*$targetKey=") { $hit = $true; "$targetKey=$ip" }
             else { $line }
         }
-        if (-not $hit) { $out += "COMPUTE_SERVER_IP=$ip" }
+        if (-not $hit) { $out += "$targetKey=$ip" }
         $enc = New-Object System.Text.UTF8Encoding($false)   # UTF-8 无 BOM，跟现有 .env 一致
         [System.IO.File]::WriteAllLines($profilePath, [string[]]$out, $enc)
-        Write-Host "[OK] 已把 COMPUTE_SERVER_IP=$ip 写回 $Profile.env" -ForegroundColor Green
+        Write-Host "[OK] 已把 $targetKey=$ip 写回 $Profile.env" -ForegroundColor Green
         Write-Host "     接着就能部署：  .\s2_deploy_remote.cmd -Profile $Profile"
     }
     else {
