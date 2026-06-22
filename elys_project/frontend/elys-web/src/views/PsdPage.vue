@@ -103,6 +103,14 @@
                 </button>
               </div>
               <p class="ov-sec-hint">选中维度在每张子图内叠加；其余维度自动拆成子图。</p>
+              <template v-if="effectiveOverlay === 'none' && rowFactor !== 'none' && colFactor !== 'none'">
+                <div class="ov-grid2-lbl" style="margin-top: 6px">行（纵向铺）</div>
+                <div class="ov-ovpick">
+                  <button type="button" class="ov-ovbtn" :class="{ 'is-on': !swapAxes }" @click="swapAxes = false">数据集</button>
+                  <button type="button" class="ov-ovbtn" :class="{ 'is-on': swapAxes }" @click="swapAxes = true">通道</button>
+                </div>
+                <p class="ov-sec-hint">选谁当「行」纵向铺，另一个自动当「列」。当前 {{ facetRowLabel }} × {{ facetColLabel }}（行 × 列）。</p>
+              </template>
               <div class="ov-grid2-lbl" style="margin-top: 6px">配色</div>
               <div class="ov-pal" ref="palRef">
                 <button type="button" class="ov-pal-cur" :class="{ 'is-open': palOpen }" @click="palOpen = !palOpen">
@@ -576,6 +584,8 @@ watch(
 
 // ---------- 叠加维度 / 颜色 ----------
 const overlayDim = ref<'seg' | 'chan' | 'none'>('chan') // PSD 默认：全通道叠加（经典功率谱）
+// 行列对调（矩阵、两维都分面时生效）：false→行=数据集·列=通道；true→行=通道·列=数据集
+const swapAxes = ref(false)
 const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() => {
   const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
   if (segCount.value > 1) opts.push({ v: 'seg', l: '数据集' })
@@ -605,11 +615,12 @@ function segLabel(seg: number): string {
 function cellAccent(cell: { series: { color: string }[] }): string {
   return cell.series[0]?.color || 'var(--c-border)'
 }
-const { effectiveOverlay, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
+const { effectiveOverlay, rowFactor, colFactor, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
   segs: () => sortedSegs.value,
   chans: () => orderedChans.value,
   segCount: () => segCount.value,
   overlayDim,
+  swapAxes,
   segLabel,
   buildCell: ({ segs, chans, multiSeg, multiChan, segIsGrid }) => {
     let xs: number[] = []
@@ -633,6 +644,9 @@ const { effectiveOverlay, cells, facetStyle, legendCellIndex, denseAxes, cellHid
     return { data: [xs, ...cols], series }
   },
 })
+// 行/列因素中文标签（「行列对调」按钮显示当前行 × 列）
+const facetRowLabel = computed(() => (rowFactor.value === 'seg' ? '数据集' : rowFactor.value === 'chan' ? '通道' : '—'))
+const facetColLabel = computed(() => (colFactor.value === 'seg' ? '数据集' : colFactor.value === 'chan' ? '通道' : '—'))
 
 // 全 facet 共享 y 量程（dB，跨所选通道/数据集），传给每张子图保证可比
 const yDomainAll = computed<[number, number] | null>(() => {

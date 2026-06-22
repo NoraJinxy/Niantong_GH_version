@@ -81,6 +81,19 @@
             </div>
           </section>
 
+          <!-- 绘图布局：行列对调（仅多数据集 × 多通道矩阵时） -->
+          <section v-if="isMatrix" class="ov-sec">
+            <div class="ov-sec-head" style="cursor: default">绘图布局</div>
+            <div class="ov-sec-body">
+              <div class="ov-grid2-lbl">行（纵向铺）</div>
+              <div class="ov-ovpick">
+                <button type="button" class="ov-ovbtn" :class="{ 'is-on': !swapAxes }" @click="swapAxes = false">数据集</button>
+                <button type="button" class="ov-ovbtn" :class="{ 'is-on': swapAxes }" @click="swapAxes = true">通道</button>
+              </div>
+              <p class="ov-sec-hint">选谁当「行」纵向铺，另一个自动当「列」。当前 {{ facetRowLabel }} × {{ facetColLabel }}（行 × 列）。</p>
+            </div>
+          </section>
+
           <!-- 色彩映射 -->
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('cmap')">
@@ -545,43 +558,53 @@ interface Cell {
   accent: string
   tfr: StudyOutputTfr | null
 }
+// 行列对调（仅矩阵、数据集与通道都>1 时生效）：false→行=数据集·列=通道；true→行=通道·列=数据集
+const swapAxes = ref(false)
 const cells = computed<Cell[]>(() => {
   const out: Cell[] = []
-  const multiSeg = sortedSegs.value.length > 1
-  for (const seg of sortedSegs.value) {
-    for (const ch of orderedChans.value) {
-      const ci = allChanNames.value.indexOf(ch)
-      out.push({
-        key: `${seg}::${ch}`,
-        seg,
-        channel: ch,
-        title: multiSeg ? `${segLabel(seg)} · ${ch}` : ch,
-        accent: multiSeg && orderedChans.value.length === 1 ? segColor(seg) : chColor(ci),
-        tfr: tfrMap.value.get(`${seg}::${ch}`) ?? null,
-      })
-      if (out.length >= MAX_CELLS) return out
-    }
+  const segs = sortedSegs.value
+  const chans = orderedChans.value
+  const multiSeg = segs.length > 1
+  // 外层循环=行因素：默认 seg 外层(行=数据集)；swap 时 chan 外层(行=通道)
+  const pairs: { seg: number; ch: string }[] = []
+  if (swapAxes.value) {
+    for (const ch of chans) for (const seg of segs) pairs.push({ seg, ch })
+  } else {
+    for (const seg of segs) for (const ch of chans) pairs.push({ seg, ch })
+  }
+  for (const { seg, ch } of pairs) {
+    const ci = allChanNames.value.indexOf(ch)
+    out.push({
+      key: `${seg}::${ch}`,
+      seg,
+      channel: ch,
+      title: multiSeg ? `${segLabel(seg)} · ${ch}` : ch,
+      accent: multiSeg && chans.length === 1 ? segColor(seg) : chColor(ci),
+      tfr: tfrMap.value.get(`${seg}::${ch}`) ?? null,
+    })
+    if (out.length >= MAX_CELLS) break
   }
   return out
 })
+// 严格矩阵（数据集×通道 都>1）：列因素 swap 后由通道变数据集
+const isMatrix = computed(() => sortedSegs.value.length > 1 && orderedChans.value.length > 1)
+const gridCols = computed(() => (isMatrix.value ? (swapAxes.value ? sortedSegs.value.length : orderedChans.value.length) : 0))
+const facetRowLabel = computed(() => (!isMatrix.value ? '—' : swapAxes.value ? '通道' : '数据集'))
+const facetColLabel = computed(() => (!isMatrix.value ? '—' : swapAxes.value ? '数据集' : '通道'))
 const facetStyle = computed<Record<string, string>>(() => {
-  const numSegs = sortedSegs.value.length
-  const numChans = orderedChans.value.length
-  if (numSegs > 1 && numChans > 1) {
-    return { gridTemplateColumns: `repeat(${numChans}, 1fr)` }
+  if (gridCols.value > 0) {
+    return { gridTemplateColumns: `repeat(${gridCols.value}, 1fr)` }
   }
   return { gridTemplateColumns: `repeat(auto-fit, minmax(${cells.value.length > 4 ? '300' : '360'}px, 1fr))` }
 })
 const denseAxes = computed(() => cells.value.length > 1)
-// 严格矩阵（数据集×通道 都>1，cells 按 seg 外层·chan 内层排 → 行=数据集、列=通道）：
 // 共享坐标轴——频率轴只画最左列、时间轴只画最底行（专业小图矩阵风，边对边对齐）
-const isMatrix = computed(() => sortedSegs.value.length > 1 && orderedChans.value.length > 1)
 function cellHideY(ci: number): boolean {
-  return isMatrix.value && ci % orderedChans.value.length !== 0
+  return gridCols.value > 0 && ci % gridCols.value !== 0
 }
 function cellHideX(ci: number): boolean {
-  if (!isMatrix.value) return false
-  const cols = orderedChans.value.length
+  const cols = gridCols.value
+  if (cols <= 0) return false
   const lastRow = Math.ceil(cells.value.length / cols) - 1
   return Math.floor(ci / cols) !== lastRow
 }
