@@ -640,19 +640,19 @@ onMounted(load)
 
 /* 右·端详检查器：选中成分地形图 + 频谱 + 主导通道 + 对比通道（替代原左栏拥挤的三合一） */
 .ica-right { width: 320px; min-width: 320px; border-left: 1px solid var(--c-border); background: var(--c-surface); display: flex; flex-direction: column; overflow: hidden; }
-.ica-insp { flex: 1; min-height: 0; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.ica-insp { flex: 1; min-height: 0; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; }
 .ica-spec-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .ica-spec-title { font-weight: 600; font-size: 13px; color: var(--c-text); }
 .ica-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
 .ica-tag.is-artifact { background: rgba(239, 68, 68, .12); color: var(--c-danger); }
 .ica-tag.is-brain { background: rgba(34, 197, 94, .14); color: #15803d; }
-.ica-spec-host { height: 150px; position: relative; }
+.ica-spec-host { flex: 1; min-height: 140px; position: relative; }
 .ica-insp-cap { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--c-text-3); margin-top: 2px; }
 .ica-insp-chans { font-size: 11px; }
 .ica-insp-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
 
 /* 通道列表：chip 点选（不下拉），可换行滚动 */
-.ica-chan { flex-shrink: 0; border-top: 1px solid var(--c-border); max-height: 196px; display: flex; flex-direction: column; }
+.ica-chan { min-height: 0; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; }
 .ica-chan-list { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 .ica-chan-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; line-height: 1.5; }
 .ica-chan-chip:hover { border-color: var(--c-primary); color: var(--c-text); }
