@@ -16,9 +16,7 @@ from __future__ import annotations
 import os
 import sys
 
-BUCKET = (os.environ.get("OSS_BUCKET") or "elys-oss-test1").strip()
-REGION = (os.environ.get("OSS_REGION") or "cn-shenzhen").strip()
-ENDPOINT = f"https://oss-{REGION}.aliyuncs.com"  # local clear goes over the public endpoint
+# bucket / region / endpoint 在 main() 里按「env > profile(aliyun-test.env) > 默认」解析（单一事实源）。
 
 
 def _repo_root() -> str:
@@ -100,6 +98,11 @@ def main() -> int:
         print(f"[clear_oss] profile '{profile}' is not a reset deploy (RESET_STORAGE!=true) -> skip OSS clear.")
         return 0
 
+    # bucket/region: env override > profile (single source of truth) > fallback default
+    oss_bucket = (os.environ.get("OSS_BUCKET") or prof.get("OSS_BUCKET") or "elys-oss-test1").strip()
+    oss_region = (os.environ.get("OSS_REGION") or prof.get("OSS_REGION") or "cn-shenzhen").strip()
+    endpoint = f"https://oss-{oss_region}.aliyuncs.com"  # 本机清桶走公网 endpoint
+
     ak = _resolve_cred("OSS_AK", "OSS_ACCESS_KEY_ID")
     sk = _resolve_cred("OSS_SK", "OSS_ACCESS_KEY_SECRET")
     if _is_placeholder(ak) or _is_placeholder(sk):
@@ -113,17 +116,17 @@ def main() -> int:
         return 0
 
     try:
-        bucket = oss2.Bucket(oss2.Auth(ak, sk), ENDPOINT, BUCKET)
+        bucket = oss2.Bucket(oss2.Auth(ak, sk), endpoint, oss_bucket)
         keys = [obj.key for obj in oss2.ObjectIterator(bucket)]
         if not keys:
-            print(f"[clear_oss] bucket '{BUCKET}' already empty.")
+            print(f"[clear_oss] bucket '{oss_bucket}' already empty.")
             return 0
         deleted = 0
         for i in range(0, len(keys), 1000):
             batch = keys[i:i + 1000]
             bucket.batch_delete_objects(batch)
             deleted += len(batch)
-        print(f"[clear_oss] cleared bucket '{BUCKET}': deleted {deleted} objects.")
+        print(f"[clear_oss] cleared bucket '{oss_bucket}': deleted {deleted} objects.")
         return 0
     except Exception as exc:  # noqa: BLE001 — best-effort: never block deploy
         print(f"[clear_oss] clear error (skipped, deploy continues): {exc.__class__.__name__}: {exc}")

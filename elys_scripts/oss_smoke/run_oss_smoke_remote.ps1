@@ -19,8 +19,8 @@
   $env:OSS_AK="LTAI..."; $env:OSS_SK="..."; .\run_oss_smoke_remote.ps1 -ComputeServerIP 1.2.3.4
 #>
 param(
-    [string]$Bucket = "elys-oss-test1",
-    [string]$Region = "cn-shenzhen",
+    [string]$Bucket = "",
+    [string]$Region = "",
     [string]$Profile = "aliyun-test",
     [string]$ComputeServerIP = "",
     [string]$ServerUser = "",
@@ -84,6 +84,11 @@ if ([string]::IsNullOrWhiteSpace($ServerUser)) {
 if ($Port -eq 0) {
     if ($ProfileValues.ContainsKey("SSH_PORT")) { $Port = [int]$ProfileValues["SSH_PORT"] } else { $Port = 22 }
 }
+# OSS 桶/地域：命令行参数 > profile(OSS_BUCKET/OSS_REGION) > 默认
+if (-not $Bucket) { $Bucket = $ProfileValues["OSS_BUCKET"] }
+if (-not $Bucket) { $Bucket = "elys-oss-test1" }
+if (-not $Region) { $Region = $ProfileValues["OSS_REGION"] }
+if (-not $Region) { $Region = "cn-shenzhen" }
 $UseCnMirror = $true
 if ($ProfileValues.ContainsKey("USE_CN_MIRRORS")) {
     $UseCnMirror = ($ProfileValues["USE_CN_MIRRORS"].Trim().ToLowerInvariant() -eq "true")

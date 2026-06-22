@@ -139,6 +139,31 @@ def _read_credentials() -> tuple[str, str]:
     return ak, sk
 
 
+def _profile_oss_default(key: str, fallback: str) -> str:
+    """OSS_BUCKET / OSS_REGION 默认值：env > deploy profile（默认 aliyun-test）> fallback。
+    与 deploy/clear_oss 同一份单一事实源；本地手动跑也跟随 profile，不必每次 --bucket。"""
+    env_val = os.environ.get(key)
+    if env_val and env_val.strip():
+        return env_val.strip()
+    profile = os.environ.get("ELYS_DEPLOY_PROFILE", "aliyun-test")
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "elys_project", "deploy", "profiles", f"{profile}.env")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                if k.strip().upper() == key:
+                    val = v.strip().strip('"').strip("'")
+                    if val:
+                        return val
+    except OSError:
+        pass
+    return fallback
+
+
 def _resolve_endpoint(args) -> str:
     if args.endpoint:
         ep = args.endpoint
@@ -210,8 +235,10 @@ def _run_step(name: str, fn, results: list) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ELYS OSS 冒烟/初始化自检")
-    parser.add_argument("--bucket", default="elys-oss-test1", help="桶名（默认 elys-oss-test1）")
-    parser.add_argument("--region", default="cn-shenzhen", help="地域 RegionId（默认 cn-shenzhen 华南1深圳）")
+    parser.add_argument("--bucket", default=_profile_oss_default("OSS_BUCKET", "elys-oss-test1"),
+                        help="桶名（默认从 profile OSS_BUCKET 读，回落 elys-oss-test1）")
+    parser.add_argument("--region", default=_profile_oss_default("OSS_REGION", "cn-shenzhen"),
+                        help="地域 RegionId（默认从 profile OSS_REGION 读，回落 cn-shenzhen）")
     parser.add_argument("--where", choices=["local", "compute"], default="local",
                         help="local=公网 endpoint（本机自测）；compute=内网 endpoint（计算服务器上）")
     parser.add_argument("--endpoint", default="", help="直接指定完整 endpoint（覆盖 --where/--region）")

@@ -19,8 +19,9 @@
   .\enable_oss_remote.ps1 -Disable     # 切回 local 后端
 #>
 param(
-    [string]$Bucket = "elys-oss-test1",
-    [string]$Endpoint = "oss-cn-shenzhen-internal.aliyuncs.com",
+    [string]$Bucket = "",
+    [string]$Region = "",
+    [string]$Endpoint = "",
     [string]$Profile = "aliyun-test",
     [string]$ComputeServerIP = "",
     [string]$ServerUser = "",
@@ -77,6 +78,12 @@ if ([string]::IsNullOrWhiteSpace($ServerUser)) {
 if ($Port -eq 0) {
     if ($ProfileValues.ContainsKey("SSH_PORT")) { $Port = [int]$ProfileValues["SSH_PORT"] } else { $Port = 22 }
 }
+# OSS 桶/地域/endpoint：命令行参数 > profile(OSS_BUCKET/OSS_REGION) > 默认。endpoint 由地域派生内网域名。
+if (-not $Bucket)   { $Bucket = $ProfileValues["OSS_BUCKET"] }
+if (-not $Bucket)   { $Bucket = "elys-oss-test1" }
+if (-not $Region)   { $Region = $ProfileValues["OSS_REGION"] }
+if (-not $Region)   { $Region = "cn-shenzhen" }
+if (-not $Endpoint) { $Endpoint = "oss-$Region-internal.aliyuncs.com" }
 if ([string]::IsNullOrWhiteSpace($ComputeServerIP)) {
     Write-Host "[FAIL] 找不到计算服务器 IP（profile COMPUTE_SERVER_IP 为空）。先 buy_ecs 或用 -ComputeServerIP。" -ForegroundColor Red
     exit 1
