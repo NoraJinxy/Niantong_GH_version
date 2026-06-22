@@ -72,6 +72,7 @@
                 layout="grid"
                 selectable
                 checkable
+                :grid-cols="wallCols"
                 :cells="componentCells"
                 :vmax="1"
                 :active-seg="selectedIndex"
@@ -400,6 +401,8 @@ function cellSub(c: IcaComponent): string {
   if (l) return l.label_cn
   return c.explained_variance != null ? `方差 ${c.explained_variance.toFixed(1)}%` : ''
 }
+// 成分墙列数据成分数自适应：少(≤24)用 2 栏(缩略图大)、多用 3 栏(行数减半、滚动条短)——避免细长滚动条。
+const wallCols = computed(() => (components.value.length > 24 ? 3 : 2))
 const componentCells = computed<TopoCell[]>(() =>
   sortedComponents.value.map((c) => {
     const removed = excludedSet.value.has(c.index)

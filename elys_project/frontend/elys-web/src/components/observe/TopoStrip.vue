@@ -11,7 +11,7 @@
         </span>
       </div>
     </div>
-    <div class="topo-cards" :class="{ 'is-grid': layout === 'grid' }" @dblclick="openExpanded">
+    <div class="topo-cards" :class="{ 'is-grid': layout === 'grid' }" :style="gridStyle" @dblclick="openExpanded">
       <div
         v-for="c in cells"
         :key="c.seg"
@@ -101,7 +101,7 @@ interface TopoCell { seg: number; label: string; color: string; points: TopoPoin
 // vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
 // domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
 // cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; bare?: boolean; selectable?: boolean; checkable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', bare: false, selectable: false, checkable: false, activeSeg: null })
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; bare?: boolean; selectable?: boolean; checkable?: boolean; gridCols?: number; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', bare: false, selectable: false, checkable: false, gridCols: 0, activeSeg: null })
 const emit = defineEmits<{ (e: 'cell-click', seg: number): void; (e: 'cell-dblclick', seg: number): void; (e: 'cell-check', seg: number): void }>()
 // 成分墙（ICA）：网格模式下点选某格上报 seg；strip 模式 / 非 selectable 不触发，三观察页零影响。
 function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg) }
@@ -114,6 +114,8 @@ function onCardDblClick(seg: number, ev: Event) {
 function onCardCheck(seg: number) { emit('cell-check', seg) }
 // 放大窗里点整张卡片即勾选/取消剔除（checkable 时；勾选框走 onCardCheck，@click.stop 防双触发）。
 function onModalCardClick(seg: number) { if (props.checkable) emit('cell-check', seg) }
+// 网格固定列数：父层传 gridCols>0 时按该列数布局（ICA 成分墙据成分数自适应 2/3 栏，避免细长滚动条）；0=CSS auto-fill 自适应宽度。
+const gridStyle = computed(() => (props.layout === 'grid' && props.gridCols > 0 ? { gridTemplateColumns: `repeat(${props.gridCols}, minmax(0, 1fr))` } : undefined))
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
