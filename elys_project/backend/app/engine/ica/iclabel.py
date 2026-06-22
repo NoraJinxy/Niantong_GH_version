@@ -56,11 +56,18 @@ def run_iclabel(raw: Any, ica: Any, params: dict[str, Any]) -> tuple[Any, dict[s
 
     notes: list[str] = []
     # ICLabel 训练于 extended-infomax 分解；其它方法（如 fastica）仍可跑但准确度下降——给提示不拦（厚层放行）。
+    # 例外：Picard 配 ortho=False+extended=True 在数学上等价于 extended-infomax，ICLabel 吃得饱，不该误报。
     ica_method = str(getattr(ica, "method", "") or "")
-    if "infomax" not in ica_method.lower():
+    fit_params = dict(getattr(ica, "fit_params", {}) or {})
+    picard_as_infomax = (
+        ica_method.lower() == "picard"
+        and fit_params.get("ortho") is False
+        and bool(fit_params.get("extended"))
+    )
+    if "infomax" not in ica_method.lower() and not picard_as_infomax:
         notes.append(
             f"当前 ICA 用 {ica_method or '未知方法'} 分解；ICLabel 训练于 extended-infomax，"
-            "建议上游 Compute ICA 选 Infomax 以获得最佳分类准确度。"
+            "建议上游 Compute ICA 选 Infomax（或 Picard）以获得最佳分类准确度。"
         )
 
     try:

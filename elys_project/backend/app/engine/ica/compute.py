@@ -13,7 +13,7 @@ import numpy as np
 def run_compute_ica(raw: Any, params: dict[str, Any]):
     mne = _mne()
     n_components = _parse_n_components(params.get("n_components"), len(raw.ch_names))
-    method = str(params.get("method") or "fastica")
+    method = str(params.get("method") or "picard")
     random_state = params.get("random_state", 42)
     picks = mne.pick_types(raw.info, meg=True, eeg=True, eog=False, ecg=False, stim=False, exclude="bads")
     if len(picks) < 2:
@@ -21,14 +21,56 @@ def run_compute_ica(raw: Any, params: dict[str, Any]):
     if n_components is not None and n_components > len(picks):
         raise ValueError(f"n_components={n_components} exceeds picked channel count {len(picks)}.")
 
+    decim = _resolve_decim(params.get("decim"), raw, len(picks))
+    fit_params = _resolve_fit_params(method)
+
     ica = mne.preprocessing.ICA(
         n_components=n_components,
         method=method,
         random_state=random_state,
         max_iter="auto",
+        fit_params=fit_params,
     )
-    ica.fit(raw, picks=picks, verbose="ERROR")
+    ica.fit(raw, picks=picks, decim=decim, verbose="ERROR")
     return ica
+
+
+def _resolve_fit_params(method: str) -> dict[str, Any] | None:
+    # Picard 默认是 FastICA 风格(ortho=True)；切到 extended-infomax 风格,既快又喂得饱下游 ICLabel
+    # (ICLabel 训练于 extended-infomax)。其它方法走 MNE 默认。
+    if method == "picard":
+        return {"ortho": False, "extended": True}
+    return None
+
+
+def _resolve_decim(value: Any, raw: Any, n_channels: int) -> int | None:
+    """把数据抽稀后再喂 ICA 以省算力。
+
+    - 默认(value 为空)按「目标有效采样率 ~125Hz」自适应:本来就低采样率的数据基本不动。
+    - 兜底「样本数地板」:抽完若总样本 < k×通道²(ICA 估稳定解混矩阵的经验下限),自动退回不抽,
+      宁可慢也不喂不饱、解出垃圾成分。
+    - 用户显式填 1 = 关闭抽取(复刻老行为);填具体因子则尊重,但仍受样本地板保护。
+    """
+    sfreq = float(getattr(getattr(raw, "info", None), "sfreq", 0.0) or 0.0)
+    n_times = int(getattr(raw, "n_times", 0) or 0)
+    if sfreq <= 0 or n_times <= 0:
+        return None
+
+    if value in (None, "", "auto", "null"):
+        target_hz = 125.0
+        decim = max(1, round(sfreq / target_hz))
+    else:
+        decim = max(1, int(value))
+
+    if decim <= 1:
+        return None
+
+    # 样本地板:k=25 × 通道²(取 20–30 经验区间的中段)
+    min_samples = 25 * n_channels * n_channels
+    while decim > 1 and (n_times // decim) < min_samples:
+        decim -= 1
+
+    return decim if decim > 1 else None
 
 
 def summarize_ica(ica: Any, raw: Any | None = None) -> dict[str, Any]:
