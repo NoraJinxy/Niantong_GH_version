@@ -21,6 +21,9 @@ export function useEditorLayout() {
   // library 手柄用 _dragHandleEl 同步位置；inspector 手柄已移入 inspector 内部，随面板自动跟手，无需单独更新
   let _dragHandleEl: HTMLElement | null = null
   let _dragPanelEl: HTMLElement | null = null
+  // 指针捕获句柄：拖拽期间锁定收事件的手柄元素 + pointerId（onDrawerDragEnd 释放）
+  let _dragPointerHandle: HTMLElement | null = null
+  let _dragPointerId: number | null = null
 
   function restoreLayoutState() {
     try {
@@ -84,26 +87,40 @@ export function useEditorLayout() {
     persistLayout('inspector-pinned', String(inspectorPinned.value))
   }
 
-  function startDrawerDrag(which: 'library' | 'inspector', e: MouseEvent) {
+  function startDrawerDrag(which: 'library' | 'inspector', e: PointerEvent) {
     drawerDragging.value = which
     _drawerDragStartX = e.clientX
     _drawerDragStartWidth = which === 'library' ? libraryWidth.value : inspectorWidth.value
     // 缓存面板 DOM 供直接操作；inspector 手柄已在面板内部，自动跟手，无需缓存
-    const root = (e.target as HTMLElement).closest('.pipeline-page') as HTMLElement | null
+    const handle = e.currentTarget as HTMLElement | null
+    const root = handle?.closest('.pipeline-page') as HTMLElement | null
     if (root) {
       _dragHandleEl = which === 'library'
         ? root.querySelector<HTMLElement>('.drawer-handle--seam-left')
         : null
       _dragPanelEl = root.querySelector<HTMLElement>(which === 'library' ? '.library' : '.inspector')
     }
+    // 指针捕获：把后续 pointermove / pointerup 一律锁定派发到手柄本身。
+    // 即使光标移到中间 litegraph 画布上空、或越出窗口边界，也保证收得到「松手」——
+    // 根治右栏「松手后拖拽不结束、光标卡在 ew-resize 双箭头」（右栏加宽要向左拖、易划过画布，最常踩）。
+    if (handle) {
+      try {
+        handle.setPointerCapture(e.pointerId)
+        _dragPointerHandle = handle
+        _dragPointerId = e.pointerId
+      } catch {
+        // 个别环境不支持指针捕获，降级到下面的 document 监听仍可用
+      }
+    }
     document.body.style.cursor = 'ew-resize'
     document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onDrawerDragMove)
-    document.addEventListener('mouseup', onDrawerDragEnd)
+    document.addEventListener('pointermove', onDrawerDragMove)
+    document.addEventListener('pointerup', onDrawerDragEnd)
+    document.addEventListener('pointercancel', onDrawerDragEnd)
     e.preventDefault()
   }
 
-  function onDrawerDragMove(e: MouseEvent) {
+  function onDrawerDragMove(e: PointerEvent) {
     if (!drawerDragging.value) return
     const isLibrary = drawerDragging.value === 'library'
     // 左栏向右拖变宽(+dx)，右栏向左拖变宽(−dx)
@@ -141,8 +158,14 @@ export function useEditorLayout() {
     drawerDragging.value = null
     _dragHandleEl = null
     _dragPanelEl = null
-    document.removeEventListener('mousemove', onDrawerDragMove)
-    document.removeEventListener('mouseup', onDrawerDragEnd)
+    if (_dragPointerHandle && _dragPointerId !== null) {
+      try { _dragPointerHandle.releasePointerCapture(_dragPointerId) } catch { /* 已随 pointerup 自动释放 */ }
+    }
+    _dragPointerHandle = null
+    _dragPointerId = null
+    document.removeEventListener('pointermove', onDrawerDragMove)
+    document.removeEventListener('pointerup', onDrawerDragEnd)
+    document.removeEventListener('pointercancel', onDrawerDragEnd)
   }
 
   function handleLayoutKeydown(e: KeyboardEvent) {
