@@ -368,10 +368,14 @@ code, kbd {
 /* ====== App layout ====== */
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  /* 内容列用 minmax(0, 1fr) 而非裸 1fr：裸 1fr 实为 minmax(auto, 1fr)，其 auto 最小值=子树 min-content，
+     一旦内容（如工作流页 nowrap 工具栏 / 画布）的 min-content 超过视口，该列会被撑到视口外，把右侧 sticky 顶栏 tab、
+     右栏 inspector、工具栏右侧按钮一并挤出屏幕（横向溢出，overflow:hidden 只裁自身溢出、拦不住 grid 轨道自身变宽）。
+     改 minmax(0,…) 把最小值钳到 0，轨道永不超视口，超长内容交由下层 overflow:hidden 裁切。 */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: calc(100vh - var(--header-h));
 }
-.app--immersive { grid-template-columns: 1fr; }
+.app--immersive { grid-template-columns: minmax(0, 1fr); }
 
 /* ====== Sidebar ====== */
 .sidebar {
@@ -730,6 +734,18 @@ code, kbd {
 .input--sm { height: 32px; padding: 0 var(--s-2); font-size: 12px; }
 .input.is-error { border-color: var(--c-danger); }
 .input.is-error:focus { box-shadow: 0 0 0 3px var(--c-danger-soft); }
+
+/* 全局去掉所有数值输入框的原生上下步进箭头：科研参数框（频率/时窗/幅度…）里这对小箭头
+   贴着数字、极易误点把值改掉，且与本应用「键入 + 回车/失焦应用」的交互重复。一处收口，
+   覆盖全站所有 type=number（不限 .input，连观察页 .ov-cin/.ov-inp、滤波 .am-num 一并生效）。
+   仍可键入、↑↓ 方向键微调；只是去掉鼠标可点的 spinner。 */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
+/* 原生勾选框 / 单选 / 滑块统一染品牌色：原生控件无法完全自绘，但「主色一致」是零取舍的最低统一，
+   一处收口覆盖全站（筛选 checkbox、记住设备、param 布尔、observe 显示模块、各 range 滑块等）。 */
+input[type='checkbox'], input[type='radio'], input[type='range'] { accent-color: var(--c-primary); }
 
 .password-wrap { position: relative; }
 .password-wrap .input { padding-right: 44px; }
@@ -1111,7 +1127,7 @@ code, kbd {
 .landing { background: var(--c-bg); }
 .hero {
   position: relative;
-  padding: 96px var(--s-6) 64px;
+  padding: calc(var(--s-7) * 2) var(--s-6) var(--s-7);
   background: var(--c-bg);
   overflow: hidden;
 }
@@ -1121,19 +1137,42 @@ code, kbd {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: var(--s-7);
+  /* 纵向居中：右卡比左栏矮，居中对齐让右卡贴住左栏视觉重心、消除底部留白的失衡 */
   align-items: center;
 }
 .hero h1 {
   font-size: 44px;
   line-height: 1.1;
-  margin: 0 0 var(--s-3);
+  margin: var(--s-5) 0 var(--s-3);
   letter-spacing: -.02em;
 }
-.hero h1 .grad {
+/* 品牌点睛（方案4）：标语「念隐于微，析显于明」里藏着品牌名「念析」——把这两字钢蓝 + 加重 + 放大点亮，
+   每句独立成行、左对齐（跟 hero 其余左对齐内容同节奏），不跳色不渐变不光晕，符合 Steel 克制 */
+.hero-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.hero-title__line {
+  display: flex;
+  align-items: baseline;
+  line-height: 1.05;
+}
+/* 左对齐：首行「念隐于微」贴左缘（与徽章/副文案/按钮同一左缘），第二行向右错落缩进保留阶梯感 */
+.hero-title__line + .hero-title__line {
+  margin-left: 1.5em;
+}
+.hero-title__mark {
   color: var(--c-primary);
+  font-weight: 800;
+  font-size: 1.36em;
+  line-height: 1;
+  margin-right: .03em;
 }
 .hero p {
   font-size: 16px;
+  line-height: 1.6;
   color: var(--c-text-2);
   max-width: 540px;
 }
@@ -1143,23 +1182,24 @@ code, kbd {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
+/* 推荐路径条降一级表面：让稀缺的 primary-soft 留给 badge，这里仅保留左侧主色线作路径语义 */
 .hero__quote {
   margin-top: var(--s-5);
   padding: var(--s-3) var(--s-4);
   border-left: 3px solid var(--c-primary);
   color: var(--c-text-2);
-  background: var(--c-primary-soft);
+  background: var(--c-bg-soft);
   border-radius: 0 var(--r) var(--r) 0;
-  font-size: 13px;
+  font-size: var(--fs-body);
+  line-height: 1.7;
   max-width: 520px;
 }
 .hero__visual {
-  background: #fff;
+  background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-md);
-  padding: var(--s-4);
-  min-height: 360px;
+  padding: var(--s-5);
 }
 
 .pipeline-mock {
@@ -1170,7 +1210,7 @@ code, kbd {
   margin-bottom: var(--s-4);
 }
 .pl-node {
-  background: #fff;
+  background: var(--c-surface);
   border: 1.5px solid var(--c-border-2);
   border-radius: 10px;
   min-width: 0;
@@ -1182,7 +1222,7 @@ code, kbd {
 .pl-node.is-success { border-color: var(--c-success); }
 .pl-node.is-running {
   border-color: var(--c-primary);
-  animation: blink 1s infinite alternate;
+  animation: blink 1.6s ease-in-out infinite;
 }
 .pl-node.is-pending { border-color: var(--c-warning); }
 .pl-node__head {
@@ -1199,9 +1239,14 @@ code, kbd {
   color: var(--c-text-2);
   font-size: 11px;
 }
+/* 落地页 hero mock 的节点精修（成品感）：作用域 .landing，不影响 MlPage 画布节点 */
+.landing .pl-node { border-width: 1px; border-radius: var(--r-md); }
+.landing .pl-node__head { border-bottom: 1px solid var(--c-border); }
+.landing .pl-node__body { color: var(--c-text-3); }
+/* 运行态由旧亮蓝（=数据色 d-1，误用作 UI）改钢蓝低饱和「呼吸」，去光晕 */
 @keyframes blink {
-  from { box-shadow: 0 0 0 0 rgba(46, 107, 255, .4); }
-  to { box-shadow: 0 0 0 6px rgba(46, 107, 255, 0); }
+  from { box-shadow: 0 0 0 0 rgba(63, 94, 143, .3); }
+  to { box-shadow: 0 0 0 5px rgba(63, 94, 143, 0); }
 }
 .pipeline-mock .arrow {
   color: var(--c-text-3);
@@ -1214,6 +1259,21 @@ code, kbd {
   gap: var(--s-3);
   margin-top: var(--s-4);
 }
+/* 关键数字是 persona 最快建立信任的硬证据，必须明显重于标签 */
+.stat-row .card { padding: var(--s-3); }
+.stat-row__num {
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--c-text);
+}
+/* hero 可视化卡底部「示意」诚实注脚 */
+.hero-visual__note {
+  margin: var(--s-3) 0 0;
+  color: var(--c-text-3);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+}
 
 .feature-grid {
   max-width: 1200px;
@@ -1221,42 +1281,68 @@ code, kbd {
   padding: var(--s-7) var(--s-6);
   display: grid;
   gap: var(--s-4);
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
 }
 .feat {
   padding: var(--s-5);
   border: 1px solid var(--c-border);
   border-radius: var(--r-md);
-  background: #fff;
-  transition: all var(--t);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t), box-shadow var(--t), border-color var(--t);
 }
 .feat:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
-  border-color: var(--c-primary);
+  border-color: var(--c-border-strong);
 }
 .feat__icon {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--r);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--c-primary-soft);
-  color: var(--c-primary);
+  background: var(--c-bg-tint);
+  color: var(--c-text-2);
   margin-bottom: var(--s-3);
 }
-.feat--accent .feat__icon { background: var(--c-accent-soft); color: var(--c-accent); }
-.feat--warn .feat__icon { background: var(--c-warning-soft); color: var(--c-warning); }
-.feat h3 { margin: 0 0 4px; font-size: 16px; }
+/* 三卡只给主卖点（BIDS+MNE）一个钢蓝彩色锚点，其余中性，避免「为有色而有色」 */
+.feat--accent .feat__icon { background: var(--c-primary-soft); color: var(--c-primary); }
+.feat h3 {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--c-text);
+}
 
 .map-section {
   background: var(--c-bg-soft);
   padding: var(--s-7) var(--s-6);
 }
+/* 相邻两个 map-section 交替底色，制造「换章」呼吸（替代 sitemap 原 inline 背景） */
+.map-section--alt { background: var(--c-bg); }
 .map-section__inner {
   max-width: 1200px;
   margin: 0 auto;
+}
+/* 区段大标题：补齐 hero(44) → 区段(28) → 卡片标题(18) 的中间层级 */
+.map-section h2 {
+  margin: 0 0 var(--s-1);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -.01em;
+  color: var(--c-text);
+}
+/* 区段眉标（小字全大写）：替代 sitemap 三处 h4 的内联样式 */
+.section-eyebrow {
+  margin: 0 0 var(--s-2);
+  color: var(--c-text-3);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 .nav-cards {
   display: grid;
@@ -1264,10 +1350,9 @@ code, kbd {
   gap: var(--s-4);
   margin-top: var(--s-5);
 }
-@media (max-width: 1100px) { .nav-cards { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 600px) { .nav-cards { grid-template-columns: 1fr; } }
+/* nav-cards 的换栏统一到落地页断点体系（见底部 @media 1024/600），不再各塌各的 */
 .nav-card {
-  background: #fff;
+  background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r-md);
   padding: var(--s-4) var(--s-5);
@@ -1276,11 +1361,12 @@ code, kbd {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: all var(--t);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t), box-shadow var(--t), border-color var(--t);
 }
 .nav-card:hover {
-  border-color: var(--c-primary);
-  transform: translateY(-1px);
+  border-color: var(--c-border-strong);
+  transform: translateY(-2px);
   box-shadow: var(--shadow);
 }
 .nav-card.is-disabled {
@@ -1288,14 +1374,15 @@ code, kbd {
   cursor: not-allowed;
   pointer-events: none;
 }
+/* 预览态用实底（bg-soft）诚实标注「未上线」，去掉 opacity——半透使边框发灰显脏、又与禁用难分 */
 .nav-card.is-preview {
   color: var(--c-text-3);
-  opacity: .66;
+  background: var(--c-bg-soft);
 }
 .nav-card.is-preview:hover {
-  border-color: var(--c-border-2);
-  box-shadow: none;
-  transform: none;
+  border-color: var(--c-border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 .nav-card.is-preview .nav-card__title {
   color: var(--c-text-3);
@@ -1311,10 +1398,13 @@ code, kbd {
   color: var(--c-text-3);
   font-size: 12px;
 }
+/* 序号放大为左上扫读锚点（水印感），不再几乎隐形 */
 .nav-card__num {
   font-family: var(--ff-mono);
-  color: var(--c-text-3);
-  font-size: 11px;
+  color: var(--c-border-strong);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .app-footer {
@@ -1337,10 +1427,57 @@ code, kbd {
   text-decoration: underline;
 }
 
-@media (max-width: 960px) {
-  .hero__inner { grid-template-columns: 1fr; }
-  .feature-grid { grid-template-columns: 1fr; }
+/* ===== 落地页：顶栏版心对齐 + nav 字号 + 键盘可达焦点环（.landing 作用域，不波及内部页） ===== */
+.landing .app-header { padding: 0 var(--s-6); }
+.landing .app-header__inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
 }
+.landing .app-header nav a {
+  font-size: var(--fs-body);
+  transition: color var(--t-fast);
+}
+.landing .app-header nav a:hover { color: var(--c-text); }
+
+.landing .btn:focus-visible,
+.landing .nav-card:focus-visible,
+.landing .app-header__brand:focus-visible,
+.landing .app-header nav a:focus-visible,
+.landing .hero__cta a:focus-visible,
+.landing .app-footer a:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* landing responsive：消除原 960/1100/600 三套各塌各的撕裂。
+   hero 双栏右侧是 5 节点 mock，挤压区比卡片网格更早出现 → ≤1200 就单栏（1280+ 笔记本仍舒展两栏，节点不裁切）；
+   卡片网格 ≤1024 收两列、≤600 收单列。 */
+@media (max-width: 1200px) {
+  .hero__inner { grid-template-columns: 1fr; }
+}
+@media (max-width: 1024px) {
+  .feature-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .feature-grid { grid-template-columns: 1fr; }
+  .nav-cards { grid-template-columns: 1fr; }
+  .landing .app-header { padding: 0 var(--s-4); }
+  .landing .app-header nav { display: none; }
+}
+
+/* 前庭安全：persona 含神经科学家/医生，停掉无限呼吸动画与 hover 位移 */
+@media (prefers-reduced-motion: reduce) {
+  .pl-node.is-running { animation: none; }
+  .landing .feat:hover,
+  .landing .nav-card:hover { transform: none; }
+  .landing * { transition-duration: 1ms !important; }
+}
+
 @media (max-width: 960px) {
   .app { grid-template-columns: 1fr; }
   .sidebar {
