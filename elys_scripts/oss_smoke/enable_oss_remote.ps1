@@ -69,8 +69,15 @@ if (Test-Path -LiteralPath $ProfilePath) {
         $ProfileValues[$t.Substring(0, $eq).Trim().ToUpper()] = $t.Substring($eq + 1).Trim().Trim('"').Trim("'")
     }
 }
-if ([string]::IsNullOrWhiteSpace($ComputeServerIP) -and $ProfileValues.ContainsKey("COMPUTE_SERVER_IP")) {
-    $ComputeServerIP = $ProfileValues["COMPUTE_SERVER_IP"]
+if ([string]::IsNullOrWhiteSpace($ComputeServerIP)) {
+    # ACTIVE_SET：优先取当前集的 ${ACTIVE}_COMPUTE_SERVER_IP，无 ACTIVE_SET 再退回扁平 COMPUTE_SERVER_IP
+    $ipActiveSet = ""
+    if ($ProfileValues.ContainsKey("ACTIVE_SET")) { $ipActiveSet = "$($ProfileValues['ACTIVE_SET'])".Trim() }
+    if ($ipActiveSet -and $ProfileValues.ContainsKey($ipActiveSet.ToUpper() + "_COMPUTE_SERVER_IP")) {
+        $ComputeServerIP = $ProfileValues[$ipActiveSet.ToUpper() + "_COMPUTE_SERVER_IP"]
+    } elseif ($ProfileValues.ContainsKey("COMPUTE_SERVER_IP")) {
+        $ComputeServerIP = $ProfileValues["COMPUTE_SERVER_IP"]
+    }
 }
 if ([string]::IsNullOrWhiteSpace($ServerUser)) {
     if ($ProfileValues.ContainsKey("SERVER_USER")) { $ServerUser = $ProfileValues["SERVER_USER"] } else { $ServerUser = "root" }

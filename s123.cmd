@@ -11,9 +11,10 @@ REM    s123 -LaunchTemplateName elys-compute -Yes
 REM         REAL BUY (costs money) -^> auto-writes the new public IP back to
 REM         the profile -^> deploy -^> UPLOAD the 04_group dataset (s3_test default).
 REM
-REM  Notes: the compute server public IP is written by s1 into
-REM         deploy/profiles/aliyun-test.env (COMPUTE_SERVER_IP) and read by s2,
+REM  Notes: the compute server public IP is written by s1 into the ACTIVE set's key in
+REM         deploy/profiles/aliyun-test.env (e.g. SETA_COMPUTE_SERVER_IP) and read by s2,
 REM         so the IP handoff is automatic - no manual editing needed.
+REM         Switch the whole deploy target (servers + OSS bucket) via the ACTIVE_SET line.
 REM         Without -Yes it is a dry run: never charges, never proceeds.
 REM         Stops immediately if any step fails.
 REM         Release the bought instance later with s4_release_ecs.
