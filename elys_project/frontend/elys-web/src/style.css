@@ -459,6 +459,11 @@ code, kbd {
 
 /* ====== Page main area ====== */
 .page {
+  /* grid 子项必须 min-width:0：grid item 的 min-width 默认 auto=min-content，一旦内容（工作流页
+     底栏步骤条 / nowrap 顶栏等）min-content 超视口，item 会溢出被 .app 的 minmax(0,1fr) 钳住的轨道、
+     把整块连同右侧工具栏（保存/校验/运行）+ 画布右上操作群一并顶出视口。轨道钳位(.app minmax)与
+     item 钳位(本行)必须成对，缺一则 blowout 复发；超长内容交由下层 .pipeline-page overflow:hidden 裁切。 */
+  min-width: 0;
   padding: var(--page-pad-y, var(--s-5)) var(--page-pad-x, var(--s-6));
   min-height: calc(100vh - var(--header-h));
 }
