@@ -20,6 +20,20 @@
         <div style="flex: 1"></div>
         <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">🖱 操作提示</button>
         <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="load">刷新</button>
+        <!-- 应用决策（原底栏移到顶栏，常驻不占画布高度） -->
+        <template v-if="isLive">
+          <span class="ica-tb-div"></span>
+          <span class="muted text-sm" :class="{ 'ica-rm-count': removeList.length }">待去除 {{ removeList.length }}</span>
+          <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
+          <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
+          <span v-else-if="!jobContext" class="muted text-sm" title="在工作流「ICA Apply」节点处打开才能提交">查看模式</span>
+          <template v-else>
+            <button class="btn btn--sm" :disabled="applying" @click="returnToPipeline">取消</button>
+            <button class="btn btn--primary btn--sm" :disabled="!canApply" @click="submitAndReturn" title="应用剔除并续跑工作流（Ctrl+Enter）">
+              <AppIcon name="check" :size="15" /> {{ applying ? '提交中…' : '应用并继续' }}
+            </button>
+          </template>
+        </template>
       </div>
 
       <!-- 空态 / 错误 / 加载 -->
@@ -40,10 +54,10 @@
         <p class="muted">加载 ICA 成分中…</p>
       </div>
 
-      <!-- 两区主体 + 底部操作条 -->
+      <!-- 三区主体：左·挑选 / 中·验证 / 右·端详（无底栏，应用决策在顶栏） -->
       <template v-else>
         <div class="ica-main">
-          <!-- 左：成分选择 + 剔除 + 选中频谱 + 通道 -->
+          <!-- 左·遍历挑选：成分墙（扫描 / 点选 / 标记剔除） -->
           <section class="ica-left">
             <div class="ica-sec-head">
               <span>成分 · {{ components.length }}</span>
@@ -52,7 +66,7 @@
                 <button type="button" :class="{ 'is-on': sortMode === 'iclabel' }" @click="sortMode = 'iclabel'">伪迹概率 ↓</button>
               </div>
             </div>
-            <div class="ica-sec-hint">单击看频谱/时域 · 勾选框 / 双击 = 标记剔除（红色 = 已标记，ICLabel 建议的伪迹已默认勾选）</div>
+            <div class="ica-sec-hint">单击看详情 · 双击 / 勾选 = 标记剔除（红 = 已标记）· 更多见「操作提示」</div>
             <div class="ica-wall-body">
               <TopoStrip
                 layout="grid"
@@ -69,44 +83,6 @@
                 @cell-dblclick="toggleRemove"
                 @cell-check="toggleRemove"
               />
-            </div>
-
-            <!-- 选中成分频谱（替代原右栏） -->
-            <div class="ica-leftspec">
-              <div class="ica-spec-head">
-                <template v-if="activeComp">
-                  <span class="ica-spec-title">{{ activeComp.label }}</span>
-                  <span v-if="activeComp.iclabel" class="ica-tag" :class="activeComp.iclabel.category === 'brain' ? 'is-brain' : 'is-artifact'">
-                    {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
-                  </span>
-                  <span v-if="activeComp.explained_variance != null" class="muted text-sm">方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
-                  <span class="muted text-sm ica-spec-unit">Welch 频谱 · dB / Hz</span>
-                </template>
-                <span v-else class="muted text-sm">点成分看频谱</span>
-              </div>
-              <div class="ica-spec-host">
-                <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline dense-axes :loading="detailLoading" />
-              </div>
-              <div v-if="activeComp" class="muted text-sm ica-spec-chans">主导：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
-            </div>
-
-            <!-- 通道列表（点选，不下拉） -->
-            <div class="ica-chan">
-              <div class="ica-sec-head ica-sec-head--sub">
-                <span>对比通道</span>
-                <span class="muted text-sm">{{ cmpChannel || '—' }}</span>
-              </div>
-              <div class="ica-chan-list">
-                <button
-                  v-for="ch in overview?.ch_names || []"
-                  :key="ch"
-                  class="ica-chan-chip"
-                  :class="{ 'is-on': ch === cmpChannel }"
-                  @click="cmpChannel = ch"
-                >
-                  {{ ch }}
-                </button>
-              </div>
             </div>
           </section>
 
@@ -173,29 +149,47 @@
               </div>
             </div>
           </section>
-        </div>
 
-        <!-- 底部操作条：去除清单 + 应用并续跑 -->
-        <div class="ica-bottom">
-          <div class="ica-removelist">
-            <span class="muted text-sm">待去除 {{ removeList.length }}：</span>
-            <span v-if="!removeList.length" class="muted text-sm">未标记任何成分</span>
-            <button v-for="idx in removeList" :key="idx" class="ica-rmtag" title="点击取消剔除" @click="toggleRemove(idx)">
-              {{ labelOf(idx) }} <span class="ica-rmtag-x">✕</span>
-            </button>
-          </div>
-          <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
-          <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
-          <template v-else-if="!jobContext">
-            <span class="muted text-sm">查看模式 · 在工作流「ICA Apply」节点处打开才能提交</span>
-          </template>
-          <template v-else>
-            <button class="btn btn--primary" :disabled="!canApply" @click="submitAndReturn" title="应用剔除并续跑工作流（快捷键 Ctrl+Enter）">
-              <AppIcon name="check" :size="16" />
-              {{ applying ? '提交中…' : '应用并继续' }}
-            </button>
-            <button class="btn btn--sm" :disabled="applying" @click="returnToPipeline">取消 · 返回</button>
-          </template>
+          <!-- 右·端详选中：选中成分地形图 + 频谱 + 主导通道 + 对比通道选择 -->
+          <aside class="ica-right">
+            <div class="ica-insp">
+              <div class="ica-spec-head">
+                <template v-if="activeComp">
+                  <span class="ica-spec-title">{{ activeComp.label }}</span>
+                  <span v-if="activeComp.iclabel" class="ica-tag" :class="activeComp.iclabel.category === 'brain' ? 'is-brain' : 'is-artifact'">
+                    {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
+                  </span>
+                  <span v-if="activeComp.explained_variance != null" class="muted text-sm">方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
+                </template>
+                <span v-else class="muted text-sm">点左侧成分看详情</span>
+              </div>
+              <TopoStrip v-if="activeComp" :cells="detailCells" :vmax="1" subtitle="" unit="" lo-label="−" hi-label="+" />
+              <div v-if="activeComp" class="muted text-sm ica-insp-chans">主导：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
+              <div class="ica-insp-cap">Welch 频谱 · dB / Hz</div>
+              <div class="ica-spec-host">
+                <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline dense-axes :loading="detailLoading" />
+                <div v-else class="ica-insp-empty muted text-sm">选择成分看频谱</div>
+              </div>
+            </div>
+
+            <div class="ica-chan">
+              <div class="ica-sec-head ica-sec-head--sub">
+                <span>对比通道</span>
+                <span class="muted text-sm">{{ cmpChannel || '—' }}</span>
+              </div>
+              <div class="ica-chan-list">
+                <button
+                  v-for="ch in overview?.ch_names || []"
+                  :key="ch"
+                  class="ica-chan-chip"
+                  :class="{ 'is-on': ch === cmpChannel }"
+                  @click="cmpChannel = ch"
+                >
+                  {{ ch }}
+                </button>
+              </div>
+            </div>
+          </aside>
         </div>
       </template>
     </div>
@@ -420,7 +414,22 @@ const componentCells = computed<TopoCell[]>(() =>
   }),
 )
 
-// 时域激活（中心下方）+ 频谱（左栏）数据（喂 TimeCourseCanvas：data=[x, ...ys]）
+// 右栏检查器：选中成分的大地形图（单元素喂 TopoStrip strip 模式，看清拓扑识别伪迹类型）
+const detailCells = computed<TopoCell[]>(() => {
+  const c = activeComp.value
+  if (!c) return []
+  return [
+    {
+      seg: c.index,
+      label: c.label,
+      color: excludedSet.value.has(c.index) ? DANGER : PRIMARY,
+      marked: excludedSet.value.has(c.index),
+      points: cellPoints(c),
+    },
+  ]
+})
+
+// 时域激活（中心下方）+ 频谱（右栏）数据（喂 TimeCourseCanvas：data=[x, ...ys]）
 const tcSeries = [{ name: '激活', color: PRIMARY }]
 const specSeries = [{ name: '功率', color: ACCENT }]
 const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
@@ -592,7 +601,7 @@ onMounted(load)
   align-items: center;
   gap: var(--s-3);
   padding: 0 var(--s-5);
-  height: 56px;
+  min-height: 56px;
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
   flex-wrap: wrap;
@@ -610,9 +619,9 @@ onMounted(load)
 /* ── 两区主体 ── */
 .ica-main { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 
-/* 左：成分缩略图墙（选择 + 剔除）+ 选中频谱 + 通道 */
+/* 左·遍历挑选：成分缩略图墙（扫描 / 点选 / 标记），只此一职、不再拥挤 */
 .ica-left {
-  width: 420px; min-width: 420px;
+  width: 256px; min-width: 256px;
   border-right: 1px solid var(--c-border);
   background: var(--c-surface);
   display: flex; flex-direction: column;
@@ -629,16 +638,18 @@ onMounted(load)
 .ica-sortseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-wall-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
 
-/* 选中成分频谱（替代原右栏） */
-.ica-leftspec { flex-shrink: 0; border-top: 1px solid var(--c-border); padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 4px; }
+/* 右·端详检查器：选中成分地形图 + 频谱 + 主导通道 + 对比通道（替代原左栏拥挤的三合一） */
+.ica-right { width: 320px; min-width: 320px; border-left: 1px solid var(--c-border); background: var(--c-surface); display: flex; flex-direction: column; overflow: hidden; }
+.ica-insp { flex: 1; min-height: 0; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
 .ica-spec-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .ica-spec-title { font-weight: 600; font-size: 13px; color: var(--c-text); }
 .ica-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
 .ica-tag.is-artifact { background: rgba(239, 68, 68, .12); color: var(--c-danger); }
 .ica-tag.is-brain { background: rgba(34, 197, 94, .14); color: #15803d; }
-.ica-spec-unit { margin-left: auto; font-size: 10px; }
 .ica-spec-host { height: 150px; position: relative; }
-.ica-spec-chans { font-size: 11px; }
+.ica-insp-cap { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--c-text-3); margin-top: 2px; }
+.ica-insp-chans { font-size: 11px; }
+.ica-insp-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
 
 /* 通道列表：chip 点选（不下拉），可换行滚动 */
 .ica-chan { flex-shrink: 0; border-top: 1px solid var(--c-border); max-height: 196px; display: flex; flex-direction: column; }
@@ -664,18 +675,9 @@ onMounted(load)
 .ica-tc-host { flex: 1; min-height: 0; position: relative; }
 .ica-tc-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 
-/* 底部操作条 */
-.ica-bottom {
-  flex-shrink: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--c-border);
-  background: var(--c-surface);
-}
-.ica-removelist { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.ica-rmtag { display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, .1); color: var(--c-danger); border: 1px solid rgba(239, 68, 68, .25); border-radius: var(--r-sm); padding: 2px 8px; font-size: 12px; cursor: pointer; }
-.ica-rmtag:hover { background: rgba(239, 68, 68, .16); }
-.ica-rmtag-x { opacity: .55; }
+/* 顶栏应用决策组（原底栏移上来，常驻不占画布高度） */
+.ica-tb-div { width: 1px; height: 18px; background: var(--c-border); margin: 0 2px; }
+.ica-rm-count { color: var(--c-danger); font-weight: 600; }
 .ica-applymsg { font-size: 12px; color: var(--c-success); }
 .ica-applymsg.is-error { color: var(--c-danger); }
 </style>
