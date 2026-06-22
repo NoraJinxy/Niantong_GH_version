@@ -774,7 +774,9 @@ const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() 
   const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
   if (segCount.value > 1) opts.push({ v: 'seg', l: segKindLabel.value })
   opts.push({ v: 'chan', l: '通道' })
-  if (segCount.value > 1 && orderedChans.value.length > 1) opts.push({ v: 'none', l: '矩阵' })
+  // 「不叠加」：选中维度也不叠、把通道（及段）全拆成子图。
+  // 多段 × 多通道 → 行列矩阵；单段多通道 → 每通道一窗并排（连续 raw 想把几路通道分窗对照走这条）。
+  if (orderedChans.value.length > 1) opts.push({ v: 'none', l: segCount.value > 1 ? '矩阵' : '每通道分窗' })
   return opts
 })
 
