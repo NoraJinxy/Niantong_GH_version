@@ -1,12 +1,13 @@
 <template>
-  <div class="topo-strip">
-    <div class="topo-cap">地形图<span class="topo-cap-sub">{{ subtitle }}</span>
+  <div class="topo-strip" :class="{ 'is-bare': bare }">
+    <div class="topo-cap">
+      <template v-if="!bare">地形图<span class="topo-cap-sub">{{ subtitle }}</span></template>
       <div class="topo-cap-right">
-        <span v-if="vmax > 0" style="display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3);">
-          <span style="min-width: 30px; text-align: right; font-variant-numeric: tabular-nums;">{{ loLabel ?? axisLabel(barLo) }}</span>
-          <span :style="{ width: '88px', height: '9px', borderRadius: '2px', border: '1px solid var(--c-border)', background: barGradient }"></span>
-          <span style="min-width: 30px; text-align: left; font-variant-numeric: tabular-nums;">{{ hiLabel ?? axisLabel(barHi) }}</span>
-          <span style="margin-left: 2px;">{{ unit }}</span>
+        <span v-if="vmax > 0" class="topo-bar">
+          <span class="topo-bar-lo">{{ loLabel ?? axisLabel(barLo) }}</span>
+          <span class="topo-bar-grad" :style="{ background: barGradient }"></span>
+          <span class="topo-bar-hi">{{ hiLabel ?? axisLabel(barHi) }}</span>
+          <span class="topo-bar-unit">{{ unit }}</span>
         </span>
       </div>
     </div>
@@ -59,10 +60,21 @@
           </div>
         </div>
         <div class="topo-modal-grid" :style="modalGridStyle">
-          <div v-for="c in cells" :key="c.seg" class="topo-modal-card" :style="{ borderTopColor: c.color }">
-            <div class="topo-modal-cardhd"><span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-modal-cardname">{{ c.label }}</span></div>
+          <div
+            v-for="c in cells"
+            :key="c.seg"
+            class="topo-modal-card"
+            :class="{ 'is-marked': c.marked, 'is-checkable': checkable }"
+            :style="{ borderTopColor: c.color }"
+            @click="onModalCardClick(c.seg)"
+          >
+            <div class="topo-modal-cardhd">
+              <input v-if="checkable" type="checkbox" class="topo-modal-check" :checked="c.marked" title="勾选 = 标记剔除该成分" @click.stop @change="onCardCheck(c.seg)" />
+              <span class="topo-dot" :style="{ background: c.color }"></span><span class="topo-modal-cardname">{{ c.label }}</span>
+            </div>
             <canvas v-if="c.points && c.points.length" :ref="(el) => setModalCanvas(c.seg, el)" class="topo-modal-cv"></canvas>
             <div v-else class="topo-modal-empty"><template v-if="c.emptyText">{{ c.emptyText }}</template><template v-else>无电极坐标<br />(该结果未带 montage)</template></div>
+            <div v-if="c.sub" class="topo-modal-sub">{{ c.sub }}</div>
           </div>
         </div>
       </div>
@@ -84,11 +96,12 @@ import { buildHeatmapLut, HEATMAP_LUT_N, heatmapCssGradient, type HeatmapCmap } 
 
 interface TopoPoint { name: string; x: number; y: number; value: number }
 // sub：标签下一行小字（ICA 成分墙用：解释方差% / 自动标签）。marked：标记态（ICA 剔除）→ 红框。
-interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null; sub?: string; marked?: boolean; emptyText?: string }
+// skeleton：只有电极坐标、没有数值（如 PSD 游标未移入）→ 画空头罩 + 电极点 + 中性底色，不上数值色。
+interface TopoCell { seg: number; label: string; color: string; points: TopoPoint[] | null; sub?: string; marked?: boolean; emptyText?: string; skeleton?: boolean }
 // vmax：对称 ±vmax 着色（相对/去均值的 PSD·TFR 用，白=0 居中）。
 // domain：非对称 [lo,hi] 着色（绝对量、与主图 Y 轴同尺度的时域用）——值线性铺满 [lo,hi]、白落窗中点（EEGLAB 色限）。
 // cmap：地形图色板，默认 elys（全站地形图统一用招牌色）；TFR 传入当前热图 cmap 以跟随热图选择。
-const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; selectable?: boolean; checkable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', selectable: false, checkable: false, activeSeg: null })
+const props = withDefaults(defineProps<{ cells: TopoCell[]; vmax: number; domain?: [number, number] | null; cmap?: HeatmapCmap | null; subtitle?: string; unit?: string; loLabel?: string; hiLabel?: string; layout?: 'strip' | 'grid'; bare?: boolean; selectable?: boolean; checkable?: boolean; activeSeg?: number | null }>(), { subtitle: '区间均值 µV · 全部通道', unit: 'µV', domain: null, cmap: 'elys', layout: 'strip', bare: false, selectable: false, checkable: false, activeSeg: null })
 const emit = defineEmits<{ (e: 'cell-click', seg: number): void; (e: 'cell-dblclick', seg: number): void; (e: 'cell-check', seg: number): void }>()
 // 成分墙（ICA）：网格模式下点选某格上报 seg；strip 模式 / 非 selectable 不触发，三观察页零影响。
 function onCardClick(seg: number) { if (props.selectable) emit('cell-click', seg) }
@@ -99,6 +112,8 @@ function onCardDblClick(seg: number, ev: Event) {
 }
 // 勾选框（checkable，ICA 成分墙用）：显式标记/取消剔除，与双击等效但更可发现。@click.stop 已阻止触发选中。
 function onCardCheck(seg: number) { emit('cell-check', seg) }
+// 放大窗里点整张卡片即勾选/取消剔除（checkable 时；勾选框走 onCardCheck，@click.stop 防双触发）。
+function onModalCardClick(seg: number) { if (props.checkable) emit('cell-check', seg) }
 
 // 色标数字格式:大值取整、小值留 1 位
 function fmtScale(v: number): string {
@@ -246,7 +261,64 @@ function onHover(seg: number, el: HTMLCanvasElement, ev: MouseEvent, hmap: Map<n
     const d = Math.hypot(h.x - mx, h.y - my)
     if (d < bestD) { bestD = d; best = h }
   }
-  el.title = best ? `${best.name}: ${best.value.toFixed(2)} ${props.unit}` : ''
+  // 骨架态（无数值）：值为 NaN → 只显通道名，不甩「NaN µV」
+  el.title = best ? (Number.isFinite(best.value) ? `${best.name}: ${best.value.toFixed(2)} ${props.unit}` : best.name) : ''
+}
+
+// 画布后备分辨率 + 统一坐标变换：色面 / 头罩 / 电极点全过 mapX/mapY ⇒ 天然物理对齐。
+// 后备宽高比必须 == 显示框宽高比，否则浏览器非等比拉伸 → 正圆被拉成椭圆（canvas.width 默认 300、height 默认 150，绝不为 0）。
+interface CanvasTransform { ctx: CanvasRenderingContext2D; W: number; H: number; scale: number; mapX: (v: number) => number; mapY: (v: number) => number; cx: number; cy: number }
+function prepCanvas(canvas: HTMLCanvasElement): CanvasTransform {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const wantW = Math.max(1, Math.round((canvas.clientWidth || 132) * dpr))
+  const wantH = Math.max(1, Math.round((canvas.clientHeight || 96) * dpr))
+  if (canvas.width !== wantW) canvas.width = wantW
+  if (canvas.height !== wantH) canvas.height = wantH
+  const W = canvas.width
+  const H = canvas.height
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, W, H)
+  ctx.imageSmoothingEnabled = true
+  // viewBox -1.28 -1.34 2.56 2.62，等比居中
+  const vbMinX = -1.28, vbMinY = -1.34, vbW = 2.56, vbH = 2.62
+  const scale = Math.min(W / vbW, H / vbH)
+  const ox = (W - vbW * scale) / 2
+  const oy = (H - vbH * scale) / 2
+  const mapX = (vx: number) => ox + (vx - vbMinX) * scale
+  const mapY = (vy: number) => oy + (vy - vbMinY) * scale
+  return { ctx, W, H, scale, mapX, mapY, cx: mapX(0), cy: mapY(0) }
+}
+
+// 头罩圈 + 鼻子 + 双耳（与色面同变换、同圆心同半径）
+function strokeHead(t: CanvasTransform) {
+  const { ctx, mapX, mapY, cx, cy, scale } = t
+  ctx.strokeStyle = '#C4CCD8'
+  ctx.lineWidth = 0.02 * scale
+  ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(-0.13), mapY(-0.99)); ctx.quadraticCurveTo(mapX(0), mapY(-1.24), mapX(0.13), mapY(-0.99)); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(-1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(-1.13), mapY(0), mapX(-1), mapY(0.2)); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(mapX(1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(1.13), mapY(0), mapX(1), mapY(0.2)); ctx.stroke()
+}
+
+// 电极点（白底深描边，不按值填色）+ 记命中表（CSS px，供 hover 读数；骨架态值为 NaN → 只显名）
+function drawElectrodes(t: CanvasTransform, canvas: HTMLCanvasElement, points: TopoPoint[], seg: number, store: Map<number, Hit[]>) {
+  const { ctx, W, H, mapX, mapY, scale } = t
+  const rx = (canvas.clientWidth || W) / W
+  const ry = (canvas.clientHeight || H) / H
+  const hits: Hit[] = []
+  ctx.lineWidth = 0.012 * scale
+  for (const p of points) {
+    const ex = mapX(p.x)
+    const ey = mapY(-p.y) // 与旧 SVG cy=-p.y 一致；该处色面正是该电极的值
+    ctx.beginPath()
+    ctx.arc(ex, ey, 0.026 * scale, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(38, 50, 72, 0.6)'
+    ctx.stroke()
+    hits.push({ name: p.name, value: p.value, x: ex * rx, y: ey * ry })
+  }
+  store.set(seg, hits)
 }
 
 // 一格全绘：色面（M·v→LUT→putImageData）+ 头罩圈 + 鼻耳 + 电极点，同一坐标变换 mapX/mapY，物理对齐
@@ -274,32 +346,11 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
   }
   o.ctx.putImageData(o.img, 0, 0)
 
-  // 2) 后备分辨率：必须让 backing 宽高比 == 显示框宽高比，否则浏览器非等比拉伸 → 正圆被拉成椭圆。
-  //    注意 canvas.width 默认 300、height 默认 150（绝不为 0）；旧的「===0 才设」等于从不设，正是椭圆元凶。
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
-  const wantW = Math.max(1, Math.round((canvas.clientWidth || 132) * dpr))
-  const wantH = Math.max(1, Math.round((canvas.clientHeight || 96) * dpr))
-  if (canvas.width !== wantW) canvas.width = wantW
-  if (canvas.height !== wantH) canvas.height = wantH
-  const W = canvas.width
-  const H = canvas.height
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, W, H)
-  ctx.imageSmoothingEnabled = true
-
-  // 3) 统一坐标变换（viewBox -1.28 -1.34 2.56 2.62，等比居中）：所有几何都过 mapX/mapY ⇒ 天然对齐
-  const vbMinX = -1.28, vbMinY = -1.34, vbW = 2.56, vbH = 2.62
-  const scale = Math.min(W / vbW, H / vbH)
-  const ox = (W - vbW * scale) / 2
-  const oy = (H - vbH * scale) / 2
-  const mapX = (vx: number) => ox + (vx - vbMinX) * scale
-  const mapY = (vy: number) => oy + (vy - vbMinY) * scale
-  const cx = mapX(0)
-  const cy = mapY(0)
-
-  // 4) 色面贴 [-1,1]²，裁到头罩圆。绕圆心翻转 y：kernel 网格行号(py)向下递增=屏幕下方，
-  //    但电极坐标约定 +y=前(电极点画在 mapY(-p.y)=屏幕上方、与鼻子一致)；不翻则色斑与电极点
-  //    关于圆心上下镜像（前部电极的色斑跑到后部）。translate(0,2cy)+scale(1,-1) 对齐二者。
+  const t = prepCanvas(canvas)
+  const { ctx, scale, mapX, mapY, cx, cy } = t
+  // 色面贴 [-1,1]²，裁到头罩圆。绕圆心翻转 y：kernel 网格行号(py)向下递增=屏幕下方，
+  // 但电极坐标约定 +y=前(电极点画在 mapY(-p.y)=屏幕上方、与鼻子一致)；不翻则色斑与电极点
+  // 关于圆心上下镜像（前部电极的色斑跑到后部）。translate(0,2cy)+scale(1,-1) 对齐二者。
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, scale, 0, Math.PI * 2)
@@ -309,31 +360,22 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
   ctx.drawImage(o.canvas, mapX(-1), mapY(-1), 2 * scale, 2 * scale)
   ctx.restore()
 
-  // 5) 头罩圈 + 鼻子 + 双耳（与色面同变换、同圆心同半径）
-  ctx.strokeStyle = '#C4CCD8'
-  ctx.lineWidth = 0.02 * scale
-  ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(mapX(-0.13), mapY(-0.99)); ctx.quadraticCurveTo(mapX(0), mapY(-1.24), mapX(0.13), mapY(-0.99)); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(mapX(-1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(-1.13), mapY(0), mapX(-1), mapY(0.2)); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(mapX(1), mapY(-0.2)); ctx.quadraticCurveTo(mapX(1.13), mapY(0), mapX(1), mapY(0.2)); ctx.stroke()
+  strokeHead(t)
+  drawElectrodes(t, canvas, points, seg, store)
+}
 
-  // 6) 电极点（白底深描边，不按值填色）+ 记命中表（CSS px）
-  const rx = (canvas.clientWidth || W) / W
-  const ry = (canvas.clientHeight || H) / H
-  const hits: { name: string; value: number; x: number; y: number }[] = []
-  ctx.lineWidth = 0.012 * scale
-  for (const p of points) {
-    const ex = mapX(p.x)
-    const ey = mapY(-p.y) // 与旧 SVG cy=-p.y 一致；该处色面正是该电极的值
-    ctx.beginPath()
-    ctx.arc(ex, ey, 0.026 * scale, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(38, 50, 72, 0.6)'
-    ctx.stroke()
-    hits.push({ name: p.name, value: p.value, x: ex * rx, y: ey * ry })
-  }
-  store.set(seg, hits)
+// 空骨架：只有电极坐标、无数值（游标未移入 / 区间未设）→ 中性底色 + 头罩 + 电极点，不上数值色、不出色阶条。
+function drawSkeleton(canvas: HTMLCanvasElement, points: TopoPoint[], seg: number, store: Map<number, Hit[]>) {
+  const t = prepCanvas(canvas)
+  const { ctx, cx, cy, scale } = t
+  // 头罩圆内淡灰填充：让空图也"有面"、不空荡，但明显非数值色（区别于真实色面）
+  ctx.save()
+  ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.clip()
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.12)'
+  ctx.fillRect(cx - scale, cy - scale, 2 * scale, 2 * scale)
+  ctx.restore()
+  strokeHead(t)
+  drawElectrodes(t, canvas, points, seg, store)
 }
 
 // 把整组地形图绘到指定的一套 canvas（条带或弹窗），命中表落到对应 store。大图小图同逻辑、只是尺寸不同。
@@ -343,9 +385,11 @@ function renderInto(cmap: Map<number, HTMLCanvasElement>, hmap: Map<number, Hit[
   const hi = barHi.value
   const { lut, n } = activeLut() // 当前色板 LUT（默认 elys；TFR 跟随其热图 cmap）
   for (const c of props.cells) {
-    if (!c.points || c.points.length < 3) continue
+    if (!c.points || !c.points.length) continue
     const canvas = cmap.get(c.seg)
     if (!canvas) continue
+    if (c.skeleton) { drawSkeleton(canvas, c.points, c.seg, hmap); continue } // 空骨架：只画头罩+电极点
+    if (c.points.length < 3) continue
     const kernel = getKernel(sigOf(c.points), c.points)
     if (!kernel) continue // undefined=worker 计算中 / null=退化 montage → 本格留空（无 montage 提示走 v-else）
     drawCell(canvas, kernel, c.points, lo, hi, lut, n, c.seg, hmap)
@@ -477,6 +521,18 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-cap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--c-text-2); }
 .topo-cap-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .topo-cap-right { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
+.topo-bar { display: inline-flex; align-items: center; gap: 5px; font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3); }
+.topo-bar-lo { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+.topo-bar-grad { width: 88px; height: 9px; border-radius: 2px; border: 1px solid var(--c-border); }
+.topo-bar-hi { min-width: 30px; text-align: left; font-variant-numeric: tabular-nums; }
+.topo-bar-unit { margin-left: 2px; }
+/* 裸装模式（artifact 去伪迹页）：无外框、无「地形图」标题，色阶条占满主宽度、地形图填满整列 */
+.topo-strip.is-bare { margin-top: 0; }
+.topo-strip.is-bare .topo-cap-right { margin-left: 0; width: 100%; }
+.topo-strip.is-bare .topo-bar { width: 100%; }
+.topo-strip.is-bare .topo-bar-grad { flex: 1; width: auto; }
+.topo-strip.is-bare .topo-card { width: 100%; }
+.topo-strip.is-bare .topo-cv { height: 140px; }
 .topo-cards { display: flex; gap: 8px; overflow-x: auto; flex: 1; cursor: var(--cursor-zoom); }
 .topo-card { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--c-border); border-top-width: 2px; border-radius: var(--r-sm); background: var(--c-surface); padding: 4px 4px 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
 .topo-hd { font-size: 9px; font-weight: 600; color: var(--c-text-2); display: flex; align-items: center; gap: 4px; max-width: 100%; }
@@ -490,8 +546,8 @@ onUnmounted(() => { worker?.terminate(); worker = null })
    网格用「缩略图」尺寸（比观察页 strip 小一圈）：扫描全部成分认伪迹类型，配合右栏放大镜看选中那一个。 */
 .topo-cards.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); overflow-x: visible; cursor: default; gap: 5px; }
 .is-grid .topo-card { width: auto; position: relative; padding: 3px 3px 2px; }
-.is-grid .topo-cv { height: 62px; }
-.is-grid .topo-empty { height: 62px; }
+.is-grid .topo-cv { height: 50px; }
+.is-grid .topo-empty { height: 50px; }
 /* 勾选框：缩略图左上角，显式「标记剔除」入口 */
 .topo-check { position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; margin: 0; cursor: pointer; accent-color: var(--c-danger); z-index: 2; }
 .topo-card.is-sel { cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s; }
@@ -519,4 +575,10 @@ onUnmounted(() => { worker?.terminate(); worker = null })
 .topo-modal-cardname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-modal-cv { width: 100%; height: 230px; display: block; }
 .topo-modal-empty { width: 100%; height: 230px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; color: var(--c-text-3); line-height: 1.5; }
+/* 放大窗里直接挑成分（checkable，ICA 用）：勾选框 + 伪迹概率小字 + 红色标记态 + 整卡可点 */
+.topo-modal-check { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c-danger); flex-shrink: 0; }
+.topo-modal-sub { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; text-align: center; }
+.topo-modal-card.is-checkable { cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
+.topo-modal-card.is-checkable:hover { border-color: var(--c-primary); box-shadow: 0 0 0 2px rgba(46, 107, 255, .12); }
+.topo-modal-card.is-marked { background: rgba(239, 68, 68, .06); border-color: rgba(239, 68, 68, .45); }
 </style>

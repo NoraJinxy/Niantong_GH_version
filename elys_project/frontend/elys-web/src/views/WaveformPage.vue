@@ -1,5 +1,7 @@
 <template>
   <div class="ov-page" ref="pageRef">
+    <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+    <PerfBadge :perf="probe.perf" />
     <!-- 顶部信息条（全屏时隐去，让绘图区吃满；退出全屏的按钮在工具条上仍可见） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
@@ -223,17 +225,17 @@
       <div class="ov-center">
         <div class="ov-ctoolbar">
           <div class="ov-tg ov-tg--lyt">
-            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器（快捷键 [）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
           <div class="ov-tg">
             <span class="ov-lbl">时间窗 ({{ xUnit }})</span>
-            <button v-if="isContinuous" class="ov-step" :disabled="loading || !ts || ts.tmin <= ts.available_tmin + 1e-9" @click="pageWindow(-1)" title="上一段">«</button>
+            <button v-if="isContinuous" class="ov-step" :disabled="loading || !ts || ts.tmin <= ts.available_tmin + 1e-9" @click="pageWindow(-1)" title="上一段（←）">«</button>
             <input v-model="winLoInput" class="ov-cin" type="number" :step="xStep" :disabled="loading" @keydown.enter="applyWindow" />
             <span class="ov-dash">–</span>
             <input v-model="winHiInput" class="ov-cin" type="number" :step="xStep" :disabled="loading" @keydown.enter="applyWindow" />
-            <button v-if="isContinuous" class="ov-step" :disabled="loading || !ts || ts.tmax >= ts.available_tmax - 1e-9" @click="pageWindow(1)" title="下一段">»</button>
+            <button v-if="isContinuous" class="ov-step" :disabled="loading || !ts || ts.tmax >= ts.available_tmax - 1e-9" @click="pageWindow(1)" title="下一段（→）">»</button>
             <button class="ov-ctb" :disabled="loading" @click="applyWindow">应用</button>
             <button class="ov-ctb" :disabled="loading" @click="resetWindow">重置</button>
           </div>
@@ -248,30 +250,19 @@
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
           </div>
-          <div v-if="hasOverlap" class="ov-tg">
-            <button class="ov-ctb" :class="{ 'is-on': focusEnabled }" :title="displayMode === 'spread' ? '聚焦：开启后在右栏「聚焦曲线」列表点选即高亮它、淡化其余（排列模式下单击图不触发，请用列表点选）；关闭则单击曲线不响应' : '聚焦：开启后单击曲线或右栏「聚焦曲线」列表项即高亮它、淡化其余；关闭则单击曲线不响应'" @click="focusEnabled = !focusEnabled">◎ 焦点</button>
-          </div>
-          <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+          <div class="ov-tg ov-tg--hint ov-help" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">
             <span class="ov-help-trigger">🖱 操作提示</span>
-            <div v-if="showHelp" class="ov-help-pop">
-              <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放时间轴</span></div>
-              <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调幅度</span></div>
-              <div class="ov-help-row"><kbd>拖拽</kbd><span>选统计区间</span></div>
-              <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤区间 · 框外解锁游标</span></div>
-              <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
-            </div>
           </div>
           <div class="ov-tg ov-tg--lyt ov-tg--end">
-            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏（快捷键 F）' : '全屏（快捷键 F）'">
               <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
               <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
             </button>
             <span class="ov-lyt-sep"></span>
-            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条（快捷键 T）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
             </button>
-            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果（快捷键 ]）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
@@ -320,6 +311,8 @@
                     :hide-y-labels="cellHideY(ci)"
                     :locked="cursorLocked"
                     :locked-x="lockedReadout?.x ?? null"
+                    :sync-cursor-x="cursorLocked ? null : (cursorReadout?.x ?? null)"
+                    solid-cursor
                     :view-min="viewXMin"
                     :view-max="viewXMax"
                     :amp-scale="ampScale"
@@ -361,6 +354,7 @@
         <div class="ov-right-head">
           <strong><span class="ov-right-dot"></span>统计结果</strong>
           <div class="ov-right-btns">
+            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条曲线重叠时可用）：开启后单击图中某条曲线或下方「聚焦曲线」列表项即聚焦——高亮它、淡化其余；未开启时单击曲线不响应">◎ 焦点</button>
             <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
@@ -410,7 +404,7 @@
               <span class="ov-focus-lat text-mono">@ {{ fmtX(focusStat.troughLat) }} {{ xUnit }}</span>
             </div>
           </div>
-          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">开启工具条「◎ 焦点」后，单击曲线或在下方列表点选，即可聚焦查看其最大 / 最小与潜伏。</div>
+          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">开启上方「◎ 焦点」后，单击曲线或在下方列表点选，即可聚焦查看其最大 / 最小与潜伏。</div>
           <!-- 聚焦目标持久列表：焦点开即出现，不依赖「区间统计」；点选某条=高亮它、淡化其余（口径=series.name，与画布一致）。 -->
           <div v-if="hasOverlap && focusEnabled && focusTargets.length" class="ov-focus-picker" style="margin-top: 8px">
             <div class="ov-sec-mini">聚焦曲线（点选高亮）</div>
@@ -514,6 +508,8 @@ import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useCursorState } from '@/composables/observe/useCursorState'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import { useQueryString, round, toNum, shortId, clampInt, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { composeLineExport, triggerPngDownload, sanitizeExportName } from '@/composables/observe/useObserveExport'
 import { loadOutputLabels } from '@/composables/observe/outputLabels'
@@ -521,6 +517,8 @@ import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
 import '@/components/observe/observePage.css'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
 
 const cellTimeCourseRefs: any[] = []
 
@@ -544,6 +542,7 @@ const INACTIVE_DOT = '#cbd2dc' // 未选中项的灰点（Niantong 风格：选�
 const qstr = useQueryString()
 // 参数统一为 studyId / study_output_id（与 PSD/TFR 一致）；兼容旧 study / dd 命名
 const studyId = qstr('studyId') || qstr('study')
+const probe = usePerfProbe('waveform') // 临时性能探针，测完删
 // study_output_id 支持逗号分隔的多产物（多数据集对比，如 ERP 各条件分别落成独立 evoked 产物）
 const outputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 const datasetId = outputIds[0] || ''
@@ -604,7 +603,15 @@ function chColor(i: number) {
   return colorAt(i, Math.max(1, allChanNames.value.length))
 }
 const displayMode = ref<'overlay' | 'spread'>('overlay')
-const showHelp = ref(false) // 工具条「操作提示」悬浮片
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['滚轮'], label: '缩放时间轴' },
+  { keys: ['Ctrl', '滚轮'], label: '调幅度' },
+  { keys: ['拖拽'], label: '选统计区间' },
+  { keys: ['双击'], label: '锁定游标' },
+  { keys: ['右键'], label: '框内撤区间 · 框外解锁游标' },
+  { keys: ['⬇'], label: '导出本图 PNG' },
+]
 
 // 绘图手势缩放（受控、由父层广播给所有子图，保证 facet 各格同窗 + 共享轴一致）：
 // viewX* = 可见时间视窗（显示单位，null=全幅）；ampScale = 幅度系数（1=基准）。纯前端视觉缩放，不回后端取数。
@@ -1234,6 +1241,7 @@ async function load() {
     // 数据集名不再从已加载数据回写 labelCache（曾把已选项降级成光秃秃的被试名）；
     // 列表名统一由 loadOutputLabels（StudyOutput 元数据）提供，保证「选中/未选」一致。
     tsMap.value = m
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     const failed = settled.length - ok.length
     partialNote.value = failed > 0 ? `部分结果未能加载（${failed} 个），仅显示可用的 ${ok.length} 个。` : ''
     const prim = m.get(primarySeg.value) ?? ok[0].value[1]
@@ -1443,6 +1451,38 @@ function onKeydown(e: KeyboardEvent) {
     if (hasCurves.value) chanSel.selectAll()
   }
 }
+
+// ---------- 键盘快捷键（P0 试点：共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'f', label: '全屏 / 退全屏', group: 'view', run: () => toggleFullscreen() },
+    { key: '[', label: '左栏显隐', group: 'view', run: () => { showLeft.value = !showLeft.value } },
+    { key: ']', label: '右栏显隐', group: 'view', run: () => { showStats.value = !showStats.value } },
+    { key: 't', label: '地形图显隐', group: 'view', run: () => { showTopo.value = !showTopo.value } },
+    { key: 'g', label: '网格线显隐', group: 'view', run: () => { showGrid.value = !showGrid.value } },
+    { key: 'd', label: '叠加 ↔ 排列', group: 'view', run: () => { displayMode.value = displayMode.value === 'overlay' ? 'spread' : 'overlay' } },
+    { key: 'o', label: '叠加维度循环', group: 'view', run: () => {
+      const opts = overlayOptions.value
+      if (!opts.length) return
+      const i = opts.findIndex((o) => o.v === overlayDim.value)
+      overlayDim.value = opts[(i + 1) % opts.length].v
+    } },
+    { key: 's', label: '区间统计开关', group: 'view', run: () => toggleStats() },
+    { key: 'c', label: '聚焦开关（仅曲线重叠时）', group: 'mark', when: () => hasOverlap.value, run: () => { focusEnabled.value = !focusEnabled.value } },
+    { key: 'ArrowLeft', label: '上一段（连续数据）', group: 'nav', when: () => isContinuous.value, run: () => pageWindow(-1) },
+    { key: 'ArrowRight', label: '下一段（连续数据）', group: 'nav', when: () => isContinuous.value, run: () => pageWindow(1) },
+    { key: '-', label: '幅度缩小', group: 'zoom', run: () => { ampScale.value = Math.max(0.05, ampScale.value * 0.8) } },
+    { key: '=', label: '幅度放大', group: 'zoom', run: () => { ampScale.value = Math.min(50, ampScale.value * 1.25) } },
+    { key: '0', label: '复位（缩放 + 自动量程）', group: 'zoom', run: () => { resetZoom(); resetYRange() } },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (cursorLocked.value) { onUnlock(); return true } return false },
+    () => { if (regionUserSet.value) { resetStatsRange(); return true } return false },
+    () => { if (isFullscreen.value) { toggleFullscreen(); return true } return false },
+  ],
+})
 
 onMounted(() => {
   document.title = '时域 — 念析'

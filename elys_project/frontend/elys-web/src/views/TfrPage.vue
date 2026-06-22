@@ -1,5 +1,7 @@
 <template>
   <div class="ov-page" ref="pageRef">
+    <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+    <PerfBadge :perf="probe.perf" />
     <!-- 顶部信息条（全屏时隐去） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
@@ -88,7 +90,7 @@
             <div v-show="!collapsed.cmap" class="ov-sec-body">
               <!-- 色卡下拉：当前色卡(渐变条+名字)点开就地展开整列（不浮动，避免被左栏滚动裁切） -->
               <div class="tfr-cmap" ref="cmapRef">
-                <button type="button" class="tfr-cmap-cur" :class="{ 'is-open': cmapOpen }" @click="cmapOpen = !cmapOpen">
+                <button type="button" class="tfr-cmap-cur" :class="{ 'is-open': cmapOpen }" @click="cmapOpen = !cmapOpen" title="配色方案（快捷键 M 循环切换）">
                   <span class="tfr-cmap-sw" :style="{ background: heatmapCssGradient(cmap, 'to right') }"></span>
                   <span class="tfr-cmap-name">{{ currentCmapLabel }}</span>
                   <span class="tfr-cmap-arr">▾</span>
@@ -140,7 +142,7 @@
       <div class="ov-center">
         <div class="ov-ctoolbar">
           <div class="ov-tg ov-tg--lyt">
-            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器（快捷键 [）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
@@ -166,27 +168,19 @@
             <input v-model="zmaxInput" class="ov-cin" type="number" step="0.1" :placeholder="String(autoZmax.toFixed(1))" title="对称色阶上界(留空=自动)" @keydown.enter="applyZmax" @change="applyZmax" />
             <button class="ov-ctb" :class="{ 'is-on': zmaxManual === null }" @click="resetZmax">自动</button>
           </div>
-          <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+          <div class="ov-tg ov-tg--hint ov-help" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">
             <span class="ov-help-trigger">🖱 操作提示</span>
-            <div v-if="showHelp" class="ov-help-pop">
-              <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放时间轴</span></div>
-              <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调色阶</span></div>
-              <div class="ov-help-row"><kbd>拖拽</kbd><span>框选时频 ROI</span></div>
-              <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标 (t,f)</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤 ROI · 框外解锁游标</span></div>
-              <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
-            </div>
           </div>
           <div class="ov-tg ov-tg--lyt ov-tg--end">
-            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏（快捷键 F）' : '全屏（快捷键 F）'">
               <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
               <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
             </button>
             <span class="ov-lyt-sep"></span>
-            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条（快捷键 T）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
             </button>
-            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果（快捷键 ]）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
@@ -391,6 +385,10 @@ import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
 import { decodeElysBin } from '@/composables/observe/binaryCodec'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import { api } from '@/api/client'
 import '@/components/observe/observePage.css'
 
@@ -409,6 +407,7 @@ const TIME_WINDOWS = [
 // ---------- 查询参数 ----------
 const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
+const probe = usePerfProbe('tfr') // 临时性能探针，测完删
 
 // TFR 三级缓存(JSON+IndexedDB，client=api)：cube/单通道热图都是信号派生、不可变，键用 outputId(内容寻址)。
 // gzip 覆盖带宽，这里收益=跨会话重开秒回（尤其 1.8MB 的 cube）。
@@ -469,8 +468,16 @@ const showGrid = ref(false)
 const showStim = ref(true)
 const showTopo = ref(true)
 const showLeft = ref(true)
-const showHelp = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['滚轮'], label: '缩放时间轴' },
+  { keys: ['Ctrl', '滚轮'], label: '调色阶' },
+  { keys: ['拖拽'], label: '框选时频 ROI' },
+  { keys: ['双击'], label: '锁定游标 (t,f)' },
+  { keys: ['右键'], label: '框内撤 ROI · 框外解锁游标' },
+  { keys: ['⬇'], label: '导出本图 PNG' },
+]
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 const cmap = ref<HeatmapCmap>('elys')
@@ -1095,6 +1102,7 @@ async function bootstrap() {
     const m = new Map<string, StudyOutputTfr>()
     m.set(`0::${d.channel}`, d)
     tfrMap.value = m
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     if (d.condition) labelCache[0] = d.condition
     if (!selectedChans.value.size) chanSel.set([d.channel])
     document.title = `时频分析 · ${displayName.value} — 念析`
@@ -1172,6 +1180,55 @@ watch(
 function toggleSec(key: string) {
   collapsed[key] = !collapsed[key]
 }
+
+// ---------- 键盘快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------
+function cycleCmap() {
+  const i = HEATMAP_CMAPS.findIndex((c) => c.key === cmap.value)
+  cmap.value = HEATMAP_CMAPS[(i + 1) % HEATMAP_CMAPS.length].key
+}
+function panTime(dir: number) {
+  const lo = viewTMin.value ?? dataTMin.value
+  const hi = viewTMax.value ?? dataTMax.value
+  const span = hi - lo
+  if (span <= 0) return
+  const step = span * 0.25 * dir
+  let a = lo + step
+  let b = hi + step
+  if (a < dataTMin.value) { b += dataTMin.value - a; a = dataTMin.value }
+  if (b > dataTMax.value) { a -= b - dataTMax.value; b = dataTMax.value }
+  viewTMin.value = a
+  viewTMax.value = b
+  timeWinKey.value = 'all'
+}
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'f', label: '全屏 / 退全屏', group: 'view', run: () => toggleFullscreen() },
+    { key: '[', label: '左栏显隐', group: 'view', run: () => { showLeft.value = !showLeft.value } },
+    { key: ']', label: '右栏（统计）显隐', group: 'view', run: () => { showStats.value = !showStats.value } },
+    { key: 't', label: '地形图显隐', group: 'view', run: () => { showTopo.value = !showTopo.value } },
+    { key: 'g', label: '网格线显隐', group: 'view', run: () => { showGrid.value = !showGrid.value } },
+    { key: 's', label: '区间统计开关', group: 'view', run: () => toggleStats() },
+    { key: 'm', label: '配色循环切换', group: 'view', run: () => cycleCmap() },
+    { key: 'l', label: '游标锁定 / 解锁', group: 'mark', when: () => cursorLocked.value || !!hoveredTF.value, run: () => {
+      if (cursorLocked.value) onUnlock()
+      else if (hoveredTF.value) onLock({ ...hoveredTF.value, value: NaN })
+    } },
+    { key: 'ArrowLeft', label: '时窗左移', group: 'nav', when: () => isTimeZoomed.value, run: () => panTime(-1) },
+    { key: 'ArrowRight', label: '时窗右移', group: 'nav', when: () => isTimeZoomed.value, run: () => panTime(1) },
+    { key: '-', label: '色阶放宽（更平缓）', group: 'zoom', run: () => onAmp(0.8) },
+    { key: '=', label: '色阶收窄（更饱和）', group: 'zoom', run: () => onAmp(1.25) },
+    { key: 'a', label: '色阶自动复位', group: 'zoom', run: () => resetZmax() },
+    { key: '0', label: '复位（时窗 + 频窗 + 色阶）', group: 'zoom', run: () => { resetTRange(); resetFRange(); resetZmax() } },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (cursorLocked.value) { onUnlock(); return true } return false },
+    () => { if (region.value) { region.value = null; return true } return false },
+    () => { if (statsEnabled.value) { statsEnabled.value = false; return true } return false },
+    () => { if (isFullscreen.value) { toggleFullscreen(); return true } return false },
+  ],
+})
 
 onMounted(() => {
   document.title = '时频分析 — 念析'

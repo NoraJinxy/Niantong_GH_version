@@ -2558,6 +2558,7 @@ function applyLiteGraphRunState() {
 function applyLiteGraphNodeRunState(graphNode: LiteGraphNode, nodeId: string, spec?: NodeSpec | null) {
   // 运行已过期（改图后）⇒ 当成无 job 处理：节点回到中性外观，不再挂着上一版运行的「成功 / 等待确认」徽标。
   const job = latestExecutionStale.value ? null : jobForNodeId(nodeId)
+  refreshStatusDependentFacts(graphNode, job?.status || '')
   if (!job) {
     graphNode.color = '#D4DDE8'
     graphNode.boxcolor = categoryColor(spec?.category)
@@ -2568,6 +2569,18 @@ function applyLiteGraphNodeRunState(graphNode: LiteGraphNode, nodeId: string, sp
   graphNode.color = withAlpha(color, 0.34)
   graphNode.boxcolor = color
   graphNode.bgcolor = nodeStatusSoftColor(job.status)
+}
+
+// 交互节点（artifact_mark / ICA apply）卡上提示随状态变（待审核/已确认/运行后审核），但事实文本是重建时的
+// 快照、轮询更新只刷颜色不刷文本。这里在运行态每次刷新时比对状态，变了才重建该卡，让文本跟上（同时避免每帧
+// 无谓重建抖动）。
+const STATUS_DEPENDENT_FACT_NODE_TYPES = new Set(['eeg/preproc/artifact_mark', ICA_APPLY_NODE_TYPE])
+function refreshStatusDependentFacts(graphNode: LiteGraphNode, status: string) {
+  if (!STATUS_DEPENDENT_FACT_NODE_TYPES.has(String((graphNode as { type?: unknown }).type || ''))) return
+  const g = graphNode as { __elysFactStatus?: string }
+  if (g.__elysFactStatus === status) return
+  g.__elysFactStatus = status
+  applyNodeWidgets(graphNode)
 }
 
 // 节点自绘原语 drawNodeAccentBar / drawNodeStatusBadge / drawNodeSaveIcon → composables/pipeline/litegraphUtils
@@ -3717,17 +3730,26 @@ function pushIcaComputeSummary(graphNode: LiteGraphNode, params: Record<string, 
   pushReadonlyFact(graphNode, 'ICA', `${METHOD_LABELS[method] ?? method} · ${nText}`)
 }
 
-/** ICA Apply：解析 excluded_components 文本→成分索引列表，空则提示待审阅。 */
+/** ICA Apply：卡上提示**跟随真实运行状态**（与 artifact_mark 同理，唯「等待确认」可双击进富审核台）。
+ *  等待确认显蓝色「待审阅（双击打开）」；已剔除成分显索引；已完成无剔除显「已确认」；未运行显「运行后双击审阅」。
+ *  实时刷新同样由 refreshStatusDependentFacts 在运行态变化时触发。 */
 function pushIcaApplySummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const raw = String(params.excluded_components ?? '').trim()
-  if (!raw) {
-    pushReadonlyLine(graphNode, '待审阅', { muted: true })
+  const status = (latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode)))?.status || ''
+  const waiting = status === 'waiting_user_input'
+  const done = status === 'success' || status === 'completed' || status === 'cached'
+  if (waiting) {
+    pushReadonlyLine(graphNode, '待审阅（双击打开）', { accent: true })
     return
   }
-  const parts = raw.split(/[,\s]+/).filter(Boolean)
-  const display =
-    parts.length <= 5 ? parts.join(', ') : `${parts.slice(0, 4).join(', ')} +${parts.length - 4}`
-  pushReadonlyFact(graphNode, '排除', display)
+  if (raw) {
+    const parts = raw.split(/[,\s]+/).filter(Boolean)
+    const display =
+      parts.length <= 5 ? parts.join(', ') : `${parts.slice(0, 4).join(', ')} +${parts.length - 4}`
+    pushReadonlyFact(graphNode, '排除', display)
+    return
+  }
+  pushReadonlyLine(graphNode, done ? '已确认 · 无剔除' : '运行后双击审阅', { muted: true })
 }
 
 /** TFR：条件名 + 频率范围 + 基线模式。 */
@@ -3836,14 +3858,25 @@ function countMarkEntries(raw: unknown): number {
   return s.split(/[,\s]+/).filter(Boolean).length
 }
 
-/** Artifact Mark：显已标记的坏段 / 坏道计数（text 字段通用渲染会跳过 → 否则只剩啰嗦的处理方式一行）+ 坏道处理方式。 */
+/** Artifact Mark：卡上提示**跟随真实运行状态**，不再无脑喊「双击打开」（节点早跑完了还喊会误导）。
+ *  唯一能双击进审核台的状态是「等待确认」(waiting_user_input)，故只有它显蓝色行动提示；
+ *  已完成显标记摘要 / 「已确认」，未运行显「运行后双击审核」。状态变化的实时刷新由 applyLiteGraphNodeRunState 触发。 */
 function pushArtifactMarkSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const segCount = countMarkEntries(params.bad_segments)
   const chanCount = countMarkEntries(params.bad_channels)
-  if (segCount === 0 && chanCount === 0) {
-    pushReadonlyLine(graphNode, '待审核（双击打开）', { muted: true })
-  } else {
+  const status = (latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode)))?.status || ''
+  const waiting = status === 'waiting_user_input'
+  const done = status === 'success' || status === 'completed' || status === 'cached'
+  if (waiting) {
+    // 唯一真正可双击进审核台的状态 —— 蓝色行动提示
+    pushReadonlyLine(graphNode, '待审核（双击打开）', { accent: true })
+  } else if (segCount > 0 || chanCount > 0) {
     pushReadonlyFact(graphNode, '标记', `坏段 ${segCount} · 坏道 ${chanCount}`)
+  } else if (done) {
+    pushReadonlyLine(graphNode, '已确认 · 无标记', { muted: true })
+  } else {
+    // 未运行 / 失败：双击此时打不开审核台，别喊「双击打开」
+    pushReadonlyLine(graphNode, '运行后双击审核', { muted: true })
   }
   const action = String(params.channel_action ?? 'mark')
   pushReadonlyFact(graphNode, '坏道', action === 'interpolate' ? '插值修复' : '仅标记')

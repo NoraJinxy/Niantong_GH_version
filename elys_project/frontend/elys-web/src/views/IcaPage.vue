@@ -1,6 +1,8 @@
 <template>
   <WorkbenchShell active-key="ica" active-top-key="analysis">
     <div class="ica-shell">
+      <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+      <PerfBadge :perf="probe.perf" />
       <!-- 顶部工具条 -->
       <div class="ica-toolbar">
         <h1 class="page__title ica-title" style="font-size: 22px; margin: 0">
@@ -16,6 +18,7 @@
         </span>
         <span class="ica-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实 ICA 数据' : '查看模式' }}</span>
         <div style="flex: 1"></div>
+        <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">🖱 操作提示</button>
         <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="load">刷新</button>
       </div>
 
@@ -187,7 +190,7 @@
             <span class="muted text-sm">查看模式 · 在工作流「ICA Apply」节点处打开才能提交</span>
           </template>
           <template v-else>
-            <button class="btn btn--primary" :disabled="!canApply" @click="submitAndReturn">
+            <button class="btn btn--primary" :disabled="!canApply" @click="submitAndReturn" title="应用剔除并续跑工作流（快捷键 Ctrl+Enter）">
               <AppIcon name="check" :size="16" />
               {{ applying ? '提交中…' : '应用并继续' }}
             </button>
@@ -211,6 +214,10 @@ import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import { useIcaComparison } from '@/composables/observe/useIcaComparison'
 import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 
 // ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
 interface TopoPoint { name: string; x: number; y: number; weight: number }
@@ -286,6 +293,7 @@ function qstr(key: string, fallback = ''): string {
 
 const studyId = qstr('studyId') || qstr('study')
 const outputId = qstr('study_output_id') || qstr('dd')
+const probe = usePerfProbe('ica') // 临时性能探针，测完删
 
 // ICA 成分详情(时程+频谱，信号派生、不可变)三级缓存：重点击同一成分秒回。键用 outputId+成分序号。
 // 注：成分网格(components)含可变的 exclude 决策，不进 IDB（避免陈旧命中显示旧决策），且本就小、gzip 够。
@@ -438,6 +446,7 @@ async function load() {
     const res = await dataApi.get<IcaComponentsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components`)
     overview.value = res.data
     components.value = res.data.components || []
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     if (res.data.ch_names?.length && !cmpChannel.value) cmpChannel.value = res.data.ch_names[0]
     // 已存人工决策先生效（空则等 /labels 回来用 ICLabel 建议）
     serverHadExclude = (res.data.exclude || []).length > 0
@@ -505,6 +514,58 @@ async function selectComponent(index: number) {
 function onCellClick(index: number) {
   selectComponent(index)
 }
+
+// ---------- 键盘审阅 + 快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------
+function selectNextComponent() {
+  const list = sortedComponents.value
+  if (!list.length) return
+  const cur = list.findIndex((c) => c.index === selectedIndex.value)
+  selectComponent(list[cur < 0 ? 0 : Math.min(cur + 1, list.length - 1)].index)
+}
+function selectPrevComponent() {
+  const list = sortedComponents.value
+  if (!list.length) return
+  const cur = list.findIndex((c) => c.index === selectedIndex.value)
+  selectComponent(list[cur < 0 ? 0 : Math.max(cur - 1, 0)].index)
+}
+function cycleCompareChannel(dir: 1 | -1) {
+  const chans = overview.value?.ch_names || []
+  if (!chans.length) return
+  const cur = chans.indexOf(cmpChannel.value)
+  cmpChannel.value = chans[((cur < 0 ? 0 : cur) + dir + chans.length) % chans.length]
+}
+function toggleCurrentRemove() {
+  if (selectedIndex.value != null) toggleRemove(selectedIndex.value)
+}
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['单击成分'], label: '看频谱 / 时域' },
+  { keys: ['双击'], label: '标记 / 取消剔除' },
+  { keys: ['勾选框'], label: '标记剔除' },
+  { keys: ['拖动'], label: '平移对比图' },
+  { keys: ['滚轮'], label: '缩放时间' },
+  { keys: ['Ctrl', '滚轮'], label: '缩放幅度' },
+]
+
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'j', label: '下一个成分', group: 'nav', run: () => selectNextComponent() },
+    { key: 'k', label: '上一个成分', group: 'nav', run: () => selectPrevComponent() },
+    { key: 'ArrowDown', label: '下一个成分', group: 'nav', run: () => selectNextComponent() },
+    { key: 'ArrowUp', label: '上一个成分', group: 'nav', run: () => selectPrevComponent() },
+    { key: ',', label: '上一个对比通道', group: 'nav', run: () => cycleCompareChannel(-1) },
+    { key: '.', label: '下一个对比通道', group: 'nav', run: () => cycleCompareChannel(1) },
+    { key: ' ', label: '标记 / 取消剔除当前成分', group: 'mark', when: () => selectedIndex.value != null, run: () => toggleCurrentRemove() },
+    { key: 'x', label: '标记 / 取消剔除当前成分', group: 'mark', when: () => selectedIndex.value != null, run: () => toggleCurrentRemove() },
+    { key: '0', label: '复位缩放', group: 'zoom', when: () => isZoomed.value, run: () => resetZoom() },
+    { key: 'Ctrl+Enter', label: '应用并继续（提交剔除决策）', group: 'general', when: () => canApply.value, run: () => submitAndReturn() },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (isZoomed.value) { resetZoom(); return true } return false },
+  ],
+})
 
 function describeError(err: unknown): string {
   const e = err as { response?: { data?: { detail?: { message?: string } | string } }; message?: string }

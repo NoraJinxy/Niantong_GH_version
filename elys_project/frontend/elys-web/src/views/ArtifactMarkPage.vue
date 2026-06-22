@@ -1,6 +1,8 @@
 <template>
   <WorkbenchShell active-key="pipeline" active-top-key="analysis">
     <div class="am-shell">
+      <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+      <PerfBadge :perf="probe.perf" />
       <div class="am-toolbar">
         <h1 class="page__title am-title" style="font-size: 22px; margin: 0">
           <AppIcon name="pulse" :size="22" /> 伪迹审核 · 标坏段 / 坏道
@@ -9,20 +11,13 @@
           {{ chNames.length }} 通道 · {{ totalDuration.toFixed(1) }} s · {{ sfreq }} Hz
         </span>
         <span class="am-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实数据' : '查看模式' }}</span>
-        <span v-if="isLive && perf.firstPaint != null" class="am-perf" title="首屏分阶段耗时（诊断用，定位后会移除）">
-          <AppIcon name="clock" :size="13" />
-          初始化 {{ perf.mount ?? '·' }} · 拿交互 {{ perf.interaction ?? '·' }} · 取首窗 {{ perf.window ?? '·' }} · 渲染 {{ perf.render ?? '·' }} · 概览 {{ perf.overview ?? '…' }}<span class="am-perf-u"> ms</span>
-        </span>
         <div style="flex: 1"></div>
         <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="reload">刷新</button>
       </div>
 
       <!-- 左栏：地形图 + 通道 + 滤波 + 信息（检测 / 清空已移到右栏） -->
       <aside class="am-left" v-if="isLive">
-        <div class="am-card" v-if="topoCells.length">
-          <div class="am-card-h">实时地形图 · 跟随游标</div>
-          <TopoStrip :cells="topoCells" :vmax="topoVmax" subtitle="" unit="µV" />
-        </div>
+        <TopoStrip v-if="topoCells.length" :cells="topoCells" :vmax="topoVmax" subtitle="" unit="µV" bare />
 
         <div class="am-card am-card--grow" v-if="ts">
           <div class="am-card-h">通道 · 点名标坏道</div>
@@ -91,7 +86,15 @@
               <button v-for="p in winPresets" :key="p.label" :class="{ on: isWinPreset(p.v) }" @click="setWinLen(p.v)">{{ p.label }}</button>
             </span>
             <label class="am-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
-            <span class="am-hint">← → 移窗 · 滚轮缩放 · Ctrl+滚轮调幅 · 拖动框选坏段 · 右键删段 · 下方全程概览拖动定位</span>
+            <span class="am-chanpager" v-if="totalCh">
+              <button class="am-pgbtn" :disabled="chanStart <= 0" @click="chanPageBy(-1)" title="上一页通道">▲</button>
+              <span class="am-chanrange">通道 {{ chanStart + 1 }}–{{ chanEnd }} / {{ totalCh }}</span>
+              <button class="am-pgbtn" :disabled="chanEnd >= totalCh" @click="chanPageBy(1)" title="下一页通道">▼</button>
+              <span class="am-presets">
+                <button v-for="p in chanPresets" :key="p.label" :class="{ on: isChanPreset(p.v) }" @click="setChanPerPage(p.v)">{{ p.label }}</button>
+              </span>
+            </span>
+            <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">🖱 操作提示</button>
             <span class="am-modeswitch">
               <button :class="{ on: displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
               <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
@@ -154,7 +157,7 @@
       <!-- 右栏：检测工具 / 坏段 / 坏道 / 处理方式 / 应用 -->
       <aside class="am-right" v-if="isLive">
         <div class="am-detect-group">
-          <button class="am-detect" :disabled="autoRunning || !jobContext" @click="autoDetect">
+          <button class="am-detect" :disabled="autoRunning || !jobContext" @click="autoDetect" title="自动检测坏段 / 坏道（快捷键 Shift+D）">
             <AppIcon name="sparkles" :size="18" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
           </button>
           <button class="am-clear" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
@@ -187,7 +190,7 @@
             <option value="interpolate">修复（改数据，需坐标）</option>
           </select>
         </div>
-        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn">
+        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn" title="确认标记并续跑工作流（快捷键 Ctrl+Enter）">
           <AppIcon name="check" :size="16" /> {{ applying ? '提交中…' : applyLabel }}
         </button>
         <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
@@ -201,11 +204,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, dataApi } from '@/api/client'
 import { decodeBinary } from '@/composables/observe/plotCache'
 import { idbGet, idbSet } from '@/composables/observe/idbCache'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
@@ -220,10 +227,8 @@ const GRAY = '#79859A'
 const PALETTE = ['#3F5E8F', '#2E8B9A', '#8A6FB0', '#B0794F', '#5E8F6B', '#9A6B6B']
 const PRIMARY = '#3F5E8F'
 const OV_W = 470
+const probe = usePerfProbe('artifact') // 临时性能探针，测完删
 
-// 首屏诊断探针：分阶段计时，定位「打开页面卡在取数还是初始化」。定位清楚后整套(perf/tSetup/计时点/计时条)可删。
-const tSetup = performance.now()
-const perf = ref<{ mount?: number; interaction?: number; window?: number; render?: number; firstPaint?: number; overview?: number }>({})
 
 const route = useRoute()
 function qstr(key: string, fallback = ''): string {
@@ -256,7 +261,13 @@ const ampScale = ref(1) // Ctrl+滚轮微调波幅（在 ampUv 基准上再缩�
 const viewMin = ref<number | null>(null) // 滚轮缩放时间轴的受控视窗（null=全窗）
 const viewMax = ref<number | null>(null)
 const cursorLockedX = ref<number | null>(null) // 双击锁定游标 → 冻结地形图到该时刻
+const cursorX = ref<number | null>(null) // 游标当前时刻（秒，绝对）→ 地形图标题显示「在看哪一刻」，无游标=区间均值
 const displayMode = ref<'spread' | 'overlay'>('spread')
+// 通道分页：高密度脑电(64/128/256 道)全塞一屏看不清 → 一屏只渲染 chanPerPage 道、纵向翻页浏览（参考 MNE n_channels / EEGLAB dispchans）。
+// 全部通道仍随窗加载（地形图 / 概览 / 自动检测 / 左栏点名标坏道都跨全通道，不受分页影响）；分页只切「画布画哪几道」。
+const CHAN_ALL = 9999 // 「全部」哨兵（大于任何真实通道数）
+const chanPerPage = ref(32) // 一屏道数
+const chanStart = ref(0) // 当前页页首道在全通道列表里的下标
 
 const filterEnabled = ref(false)
 const lFreq = ref(1)
@@ -270,6 +281,8 @@ const topoValues = ref<Record<string, number>>({})
 
 const autoRunning = ref(false)
 const autoMsg = ref('')
+// 坏段复核：j/k 在已标段间跳转，记当前停在第几段（-1=未进入复核）
+const reviewSegIdx = ref(-1)
 
 // 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与 ICA 共用同一套
 const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline } = useReviewerHandoff({
@@ -303,24 +316,43 @@ function colorOf(name: string): string {
   return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]
 }
 
+// 通道分页派生量：visibleChannels=当前页要画的那几道；其余仍在 ts.value 里供地形图/概览/点名用。
+const totalCh = computed(() => ts.value?.channels.length ?? 0)
+const effChanPerPage = computed(() => Math.min(chanPerPage.value, Math.max(1, totalCh.value)))
+const maxChanStart = computed(() => Math.max(0, totalCh.value - effChanPerPage.value))
+const chanEnd = computed(() => Math.min(chanStart.value + effChanPerPage.value, totalCh.value)) // 不含
+const visibleChannels = computed(() => (ts.value ? ts.value.channels.slice(chanStart.value, chanEnd.value) : []))
+
 const chartData = computed<number[][]>(() => {
   if (!ts.value) return [[], []]
-  return [ts.value.times, ...ts.value.channels.map((c) => c.values)]
+  return [ts.value.times, ...visibleChannels.value.map((c) => c.values)]
 })
+// 颜色按通道在全列表里的原始下标取（colorOf），翻页 / 置灰时各道颜色稳定、且与左栏圆点一致。
 const chartSeries = computed(() =>
-  (ts.value?.channels || []).map((c, i) => ({ name: c.name, color: badChannels.value.has(c.name) ? GRAY : PALETTE[i % PALETTE.length] })),
+  visibleChannels.value.map((c) => ({ name: c.name, color: badChannels.value.has(c.name) ? GRAY : colorOf(c.name) })),
 )
+
+// 游标时刻 → 友好读数：<1s 用 ms、否则秒（2 位）；锁定时加标注；无游标=区间均值
+function fmtTopoTime(t: number): string {
+  if (!Number.isFinite(t)) return ''
+  return Math.abs(t) < 1 ? `${(t * 1000).toFixed(0)} ms` : `${t.toFixed(2)} s`
+}
+const topoLabel = computed(() => {
+  if (cursorLockedX.value != null) return `${fmtTopoTime(cursorLockedX.value)} · 锁定`
+  if (cursorX.value != null) return fmtTopoTime(cursorX.value)
+  return '区间均值'
+})
 
 // 地形图：电极 2D 坐标 + 游标时刻各通道值（无游标用窗口均值）；单 cell 喂 TopoStrip
 const topoCells = computed<TopoCell[]>(() => {
-  // 用窗口(ts)的坐标——它取全部通道；概览(overview)只取 16 通道(算包络用)，坐标也只有 16，不能用来画地形图
+  // 用窗口(ts)的坐标与逐通道值——地形图要的是当前窗 / 游标时刻的瞬时头皮场；概览(overview)是高通 + 下采样的全程包络，非本窗瞬时值，不拿来画地形图
   const pos = ts.value?.ch_pos
   if (!pos) return []
   const pts = Object.keys(pos)
     .filter((name) => pos[name])
     .map((name) => ({ name, x: pos[name]![0], y: pos[name]![1], value: topoValues.value[name] ?? 0 }))
   if (pts.length < 3) return []
-  return [{ seg: 0, label: '当前时刻', color: PRIMARY, points: pts }]
+  return [{ seg: 0, label: topoLabel.value, color: PRIMARY, points: pts }]
 })
 const topoVmax = computed(() => {
   let m = 0
@@ -345,8 +377,11 @@ const ovPolyline = computed(() => {
   if (!o || !env.length) return ''
   const t0 = o.times[0]; const t1 = o.times[o.times.length - 1]
   const span = Math.max(1e-6, t1 - t0)
-  const maxAbs = Math.max(1e-9, ...env)
-  return env.map((v, i) => `${((o.times[i] - t0) / span * OV_W).toFixed(1)},${(31 - (v / maxAbs) * 28).toFixed(1)}`).join(' ')
+  // 稳健归一化：满格基准取 99 分位而非全程最大值——单个电极 pop（极端离群）不再把其余真实事件压扁；
+  // 超基准者钳在顶端（Math.min 1）。
+  const sorted = [...env].sort((a, b) => a - b)
+  const norm = Math.max(1e-9, sorted[Math.floor(0.99 * (sorted.length - 1))])
+  return env.map((v, i) => `${((o.times[i] - t0) / span * OV_W).toFixed(1)},${(31 - Math.min(1, v / norm) * 28).toFixed(1)}`).join(' ')
 })
 const ovDragStart = ref<number | null>(null) // 全览带拖动中的预览窗口起点：拖动时只移指示块、不发请求，松手才取数
 const ovWinX = computed(() => (((ovDragStart.value ?? winStart.value) - rangeMin.value) / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
@@ -405,11 +440,23 @@ function mergeInSegment(seg: ArtifactBadSegment) {
   }
   badSegments.value = merged
 }
+// 游标 / 锁定时刻的地形图取值：直接从 ts（全通道）按最近时刻采样，而非画布 emit 的 items——
+// 画布分页后只 emit 当前页那几道，靠它会把地形图退化成只剩本页电极；地形图须保持全头。
+function sampleTopoAt(x: number): Record<string, number> {
+  const out: Record<string, number> = {}
+  const t = ts.value
+  if (!t || !t.times.length) return out
+  const times = t.times
+  let lo = 0, hi = times.length - 1
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (times[mid] < x) lo = mid + 1; else hi = mid }
+  if (lo > 0 && Math.abs(times[lo - 1] - x) <= Math.abs(times[lo] - x)) lo -= 1
+  for (const ch of t.channels) out[ch.name] = ch.values[lo] ?? 0
+  return out
+}
 function onCursor(payload: { x: number; items: { name: string; uv: number }[] } | null) {
   if (!payload) return
-  const next: Record<string, number> = {}
-  for (const it of payload.items) next[it.name] = it.uv
-  topoValues.value = next
+  cursorX.value = payload.x
+  topoValues.value = sampleTopoAt(payload.x)
 }
 
 function stepWindow(dir: number) { setWinStart(winStart.value + dir * winLen.value * 0.25) }
@@ -442,6 +489,23 @@ function isWinPreset(v: number): boolean {
   if (v <= 0) return winLen.value >= (totalDuration.value || 0) - 0.5
   return Math.abs(winLen.value - v) < 0.5
 }
+// 通道分页档位（仿窗长档位）：CHAN_ALL=「全部」=回到全通道一屏
+const chanPresets = [
+  { v: 16, label: '16' },
+  { v: 32, label: '32' },
+  { v: 64, label: '64' },
+  { v: CHAN_ALL, label: '全部' },
+]
+function setChanPerPage(v: number) { chanPerPage.value = v } // chanStart 由下方 watch 夹取
+function isChanPreset(v: number): boolean {
+  if (v >= CHAN_ALL) return chanPerPage.value >= totalCh.value // 「全部」=每屏≥总道数
+  return chanPerPage.value === v
+}
+function chanPageBy(dir: number) {
+  chanStart.value = Math.max(0, Math.min(maxChanStart.value, chanStart.value + dir * effChanPerPage.value))
+}
+// 通道数（换数据）/ 每页道数变 → 夹住页首，避免越界空页
+watch([totalCh, chanPerPage], () => { if (chanStart.value > maxChanStart.value) chanStart.value = maxChanStart.value })
 // 全览带：按光标 x 算出「窗口起点」（光标落点居中），拖动定位
 function ovStartFromClientX(clientX: number, el: HTMLElement): number {
   const rect = el.getBoundingClientRect()
@@ -463,15 +527,48 @@ function ovPointerUp() {
   ovDragStart.value = null
 }
 function seekToSegment(seg: ArtifactBadSegment) { setWinStart(seg.onset - winLen.value / 2) }
+
+// —— 键盘审阅辅助（j/k 跳段、Space/x 标记、Delete 删段）——
+function reviewSeg(dir: number) {
+  const n = badSegments.value.length
+  if (!n) return
+  let idx = reviewSegIdx.value
+  if (idx < 0) idx = dir > 0 ? 0 : n - 1
+  else idx = Math.min(n - 1, Math.max(0, idx + dir))
+  reviewSegIdx.value = idx
+  seekToSegment(badSegments.value[idx])
+}
+function cursorTime(): number {
+  if (cursorLockedX.value != null) return cursorLockedX.value
+  if (cursorX.value != null) return cursorX.value
+  return winStart.value + winLen.value / 2
+}
+function segIndexAtCursor(): number {
+  const t = cursorTime()
+  return badSegments.value.findIndex((s) => t >= s.onset && t <= s.onset + s.duration)
+}
+function toggleSegAtCursor() {
+  const idx = segIndexAtCursor()
+  if (idx >= 0) { badSegments.value = badSegments.value.filter((_, i) => i !== idx); return }
+  const t = cursorTime()
+  const dur = Math.min(1, Math.max(0.2, winLen.value / 4))
+  mergeInSegment({ onset: Math.max(rangeMin.value, t - dur / 2), duration: dur, source: 'manual' })
+}
+function deleteSegAtCursor() {
+  let idx = segIndexAtCursor()
+  if (idx < 0 && reviewSegIdx.value >= 0 && reviewSegIdx.value < badSegments.value.length) idx = reviewSegIdx.value
+  if (idx >= 0) {
+    badSegments.value = badSegments.value.filter((_, i) => i !== idx)
+    reviewSegIdx.value = -1
+  }
+}
 function onZoom(view: { min: number; max: number } | null) {
   viewMin.value = view ? view.min : null
   viewMax.value = view ? view.max : null
 }
 function onLock(payload: { x: number; items: { name: string; uv: number }[] }) {
   cursorLockedX.value = payload.x
-  const next: Record<string, number> = {}
-  for (const it of payload.items) next[it.name] = it.uv
-  topoValues.value = next // 冻结地形图到锁定时刻
+  topoValues.value = sampleTopoAt(payload.x) // 冻结地形图到锁定时刻（全头，按 ts 采样）
 }
 function onUnlock() { cursorLockedX.value = null }
 
@@ -525,7 +622,13 @@ async function fetchInputTs(params: Record<string, number | undefined>): Promise
   return data
 }
 async function loadOverview() {
-  overview.value = await fetchInputTs({ max_points: 1500, max_channels: 16 })
+  // 「全程」概览必须显式传满量程 tmin/tmax——端点 tmax=None 时后端按 RAW_DEFAULT_WINDOW_SEC 只回前 10s，
+  // 而红线 x 用返回数据自身时间范围、蓝框/跳窗用 0..total → 两套尺度错位，前 10s 被拉伸铺满整条 0..71s 轴。
+  // l_freq=1 高通去掉直流/慢漂移（否则漂移幅值霸占跨通道包络，画出与瞬时伪迹无关的鼓包）。
+  // max_channels 取全通道（不再只前 16 路偏额区），后枕 / 颞区伪迹也能进概览。
+  const span = totalDuration.value
+  if (!(span > 0)) return // 还没拿到时长（reload 已先 loadWindow，极少触发），跳过避免 tmax=0 退化成 10s 默认窗
+  overview.value = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1 })
 }
 async function loadWindow() {
   viewMin.value = null // 换窗 → 回到整窗视图（清掉上一窗的滚轮缩放）
@@ -553,25 +656,12 @@ async function reload() {
   if (!isLive.value) return
   loading.value = true
   error.value = ''
-  const t0 = performance.now() // 诊断探针
   try {
-    const tA = performance.now()
     await loadInteraction()
-    const tB = performance.now()
     await loadWindow() // 先画当前窗（快）→ 波形立即可见
-    const tC = performance.now()
-    // 各阶段耗时：拿交互(入口) / 取首窗(计算·可能读整文件) / 首屏可见(两者串行总和)
-    perf.value = { ...perf.value, interaction: Math.round(tB - tA), window: Math.round(tC - tB), firstPaint: Math.round(tC - t0) }
-    // 渲染：首窗数据 → 下一帧（含 Vue patch + TimeCourseCanvas/uPlot 首次绘制 63 通道）
-    requestAnimationFrame(() => { perf.value = { ...perf.value, render: Math.round(performance.now() - tC) } })
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     document.title = `伪迹审核 · ${ts.value?.channels.length ?? 0} 通道 — 念析`
-    const tD = performance.now()
-    void loadOverview()
-      .then(() => {
-        perf.value = { ...perf.value, overview: Math.round(performance.now() - tD) }
-        console.log('[artifact 首屏耗时 ms]', { ...perf.value }) // 诊断探针，定位后可删
-      })
-      .catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
+    void loadOverview().catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
   } catch (err: unknown) {
     // 节点已不在「等待人工」态（已处理/已续跑）→ /interaction 404 → 友好提示而非裸错误
     const msg = describeError(err)
@@ -640,19 +730,47 @@ function describeError(err: unknown): string {
   return e?.message || '加载失败'
 }
 
-onMounted(() => {
-  perf.value = { ...perf.value, mount: Math.round(performance.now() - tSetup) } // 诊断探针：setup→挂载(组件初始化，不含取数)
-  void reload()
-})
+onMounted(reload)
 
-// 键盘左右移窗（顶部箭头已撤；← →=步进 1/4 窗，Shift+← →=整窗翻页）
-function onKeydown(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
-  if (e.key === 'ArrowLeft') { e.preventDefault(); (e.shiftKey ? shiftWindow : stepWindow)(-1) }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); (e.shiftKey ? shiftWindow : stepWindow)(1) }
+// ---------- 键盘快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡；含输入框/合成态守卫）----------
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['拖动'], label: '框选坏段' },
+  { keys: ['右键'], label: '删除坏段' },
+  { keys: ['滚轮'], label: '缩放时间' },
+  { keys: ['Ctrl', '滚轮'], label: '调幅度' },
+  { keys: ['点通道名'], label: '标记坏道' },
+  { keys: ['概览拖动'], label: '定位窗口' },
+]
+
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'ArrowLeft', label: '左移窗 1/4', group: 'nav', when: () => isLive.value, run: () => stepWindow(-1) },
+    { key: 'ArrowRight', label: '右移窗 1/4', group: 'nav', when: () => isLive.value, run: () => stepWindow(1) },
+    { key: 'Shift+ArrowLeft', label: '上一整窗', group: 'nav', when: () => isLive.value, run: () => shiftWindow(-1) },
+    { key: 'Shift+ArrowRight', label: '下一整窗', group: 'nav', when: () => isLive.value, run: () => shiftWindow(1) },
+    { key: 'j', label: '上一个坏段', group: 'nav', when: () => badSegments.value.length > 0, run: () => reviewSeg(-1) },
+    { key: 'k', label: '下一个坏段', group: 'nav', when: () => badSegments.value.length > 0, run: () => reviewSeg(1) },
+    { key: '1', label: '窗长 5s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(5) },
+    { key: '2', label: '窗长 10s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(10) },
+    { key: '3', label: '窗长 30s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(30) },
+    { key: '4', label: '窗长 全程', group: 'zoom', when: () => isLive.value, run: () => setWinLen(0) },
+    { key: '0', label: '复位缩放', group: 'zoom', when: () => isLive.value, run: () => onZoom(null) },
+    { key: ' ', label: '标记 / 取消游标处段', group: 'mark', when: () => isLive.value, run: () => toggleSegAtCursor() },
+    { key: 'x', label: '标记 / 取消游标处段', group: 'mark', when: () => isLive.value, run: () => toggleSegAtCursor() },
+    { key: 'Delete', label: '删游标处段', group: 'mark', when: () => isLive.value, run: () => deleteSegAtCursor() },
+    { key: 'Backspace', label: '删游标处段', group: 'mark', when: () => isLive.value, run: () => deleteSegAtCursor() },
+    { key: 'Shift+d', label: '自动检测异常', group: 'mark', when: () => jobContext.value && !autoRunning.value, run: () => autoDetect() },
+    { key: 'Ctrl+Enter', label: '确认并续跑（危险）', group: 'general', when: () => canApply.value, run: () => submitAndReturn() },
+  ]
 }
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (cursorLockedX.value != null) { onUnlock(); return true } return false },
+    () => { if (viewMin.value != null || viewMax.value != null) { onZoom(null); return true } return false },
+    () => { if (reviewSegIdx.value >= 0) { reviewSegIdx.value = -1; return true } return false },
+  ],
+})
 </script>
 
 <style scoped>
@@ -663,8 +781,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
 .am-source.is-real { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
 .am-source.is-demo { background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
-.am-perf { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
-.am-perf-u { opacity: 0.7; }
 
 .am-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .am-card { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 6px 7px; }
@@ -708,6 +824,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .am-modeswitch { margin-left: auto; display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
 .am-modeswitch button { padding: 2px 9px; font-size: 12px; border: none; background: transparent; color: var(--c-text-2); cursor: pointer; }
 .am-modeswitch button.on { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
+.am-chanpager { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; color: var(--c-text-2); }
+.am-pgbtn { padding: 1px 5px; font-size: 11px; line-height: 1.2; border: 1px solid var(--c-border); border-radius: 5px; background: transparent; color: var(--c-text-2); cursor: pointer; }
+.am-pgbtn:disabled { opacity: .4; cursor: default; }
+.am-chanrange { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 96px; text-align: center; }
 .am-chart { flex: 1; min-height: 380px; position: relative; }
 .am-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: grab; touch-action: none; user-select: none; }
 .am-overview:active { cursor: grabbing; }

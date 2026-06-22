@@ -1,5 +1,7 @@
 <template>
   <div class="ov-page" ref="pageRef">
+    <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+    <PerfBadge :perf="probe.perf" />
     <!-- 顶部信息条（全屏时隐去） -->
     <header v-show="!isFullscreen" class="ov-head">
       <div class="ov-id">
@@ -144,24 +146,22 @@
                 <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'auto' }" title="相对均值：每张图各自以全脑平均为基准着色，红=偏强、蓝=偏弱，看空间分布" @click="topoScaleMode = 'auto'">相对均值</button>
                 <button class="ov-mini2" :class="{ 'is-on': topoScaleMode === 'linked' }" title="对齐主图：色阶跟随主图 dB 量程，多张图强弱可直接横向比较" @click="topoScaleMode = 'linked'">对齐主图</button>
               </div>
-              <div v-if="showTopo" class="ov-grid2-lbl" style="margin-top: 6px">频率</div>
-              <div v-if="showTopo && presentBands.length" class="psd-bandpills" style="margin-top: 4px">
+              <div v-if="showTopo" class="ov-grid2-lbl" style="margin-top: 6px">频率来源</div>
+              <div v-if="showTopo" class="ov-topo-mode">
+                <button class="ov-mini2" :class="{ 'is-on': topoSource === 'range' }" title="区间：取某频率区间的平均功率（点下方频段快捷填入、可手改）" @click="topoSource = 'range'">区间</button>
+                <button class="ov-mini2" :class="{ 'is-on': topoSource === 'cursor' }" title="跟随鼠标：移到谱线上实时更新该频率的地形图" @click="topoSource = 'cursor'">跟随鼠标</button>
+              </div>
+              <div v-if="showTopo && topoSource === 'range' && presentBands.length" class="psd-bandpills" style="margin-top: 4px; align-items: center">
+                <span class="ov-row-lbl">快捷</span>
                 <button
                   v-for="b in presentBands"
                   :key="b.name"
                   type="button"
                   class="psd-bandpill"
-                  :class="{ 'is-on': topoSource === 'range' && activeTopoBand === b.name }"
+                  :class="{ 'is-on': activeTopoBand === b.name }"
                   :title="`${b.label} 频段 ${b.lo}–${b.hi} Hz（点选填入区间，可再手改）`"
                   @click="selectTopoBand(b)"
                 >{{ b.label }} {{ b.lo }}–{{ b.hi }}</button>
-                <button
-                  type="button"
-                  class="psd-bandpill"
-                  :class="{ 'is-on': topoSource === 'cursor' }"
-                  title="跟随鼠标：移到谱线上实时更新该频率的地形图"
-                  @click="topoSource = 'cursor'"
-                >跟随鼠标</button>
               </div>
               <div v-if="showTopo && topoSource === 'range'" class="ov-row" style="margin-top: 4px; gap: 4px; align-items: center; flex-wrap: nowrap">
                 <span class="ov-row-lbl">区间</span>
@@ -180,7 +180,7 @@
       <div class="ov-center">
         <div class="ov-ctoolbar">
           <div class="ov-tg ov-tg--lyt">
-            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器">
+            <button class="ov-lyt" :class="{ 'is-on': showLeft }" @click="showLeft = !showLeft" title="左栏 · 选择器（快捷键 [）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
@@ -193,8 +193,8 @@
               <option v-for="w in FREQ_WINDOWS" :key="w.key" :value="w.key">{{ w.label }}</option>
             </select>
             <button class="ov-ctb" :disabled="!isZoomed" @click="resetZoom">重置</button>
-            <button class="ov-ctb" :class="{ 'is-on': !logX }" @click="logX = false" title="线性频率轴">线性</button>
-            <button class="ov-ctb" :class="{ 'is-on': logX }" @click="logX = true" title="对数频率轴（看 1/f 与低频）">对数</button>
+            <button class="ov-ctb" :class="{ 'is-on': !logX }" @click="logX = false" title="线性频率轴（快捷键 L 切换）">线性</button>
+            <button class="ov-ctb" :class="{ 'is-on': logX }" @click="logX = true" title="对数频率轴 · 看 1/f 与低频（快捷键 L 切换）">对数</button>
           </div>
           <div class="ov-tg">
             <span class="ov-lbl">Y(dB)</span>
@@ -207,27 +207,19 @@
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             <button class="ov-ctb" :class="{ 'is-on': displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
           </div>
-          <div class="ov-tg ov-tg--hint ov-help" @mouseenter="showHelp = true" @mouseleave="showHelp = false">
+          <div class="ov-tg ov-tg--hint ov-help" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">
             <span class="ov-help-trigger">🖱 操作提示</span>
-            <div v-if="showHelp" class="ov-help-pop">
-              <div class="ov-help-row"><kbd>滚轮</kbd><span>缩放频率轴</span></div>
-              <div class="ov-help-row"><kbd>Ctrl</kbd><span class="ov-help-plus">+</span><kbd>滚轮</kbd><span>调 dB 范围</span></div>
-              <div class="ov-help-row"><kbd>拖拽</kbd><span>选频段区间</span></div>
-              <div class="ov-help-row"><kbd>双击</kbd><span>锁定游标</span></div>
-              <div class="ov-help-row"><kbd>右键</kbd><span>框内撤区间 · 框外解锁游标</span></div>
-              <div class="ov-help-row"><kbd>⬇</kbd><span>导出本图 PNG</span></div>
-            </div>
           </div>
           <div class="ov-tg ov-tg--lyt ov-tg--end">
-            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+            <button class="ov-lyt" :class="{ 'is-on': isFullscreen }" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏（快捷键 F）' : '全屏（快捷键 F）'">
               <svg v-if="!isFullscreen" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5V4h3.5M16 7.5V4h-3.5M4 12.5V16h3.5M16 12.5V16h-3.5" /></svg>
               <svg v-else viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4v3.5H4M12.5 4v3.5H16M7.5 16v-3.5H4M12.5 16v-3.5H16" /></svg>
             </button>
             <span class="ov-lyt-sep"></span>
-            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条">
+            <button class="ov-lyt" :class="{ 'is-on': showTopo }" @click="showTopo = !showTopo" title="底部 · 地形图条（快捷键 T）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="3.6" y="11.2" width="12.8" height="4.2" rx="1" fill="currentColor" /></svg>
             </button>
-            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果">
+            <button class="ov-lyt" :class="{ 'is-on': showStats }" @click="showStats = !showStats" title="右栏 · 统计结果（快捷键 ]）">
               <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="12.4" y="4.6" width="4" height="10.8" rx="1" fill="currentColor" /></svg>
             </button>
           </div>
@@ -269,13 +261,15 @@
                     :ref-lines="false"
                     :markers="cellPsdMarkers(cell.segs)"
                     :highlight="effectiveFocus"
-                    :pickable="hasOverlap"
+                    :pickable="hasOverlap && focusEnabled"
                     :show-legend="ci === legendCellIndex"
                     :dense-axes="denseAxes"
                     :hide-x-labels="cellHideX(ci)"
                     :hide-y-labels="cellHideY(ci)"
                     :locked="cursorLocked"
                     :locked-x="lockedReadout?.x ?? null"
+                    :sync-cursor-x="cursorLocked ? null : (cursorReadout?.x ?? null)"
+                    solid-cursor
                     :view-min="viewXMin"
                     :view-max="viewXMax"
                     :log-x="logX"
@@ -318,7 +312,7 @@
         <div class="ov-right-head">
           <strong><span class="ov-right-dot"></span>统计结果</strong>
           <div class="ov-right-btns">
-            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条谱线重叠时可用）：直接单击图中某条谱线即进入——加粗它、淡化其余、右栏显示其 IAF / 相对功率 / 比值；点此开关可一键退出聚焦">◎ 焦点</button>
+            <button v-if="hasOverlap" class="ov-rbtn" :class="{ 'is-on': focusEnabled }" @click="focusEnabled = !focusEnabled" title="聚焦（仅多条谱线重叠时可用）：开启后单击图中某条谱线即聚焦——高亮它、淡化其余、右栏显示其 IAF / 相对功率 / 比值；未开启时单击谱线不响应">◎ 焦点</button>
             <button class="ov-rbtn" @click="copyStats">{{ copied ? '✓ 已复制' : '📋 复制' }}</button>
             <button class="ov-rbtn" @click="exportCsv">⬇ CSV</button>
           </div>
@@ -379,7 +373,7 @@
               </div>
             </div>
           </template>
-          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">单击图中任意一条谱线，即可聚焦查看其主频 IAF / 相对功率 / 比值。</div>
+          <div v-else-if="hasOverlap && !focusEnabled" class="ov-focus-hint">开启上方「◎ 焦点」后，单击图中谱线即可聚焦查看其主频 IAF / 相对功率 / 比值。</div>
 
           <!-- ② 区间统计：默认关——点开关或图上横向框选一段频率才出逐通道明细 + 图上着色带；精确范围 + δθαβγ 频段胶囊收纳于此（从旧左栏面板迁来）。三页（时域/频域/时频）统一为此「默认关、按需开」模式。 -->
           <div class="ov-stat-block">
@@ -456,6 +450,11 @@ import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { decodeElysBin } from '@/composables/observe/binaryCodec'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import { api } from '@/api/client'
 import '@/components/observe/observePage.css'
 
@@ -484,6 +483,7 @@ const FREQ_WINDOWS = [
 // ---------- 查询参数 ----------
 const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
+const probe = usePerfProbe('psd') // 临时性能探针，测完删
 
 // PSD 三级缓存：gzip 已覆盖带宽，这里走 JSON + IndexedDB（跨会话重开同结果秒回）。键用 outputId（内容寻址、产物不变键不变）。
 const psdFetch = useTieredFetch<StudyOutputPsd>({
@@ -491,6 +491,21 @@ const psdFetch = useTieredFetch<StudyOutputPsd>({
   client: api,
   endpoint: (p) => `/studies/${studyId}/outputs/${String(p.oid)}/psd`,
   keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.max_channels)}`,
+  // 二进制(ELYSBIN1)：power 矩阵转 f4，省 JSON.parse/传输。按后端 C-order 镜像重组；形状不符即抛 → 回退 JSON。
+  decodeBinary: (buf) => {
+    const { meta, arrays } = decodeElysBin(buf)
+    const m = meta as unknown as StudyOutputPsd
+    const freqs = arrays.freqs
+    const power = arrays.power
+    const chs = (m.channels ?? []) as StudyOutputPsd['channels']
+    const nf = freqs?.length ?? 0
+    if (!power || !freqs || power.length !== chs.length * nf) throw new Error('psd shape mismatch')
+    m.freqs = Array.from(freqs)
+    for (let ci = 0; ci < chs.length; ci++) {
+      chs[ci].power = Array.from(power.subarray(ci * nf, ci * nf + nf))
+    }
+    return m
+  },
 })
 const outputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
 const datasetId = outputIds[0] || ''
@@ -507,8 +522,16 @@ const labelCache = reactive<Record<number, string>>({})
 const showStats = ref(true)
 const showGrid = ref(true)
 const showLeft = ref(true)
-const showHelp = ref(false)
 const displayMode = ref<'overlay' | 'spread'>('overlay')
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['滚轮'], label: '缩放频率轴' },
+  { keys: ['Ctrl', '滚轮'], label: '调 dB 范围' },
+  { keys: ['拖拽'], label: '选频段区间' },
+  { keys: ['双击'], label: '锁定游标' },
+  { keys: ['右键'], label: '框内撤区间 · 框外解锁游标' },
+  { keys: ['⬇'], label: '导出本图 PNG' },
+]
 const pageRef = ref<HTMLElement | null>(null)
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
@@ -740,7 +763,7 @@ watch([viewXMin, viewXMax], ([mn, mx]) => {
 
 // ---------- 游标 ----------
 type Item = { name: string; color: string; uv: number }
-const { cursorLocked, lockedReadout, displayReadout, cursorState, cursorStateText, cursorStateHint, onCursor, onLock, onUnlock } =
+const { cursorReadout, cursorLocked, lockedReadout, displayReadout, cursorState, cursorStateText, cursorStateHint, onCursor, onLock, onUnlock } =
   useCursorState<Item>({ fmtX, xUnit: () => 'Hz' })
 const hoverExpanded = ref(false)
 const lastHoverItems = ref<{ name: string; color: string; uv: number }[]>([])
@@ -762,12 +785,12 @@ const selectedCurve = ref('') // 焦点选中的通道名（''=未选）——�
 const hasOverlap = computed(() => cells.value.some((c) => c.series.length >= 2))
 // 画布高亮（按通道名）：仅「重叠 + 焦点开」生效；选中谁高亮谁，未选取自动主角（readoutStat=α 最强）。鼠标悬停不再参与。
 const effectiveFocus = computed(() => (hasOverlap.value && focusEnabled.value ? (selectedCurve.value || readoutStat.value?.chan || '') : ''))
-// 单击谱线 / 读数行 / 明细行：重叠时即可单击——单击某条即【进入聚焦（自动开焦点开关）+ 选中它】；
-// 再点同一条 / 点空白 = 取消选中（回自动主角，仍在聚焦态）；彻底退出聚焦走 ◎ 焦点开关。
+// 单击谱线 / 读数行 / 明细行：仅「焦点已开」时响应——焦点关时单击无效（不进焦点、不选线、不自动开开关）。
+// 焦点开时：单击某条=选中它，再点同一条 / 点空白=取消选中（回自动主角）；开/关焦点只走 ◎ 焦点按钮。
 function onLinePick(name: string) {
+  if (!focusEnabled.value) return
   if (!hasOverlap.value) return
   if (!name) { selectedCurve.value = ''; return }
-  if (!focusEnabled.value) focusEnabled.value = true
   selectedCurve.value = selectedCurve.value === name ? '' : name
 }
 
@@ -989,6 +1012,8 @@ interface TopoCell {
   points: { name: string; x: number; y: number; value: number }[] | null
   // 空态原因（points=null 时）：缺省=真没 montage；否则=有 montage 但本源无值（区间无数据等）
   emptyText?: string
+  // 有 montage 但当前源无值（游标未移入 / 区间未设）→ 画空骨架（头罩 + 电极点），不再甩文字
+  skeleton?: boolean
 }
 const topoCells = computed<TopoCell[]>(() => {
   if (!showTopo.value) return []
@@ -1026,7 +1051,13 @@ const topoCells = computed<TopoCell[]>(() => {
       raw.push({ name: ch.name, x: p[0], y: p[1], v })
     }
     if (!raw.length) {
-      out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null, emptyText: emptyHint })
+      // 有 montage 但本源算不出值 → 画空骨架（头罩 + 电极点，value=NaN 不上色、不进 vmax），替掉「把鼠标移到谱线上看」那行字
+      const skel = psd.channels.flatMap((ch) => {
+        const p = pos[ch.name]
+        return p ? [{ name: ch.name, x: p[0], y: p[1], value: NaN }] : []
+      })
+      if (skel.length) out.push({ seg, label: segLabel(seg), color: segColor(seg), points: skel, skeleton: true })
+      else out.push({ seg, label: segLabel(seg), color: segColor(seg), points: null, emptyText: emptyHint })
       continue
     }
     // 中心:联动模式用 Y 窗中点(白=窗口中心),否则用本图跨通道均值(白=全脑平均)
@@ -1177,6 +1208,7 @@ async function load() {
       if (s.value[1].condition) labelCache[s.value[0]] = s.value[1].condition
     }
     psdMap.value = m
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     const failed = settled.length - ok.length
     partialNote.value = failed > 0 ? `部分结果未能加载（${failed} 个），仅显示可用的 ${ok.length} 个。` : ''
     if (!regionUserSet.value) resetStatsRange()
@@ -1218,6 +1250,63 @@ onMounted(() => {
   if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
   void load()
 })
+// ---------- 键盘快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------
+const FREQ_WIN_KEYS = FREQ_WINDOWS.map((w) => w.key)
+function stepFreqWindow(dir: number) {
+  const i = FREQ_WIN_KEYS.indexOf(freqWinKey.value)
+  const base = i < 0 ? 0 : i
+  applyFreqWindow(FREQ_WIN_KEYS[Math.min(Math.max(base + dir, 0), FREQ_WIN_KEYS.length - 1)])
+}
+function stepPrimarySeg(dir: number) {
+  const n = outputIds.length
+  if (n <= 1) return
+  segSel.set([(primarySeg.value + dir + n) % n])
+}
+function bandHotkey(idx: number): HotkeyDef {
+  const band = PSD_BANDS[idx]
+  return {
+    key: String(idx + 1),
+    label: `${band.label} 频段地形图`,
+    group: 'view',
+    when: () => showTopo.value && presentBands.value.some((b) => b.name === band.name),
+    run: () => selectTopoBand(band),
+  }
+}
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'f', label: '全屏 / 退全屏', group: 'view', run: () => toggleFullscreen() },
+    { key: '[', label: '左栏显隐', group: 'view', run: () => { showLeft.value = !showLeft.value } },
+    { key: ']', label: '右栏显隐', group: 'view', run: () => { showStats.value = !showStats.value } },
+    { key: 't', label: '地形图显隐', group: 'view', run: () => { showTopo.value = !showTopo.value } },
+    { key: 'g', label: '网格线显隐', group: 'view', run: () => { showGrid.value = !showGrid.value } },
+    { key: 'l', label: '对数 ↔ 线性频率轴', group: 'view', run: () => { logX.value = !logX.value } },
+    { key: 'd', label: '叠加 ↔ 排列', group: 'view', run: () => { displayMode.value = displayMode.value === 'overlay' ? 'spread' : 'overlay' } },
+    { key: 'o', label: '叠加维度循环', group: 'view', run: () => {
+      const opts = overlayOptions.value
+      if (!opts.length) return
+      const i = opts.findIndex((o) => o.v === overlayDim.value)
+      overlayDim.value = opts[(i + 1) % opts.length].v
+    } },
+    { key: 's', label: '区间统计开关', group: 'view', run: () => toggleStats() },
+    { key: 'c', label: '聚焦开关（仅曲线重叠时）', group: 'mark', when: () => hasOverlap.value, run: () => { focusEnabled.value = !focusEnabled.value } },
+    bandHotkey(0), bandHotkey(1), bandHotkey(2), bandHotkey(3), bandHotkey(4),
+    { key: 'ArrowLeft', label: '频窗 上一档', group: 'nav', run: () => stepFreqWindow(-1) },
+    { key: 'ArrowRight', label: '频窗 下一档', group: 'nav', run: () => stepFreqWindow(1) },
+    { key: 'j', label: '下一个数据集（多产物对比）', group: 'nav', when: () => isMultiOutput, run: () => stepPrimarySeg(1) },
+    { key: 'k', label: '上一个数据集（多产物对比）', group: 'nav', when: () => isMultiOutput, run: () => stepPrimarySeg(-1) },
+    { key: '-', label: '幅度缩小', group: 'zoom', run: () => onAmp(0.8) },
+    { key: '=', label: '幅度放大', group: 'zoom', run: () => onAmp(1.25) },
+    { key: '0', label: '复位（频窗 + 自动 dB）', group: 'zoom', run: () => { resetZoom(); resetYRange() } },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (cursorLocked.value) { onUnlock(); return true } return false },
+    () => { if (regionUserSet.value) { resetStatsRange(); return true } return false },
+    () => { if (isFullscreen.value) { toggleFullscreen(); return true } return false },
+  ],
+})
+
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
 })
