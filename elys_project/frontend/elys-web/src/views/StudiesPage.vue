@@ -355,20 +355,20 @@ function ensureSelectedStudy() {
 
 const emptyTitle = computed(() => {
   if (viewMode.value === 'trash') return '回收站为空'
-  if (studySearch.value || studyFocusFilter.value !== 'all') return '没有匹配的 Study'
-  return '还没有 Study'
+  if (studySearch.value || studyFocusFilter.value !== 'all') return '没有匹配的研究项'
+  return '还没有研究项'
 })
 
 const emptyDescription = computed(() => {
-  if (viewMode.value === 'trash') return '删除后的 Study 会出现在这里，便于恢复或治理。'
+  if (viewMode.value === 'trash') return '删除后的研究项会出现在这里，便于恢复或治理。'
   if (studySearch.value || studyFocusFilter.value !== 'all') return '调整搜索或状态筛选后再查看。'
   return canCreateStudy.value ? '可以先创建一个研究项工作空间。' : '请联系 PI 或管理员创建研究项。'
 })
 
 const actionTitle = computed(() => {
   if (actionModal.action === 'trash') return '移入回收站'
-  if (actionModal.action === 'restore') return '恢复 Study'
-  return '永久删除 Study'
+  if (actionModal.action === 'restore') return '恢复研究项'
+  return '永久删除研究项'
 })
 
 const actionDescription = computed(() => {
@@ -379,7 +379,7 @@ const actionDescription = computed(() => {
   if (actionModal.action === 'restore') {
     return `恢复「${actionModal.study.name}」后，它会重新回到活跃研究项。`
   }
-  return `永久删除「${actionModal.study.name}」会清理 Study 记录和关联治理状态，此操作不可撤销。`
+  return `永久删除「${actionModal.study.name}」会清理研究项记录和关联治理状态，此操作不可撤销。`
 })
 
 const actionButtonText = computed(() => {
