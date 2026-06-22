@@ -94,35 +94,7 @@ function emitSubmit() {
 </script>
 
 <style scoped>
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 0 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.btn--primary {
-  background: var(--c-primary);
-  color: #fff;
-}
-.btn--ghost {
-  border-color: var(--c-border);
-  background: #fff;
-  color: var(--c-text-2);
-}
-.btn--danger {
-  background: var(--c-danger);
-  color: #fff;
-}
+/* 按钮继承全局 .btn 体系（style.css）：本地不再重复定义——曾漂移成缺 :hover、写死 #fff、字重 700。 */
 .eyebrow {
   margin: 0 0 6px;
   color: var(--c-primary);
