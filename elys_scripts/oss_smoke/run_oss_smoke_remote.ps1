@@ -84,7 +84,10 @@ if ([string]::IsNullOrWhiteSpace($ServerUser)) {
 if ($Port -eq 0) {
     if ($ProfileValues.ContainsKey("SSH_PORT")) { $Port = [int]$ProfileValues["SSH_PORT"] } else { $Port = 22 }
 }
-# OSS 桶/地域：命令行参数 > profile(OSS_BUCKET/OSS_REGION) > 默认
+# OSS 桶/地域：命令行参数 > ACTIVE_SET 的 ${ACTIVE}_OSS_BUCKET > profile 扁平 OSS_BUCKET > 默认
+$ossActiveSet = ""
+if ($ProfileValues.ContainsKey("ACTIVE_SET")) { $ossActiveSet = "$($ProfileValues['ACTIVE_SET'])".Trim() }
+if (-not $Bucket -and $ossActiveSet) { $Bucket = $ProfileValues[$ossActiveSet.ToUpper() + "_OSS_BUCKET"] }
 if (-not $Bucket) { $Bucket = $ProfileValues["OSS_BUCKET"] }
 if (-not $Bucket) { $Bucket = "elys-oss-test1" }
 if (-not $Region) { $Region = $ProfileValues["OSS_REGION"] }

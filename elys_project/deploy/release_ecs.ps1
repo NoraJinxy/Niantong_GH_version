@@ -55,11 +55,20 @@ function Get-AllInstances {
     (Invoke-Aliyun @("ecs", "DescribeInstances", "--PageSize", "50")).Instances.Instance
 }
 
+function Get-ComputeKey([string[]]$Lines) {
+    # ACTIVE_SET（部署资源集）：返回该读/清哪个 COMPUTE_SERVER_IP 键（ACTIVE 集的，如 SETA_...；无则扁平）。
+    $activeSet = ""
+    foreach ($l in $Lines) { if ($l -match '^\s*ACTIVE_SET\s*=\s*(.+?)\s*$') { $activeSet = $matches[1].Trim().Trim('"').Trim("'") } }
+    if ($activeSet) { return $activeSet.ToUpper() + "_COMPUTE_SERVER_IP" } else { return "COMPUTE_SERVER_IP" }
+}
+
 function Get-ProfileIp {
     $path = Join-Path $ScriptDir "profiles\$Profile.env"
     if (-not (Test-Path $path)) { return "" }
-    foreach ($line in Get-Content $path -Encoding UTF8) {
-        if ($line -match '^\s*COMPUTE_SERVER_IP=(.+)') { return $Matches[1].Trim() }
+    $allLines = Get-Content $path -Encoding UTF8
+    $targetKey = Get-ComputeKey $allLines
+    foreach ($line in $allLines) {
+        if ($line -match "^\s*$targetKey=(.+)") { return $Matches[1].Trim() }
     }
     return ""
 }
@@ -68,9 +77,11 @@ function Clear-ProfileIp {
     $path = Join-Path $ScriptDir "profiles\$Profile.env"
     if (-not (Test-Path $path)) { Write-Host "  ⚠ 没找到 $path，跳过清空。" -ForegroundColor Yellow; return }
     $enc = New-Object System.Text.UTF8Encoding($false)
-    $out = Get-Content $path -Encoding UTF8 | ForEach-Object { if ($_ -match '^\s*COMPUTE_SERVER_IP=') { "COMPUTE_SERVER_IP=" } else { $_ } }
+    $allLines = Get-Content $path -Encoding UTF8
+    $targetKey = Get-ComputeKey $allLines
+    $out = $allLines | ForEach-Object { if ($_ -match "^\s*$targetKey=") { "$targetKey=" } else { $_ } }
     [System.IO.File]::WriteAllLines($path, [string[]]$out, $enc)
-    Write-Host "[OK] 已清空 $Profile.env 的 COMPUTE_SERVER_IP" -ForegroundColor Green
+    Write-Host "[OK] 已清空 $Profile.env 的 $targetKey" -ForegroundColor Green
 }
 
 function Write-InstanceIp {

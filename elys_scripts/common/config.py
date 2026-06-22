@@ -48,6 +48,16 @@ def _read_env_file(path: Path) -> dict[str, str]:
 
 _profile = _read_env_file(_PROFILE_PATH)
 
+# ACTIVE_SET（部署资源集）：把 ${ACTIVE_SET}_ENTRY_SERVER_IP/COMPUTE_SERVER_IP 解析成扁平名供下方使用。
+# 留空 → 用扁平 ENTRY_SERVER_IP/COMPUTE_SERVER_IP（向后兼容，其它 profile 不受影响）。
+_active_set = (_profile.get("ACTIVE_SET") or "").strip()
+if _active_set:
+    _set_prefix = _active_set.upper() + "_"
+    for _key in ("ENTRY_SERVER_IP", "COMPUTE_SERVER_IP"):
+        _set_val = _profile.get(_set_prefix + _key)
+        if _set_val:
+            _profile[_key] = _set_val
+
 # ---- 最终地址：环境变量 > 部署 profile。IP 无脚本内兜底——缺就报错（单一事实源）----
 _SCHEME = os.environ.get("ELYS_SCHEME") or _profile.get("PUBLIC_SCHEME") or _DEFAULT_SCHEME
 ENTRY_HOST = os.environ.get("ELYS_ENTRY_HOST") or _profile.get("ENTRY_SERVER_IP")

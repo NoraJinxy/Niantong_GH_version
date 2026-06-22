@@ -98,8 +98,10 @@ def main() -> int:
         print(f"[clear_oss] profile '{profile}' is not a reset deploy (RESET_STORAGE!=true) -> skip OSS clear.")
         return 0
 
-    # bucket/region: env override > profile (single source of truth) > fallback default
-    oss_bucket = (os.environ.get("OSS_BUCKET") or prof.get("OSS_BUCKET") or "elys-oss-test1").strip()
+    # bucket/region: env override > ACTIVE_SET 的 ${ACTIVE}_OSS_BUCKET > 扁平 OSS_BUCKET > 默认；region 共享
+    _active = (prof.get("ACTIVE_SET") or "").strip()
+    _set_bucket = prof.get(_active.upper() + "_OSS_BUCKET") if _active else None
+    oss_bucket = (os.environ.get("OSS_BUCKET") or _set_bucket or prof.get("OSS_BUCKET") or "elys-oss-test1").strip()
     oss_region = (os.environ.get("OSS_REGION") or prof.get("OSS_REGION") or "cn-shenzhen").strip()
     endpoint = f"https://oss-{oss_region}.aliyuncs.com"  # 本机清桶走公网 endpoint
 
