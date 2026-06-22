@@ -152,12 +152,13 @@ def _raw_path_from_data_info(study: Any, data_info: dict[str, Any]) -> Path:
     （artifact_storage_uri）都走同一套——这样伪迹审核页接在 LoadData 之后也能看波形，
     不再要求中间插一个「会保存输出」的步骤。
     """
-    from app.engine.io import resolve_path_reference  # noqa: PLC0415
+    from app.engine.io import materialize_reference  # noqa: PLC0415
 
     ref = dict(data_info or {})
     ref.setdefault("study_id", str(getattr(study, "id", "") or ""))
     ref.setdefault("study_root", getattr(study, "data_root", None))
-    return resolve_path_reference(
+    # OSS 后端：取带 scheme 的 URI key 下载到 scratch 再读；local 后端：等价 resolve_path_reference、行为不变。
+    return materialize_reference(
         ref,
         ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
     )

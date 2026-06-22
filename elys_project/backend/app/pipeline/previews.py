@@ -93,7 +93,9 @@ def resolve_study_output_path(study: Any, derived: Any) -> Path:
     storage_uri = str(getattr(derived, "storage_uri", "") or "").strip()
     if storage_uri:
         try:
-            return StorageService().resolve_path(
+            # OSS 后端：下载到 scratch 再返回本地路径（多机解耦，不依赖本地副本）；
+            # local 后端：materialize 等价 resolve_path、行为不变。所有调用方都是「读/下载产物」。
+            return StorageService().materialize(
                 storage_uri,
                 study_id=str(getattr(study, "id", getattr(derived, "study_id", "")) or ""),
                 study_root=_study_root_or_none(study),
