@@ -4199,8 +4199,16 @@ async function savePipeline() {
     upsertPipeline(res.data)
     // 清理保存前的 draft（避免旧 'new' draft 或同 id 旧 draft 残留）
     clearDraft(previousStudyId, previousPipelineId)
-    // loadPipelineIntoEditor 会按新 id 再 tryRestoreDraft，但新 id 没 draft → 干净状态
-    loadPipelineIntoEditor(res.data)
+    // 保存只更新工作流标识与版本号，**不重载编辑器**——不重建画布、不重新「适应」视图、不重置选中节点。
+    // 之前这里调 loadPipelineIntoEditor，会顺带 normalizeGraphViewOnLoad 把视图自动适应一次，
+    // 用户反馈「一点保存视图就跳、很突兀」。画布 / 定义就是刚保存的内容、本就同步，无需重载；
+    // 只把版本号（乐观锁要用）、下拉选中、名称、脏标记更新到位即可，缩放 / 平移 / 选中保持原样。
+    currentPipeline.value = res.data
+    selectedPipelineId.value = String(res.data.id)
+    pipelineName.value = res.data.name
+    pipelineDescription.value = res.data.description || ''
+    validation.value = null
+    dirty.value = false
     statusMessage.value = '工作流已保存'
   } catch (error) {
     const httpStatus = (error as { response?: { status?: number } })?.response?.status
