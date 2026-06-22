@@ -7,15 +7,10 @@
 /* ===== 页根 ===== */
 .ov-page { display: flex; flex-direction: column; height: 100vh; background: var(--c-bg-soft); color: var(--c-text); font-family: var(--ff-sans); }
 
-/* 操作提示：工具条上一个悬浮帮助片，hover 展开手势清单 */
-.ov-help { position: relative; cursor: help; }
+/* 操作提示：工具条上的触发器，点击打开「操作与快捷键」卡（鼠标+键盘并入 HotkeyHelp，内容见各视图 mouseHints） */
+.ov-help { position: relative; cursor: pointer; }
 .ov-help-trigger { font-size: 11px; color: var(--c-text-3); user-select: none; }
 .ov-help:hover .ov-help-trigger { color: var(--c-primary); }
-.ov-help-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; background: var(--c-surface); border: 1px solid var(--c-border-2); border-radius: var(--r-sm); box-shadow: 0 6px 20px rgba(0, 0, 0, .12); white-space: nowrap; }
-.ov-help-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-text-2); }
-.ov-help-row kbd { font-family: var(--ff-mono); font-size: 10px; line-height: 1; padding: 2px 5px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-bottom-width: 2px; border-radius: 4px; color: var(--c-text); }
-.ov-help-plus { color: var(--c-text-3); }
-.ov-help-row span:last-child { margin-left: 2px; }
 
 /* ===== 顶部信息条 ===== */
 .ov-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
@@ -68,6 +63,12 @@
 .ov-li-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .ov-li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ov-li-tag { margin-left: auto; font-size: 10px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
+/* 数据集列表的 ↑/↓ 排序按钮：默认低调、行悬停或选中时提亮；移动端无 hover 故常驻可点 */
+.ov-li-ord { margin-left: auto; display: inline-flex; gap: 1px; flex-shrink: 0; opacity: .35; transition: opacity .1s; }
+.ov-li:hover .ov-li-ord, .ov-li.is-sel .ov-li-ord { opacity: 1; }
+.ov-ord-btn { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; line-height: 1; padding: 1px 3px; border-radius: 3px; }
+.ov-ord-btn:hover:not(:disabled) { background: var(--c-bg); color: var(--c-primary); }
+.ov-ord-btn:disabled { opacity: .35; cursor: default; }
 .ov-chanlist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .ov-seglist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .ov-sec-row { display: flex; align-items: flex-start; }
@@ -129,6 +130,8 @@
 .ov-cin { width: 58px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; font-family: var(--ff-mono); text-align: center; }
 .ov-cin:focus { border-color: var(--c-primary); outline: none; }
 .ov-csel { height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; }
+.ov-csel:focus { border-color: var(--c-primary); outline: none; }
+.ov-csel:disabled { opacity: .5; cursor: default; }
 .ov-dash { color: var(--c-text-3); }
 .ov-step { width: 24px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-size: 13px; padding: 0; }
 .ov-step:hover:not(:disabled) { background: var(--c-bg-tint); color: var(--c-text); }
@@ -154,7 +157,7 @@
 .ov-cell-tag { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
 .ov-cell-name { font-size: 12px; font-weight: 600; color: var(--c-text-2); font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ov-cell-meta { margin-left: auto; font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
-.ov-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+.ov-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 2px 6px; min-width: 24px; min-height: 22px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 1; }
 .ov-cell-dl:hover { color: var(--c-primary); }
 .ov-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
 /* 多视图并排对比时不做「选中某 panel」的修饰：去掉原 .ov-cell.is-focus 蓝色外框（三页共用→时域/频域/时频同步）。

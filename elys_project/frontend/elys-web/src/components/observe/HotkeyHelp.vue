@@ -1,11 +1,20 @@
 <template>
   <Modal @close="$emit('close')">
-    <div class="hk-card" role="dialog" aria-label="键盘快捷键">
+    <div class="hk-card" role="dialog" aria-label="操作与快捷键">
       <div class="hk-hd">
-        <strong>键盘快捷键</strong>
+        <strong>操作与快捷键</strong>
         <span class="hk-hint">按 <kbd>?</kbd> 或 <kbd>Esc</kbd> 关闭</span>
       </div>
       <div class="hk-body">
+        <section v-if="mouseHints && mouseHints.length" class="hk-sec">
+          <div class="hk-sec-ttl">鼠标</div>
+          <div v-for="(m, i) in mouseHints" :key="i" class="hk-row">
+            <span class="hk-keys">
+              <template v-for="(k, j) in m.keys" :key="j"><kbd>{{ k }}</kbd><span v-if="j < m.keys.length - 1" class="hk-plus">+</span></template>
+            </span>
+            <span class="hk-lbl">{{ m.label }}</span>
+          </div>
+        </section>
         <section v-for="s in groups" :key="s.group" class="hk-sec">
           <div class="hk-sec-ttl">{{ s.title }}</div>
           <div v-for="d in s.items" :key="d.key" class="hk-row">
@@ -25,7 +34,11 @@
 import Modal from '@/components/common/Modal.vue'
 import type { HotkeyDef, HotkeyGroup } from '@/composables/observe/useObserveHotkeys'
 
-defineProps<{ groups: { group: HotkeyGroup; title: string; items: HotkeyDef[] }[] }>()
+defineProps<{
+  groups: { group: HotkeyGroup; title: string; items: HotkeyDef[] }[]
+  /** 鼠标操作提示（与键盘快捷键并入同一张卡）：keys 为已切好的展示词，多键以「+」连接。 */
+  mouseHints?: { keys: string[]; label: string }[]
+}>()
 defineEmits<{ (e: 'close'): void }>()
 
 const GLYPH: Record<string, string> = {
@@ -48,5 +61,6 @@ function fmtKey(k: string): string[] {
 .hk-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; color: var(--c-text-2); }
 .hk-keys { flex-shrink: 0; display: inline-flex; gap: 3px; min-width: 76px; }
 .hk-lbl { min-width: 0; }
+.hk-plus { color: var(--c-text-3); font-size: 11px; align-self: center; }
 .hk-row kbd { font-family: var(--ff-mono, monospace); font-size: 11px; line-height: 1.5; min-width: 18px; text-align: center; padding: 1px 5px; background: var(--c-bg-soft); border: 1px solid var(--c-border); border-bottom-width: 2px; border-radius: 5px; color: var(--c-text); }
 </style>
