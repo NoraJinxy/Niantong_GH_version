@@ -54,21 +54,6 @@
       />
 
       <template v-else>
-        <!-- ❷ Summary Strip - 可点击筛选 -->
-        <section class="results-summary" aria-label="保存状态概览">
-          <button
-            v-for="card in summaryCards"
-            :key="card.key"
-            type="button"
-            class="results-summary-card"
-            :class="[`is-${card.tone}`, { 'is-active': isSummaryActive(card.key) }]"
-            @click="toggleSummaryFilter(card.key)"
-          >
-            <span class="results-summary-card__label">{{ card.label }}</span>
-            <strong class="results-summary-card__value">{{ card.value }}</strong>
-          </button>
-        </section>
-
         <!-- UI Phase (docs_v2/6-05) P1-3: 数据类型快速筛选 chip -->
         <section v-if="dataTypeOptions.length" class="results-type-chips" aria-label="按结果类型筛选">
           <button
@@ -769,22 +754,6 @@ const filtered = computed(() => {
   })
 })
 
-const summaryCards = computed(() => {
-  let all = 0, kept = 0, transient = 0, deleted = 0
-  for (const d of visibleOutputs.value) {
-    all++
-    if (d.deleted_at) deleted++
-    else if (d.keep) kept++
-    else transient++
-  }
-  return [
-    { key: 'all', label: '总数', value: all, tone: 'neutral' },
-    { key: 'kept', label: '保存', value: kept, tone: 'success' },
-    { key: 'transient', label: '不保存', value: transient, tone: 'muted' },
-    { key: 'deleted', label: '已删除', value: deleted, tone: 'danger' },
-  ]
-})
-
 const hasActiveFilters = computed(() =>
   Boolean(
     searchText.value
@@ -1030,18 +999,6 @@ function resetFiltersSilent() {
   filters.tasks = []
   filters.status = 'all'
   filters.tags = []
-}
-
-function isSummaryActive(key: string): boolean {
-  return filters.status === key
-}
-
-function toggleSummaryFilter(key: string) {
-  if (key === 'all') {
-    filters.status = 'all'
-    return
-  }
-  filters.status = filters.status === key ? 'all' : (key as StatusFilter)
 }
 
 // 文件管理器式选择：单击=只选此项；Ctrl/⌘ 点=加选/减选；Shift 点=从锚点连选（按可见顺序）。
@@ -1448,80 +1405,6 @@ function describeError(err: unknown, fallback: string): string {
   cursor: not-allowed;
 }
 
-
-/* ===== ❷ Summary Strip ===== */
-.results-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-@media (max-width: 960px) {
-  .results-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-.results-summary-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  background: var(--c-surface);
-  color: var(--c-text);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
-}
-.results-summary-card:hover {
-  border-color: var(--c-border-strong);
-  box-shadow: var(--shadow-sm);
-}
-.results-summary-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 14px;
-  bottom: 14px;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--card-tone, var(--c-border-strong));
-}
-
-.results-summary-card.is-neutral { --card-tone: var(--c-text-3); }
-.results-summary-card.is-success { --card-tone: var(--c-success); }
-.results-summary-card.is-danger { --card-tone: var(--c-danger); }
-.results-summary-card.is-muted { --card-tone: var(--c-border-strong); }
-
-.results-summary-card__label {
-  display: block;
-  color: var(--c-text-3);
-  font-size: 13px;
-}
-.results-summary-card__value {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.01em;
-}
-
-.results-summary-card.is-active {
-  border-color: var(--card-tone);
-  background: color-mix(in srgb, var(--card-tone) 6%, var(--c-surface));
-}
-.results-summary-card.is-active .results-summary-card__value,
-.results-summary-card.is-active .results-summary-card__label {
-  color: var(--card-tone);
-}
-.results-summary-card.is-active::before {
-  width: 3px;
-  top: 12px;
-  bottom: 12px;
-}
 
 /* ===== ❸ Filter Bar ===== */
 .results-filter-bar {
