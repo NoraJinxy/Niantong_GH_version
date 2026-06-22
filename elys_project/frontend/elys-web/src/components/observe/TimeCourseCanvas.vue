@@ -1,5 +1,8 @@
 <template>
   <div ref="hostRef" class="tcc-host" :class="{ 'tcc-locked': locked, 'tcc-pan': panOnDrag, 'tcc-selshadow': selectShadow, 'tcc-solidcursor': solidCursor }">
+    <!-- 游标浮层：竖线 + 圆点 + 读数画在这块独立 canvas，鼠标移动只清屏重画浮层、绝不重描底下曲线
+         （重描曲线 = 「叠加多曲线游标卡顿」根因，见下方 drawOverlay 注释）。 -->
+    <canvas ref="overlayRef" class="tcc-overlay" aria-hidden="true"></canvas>
     <div v-if="loading" class="tcc-loading">加载中…</div>
   </div>
 </template>
@@ -103,8 +106,10 @@ const emit = defineEmits<{
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
+const overlayRef = ref<HTMLCanvasElement | null>(null) // 游标浮层 canvas（叠加在 uPlot 之上）
 const chart = shallowRef<uPlot | null>(null)
 let ro: ResizeObserver | null = null
+let overlayRaf = 0 // 浮层重画合帧
 // 游标 emit 合帧：uPlot 每次 pointermove 同步触发 setCursor；积一帧只 emit 一次、且采样下标变了才 emit，
 // 把父层 topo / 右栏那条级联从「每次 mousemove」压到「每帧·每次跨采样」。
 let cursorRaf = 0
@@ -335,9 +340,8 @@ function drawBadSegments(u: uPlot) {
 }
 
 // 锁定标记：双击后在锁定时刻画常驻竖线（不随鼠标移动），各子图同位呈现
-function drawLocked(u: uPlot) {
+function drawLocked(u: uPlot, ctx: CanvasRenderingContext2D) {
   if (props.lockedX == null) return
-  const ctx = u.ctx
   const { left, top, width, height } = u.bbox
   const x = u.valToPos(props.lockedX, 'x', true)
   if (x < left || x > left + width) return
@@ -352,9 +356,8 @@ function drawLocked(u: uPlot) {
 }
 
 // 实时游标联动：父层广播 syncCursorX 时，在每张子图同位画一条实时竖线（比锁定线细淡）。
-function drawSyncCursor(u: uPlot) {
+function drawSyncCursor(u: uPlot, ctx: CanvasRenderingContext2D) {
   if (props.syncCursorX == null) return
-  const ctx = u.ctx
   const { left, top, width, height } = u.bbox
   const x = u.valToPos(props.syncCursorX, 'x', true)
   if (x < left || x > left + width) return
@@ -386,7 +389,7 @@ function nearestIdx(xs: number[], x: number): number {
 
 // 游标读数（仅 solidCursor 观察页）：游标 x 处每条曲线交点画小圆点 + 同色数值（曲线多于 READOUT_MAX 则只点不标，防糊）；
 // 底部黑字标时刻（白底圆角药丸）。位置取 u.data（含 spread 偏移），数值取 props.data（原始 µV）。
-function drawCursorReadout(u: uPlot) {
+function drawCursorReadout(u: uPlot, ctx: CanvasRenderingContext2D) {
   if (!props.solidCursor) return
   const cx = props.syncCursorX ?? props.lockedX
   if (cx == null) return
@@ -394,7 +397,6 @@ function drawCursorReadout(u: uPlot) {
   if (!xs || !xs.length) return
   const idx = nearestIdx(xs, cx)
   if (idx < 0) return
-  const ctx = u.ctx
   const { left, top, width, height } = u.bbox
   const xPos = u.valToPos(cx, 'x', true)
   if (xPos < left - 1 || xPos > left + width + 1) return
@@ -473,6 +475,31 @@ function drawCursorReadout(u: uPlot) {
   ctx.fillStyle = '#1d2731'
   ctx.fillText(ttxt, px + pillW / 2, py + pillH / 2)
   ctx.restore()
+}
+
+// 游标浮层重画：只清屏 + 画竖线/锁定线/读数到上层透明 canvas，绝不触发 uPlot 重绘。
+// 这是「叠加多曲线时游标跟不上鼠标」的根治：原先游标线/读数与曲线同画在 uPlot 主画布上，
+// 每次 pointermove 都要 u.redraw() → 把当前画布里全部曲线（叠加=5 条全宽样条）重描一遍；
+// 拆出来后，挪游标的代价只剩「清屏 + 一根线 + ≤5 点 + ≤5 读数」，与曲线条数 / 画布宽度无关。
+// 浮层 canvas 像素尺寸与 uPlot 主画布一致、绝对定位完全重合，故可直接复用 valToPos(true) 的设备像素坐标。
+function drawOverlay() {
+  overlayRaf = 0
+  const u = chart.value
+  const oc = overlayRef.value
+  if (!u || !oc) return
+  const src = u.ctx.canvas
+  if (oc.width !== src.width) oc.width = src.width // 跟随主画布的设备像素尺寸（含 DPR / 强制超采样）
+  if (oc.height !== src.height) oc.height = src.height
+  const ctx = oc.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, oc.width, oc.height)
+  drawLocked(u, ctx)       // 锁定线（lockedX 非空才画，自带守卫）
+  drawSyncCursor(u, ctx)   // 实时游标线（syncCursorX 非空才画）
+  drawCursorReadout(u, ctx) // 圆点 + µV 读数 + 时刻药丸（仅 solidCursor 观察页）
+}
+function scheduleOverlay() {
+  if (overlayRaf) return
+  overlayRaf = requestAnimationFrame(drawOverlay)
 }
 
 // x 数据真实极值（非退化）：每次重绘都从 u.data[0] 现算、强制 min<max。
@@ -601,7 +628,10 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
     ],
     hooks: {
       drawClear: [(u: uPlot) => drawUnder(u)],
-      draw: [(u: uPlot) => { drawBadSegments(u); drawLegend(u, exportMode); if (!exportMode) { drawSyncCursor(u); drawLocked(u); drawCursorReadout(u) } drawMarkers(u) }],
+      // 游标线/锁定线/读数已挪到独立浮层 canvas（drawOverlay），不再画进 uPlot 主画布——
+      // 否则每次挪游标都要走 uPlot 全量重绘、把所有曲线重描一遍（叠加多曲线卡顿根因）。
+      // uPlot 真正重绘时（数据/缩放/尺寸变）顺手 scheduleOverlay 让浮层跟着对齐坐标。
+      draw: [(u: uPlot) => { drawBadSegments(u); drawLegend(u, exportMode); drawMarkers(u); if (!exportMode) scheduleOverlay() }],
       setSelect: [
         (u: uPlot) => {
           const sel = u.select
@@ -707,8 +737,9 @@ function applyHighlight() {
 function rebuild() {
   const host = hostRef.value
   if (!host) return
-  // 旧 chart 即将丢弃：清掉挂起的游标帧 + 下标记忆，避免回调对新图发陈旧读数
+  // 旧 chart 即将丢弃：清掉挂起的游标帧 + 浮层帧 + 下标记忆，避免回调对新图发陈旧读数
   if (cursorRaf) { cancelAnimationFrame(cursorRaf); cursorRaf = 0 }
+  if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = 0 }
   pendingIdx = null
   lastEmitIdx = undefined
   lastLineHover = ''
@@ -856,7 +887,7 @@ onMounted(async () => {
   rebuild()
   ro = new ResizeObserver(() => {
     const host = hostRef.value
-    if (host && chart.value) chart.value.setSize({ width: host.clientWidth, height: host.clientHeight })
+    if (host && chart.value) { chart.value.setSize({ width: host.clientWidth, height: host.clientHeight }); scheduleOverlay() }
   })
   const host = hostRef.value
   if (host) {
@@ -873,6 +904,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (cursorRaf) { cancelAnimationFrame(cursorRaf); cursorRaf = 0 }
+  if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = 0 }
   ro?.disconnect()
   ro = null
   const host = hostRef.value
@@ -900,9 +932,10 @@ watch(
 )
 // 高亮 = 就地改线宽 + redraw（不重建）。
 watch(() => props.highlight, () => applyHighlight())
-// 区间/图例/参考线/锁定标记 = 轻量重绘（不重建，保留缩放/游标）。
+// 区间/图例/参考线/坏段/标记 = 轻量重绘（不重建，保留缩放/游标）。这些都是「低频」变化（框选、切开关），
+// 故仍走 uPlot 重绘可接受；游标线/锁定线（syncCursorX/lockedX）已移出本 watch，改走浮层（见下），不再每帧重描曲线。
 watch(
-  () => [props.region, props.showLegend, props.refLines, props.lockedX, props.syncCursorX, props.bands, props.markers, props.badSegments, props.markedChannels],
+  () => [props.region, props.showLegend, props.refLines, props.bands, props.markers, props.badSegments, props.markedChannels],
   () => {
     const u = chart.value
     if (!u) return
@@ -911,10 +944,14 @@ watch(
     if (!props.region && u.select && u.select.width > 0) {
       u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false)
     }
-    u.redraw(false) // false=不重建 63 条 series 路径、只重跑 draw 钩子（区间/图例/游标线/读数点）。
-    // 游标移动时本 watch（含 syncCursorX）每帧触发——重建全部曲线路径正是「多曲线游标滞后」的主因，故这里只重绘覆盖层。
+    u.redraw(false) // false=不重建 series 路径、只重跑 draw 钩子（区间/图例/坏段/标记）+ 顺手 scheduleOverlay 对齐浮层。
   },
   { deep: true },
+)
+// 游标线 / 锁定线 / 读数 = 只重画浮层 canvas（绝不碰 uPlot，故与曲线条数无关）。这是高频路径（每帧鼠标移动）。
+watch(
+  () => [props.syncCursorX, props.lockedX, props.locked],
+  () => scheduleOverlay(),
 )
 // 受控视图缩放（滚轮，父层广播）→ 就地 setScale x，不重建（保留游标 / 高亮）。
 watch(
@@ -995,6 +1032,9 @@ defineExpose({ getExportCanvas })
 
 <style scoped>
 .tcc-host { position: relative; width: 100%; height: 100%; min-height: 0; }
+/* 游标浮层：盖在 uPlot 主画布之上、与之像素对齐；不吃鼠标事件（交给底下 uPlot 的 .u-over）。
+   游标线 + 读数画在这层，挪游标只清重这块、不重描曲线——这是叠加多曲线游标流畅的关键。 */
+.tcc-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
 /* panOnDrag（ICA 审核页）：抓手光标，明示可拖动平移；按下时变握拳。 */
 .tcc-pan { cursor: grab; }
 .tcc-pan:active { cursor: grabbing; }

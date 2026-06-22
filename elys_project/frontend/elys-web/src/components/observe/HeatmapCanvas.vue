@@ -1,6 +1,8 @@
 <template>
   <div ref="hostRef" class="hmc-host" :class="{ 'hmc-locked': locked }">
     <canvas ref="canvasRef" class="hmc-cv"></canvas>
+    <!-- 游标浮层：十字线 / ROI 框画这层，鼠标移动只清重它、不重画底下热图面（见下方 paintOverlay 注释）。 -->
+    <canvas ref="overlayRef" class="hmc-overlay" aria-hidden="true"></canvas>
     <div v-if="loading" class="hmc-loading">加载中…</div>
   </div>
 </template>
@@ -10,7 +12,8 @@
 // 与时域/PSD 的 TimeCourseCanvas 对称：本组件只画图 + 发事件，不持业务状态。
 // 决策见对话设计：TFR 第三维(功率)走颜色 → 不能像 1D 那样叠加，每通道一张面（父层分面）。
 // 渲染：原始矩阵(nT×nF)烤进离屏 ImageData，再 drawImage 按视窗子矩形拉伸+双线性插值到绘图区（MNE 风平滑面）。
-// 性能：底图(面+轴+频段线+刺激线)缓存在 baseCv，鼠标移动只 blit 底图 + 叠十字线，不重算面。
+// 性能：动静分层——底图(面+轴+频段线+刺激线)画在底层 canvas，只在数据/缩放变时重画；游标十字 / ROI
+// 画在上层透明浮层 canvas，鼠标移动只清重浮层、绝不重画热图面（与时域/PSD 的 TimeCourseCanvas 浮层一致）。
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { buildHeatmapLut, HEATMAP_LUT_N, IS_SEQUENTIAL, type HeatmapCmap } from './heatmapColor'
 import { PX_RATIO, clamp } from './canvasUtils'
@@ -87,7 +90,8 @@ const emit = defineEmits<{
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
-const canvasRef = ref<HTMLCanvasElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null) // 底层：热图面 + 轴（数据/缩放变才重画）
+const overlayRef = ref<HTMLCanvasElement | null>(null) // 上层：游标十字 / ROI（鼠标移动只清重这层）
 
 const AXIS = '#51607A'
 const TICK = '#AEB7C6' // 刻度线 + 边框（克制，对标 matplotlib spine/tick）
@@ -100,8 +104,6 @@ const REGION_LINE = 'rgba(63, 94, 143, 0.55)'
 let lut = buildHeatmapLut(props.cmap)
 // 离屏：原始矩阵着色面（nT×nF，1px/格），按需 drawImage 拉伸
 let matrixCv: HTMLCanvasElement | null = null
-// 底图缓存（面+轴+频段线+刺激线），鼠标移动只 blit 它
-let baseCv: HTMLCanvasElement | null = null
 let ro: ResizeObserver | null = null
 
 // 鼠标态
@@ -241,12 +243,9 @@ function rebuildBase() {
   const wantH = Math.max(1, Math.round((host.clientHeight || 200) * PX_RATIO))
   if (cv.width !== wantW) cv.width = wantW
   if (cv.height !== wantH) cv.height = wantH
-  if (!baseCv) baseCv = document.createElement('canvas')
-  baseCv.width = cv.width
-  baseCv.height = cv.height
 
   const g = computeGeom()
-  const ctx = baseCv.getContext('2d')
+  const ctx = cv.getContext('2d')
   if (!g || !ctx) return
   ctx.clearRect(0, 0, g.W, g.H)
   ctx.fillStyle = '#ffffff'
@@ -377,15 +376,19 @@ function drawStim(ctx: CanvasRenderingContext2D, g: Geom, dpr = PX_RATIO) {
   ctx.setLineDash([])
 }
 
-// ---- 合成：blit 底图 + 叠 ROI / 锁定 / 实时十字 ----
-function paint() {
+// ---- 浮层合成：清浮层 + 叠 ROI / 锁定 / 实时十字（绝不碰底层热图 canvas）----
+// 这是「挪游标流畅」的关键：底图(热图面)留在底层 canvas 原封不动，鼠标移动只清重这块透明浮层、
+// 画一条十字 + 可选 ROI 框，与热图分辨率 / 通道数无关（连每帧整图 blit 都省了）。
+function paintOverlay() {
   const cv = canvasRef.value
-  if (!cv || !baseCv) return
-  const ctx = cv.getContext('2d')
+  const oc = overlayRef.value
+  if (!cv || !oc) return
+  if (oc.width !== cv.width) oc.width = cv.width // 跟随底层 canvas 的设备像素尺寸，坐标系一致
+  if (oc.height !== cv.height) oc.height = cv.height
+  const ctx = oc.getContext('2d')
   const g = computeGeom()
   if (!ctx || !g) return
-  ctx.clearRect(0, 0, cv.width, cv.height)
-  ctx.drawImage(baseCv, 0, 0)
+  ctx.clearRect(0, 0, oc.width, oc.height)
 
   // ROI 选区（已确认）
   if (props.region) drawRoi(ctx, g, props.region)
@@ -471,11 +474,11 @@ function onMouseMove(e: MouseEvent) {
     const x1 = clamp(px.x, g.left, g.left + g.pw)
     const y1 = clamp(px.y, g.top, g.top + g.ph)
     dragRect = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) }
-    paint()
+    paintOverlay()
     return
   }
   hoverPx = px
-  paint()
+  paintOverlay()
   if (props.locked) return
   // emit 合帧 + 跨采样去重
   if (!cursorRaf) cursorRaf = requestAnimationFrame(() => flushCursor(g, px))
@@ -491,7 +494,7 @@ function flushCursor(g: Geom, px: { x: number; y: number }) {
 function onMouseLeave() {
   hoverPx = null
   lastEmitKey = undefined
-  paint()
+  paintOverlay()
   if (!props.locked) emit('cursor', null)
 }
 function onMouseDown(e: MouseEvent) {
@@ -511,13 +514,13 @@ function onMouseUp(e: MouseEvent) {
   dragStart = null
   if (!g || !px) {
     dragRect = null
-    paint()
+    paintOverlay()
     return
   }
   const moved = Math.hypot(px.x - start.x, px.y - start.y)
   dragRect = null
   if (moved < 4 * PX_RATIO) {
-    paint()
+    paintOverlay()
     return
   }
   const t0 = xToT(g, clamp(start.x, g.left, g.left + g.pw))
@@ -525,7 +528,7 @@ function onMouseUp(e: MouseEvent) {
   const f0 = yToF(g, clamp(start.y, g.top, g.top + g.ph))
   const f1 = yToF(g, clamp(px.y, g.top, g.top + g.ph))
   emit('select', { t0: Math.min(t0, t1), t1: Math.max(t0, t1), f0: Math.min(f0, f1), f1: Math.max(f0, f1) })
-  paint()
+  paintOverlay()
 }
 function onDblClick(e: MouseEvent) {
   if (props.locked) return
@@ -582,7 +585,7 @@ function onWheel(e: WheelEvent) {
 
 function full() {
   rebuildBase()
-  paint()
+  paintOverlay()
 }
 
 onMounted(async () => {
@@ -692,7 +695,7 @@ watch(
   { deep: false },
 )
 // 选区 / 锁定标记 = 仅重绘叠加层（不重建底图）
-watch(() => [props.region, props.lockedT, props.lockedF, props.locked], () => paint(), { deep: true })
+watch(() => [props.region, props.lockedT, props.lockedF, props.locked], () => paintOverlay(), { deep: true })
 </script>
 
 <style scoped>
@@ -707,6 +710,14 @@ watch(() => [props.region, props.lockedT, props.lockedF, props.locked], () => pa
   height: 100%;
   display: block;
   cursor: crosshair;
+}
+/* 游标浮层：盖在热图之上、像素对齐；不吃鼠标（交给底下 .hmc-cv），故十字/ROI 画这层、热图面不动。 */
+.hmc-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .hmc-locked .hmc-cv {
   cursor: default;
