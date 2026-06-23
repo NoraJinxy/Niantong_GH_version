@@ -25,9 +25,9 @@
     {"name": "flat", "label": "平坦阈值", "type": "number", "unit": "µV", "default": "", "min": 0, "advanced": true,
      "visible_when": {"method": ["threshold"]},
      "description": "任一通道在该 epoch 内峰峰值 ＜ 此值 → 视为断线 / 丢信号剔除。留空＝不启用。"},
-    {"name": "n_interpolate", "label": "最多插值通道数", "type": "integer", "default": 4, "min": 0, "max": 32, "advanced": true,
+    {"name": "n_interpolate", "label": "每段最多插值通道数", "type": "integer", "default": "", "min": 0, "max": 32, "advanced": true,
      "visible_when": {"method": ["autoreject"]},
-     "description": "AutoReject 每个 epoch 最多插值修几个坏通道（超过才整段剔）。需电极坐标，请先接 Ch Loc Assign。"}
+     "description": "AutoReject 每个 epoch 最多插值修几个坏通道（超过才整段剔）。留空＝自动交叉验证选最优（推荐，AutoReject 标准用法）；填具体值＝固定该数、更快但略糙。需电极坐标，请先接 Ch Loc Assign。"}
   ],
   "backend": {
     "module": "app.engine.analysis.reject",

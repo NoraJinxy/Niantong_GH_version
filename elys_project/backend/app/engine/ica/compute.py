@@ -21,6 +21,12 @@ def run_compute_ica(raw: Any, params: dict[str, Any]):
     if n_components is not None and n_components > len(picks):
         raise ValueError(f"n_components={n_components} exceeds picked channel count {len(picks)}.")
 
+    # n_components 未指定时按【有效秩】自动降维:平均参考(秩降1)与坏道插值(插值道≈邻道线性组合)
+    # 会让数据秩亏,若仍按满通道数解 ICA,多出来的"虚秩"会被劈成镜像 ghost 成分,污染 ICLabel 与
+    # 去伪迹(Makoto/Delorme 反复警告)。这里不增加任何用户旋钮,默认就把上限收到有效秩。
+    if n_components is None:
+        n_components = _effective_rank(mne, raw, picks)
+
     decim = _resolve_decim(params.get("decim"), raw, len(picks))
     fit_params = _resolve_fit_params(method)
 
@@ -33,6 +39,28 @@ def run_compute_ica(raw: Any, params: dict[str, Any]):
     )
     ica.fit(raw, picks=picks, decim=decim, verbose="ERROR")
     return ica
+
+
+def _effective_rank(mne: Any, raw: Any, picks: Any) -> int:
+    """估算送入 ICA 的 EEG 数据有效秩(用作 n_components 上限),消除秩亏导致的 ghost 成分。
+
+    两道防线取较小者:
+      ① 数值秩 mne.compute_rank:从数据本身估,能反映坏道插值/平均参考造成的近似线性相关;
+      ② 平均参考显式扣 1:CAR 用 projection=False 时数据严格秩降 1,但浮点噪声可能让数值秩漏判,
+         故只要 info['custom_ref_applied'] 为真就再保险地把上限钳到 n_pick−1。
+    """
+    n_pick = int(len(picks))
+    eff = n_pick
+    try:
+        sub = raw.copy().pick([raw.ch_names[i] for i in picks])
+        ranks = mne.compute_rank(sub, rank=None, verbose="ERROR")
+        if isinstance(ranks, dict) and ranks:
+            eff = min(eff, int(min(ranks.values())))
+    except Exception:  # noqa: BLE001 — 估秩失败不该挡住 ICA,退回满通道数(MNE.fit 内部还会再估一次)
+        pass
+    if bool(raw.info.get("custom_ref_applied", False)):
+        eff = min(eff, n_pick - 1)
+    return max(1, min(eff, n_pick))
 
 
 def _resolve_fit_params(method: str) -> dict[str, Any] | None:

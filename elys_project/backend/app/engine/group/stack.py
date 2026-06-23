@@ -172,6 +172,24 @@ def align_and_stack(blocks: list[dict[str, Any]], params: dict[str, Any]) -> dic
             "请筛选同导联的输入再合并。"
         )
 
+    # 覆盖率体检:异质 montage(不同型号电极数不同)取严格交集后,可能把多导静默压到极少数共有
+    # 通道,却当正常 grand average 回吐。把"共有/并集/各输入原通道数/交集占并集比"算出写进结果,
+    # 供 summary 持久化(可审计)与 dispatcher 据低覆盖率升 warning(见 _execute_group_merge)。
+    union_ch: list[str] = []
+    seen_ch: set[str] = set()
+    for b in blocks:
+        for c in b["ch_names"]:
+            if c not in seen_ch:
+                seen_ch.add(c)
+                union_ch.append(c)
+    n_union = len(union_ch)
+    coverage = {
+        "n_common": len(common),
+        "n_union": n_union,
+        "per_input_n_ch": [len(list(b["ch_names"])) for b in blocks],
+        "coverage_ratio": round(len(common) / n_union, 4) if n_union else 0.0,
+    }
+
     # 2) feature 坐标轴逐点一致(times / freqs)
     ref_times = blocks[0].get("times")
     ref_freqs = blocks[0].get("freqs")
@@ -212,4 +230,5 @@ def align_and_stack(blocks: list[dict[str, Any]], params: dict[str, Any]) -> dic
         "unit_kind": str(params.get("unit_label") or params.get("unit_kind") or "subject"),
         "label": str(params.get("label") or ""),
         "n_units": int(data.shape[0]),
+        "coverage": coverage,
     }

@@ -40,12 +40,17 @@ class ConditionRule:
 
 
 def match_conditions(
-    onsets: Sequence[float],
+    samples: Sequence[int],
     descriptions: Sequence[str],
-    sfreq: float,
     rules: Sequence[ConditionRule],
 ) -> tuple[list[list[int]], dict[str, int], dict[str, Any]]:
     """按规则把注释归并成 condition,产出 mne events 所需结构。
+
+    samples : 每条注释对应的【绝对样本索引】(含 first_samp),与 descriptions 等长、同序。
+              必须由调用方用 MNE 口径算好后传入(raw.time_as_index(onset, origin=orig_time)
+              + raw.first_samp,与 mne.events_from_annotations 一致)——绝不在这里用裸
+              round(onset×sfreq):裁剪/拼接/部分采集系统的数据 first_samp≠0 时,mne.Epochs
+              把样本列当含 first_samp 的绝对索引,裸折算会让所有 epoch 整体错位且不报错。
 
     返回 (events, event_id_map, report):
       events       : [[sample, 0, code], ...](未排序;调用方排序后转 np.array)
@@ -65,7 +70,7 @@ def match_conditions(
     ambiguous = 0
     total = 0
 
-    for onset, desc in zip(onsets, descriptions):
+    for sample, desc in zip(samples, descriptions):
         text = str(desc)
         total += 1
         hit_name: str | None = None
@@ -80,8 +85,7 @@ def match_conditions(
             continue
         if n_hits > 1:
             ambiguous += 1
-        sample = int(round(float(onset) * float(sfreq)))
-        events.append([sample, 0, code_of[hit_name]])
+        events.append([int(sample), 0, code_of[hit_name]])
         counts[hit_name] += 1
 
     event_id_map = {name: code_of[name] for name in name_order if counts[name] > 0}
@@ -211,8 +215,25 @@ def rules_for_selection(
             if g is not None:
                 rules.append(ConditionRule(name=g["name"], pattern=g["pattern"], mode=g["mode"]))
             else:
-                unknown_names.append(nm)
+                # 勾选名在【本份】数据的自动分组里找不到:不再静默丢进 unknown(那会让同一勾选名
+                # 因各数据集 instance_laden 判定不同——A 走 template、B 走 exact——口径漂移、跨被试
+                # 切出不同/零 trial,污染组统计)。改按勾选名【自身形态】还原规则,与产生它的数据集
+                # 口径一致、跨被试稳定。本份数据确实无该事件时,会在 match_conditions 命中 0 条→
+                # 由 epoching 归入 skipped_conditions 照常 warning,不丢失"缺失"信号。
+                rules.append(_rule_from_selected_name(nm))
     return rules, unknown_names
+
+
+def _rule_from_selected_name(name: str) -> ConditionRule:
+    """把一个【勾选名】按其自身形态还原成规则,使同一勾选名在所有上游被试上解析成同一条规则:
+    - 名字含 '*'(propose_condition_groups 的 template 组名,如 `trial/cue/*/clench`)→ template
+      模式(pattern 用 '#' 占位,按"抹掉数字后的模板"匹配),与原 template 组同口径;
+    - 否则 → exact 模式(pattern=原值)。
+    据此消除 instance_laden 逐数据集动态判定造成的跨被试 condition 漂移。
+    """
+    if "*" in name:
+        return ConditionRule(name=name, pattern=name.replace("*", "#"), mode="template")
+    return ConditionRule(name=name, pattern=name, mode="exact")
 
 
 def build_remap_source_target(raw_rules: Any) -> dict[str, str]:

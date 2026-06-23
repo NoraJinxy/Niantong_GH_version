@@ -44,6 +44,7 @@ from app.engine.ica.iclabel import run_iclabel
 from app.engine.preprocess.artifact_mark import run_artifact_mark
 from app.engine.preprocess.bad_channels import run_bad_channels
 from app.engine.preprocess.channel_location import run_channel_location
+from app.engine.preprocess.event_manager import run_event_manager
 from app.engine.preprocess.event_remap import run_event_remap
 from app.engine.preprocess.filters import run_filter
 from app.engine.preprocess.reference import run_rereference
@@ -93,6 +94,7 @@ class NodeDispatcher:
             "eeg/preproc/channel_location": self._execute_channel_location,
             "eeg/preproc/bad_channels": self._execute_bad_channels,
             "eeg/preproc/artifact_mark": self._execute_artifact_mark,
+            "eeg/preproc/event_manager": self._execute_event_manager,
             "eeg/preproc/event_remap": self._execute_event_remap,
             "eeg/ica/compute": self._execute_ica_compute,
             "eeg/ica/apply": self._execute_ica_apply,
@@ -334,6 +336,61 @@ class NodeDispatcher:
         save_descriptor = "interp" if channel_action == "interpolate" else "artifact"
         return self._execute_raw_preprocess(
             context, run_artifact_mark, save_descriptor=save_descriptor, params_override=params
+        )
+
+    def _execute_event_manager(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """事件管理器（交互节点，与 Artifact Mark / Apply ICA 同款回环）：
+        无 decision → 返回 waiting_user_input + 事件编辑 payload（前端双击开页改 marker）；
+        有 decision → 把人工梳理合进 params 复用 raw→raw 保存循环改写 annotations。
+
+        模式分流（事件按数据集逐条精修无法跨集套用，故按输入数量分流，见 event_manager.run_event_manager）：
+          - 单数据集 + decision.events → literal：把最终事件清单写给这唯一数据集（最精确）。
+          - 其余 → rules：只套 group_operations 分组级规则（改名/合并/丢弃/平移），逐事件编辑被略过。
+        """
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Event Manager has no upstream data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        decision = self._event_manager_decision(context)
+        if decision is None:
+            interaction = self._event_manager_interaction_payload(context, input_data_infos)
+            output = NodeOutput(
+                node_id=node_id,
+                node_type=node_type,
+                outputs={"output": []},
+                data_infos=[],
+                artifacts=[item for node_input in context.inputs.values() for item in node_input.artifacts],
+                metadata={"interaction": interaction},
+            )
+            return NodeDispatchResult(
+                output=output,
+                status="waiting_user_input",
+                dataset_count=0,
+                output_ports=["output"],
+            )
+
+        params = {
+            **context.params,
+            "group_operations": decision.get("group_operations") or [],
+            "operations": decision.get("operations") or [],
+            "decision_version": decision.get("decision_version", context.params.get("decision_version", 1)),
+        }
+        # 逐事件最终清单只在「唯一数据集」下落盘——多数据集时事件各不相同，无法套同一份清单，
+        # 退回只套 group_operations 规则（promote-to-rule 桥的批量语义即在此）。
+        events = decision.get("events")
+        if isinstance(events, list) and len(events) > 0 and len(input_data_infos) == 1:
+            params["events"] = events
+        return self._execute_raw_preprocess(
+            context, run_event_manager, save_descriptor="evtman", params_override=params
         )
 
     def _execute_ica_compute(self, context: NodeExecutionContext) -> NodeDispatchResult:
@@ -751,12 +808,32 @@ class NodeDispatcher:
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         for index, data_info in enumerate(input_data_infos):
             try:
                 epochs = read_epochs_from_data_info(data_info, preload=True)
                 cleaned, reject_meta = run_reject_trials(epochs, context.params)
                 input_condition = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
+
+                # 剔除率体检:剔得太多(健康区通常 ≤5–10%)会让后续平均建立在很少试次上、SNR 崩塌。
+                # 只剔光才 raise,这里对"剔很多但没剔光"补一条 warning(不拦,符合厚层放行)。
+                drop_frac = float(reject_meta.get("drop_fraction") or 0.0)
+                if drop_frac >= 0.3:
+                    who = input_condition or self._source_dataset_id(data_info) or f"#{index}"
+                    warnings.append(
+                        self._issue(
+                            code="PIPELINE_REJECT_HIGH_DROP_RATE",
+                            message=(
+                                f"试次剔除率偏高：{who} 剔掉 {reject_meta.get('n_dropped')}/"
+                                f"{reject_meta.get('n_epochs_before')}（{drop_frac:.0%}）。健康区通常 ≤5–10%，"
+                                "剔太多会让平均/统计建立在很少试次上、SNR 下降——请检查上游预处理或放宽阈值。"
+                            ),
+                            node_id=node_id,
+                            node_type=node_type,
+                            severity="warning",
+                        )
+                    )
                 info = self._save_epochs_dataset(
                     context=context,
                     data_info=data_info,
@@ -801,6 +878,7 @@ class NodeDispatcher:
             dataset_count=len(emitted_data_infos),
             output_ports=["output"],
             errors=errors,
+            warnings=warnings,
         )
 
     def _execute_erp_average(self, context: NodeExecutionContext) -> NodeDispatchResult:
@@ -839,6 +917,30 @@ class NodeDispatcher:
             summary = summarize_unit_stack(result)
             base_type = str(result.get("base_type") or "")
             subjects = list(result.get("unit_subjects") or [])
+
+            # 通道交集覆盖率过低(异质 montage 把多导静默压到极少数共有通道)→ 升 warning(不 block,
+            # 符合厚层放行)。覆盖率明细已随 summary 落盘可审计;这里把"低覆盖率"冒泡成节点告警。
+            group_warnings: list[dict[str, Any]] = []
+            coverage = result.get("coverage") if isinstance(result, dict) else None
+            if isinstance(coverage, dict):
+                n_common = int(coverage.get("n_common") or 0)
+                n_union = int(coverage.get("n_union") or 0)
+                ratio = float(coverage.get("coverage_ratio") or 0.0)
+                if n_union and ratio < 0.5:
+                    group_warnings.append(
+                        self._issue(
+                            code="PIPELINE_GROUP_LOW_CHANNEL_COVERAGE",
+                            message=(
+                                f"组合并按通道交集对齐后仅剩 {n_common}/{n_union} 个共有通道"
+                                f"（覆盖率 {ratio:.0%}）。各输入电极布局不一致（如不同型号设备），"
+                                "后续组平均/统计只在这少数共有通道上进行，空间覆盖与统计功效大幅下降——"
+                                "请确认参与合并的被试导联是否同质。"
+                            ),
+                            node_id=node_id,
+                            node_type=node_type,
+                            severity="warning",
+                        )
+                    )
 
             safe_label = "".join(
                 c if c.isalnum() or c in {"-", "_"} else "_" for c in label
@@ -930,6 +1032,7 @@ class NodeDispatcher:
                 status="success",
                 dataset_count=1,
                 output_ports=["output"],
+                warnings=group_warnings,
             )
         except Exception as exc:
             error = self._issue(
@@ -2502,6 +2605,96 @@ class NodeDispatcher:
                 },
             },
         }
+
+    @staticmethod
+    def _event_manager_decision(context: NodeExecutionContext) -> dict[str, Any] | None:
+        """读事件梳理决策：优先取 job interaction 里已提交的 decision；否则回退节点 params
+        （允许在图上写死 group_operations 声明式直接跑，与 Event Remap 同口径）。无任何编辑则返回 None → 等待。"""
+        output_json = getattr(context.job, "output_json", None) or {}
+        interaction = NodeDispatcher._interaction_from_output(output_json)
+        decision = interaction.get("decision") if isinstance(interaction, dict) else None
+        if isinstance(decision, dict) and (
+            decision.get("type") == "event_editing"
+            or "events" in decision
+            or "group_operations" in decision
+        ):
+            return {
+                "events": decision.get("events"),
+                "group_operations": decision.get("group_operations") or [],
+                "operations": decision.get("operations") or [],
+                "decision_version": int(
+                    decision.get("decision_version") or context.params.get("decision_version") or 1
+                ),
+            }
+
+        raw_ops = context.params.get("group_operations")
+        if raw_ops not in (None, "", []):
+            return {
+                "events": None,
+                "group_operations": raw_ops,
+                "operations": [],
+                "decision_version": int(context.params.get("decision_version") or 1),
+                "source": "node_params",
+            }
+        return None
+
+    @staticmethod
+    def _event_manager_interaction_payload(
+        context: NodeExecutionContext,
+        input_data_infos: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """事件编辑 waiting payload：把每个输入数据集「当前全部事件」（读上游 fif 注解，非破坏、不预载样本）
+        全量喂给前端作初始态；波形按需走 input-timeseries 端点。BAD_ 注解单列作只读上下文层。"""
+        datasets = []
+        for data_info in input_data_infos:
+            events, bad_segments = NodeDispatcher._read_managed_events(data_info)
+            datasets.append(
+                {
+                    "dataset_id": data_info.get("dataset_id"),
+                    "source_dataset_id": NodeDispatcher._source_dataset_id(data_info),
+                    # 上游 raw 的 StudyOutput id：前端据此调 input-timeseries 画波形叠 marker
+                    "output_id": data_info.get("artifact_id"),
+                    "data_info": NodeDispatcher._compact_input_data_info(data_info),
+                    "events": events,
+                    "bad_segments": bad_segments,
+                }
+            )
+        return {
+            "type": "event_editing",
+            "status": "waiting_user_input",
+            "decision_version": int(context.params.get("decision_version") or 1),
+            "preview_json": {"datasets": datasets},
+        }
+
+    @staticmethod
+    def _read_managed_events(data_info: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """读上游 raw 的注解，拆成（managed=非 BAD 事件, bad=BAD_ 注解）。preload=False 只读头部注解、不载样本。
+        失败（文件缺失等）→ 返回空，前端给空编辑器，不阻断开页。"""
+        from app.engine.preprocess.event_manager import BAD_ANNOTATION_PREFIX  # noqa: PLC0415
+
+        try:
+            raw = read_raw_from_data_info(data_info, preload=False)
+        except Exception:
+            return [], []
+        annotations = getattr(raw, "annotations", None)
+        events: list[dict[str, Any]] = []
+        bads: list[dict[str, Any]] = []
+        if annotations is None or len(annotations) == 0:
+            return events, bads
+        for onset, duration, desc in zip(
+            annotations.onset, annotations.duration, annotations.description
+        ):
+            rec = {
+                "onset": round(float(onset), 4),
+                "duration": round(float(duration), 4),
+                "description": str(desc),
+            }
+            if rec["description"].startswith(BAD_ANNOTATION_PREFIX):
+                bads.append(rec)
+            else:
+                events.append(rec)
+        events.sort(key=lambda e: e["onset"])
+        return events, bads
 
     @staticmethod
     def _interaction_from_output(output_json: dict[str, Any]) -> dict[str, Any]:

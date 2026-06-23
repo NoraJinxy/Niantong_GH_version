@@ -22,9 +22,13 @@ def run_filter(raw: Any, params: dict[str, Any]) -> Any:
     visible_when 在 UI 层切换，引擎只管按 type 读对应参数。
     """
     filter_type = str(params.get("filter_type") or "bandpass").strip().lower()
-    method = str(params.get("method") or "fir").strip().lower()
     if filter_type == "notch":
-        return _run_notch(raw, params, method)
+        # 陷波默认走谱拟合(spectrum_fit≈CleanLine):把工频当正弦回归减除,只扣窄带、保留邻近频谱,
+        # 不像硬陷波那样在 50/100Hz 挖缺口、引入振铃污染 PSD/时频。独立 notch_method,与频谱滤波的
+        # method(fir/iir)分开,避免"spectrum_fit 选给带通会报错"的混淆。
+        notch_method = str(params.get("notch_method") or "spectrum_fit").strip().lower()
+        return _run_notch(raw, params, notch_method)
+    method = str(params.get("method") or "fir").strip().lower()
     if filter_type in {"bandpass", "highpass", "lowpass"}:
         return _run_spectral(raw, params, filter_type, method)
     raise ValueError(
@@ -78,7 +82,7 @@ def _run_notch(raw: Any, params: dict[str, Any], method: str) -> Any:
     freq = _positive_float_or_none(params.get("notch_freq"))
     if freq is None:
         raise ValueError("Notch filter requires a positive notch_freq (line frequency).")
-    harmonics = _resolve_int(params.get("notch_harmonics"), default=1, lo=1, hi=20, name="notch_harmonics")
+    harmonics = _resolve_int(params.get("notch_harmonics"), default=3, lo=1, hi=20, name="notch_harmonics")
     nyquist = float(raw.info["sfreq"]) / 2.0
     freqs = [freq * order for order in range(1, harmonics + 1) if freq * order < nyquist]
     if not freqs:

@@ -75,10 +75,19 @@ def _run_autoreject(epochs: Any, params: dict[str, Any]) -> tuple[Any, dict[str,
     import numpy as np  # noqa: PLC0415
 
     n_before = len(epochs)
-    n_interpolate = max(0, int(params.get("n_interpolate", 4) or 4))
-    # n_interpolate 给单值数组 = 固定该值、不在它上面做交叉验证(更快);random_state 固定保证可复现。
+    n_ch = len(epochs.ch_names)
+    raw_ni = params.get("n_interpolate")
+    if raw_ni in (None, "", "auto"):
+        # 留空=AutoReject 标准用法:在候选插值数上交叉验证自动选最优 κ(Jas 2017 的关键增量;
+        # 不同被试/montage 最优 κ 差别大,固定单值会在干净数据上过插、脏数据上插不够)。
+        cand = [c for c in (1, 4, 8, 16) if c < n_ch] or [max(0, min(1, n_ch - 1))]
+        n_interp_grid = np.array(sorted(set(cand)))
+    else:
+        # 显式填值=固定该插值数、跳过 κ 搜索(更快但略糙,作为快速档)。
+        n_interp_grid = np.array([max(0, min(int(raw_ni), max(0, n_ch - 1)))])
+    # random_state 固定保证可复现。
     ar = AutoReject(
-        n_interpolate=np.array([n_interpolate]),
+        n_interpolate=n_interp_grid,
         random_state=42,
         verbose=False,
     )
@@ -94,6 +103,15 @@ def _run_autoreject(epochs: Any, params: dict[str, Any]) -> tuple[Any, dict[str,
     if n_after == 0:
         raise ValueError(f"AutoReject 后一个 epoch 都不剩(原 {n_before} 个),数据可能整体过脏。")
 
+    # 交叉验证实际选出的 κ(每通道类型一个,取其一)记进溯源,让"自动选了几"可见、可审计。
+    chosen_kappa: int | None = None
+    try:
+        ni_ = getattr(ar, "n_interpolate_", None)
+        if isinstance(ni_, dict) and ni_:
+            chosen_kappa = int(next(iter(ni_.values())))
+    except Exception:  # noqa: BLE001 — 读不到选值不影响结果,只是少一条溯源
+        chosen_kappa = None
+
     n_dropped = n_before - n_after
     return cleaned, {
         "reject_method": "autoreject",
@@ -101,5 +119,6 @@ def _run_autoreject(epochs: Any, params: dict[str, Any]) -> tuple[Any, dict[str,
         "n_epochs_after": int(n_after),
         "n_dropped": int(n_dropped),
         "drop_fraction": round(n_dropped / n_before, 4) if n_before else 0.0,
-        "n_interpolate": n_interpolate,
+        "n_interpolate_grid": [int(x) for x in n_interp_grid.tolist()],
+        "n_interpolate": chosen_kappa if chosen_kappa is not None else int(n_interp_grid[0]),
     }

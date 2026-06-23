@@ -44,10 +44,16 @@ def run_epoch_segment(raw: Any, params: dict[str, Any]) -> tuple[Any, dict[str, 
             f"{summary['hint']}"
         )
 
-    sfreq = float(raw.info["sfreq"])
-    events_list, event_id_map, report = match_conditions(
-        annotations.onset, descriptions, sfreq, rules
-    )
+    # onset→样本:交给 MNE 的 events_from_annotations(喂 mne.Epochs 的标准口径),它正确处理
+    # first_samp / orig_time / meas_date 的所有组合,避免手算折算在裁剪/拼接/部分采集系统的数据
+    # (first_samp≠0、或 orig_time≠meas_date)上整体错位且不报错。regexp=None 不过滤(含 BAD_/EDGE,
+    # 留给 rules 决定),保持与旧"对全部注释套规则"一致。再把每条事件的 description 还原后套 rules。
+    ev_arr, desc_to_code = mne.events_from_annotations(raw, regexp=None, verbose="ERROR")
+    code_to_desc = {int(code): str(desc) for desc, code in desc_to_code.items()}
+    ev_samples = [int(row[0]) for row in ev_arr]
+    ev_descs = [code_to_desc.get(int(row[2]), "") for row in ev_arr]
+
+    events_list, event_id_map, report = match_conditions(ev_samples, ev_descs, rules)
     if not event_id_map:
         summary = summarize_event_vocabulary(descriptions)
         raise ValueError(

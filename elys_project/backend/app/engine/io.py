@@ -192,7 +192,7 @@ def summarize_tfr(tfr: Any) -> dict[str, Any]:
         "data_type": "tfr",
         "n_channels": len(tfr.ch_names),
         "ch_names": list(tfr.ch_names),
-        "channel_types": list(tfr.info.get_channel_types()),
+        "channel_types": list(tfr.get_channel_types()),
         "sfreq": sfreq,
         "n_freqs": len(freqs),
         "fmin": float(freqs[0]) if freqs else None,
@@ -332,13 +332,13 @@ def load_psd_npz(path: str | Path) -> dict[str, Any]:
     """读单被试 PSD .npz → {freqs, psds, ch_names, sfreq}。"""
     import numpy as np  # noqa: PLC0415
 
-    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
-    return {
-        "freqs": data["freqs"],
-        "psds": data["psds"],
-        "ch_names": list(data["ch_names"]),
-        "sfreq": float(data["sfreq"]),
-    }
+    with np.load(str(Path(path).expanduser()), allow_pickle=False) as data:
+        return {
+            "freqs": np.array(data["freqs"]),
+            "psds": np.array(data["psds"]),
+            "ch_names": list(data["ch_names"]),
+            "sfreq": float(data["sfreq"]),
+        }
 
 
 def save_psd_grandavg_npz(result: dict[str, Any], path: str | Path, *, overwrite: bool = True) -> Path:
@@ -422,25 +422,25 @@ def load_unit_stack_npz(path: str | Path) -> dict[str, Any]:
     """读 unit_stack .npz → dict(data + 坐标轴 + 逐 unit 元数据);空 times/freqs 还原成 None。"""
     import numpy as np  # noqa: PLC0415
 
-    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
-    times = data["times"]
-    freqs = data["freqs"]
-    stacked = data["data"]
-    return {
-        "data": stacked,  # (n_units, n_channels, *feature)
-        "base_type": str(data["base_type"]),
-        "ch_names": [str(c) for c in data["ch_names"]],
-        "ch_types": [str(c) for c in data["ch_types"]],
-        "times": times if times.size else None,
-        "freqs": freqs if freqs.size else None,
-        "sfreq": float(data["sfreq"]),
-        "unit_labels": [str(c) for c in data["unit_labels"]],
-        "unit_subjects": [str(c) for c in data["unit_subjects"]],
-        "unit_n": [float(x) for x in data["unit_n"]],
-        "unit_kind": str(data["unit_kind"]),
-        "label": str(data["label"]),
-        "n_units": int(stacked.shape[0]),
-    }
+    with np.load(str(Path(path).expanduser()), allow_pickle=False) as data:
+        times = np.array(data["times"])
+        freqs = np.array(data["freqs"])
+        stacked = np.array(data["data"])
+        return {
+            "data": stacked,  # (n_units, n_channels, *feature)
+            "base_type": str(data["base_type"]),
+            "ch_names": [str(c) for c in data["ch_names"]],
+            "ch_types": [str(c) for c in data["ch_types"]],
+            "times": times if times.size else None,
+            "freqs": freqs if freqs.size else None,
+            "sfreq": float(data["sfreq"]),
+            "unit_labels": [str(c) for c in data["unit_labels"]],
+            "unit_subjects": [str(c) for c in data["unit_subjects"]],
+            "unit_n": [float(x) for x in data["unit_n"]],
+            "unit_kind": str(data["unit_kind"]),
+            "label": str(data["label"]),
+            "n_units": int(stacked.shape[0]),
+        }
 
 
 def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
@@ -470,6 +470,10 @@ def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
         summary["n_freqs"] = int(len(freqs))
         summary["fmin"] = float(freqs[0])
         summary["fmax"] = float(freqs[-1])
+    # 通道交集覆盖率(异质 montage 体检):共有/并集/各输入原通道数/占比,持久化进 preview 可审计。
+    coverage = result.get("coverage")
+    if isinstance(coverage, dict) and coverage:
+        summary["coverage"] = coverage
     return summary
 
 
@@ -531,35 +535,35 @@ def load_stat_map_npz(path: str | Path) -> dict[str, Any]:
     """读 stat_map .npz → dict(sig / cluster_masks 还原 bool,空 times/freqs 还原 None)。"""
     import numpy as np  # noqa: PLC0415
 
-    data = np.load(str(Path(path).expanduser()), allow_pickle=False)
-    times = data["times"]
-    freqs = data["freqs"]
-    cmasks = data["cluster_masks"]
-    return {
-        "base_type": str(data["base_type"]),
-        "ch_names": [str(c) for c in data["ch_names"]],
-        "ch_types": [str(c) for c in data["ch_types"]],
-        "times": times if times.size else None,
-        "freqs": freqs if freqs.size else None,
-        "sfreq": float(data["sfreq"]),
-        "tmap": data["tmap"],
-        "pmap": data["pmap"],
-        "sig": data["sig"].astype(bool),
-        "mean_a": data["mean_a"],
-        "mean_b": data["mean_b"],
-        "design": str(data["design"]),
-        "method": str(data["method"]),
-        "tail": str(data["tail"]),
-        "correction": str(data["correction"]),
-        "alpha": float(data["alpha"]),
-        "contrast_label": str(data["contrast_label"]),
-        "n_a": int(data["n_a"]),
-        "n_b": int(data["n_b"]),
-        "roi_channels": [str(c) for c in data["roi_channels"]],
-        "roi_axis": str(data["roi_axis"]),
-        "cluster_masks": cmasks.astype(bool) if cmasks.size else None,
-        "cluster_pvals": [float(x) for x in data["cluster_pvals"]],
-    }
+    with np.load(str(Path(path).expanduser()), allow_pickle=False) as data:
+        times = np.array(data["times"])
+        freqs = np.array(data["freqs"])
+        cmasks = np.array(data["cluster_masks"])
+        return {
+            "base_type": str(data["base_type"]),
+            "ch_names": [str(c) for c in data["ch_names"]],
+            "ch_types": [str(c) for c in data["ch_types"]],
+            "times": times if times.size else None,
+            "freqs": freqs if freqs.size else None,
+            "sfreq": float(data["sfreq"]),
+            "tmap": np.array(data["tmap"]),
+            "pmap": np.array(data["pmap"]),
+            "sig": np.array(data["sig"]).astype(bool),
+            "mean_a": np.array(data["mean_a"]),
+            "mean_b": np.array(data["mean_b"]),
+            "design": str(data["design"]),
+            "method": str(data["method"]),
+            "tail": str(data["tail"]),
+            "correction": str(data["correction"]),
+            "alpha": float(data["alpha"]),
+            "contrast_label": str(data["contrast_label"]),
+            "n_a": int(data["n_a"]),
+            "n_b": int(data["n_b"]),
+            "roi_channels": [str(c) for c in data["roi_channels"]],
+            "roi_axis": str(data["roi_axis"]),
+            "cluster_masks": cmasks.astype(bool) if cmasks.size else None,
+            "cluster_pvals": [float(x) for x in data["cluster_pvals"]],
+        }
 
 
 def summarize_stat_map(result: dict[str, Any]) -> dict[str, Any]:

@@ -34,7 +34,18 @@ def run_rereference(raw: Any, params: dict[str, Any]) -> Any:
     if missing:
         raise ValueError(f"Reference channels not found: {', '.join(missing)}")
 
-    # 全选时也走 ref_channels=list（MNE 内部减去平均），与"average"模式等价。
+    # 平均参考的分母必须排除坏道：MNE 仅对 ref_channels="average"/"REST" 字符串路径自动排除
+    # info['bads']，显式通道 list 不排除。若上游已标坏道(bad_channels / artifact_mark)却未插值，
+    # 坏道的大幅噪声会被平均进参考、再减回每根通道，全通道不可逆污染(PREP 铁律)。这里手动剔除。
+    bads = set(rereferenced.info.get("bads") or [])
+    ref_used = [channel for channel in normalized if channel not in bads]
+    if not ref_used:
+        raise ValueError(
+            "选作参考的通道全部是已标记的坏道，无法作参考。"
+            "请先插值/取消坏道标记，或改选其它参考通道。"
+        )
+
+    # 全选时走 ref_channels=好通道 list（MNE 内部减去这些通道的平均），等价于排坏道的共同平均参考。
     # 用 list 形式让回归 / cache 行为可预测：哈希值取决于 ref_channels 内容，重选会触发重跑。
-    rereferenced.set_eeg_reference(ref_channels=normalized, projection=False, verbose="ERROR")
+    rereferenced.set_eeg_reference(ref_channels=ref_used, projection=False, verbose="ERROR")
     return rereferenced

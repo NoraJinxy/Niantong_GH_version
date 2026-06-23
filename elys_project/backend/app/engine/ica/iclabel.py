@@ -70,6 +70,19 @@ def run_iclabel(raw: Any, ica: Any, params: dict[str, Any]) -> tuple[Any, dict[s
             "建议上游 Compute ICA 选 Infomax（或 Picard）以获得最佳分类准确度。"
         )
 
+    # ICLabel 训练域:1–100Hz 带通 + 平均参考。偏离会让七分类置信度系统性偏移(伪迹误判成 brain 漏删,
+    # 或 brain 误判成伪迹)。给提示不拦(厚层放行)——让用户看见这层"出域",而非默默拿偏移的分类去删数据。
+    lowpass = float(raw.info.get("lowpass") or 0.0)
+    if 0 < lowpass < 90.0:
+        notes.append(
+            f"当前低通约 {lowpass:g}Hz，低于 ICLabel 训练域上限 100Hz；肌电 / 工频类成分的高频特征被截断，"
+            "分类置信度可能偏移。如需最佳准确度，可对送入 ICA / ICLabel 的数据用 1–100Hz 带通。"
+        )
+    if not bool(raw.info.get("custom_ref_applied", False)):
+        notes.append(
+            "未检测到平均参考；ICLabel 训练于平均参考数据，建议上游先做平均参考（Re-reference 全选）以提升分类准确度。"
+        )
+
     try:
         result = label_components(raw, ica, method="iclabel")
     except Exception as exc:  # 缺电极坐标 / 无 EEG 通道 / 模型加载失败等，给清晰报错
@@ -80,7 +93,7 @@ def run_iclabel(raw: Any, ica: Any, params: dict[str, Any]) -> tuple[Any, dict[s
 
     labels = list(result.get("labels") or [])
     proba_attr = result.get("y_pred_proba")
-    probabilities = [float(p) for p in proba_attr] if proba_attr is not None else []
+    probabilities = _per_component_probabilities(proba_attr)
 
     components: list[dict[str, Any]] = []
     excluded: list[int] = []
@@ -131,6 +144,24 @@ def run_iclabel(raw: Any, ica: Any, params: dict[str, Any]) -> tuple[Any, dict[s
     # 用 exclude 关键字应用，避免副作用地写回 ica.exclude（与官方 ICLabel 示例一致）。
     ica.apply(cleaned, exclude=excluded, verbose="ERROR")
     return cleaned, detail
+
+
+def _per_component_probabilities(proba_attr: Any) -> list[float]:
+    """把 ICLabel 的 y_pred_proba 归一成「每个成分取其预测类别的置信度」一维列表。
+
+    mne-icalabel 不同版本里 y_pred_proba 可能是一维 (n_components,) 直接给预测类置信度，
+    也可能是二维 (n_components, n_classes) 给全类别概率——后者按行取 argmax 类（与 labels 的
+    选类一致）即每行最大值。
+    """
+    if proba_attr is None:
+        return []
+    probabilities: list[float] = []
+    for row in proba_attr:
+        try:
+            probabilities.append(float(row))
+        except (TypeError, ValueError):
+            probabilities.append(float(max(row)))
+    return probabilities
 
 
 def _resolve_threshold(value: Any, default: float) -> float:

@@ -20,9 +20,9 @@
        {"value": "lowpass", "label": "低通"},
        {"value": "notch", "label": "工频陷波"}
      ]},
-    {"name": "l_freq", "label": "低截止", "type": "number", "unit": "Hz", "default": 1.0, "min": 0, "required": true,
+    {"name": "l_freq", "label": "低截止", "type": "number", "unit": "Hz", "default": 0.1, "min": 0, "required": true,
      "visible_when": {"filter_type": ["bandpass", "highpass"]},
-     "description": "低于此频率被衰减（高通 / 带通的下边）。ERP 高通建议 ≤0.3Hz，过高会压扁 LPP / CNV 等慢成分。"},
+     "description": "低于此频率被衰减（高通 / 带通的下边）。默认 0.1Hz：既去缓慢漂移，又保留 N400 / P600 / LPP / CNV 等慢成分，是 ERP 的安全缺省。仅当为 ICA 训练单独滤波时才建议提到 1Hz（高通过高会压扁慢成分）。"},
     {"name": "h_freq", "label": "高截止", "type": "number", "unit": "Hz", "default": 40.0, "min": 0, "required": true,
      "visible_when": {"filter_type": ["bandpass", "lowpass"]},
      "description": "高于此频率被衰减（低通 / 带通的上边），去高频肌电 / 噪声。"},
@@ -33,12 +33,20 @@
      "visible_when": {"filter_type": ["notch"]},
      "description": "连同前 N 次谐波一并陷波（如 50, 100, 150Hz）。"},
     {"name": "method", "label": "算法", "type": "select", "default": "fir", "advanced": true,
+     "visible_when": {"filter_type": ["bandpass", "highpass", "lowpass"]},
      "options": [
        {"value": "fir", "label": "FIR 零相位（默认）"},
-       {"value": "iir", "label": "IIR Butterworth"},
-       {"value": "spectrum_fit", "label": "谱拟合（仅陷波）"}
+       {"value": "iir", "label": "IIR Butterworth"}
      ],
-     "description": "FIR=线性相位窗函数；IIR=Butterworth 低阶高效；谱拟合=把工频当正弦减除，仅陷波可用。"},
+     "description": "FIR=线性相位窗函数；IIR=Butterworth 低阶高效。"},
+    {"name": "notch_method", "label": "陷波算法", "type": "select", "default": "spectrum_fit", "advanced": true,
+     "visible_when": {"filter_type": ["notch"]},
+     "options": [
+       {"value": "spectrum_fit", "label": "谱拟合（推荐：只扣窄带正弦、保留邻近频谱）"},
+       {"value": "fir", "label": "FIR 硬陷波"},
+       {"value": "iir", "label": "IIR 硬陷波"}
+     ],
+     "description": "默认谱拟合（等价 CleanLine）：把工频当正弦回归减除，只扣 50/100Hz 窄带、保留相邻频段，不在 PSD / 时频图上挖缺口或留振铃。硬陷波（FIR / IIR）会挖宽缺口并引入振铃，污染 β / γ 频带——除非有特殊需要，保持谱拟合即可。"},
     {"name": "phase", "label": "相位", "type": "select", "default": "zero", "advanced": true,
      "visible_when": {"method": ["fir"]},
      "options": [
