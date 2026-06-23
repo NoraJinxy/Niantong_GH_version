@@ -240,6 +240,106 @@ def topological_node_order(definition_json: dict[str, Any]) -> list[dict[str, An
     return ordered
 
 
+# 顺序软护栏(B2)涉及的节点类型
+_NODE_REREF = "eeg/preproc/rereference"
+_NODE_BADCH = "eeg/preproc/bad_channels"
+_NODE_ARTIFACT = "eeg/preproc/artifact_mark"
+_NODE_FILTER = "eeg/filter/apply"
+_NODE_ICA = "eeg/ica/compute"
+
+
+def _validate_pipeline_order(
+    nodes: list[Any],
+    links: list[Any],
+    node_types: dict[str, str],
+    reachable: set[str],
+    issues: list[PipelineValidationIssue],
+) -> None:
+    """节点顺序软护栏:对违反 PREP / MNE 经典预处理次序的连法给 warning(只提示、不 block,
+    符合厚层放行——专家照样能跑)。端口类型闸门只能保证"接得上",表达不了 raw 阶段内部这些
+    科学次序约束,故在此用图级软提示补上。覆盖:
+      - 平均参考前未做坏道处理 → 坏道噪声经减均值不可逆摊进全通道;
+      - 工频陷波接在平均参考之后 → 工频已被摊进所有通道、事后难干净去除;
+      - ICA 拟合前未做平均参考 → ICLabel 等要求平均参考,分解/分类质量下降。
+    只检查主链路可达节点,避免对游离节点误报。
+    """
+    # 反向邻接(predecessors)+ 每节点参数(从原始 nodes 取,不依赖端口类型是否合法)
+    predecessors: dict[str, list[str]] = {}
+    params_by_id: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        if isinstance(node, dict) and node.get("id"):
+            p = node.get("params")
+            params_by_id[str(node["id"])] = p if isinstance(p, dict) else {}
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        src = (link.get("from") or {}).get("node")
+        dst = (link.get("to") or {}).get("node")
+        if src and dst:
+            predecessors.setdefault(str(dst), []).append(str(src))
+
+    def _ancestor_types(node_id: str) -> set[str]:
+        seen: set[str] = set()
+        stack = list(predecessors.get(node_id, []))
+        while stack:
+            cur = stack.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            stack.extend(predecessors.get(cur, []))
+        return {node_types.get(nid, "") for nid in seen}
+
+    for node in nodes:
+        if not isinstance(node, dict) or not node.get("id"):
+            continue
+        nid = str(node["id"])
+        if nid not in reachable:
+            continue
+        ntype = node_types.get(nid, "")
+
+        if ntype == _NODE_REREF:
+            # 单通道参考(len==1)对坏道顺序不敏感;平均型(多选/全选/未定)才需先去坏道
+            ref_channels = params_by_id.get(nid, {}).get("ref_channels")
+            is_average = not (isinstance(ref_channels, list) and len(ref_channels) == 1)
+            if is_average:
+                anc = _ancestor_types(nid)
+                if _NODE_BADCH not in anc and _NODE_ARTIFACT not in anc:
+                    issues.append(
+                        PipelineValidationIssue(
+                            code="NODE_ORDER_REREF_BEFORE_BADCH",
+                            severity="warning",
+                            message="平均参考前未见坏道处理：建议先接 Bad Channels（剔除 / 插值坏道）再做平均参考——否则坏道的大幅噪声会经减均值不可逆地摊进所有通道（PREP 顺序）。",
+                            node_id=nid,
+                            node_type=ntype,
+                        )
+                    )
+
+        elif ntype == _NODE_FILTER:
+            if str(params_by_id.get(nid, {}).get("filter_type") or "") == "notch":
+                if _NODE_REREF in _ancestor_types(nid):
+                    issues.append(
+                        PipelineValidationIssue(
+                            code="NODE_ORDER_NOTCH_AFTER_REREF",
+                            severity="warning",
+                            message="工频陷波接在平均参考之后：建议先去工频再做平均参考——参考之后工频已被摊进所有通道，事后陷波难以干净去除（PREP 顺序）。",
+                            node_id=nid,
+                            node_type=ntype,
+                        )
+                    )
+
+        elif ntype == _NODE_ICA:
+            if _NODE_REREF not in _ancestor_types(nid):
+                issues.append(
+                    PipelineValidationIssue(
+                        code="NODE_ORDER_ICA_WITHOUT_REREF",
+                        severity="warning",
+                        message="ICA 拟合前未见平均参考：建议先做平均参考再拟合 ICA——ICLabel 等成分分类要求平均参考，否则分解与分类质量下降。",
+                        node_id=nid,
+                        node_type=ntype,
+                    )
+                )
+
+
 def validate_definition(
     definition_json: dict[str, Any],
     *,
@@ -451,6 +551,9 @@ def validate_definition(
     # 电极坐标现由「导入转 FIF 时自动绑定 montage」提供（见 engine/preprocess/montage_autobind），
     # 流水线默认不再接 Ch Loc 节点，该 graph 级提示在标准链路上恒误报。坐标真缺失（非标准命名
     # 且未上传自定义电极文件）由运行时 bad_channels 的精确报错兜底，导入 provenance.montageAutobind 可查。
+
+    # 顺序软护栏（B2）：PREP / MNE 经典预处理次序的 warning（不 block，专家照跑）
+    _validate_pipeline_order(nodes, links, node_types, reachable, issues)
 
     # 拓扑排序判环：用 incoming 副本，避免影响上面的 incoming_ports
     incoming_copy = dict(incoming)

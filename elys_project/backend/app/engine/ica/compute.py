@@ -29,6 +29,8 @@ def run_compute_ica(raw: Any, params: dict[str, Any]):
 
     decim = _resolve_decim(params.get("decim"), raw, len(picks))
     fit_params = _resolve_fit_params(method)
+    # ICA 在高通副本上训练(解混矩阵随后由 Apply 套回原数据),兼顾分解质量与慢波保真。
+    fit_raw = _apply_fit_highpass(raw, params.get("fit_highpass"))
 
     ica = mne.preprocessing.ICA(
         n_components=n_components,
@@ -37,8 +39,31 @@ def run_compute_ica(raw: Any, params: dict[str, Any]):
         max_iter="auto",
         fit_params=fit_params,
     )
-    ica.fit(raw, picks=picks, decim=decim, verbose="ERROR")
+    ica.fit(fit_raw, picks=picks, decim=decim, verbose="ERROR")
     return ica
+
+
+def _apply_fit_highpass(raw: Any, value: Any) -> Any:
+    """ICA 标准做法(Winkler 2015 / Makoto):在 ~1Hz 高通副本上拟合 ICA。
+
+    慢漂移会拖垮 ICA 分解,但 ERP 又需要保留 0.1Hz 的慢成分——二者矛盾。解法是"训练/应用解耦":
+    ICA 只在这个 1Hz 高通副本上学解混矩阵,而 Apply 节点把矩阵套回未额外高通的原数据,故最终数据
+    的低频/慢成分不受影响。默认 1.0Hz;数据本就高通到 ≥该值则不重复滤(幂等);设 0 / 空 = 不额外
+    高通、按原样训练(供专家覆盖)。这是默认行为,用户无需配置即得到高质量分解。
+    """
+    if value in (None, ""):
+        fit_hp = 1.0
+    else:
+        try:
+            fit_hp = float(value)
+        except (TypeError, ValueError):
+            fit_hp = 1.0
+    if fit_hp <= 0:
+        return raw
+    current_hp = float(raw.info.get("highpass") or 0.0)
+    if current_hp >= fit_hp:
+        return raw
+    return raw.copy().load_data().filter(l_freq=fit_hp, h_freq=None, verbose="ERROR")
 
 
 def _effective_rank(mne: Any, raw: Any, picks: Any) -> int:
