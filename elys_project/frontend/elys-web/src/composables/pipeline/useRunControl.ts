@@ -106,15 +106,16 @@ export function useRunControl(options: RunControlOptions) {
   }
 
   async function runPipeline() {
+    if (runningPipeline.value) return
     if (!selectedStudyId.value) return
-    if (dirty.value || !currentPipeline.value) {
-      await savePipeline()
-    }
-    if (!currentPipeline.value || dirty.value) return
-
     runningPipeline.value = true
-    statusMessage.value = '正在运行工作流...'
     try {
+      if (dirty.value || !currentPipeline.value) {
+        await savePipeline()
+      }
+      if (!currentPipeline.value || dirty.value) return
+
+      statusMessage.value = '正在运行工作流...'
       const selectionOverride = buildRunSelectionOverridePayload()
       const res = await pipelineApi.run(selectedStudyId.value, currentPipeline.value.id, {
         ...(Object.keys(selectionOverride).length ? { selection_override: selectionOverride } : {}),

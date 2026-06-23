@@ -32,7 +32,7 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
       if (anchorIdx == null && selected.value.size > 0) {
         const firstSel = [...selected.value][0]
         const fi = arr.findIndex((k) => k === firstSel)
-        if (fi >= 0) anchorIdx = fi
+        anchorIdx = fi >= 0 ? fi : index
       }
       if (anchorIdx != null) {
         const lo = Math.min(anchorIdx, index)
@@ -43,6 +43,7 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
           if (kk !== undefined) s.add(kk)
         }
         selected.value = s
+        anchor.value = index
         return
       }
     }

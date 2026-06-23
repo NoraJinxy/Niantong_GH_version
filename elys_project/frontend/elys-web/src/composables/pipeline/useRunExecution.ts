@@ -6,7 +6,7 @@
 //   - onRunStateRefreshed：刷新后按当前 tab 懒加载执行详情 Manifest / Lineage
 // 承重墙状态（selectedNode / statusMessage）+ selectedStudyId / currentPipeline + 产物/任务 helper 经 options 传入。
 
-import { computed, ref, type Ref, type ComputedRef } from 'vue'
+import { computed, onUnmounted, ref, type Ref, type ComputedRef } from 'vue'
 import type {
   Pipeline,
   PipelineExecution,
@@ -232,6 +232,10 @@ export function useRunExecution(options: RunExecutionOptions) {
       resetRunTracking()
     }
   }
+
+  // 组件卸载时清掉挂起的轮询 setTimeout：tick 链只在运行进入终态时自停，
+  // 页面提前卸载（离开工作流页）后 tick 会继续重排，再次进入页面会叠加幽灵轮询链。
+  onUnmounted(() => stopRunPolling())
 
   return {
     latestPipelineExecution,

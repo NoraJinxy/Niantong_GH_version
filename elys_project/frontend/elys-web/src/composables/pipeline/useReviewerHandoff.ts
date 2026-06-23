@@ -39,54 +39,56 @@ export function useReviewerHandoff(ctx: ReviewerHandoffCtx) {
     return e?.message || fallback
   }
 
-  // 返回工作流：同标签 router.push 打开 → 回上一页（PipelinePage，keep-alive 缓存还在）；
-  // 无历史（用户刷新/直接打开审核台 URL）→ 兜底回根，避免 router.back 卡在空历史。
+  // 返回工作流：显式 push 回本研究项的工作流页（StudyPipeline，keep-alive 缓存还在）。
+  // 不依赖 history.length——它统计整个浏览器会话历史（含进入 ELYS 前的外部页面），
+  // 从外链进来的用户 router.back 会被弹出应用之外；改用本 composable 已有的 studyId 显式定位。
   function returnToPipeline() {
-    if (window.history.length > 1) router.back()
-    else void router.push('/')
+    void router.push({ name: 'StudyPipeline', params: { studyId: ctx.studyId } })
   }
 
   async function submitAndReturn(): Promise<void> {
+    // 并发保护：同步抢锁——两次快速点击在第一个 await 翻 applying 前都过了旧检查会重复发 /decision+/resume。
+    if (applying.value) return
     applying.value = true
     applyMsg.value = ''
     applyError.value = false
     const base = `/studies/${ctx.studyId}/pipeline-executions/${ctx.executionId}/jobs/${ctx.jobId}`
-    // 1) 提交决策（关键落库，必须成功）
     try {
-      await api.post(`${base}/decision`, { ...ctx.buildBody(), decision_version: ctx.decisionVersion() })
-    } catch (err) {
-      applyError.value = true
-      applyMsg.value = '提交失败：' + describeError(err)
-      applying.value = false
-      return
-    }
-    // 2) 续跑（同步端点，跑完才返回）。不再吞错——失败 / 节点没被推进，都要明示而不是默默回到「等待确认」。
-    //    resume 返回该节点最新 job：status 仍是 waiting_user_input = 续跑没真正应用决策（后端问题），留在本页报明。
-    try {
-      const resp = await api.post<{ job?: { status?: string } }>(`${base}/resume`, {})
-      if (resp?.data?.job?.status === 'waiting_user_input') {
+      // 1) 提交决策（关键落库，必须成功）
+      try {
+        await api.post(`${base}/decision`, { ...ctx.buildBody(), decision_version: ctx.decisionVersion() })
+      } catch (err) {
         applyError.value = true
-        applyMsg.value = '已提交，但节点仍停在「等待确认」——续跑未推进该节点（请截图反馈）。'
-        applying.value = false
+        applyMsg.value = '提交失败：' + describeError(err)
         return
       }
-    } catch (err) {
-      applyError.value = true
-      applyMsg.value = '已提交，但续跑失败：' + describeError(err)
+      // 2) 续跑（同步端点，跑完才返回）。不再吞错——失败 / 节点没被推进，都要明示而不是默默回到「等待确认」。
+      //    resume 返回该节点最新 job：status 仍是 waiting_user_input = 续跑没真正应用决策（后端问题），留在本页报明。
+      try {
+        const resp = await api.post<{ job?: { status?: string } }>(`${base}/resume`, {})
+        if (resp?.data?.job?.status === 'waiting_user_input') {
+          applyError.value = true
+          applyMsg.value = '已提交，但节点仍停在「等待确认」——续跑未推进该节点（请截图反馈）。'
+          return
+        }
+      } catch (err) {
+        applyError.value = true
+        applyMsg.value = '已提交，但续跑失败：' + describeError(err)
+        return
+      }
+      applyDone.value = true
+      applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，正在返回工作流…`
+      // 3) 旗标通知工作流页：返回后强制按 id 重载该执行的运行态——覆盖「keep-alive 陈旧态」与
+      //    「跳顶级路由后工作区重挂、activeExecutionId 丢失」两种情况，确保看到续跑后的新状态。
+      try {
+        sessionStorage.setItem('elys:reviewer-applied', JSON.stringify({ executionId: ctx.executionId, at: Date.now() }))
+      } catch {
+        /* 隐私模式禁用 storage：忽略，退回工作流页常规刷新 */
+      }
+      returnToPipeline()
+    } finally {
       applying.value = false
-      return
     }
-    applying.value = false
-    applyDone.value = true
-    applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，正在返回工作流…`
-    // 3) 旗标通知工作流页：返回后强制按 id 重载该执行的运行态——覆盖「keep-alive 陈旧态」与
-    //    「跳顶级路由后工作区重挂、activeExecutionId 丢失」两种情况，确保看到续跑后的新状态。
-    try {
-      sessionStorage.setItem('elys:reviewer-applied', JSON.stringify({ executionId: ctx.executionId, at: Date.now() }))
-    } catch {
-      /* 隐私模式禁用 storage：忽略，退回工作流页常规刷新 */
-    }
-    returnToPipeline()
   }
 
   return { applying, applyDone, applyMsg, applyError, describeError, submitAndReturn, returnToPipeline }

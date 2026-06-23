@@ -41,11 +41,15 @@ export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
   }
 
   const client = opts.client ?? dataApi
+  // 单调递增的请求序号：params 快速变化时，旧的慢响应可能后到，若其序号已被新请求超越就丢弃，
+  // 避免陈旧结果回写内存/IndexedDB（IDB 污染会跨刷新存活）。
+  let reqSeq = 0
   async function fetchNetwork(params: Record<string, unknown>): Promise<T> {
     const url = opts.endpoint(params)
+    const controller = new AbortController()
     if (opts.decodeBinary) {
       try {
-        const res = await client.get(url, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
+        const res = await client.get(url, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer', signal: controller.signal })
         const buf = res.data as ArrayBuffer
         if (!buf || buf.byteLength < 12) throw new Error('empty binary')
         return opts.decodeBinary(buf)
@@ -53,7 +57,7 @@ export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
         /* 二进制不可用/解码失败 → 回退 JSON */
       }
     }
-    const res = await client.get(url, { params })
+    const res = await client.get(url, { params, signal: controller.signal })
     return opts.fromJson ? opts.fromJson(res.data) : (res.data as T)
   }
 
@@ -71,9 +75,13 @@ export function useTieredFetch<T>(opts: TieredFetchOptions<T>) {
       memSet(key, idb)
       return { data: idb, source: 'indexeddb' }
     }
+    const seq = ++reqSeq
     const data = await fetchNetwork(params)
-    memSet(key, data)
-    void idbSet(key, data) // best-effort 回填，失败静默
+    if (seq === reqSeq) {
+      // 仍是最新请求才回写缓存；被更新请求超越则丢弃，避免陈旧结果污染内存/IndexedDB。
+      memSet(key, data)
+      void idbSet(key, data) // best-effort 回填，失败静默
+    }
     return { data, source: 'network' }
   }
 

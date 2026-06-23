@@ -1,5 +1,6 @@
 <template>
   <div class="stats-page">
+    <PerfBadge :perf="probe.perf" />
     <header class="sp-head">
       <div class="sp-id">
         <span class="sp-badge">STAT</span>
@@ -120,6 +121,8 @@
 import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { pipelineApi } from '@/api/pipelines'
 import { useQueryString } from '@/composables/observe/observeUtils'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
 import type { StudyOutputStat, StudyOutputStatCluster } from '@/types'
 
 const VW = 1000
@@ -128,11 +131,13 @@ const PLOT_H = 320
 const qstr = useQueryString()
 const studyId = qstr('studyId') || qstr('study_id')
 const outputId = (qstr('study_output_id') || qstr('dd')).split(',')[0]?.trim() || ''
+const probe = usePerfProbe('stats') // 临时性能探针，测完删
 
 const data = ref<StudyOutputStat | null>(null)
 const loading = ref(false)
 const error = ref('')
 const selectedChannel = ref('')
+let loadToken = 0
 const heatCanvas = ref<HTMLCanvasElement | null>(null)
 
 const is1D = computed(() => (data.value?.base_type || '') !== 'tfr')
@@ -142,21 +147,25 @@ async function load(channel?: string) {
     error.value = '缺少参数：需要 studyId 与 study_output_id。'
     return
   }
+  const token = ++loadToken
   loading.value = true
   error.value = ''
   try {
     const res = await pipelineApi.getStudyOutputStat(studyId, outputId, { channel })
+    if (token !== loadToken) return
     data.value = res.data
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
     selectedChannel.value = res.data.channel
     if (!is1D.value) {
       await nextTick()
       drawHeat()
     }
   } catch (e: unknown) {
+    if (token !== loadToken) return
     const err = e as { response?: { data?: { detail?: { message?: string } } }; message?: string }
     error.value = err?.response?.data?.detail?.message || err?.message || '加载失败'
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
@@ -166,7 +175,7 @@ function selectChannel(ch: string) {
 
 // ---------- 文案 ----------
 const contrastLabel = computed(() => data.value?.contrast_label || '统计比较')
-const labelAB = computed(() => contrastLabel.value.split('−').map((s) => s.trim()))
+const labelAB = computed(() => contrastLabel.value.split(/[−-]/).map((s) => s.trim()))
 const labelA = computed(() => labelAB.value[0] || '组 A')
 const labelB = computed(() => labelAB.value[1] || '组 B')
 const baseLabel = computed(

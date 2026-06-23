@@ -37,6 +37,26 @@ import {
 let activeJobForNodeId: (nodeId: string) => { status: string } | null = () => null
 let activeGetLiteGraph: () => LGraph | null = () => null
 
+// onDrawForeground 每帧、每个节点都要判「能否从某 LoadData 顺流到达」（保存指示胶囊）。直接每次跑 BFS =
+// O(N²·fps)，节点一多画布帧率就塌。改成按图拓扑缓存：LiteGraph 实例在每次连线/增删节点时都会自增 _version
+// （见 litegraph.js connect/disconnect/add/remove），故拿 (图实例, _version) 当签名——签名没变就复用上次的
+// 可达集，只在拓扑真的变了才重算一次。draw 循环只读缓存，绝不在帧里跑 BFS。
+let cachedReachableGraph: LGraph | null = null
+let cachedReachableVersion = -1
+let cachedReachableSet = new Set<string>()
+
+function reachableFromLoadDataCached(graph: LGraph | null): Set<string> {
+  if (!graph) return new Set<string>()
+  const version = Number((graph as unknown as { _version?: number })._version ?? -1)
+  if (graph === cachedReachableGraph && version === cachedReachableVersion) {
+    return cachedReachableSet
+  }
+  cachedReachableGraph = graph
+  cachedReachableVersion = version
+  cachedReachableSet = liteGraphReachableFromLoadData(graph)
+  return cachedReachableSet
+}
+
 type ElysPipelineNodeConstructor = typeof LGraphNode & { desc?: string }
 
 interface LiteGraphNodeTypesOptions {
@@ -182,8 +202,10 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
           // - 颜色用 closure 里的 accent（= categoryColor(spec.category)）
           const nodeType = String((node as { type?: unknown }).type || '')
           if (nodeType && !NO_SAVE_ICON_NODE_TYPES.has(nodeType)) {
-            // 先用 BFS 判 LoadData 可达性 —— 不可达就一定不画（用户 override 也无效）
-            const reachableSet = liteGraphReachableFromLoadData(activeGetLiteGraph())
+            // 先用 BFS 判 LoadData 可达性 —— 不可达就一定不画（用户 override 也无效）。
+            // 走按拓扑缓存的版本（见文件顶部 reachableFromLoadDataCached）：每帧每节点重跑 BFS 会塌帧率，
+            // 这里只在 (图实例, _version) 变了才真算，否则复用缓存。
+            const reachableSet = reachableFromLoadDataCached(activeGetLiteGraph())
             if (reachableSet.has(nodeId)) {
               const params = (node.properties || {}) as Record<string, unknown>
               const override = String((params.retention as string | undefined) || '').trim().toLowerCase()

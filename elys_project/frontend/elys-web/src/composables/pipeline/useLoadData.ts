@@ -361,9 +361,14 @@ export function useLoadData(options: LoadDataOptions) {
 
   // —— 运行覆盖 ——
   function loadDataFileIdsForOverride(nodeId: string, datasetIds: string[]) {
-    if (selectedNode.value?.id !== nodeId) return []
+    // 任意 LoadData 节点都从各自的 loadDataInfosByNodeId 缓存取 file_id；选中节点优先用更新鲜的
+    // resolvedLoadDataInfos（编辑中可能比缓存新）。原先只认选中节点 → 多 LoadData 管线里
+    // 非选中节点贡献空 dataset_file_ids，运行覆盖文件选择被清空。
+    const infos = selectedNode.value?.id === nodeId
+      ? resolvedLoadDataInfos.value
+      : loadDataInfosByNodeId[nodeId] || []
     const ids = new Set(datasetIds)
-    const fileIds = resolvedLoadDataInfos.value
+    const fileIds = infos
       .filter((item) => ids.has(item.dataset_id))
       .flatMap((item) => [item.dataset_file_id, item.canonical_fif_file_id, item.source_file_id])
       .filter((item): item is string => Boolean(item))

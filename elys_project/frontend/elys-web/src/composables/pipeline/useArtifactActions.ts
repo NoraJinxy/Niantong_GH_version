@@ -185,7 +185,7 @@ export function useArtifactActions(options: ArtifactActionsOptions) {
       document.body.appendChild(link)
       link.click()
       link.remove()
-      URL.revokeObjectURL(url)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
       statusMessage.value = `已下载结果：${shortId(artifact.id)}`
     } catch (error) {
       statusMessage.value = describeError(error, '结果下载失败')

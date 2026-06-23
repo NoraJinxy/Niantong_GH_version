@@ -12,6 +12,15 @@ import type { LGraphNode } from 'litegraph.js'
 import type { PipelineGraphNode, NodeSpec, PipelineDefinitionPayload } from '@/types'
 import { portTypesCompatible } from './pipelineFormatters'
 
+let linkIdCounter = 0
+
+function generateLinkId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return `l_${uuid}`
+  linkIdCounter += 1
+  return `l_${Date.now().toString(36)}_${linkIdCounter}`
+}
+
 interface GraphConnectionsOptions {
   selectedNode: ComputedRef<PipelineGraphNode | null>
   selectedNodeSpec: ComputedRef<NodeSpec | null>
@@ -120,7 +129,7 @@ export function useGraphConnections(options: GraphConnectionsOptions) {
     }
 
     definition.value.graph.links.push({
-      id: `l_${Date.now().toString(36)}_${definition.value.graph.links.length + 1}`,
+      id: generateLinkId(),
       from: { node: upstream.id, port: output.name },
       to: { node: selectedNode.value.id, port: input.name },
     })

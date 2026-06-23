@@ -23,8 +23,14 @@ function openDb(): Promise<IDBDatabase | null> {
         }
       }
       req.onsuccess = () => resolve(req.result)
-      req.onerror = () => resolve(null)
-    } catch {
+      req.onerror = () => {
+        console.warn('[idbCache] openDb failed, will retry on next access', req.error)
+        dbPromise = null
+        resolve(null)
+      }
+    } catch (e) {
+      console.warn('[idbCache] openDb threw, will retry on next access', e)
+      dbPromise = null
       resolve(null)
     }
   })

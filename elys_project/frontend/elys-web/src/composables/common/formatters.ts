@@ -68,9 +68,9 @@ export function timestamp(value?: string | null): number {
   return Number.isNaN(time) ? 0 : time
 }
 
-// 字节数 → 人类可读体积（含 GB 档）。0 / 空 → '未知大小'。
+// 字节数 → 人类可读体积（含 GB 档）。真 0 字节 → '0 B'；空 / NaN → '未知大小'。
 export function formatFileSize(bytes?: number | null): string {
-  if (!bytes) return '未知大小'
+  if (bytes == null || Number.isNaN(bytes)) return '未知大小'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`

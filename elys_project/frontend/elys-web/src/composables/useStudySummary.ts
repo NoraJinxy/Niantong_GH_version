@@ -13,19 +13,23 @@ export function useStudySummary() {
   const summary = ref<StudySummaryResponse | null>(null)
   const loading = ref(false)
   const error = ref('')
+  let latestToken = 0
 
   async function load(studyId: string): Promise<void> {
     if (!studyId) return
+    const token = ++latestToken
     loading.value = true
     error.value = ''
     try {
       const res = await studyApi.summary(studyId)
-      summary.value = res.data
+      if (token === latestToken) summary.value = res.data // 防竞态：只认最新请求
     } catch (err: any) {
-      error.value = err?.response?.data?.detail || '研究项概览加载失败'
-      summary.value = null
+      if (token === latestToken) {
+        error.value = err?.response?.data?.detail || '研究项概览加载失败'
+        summary.value = null
+      }
     } finally {
-      loading.value = false
+      if (token === latestToken) loading.value = false
     }
   }
 

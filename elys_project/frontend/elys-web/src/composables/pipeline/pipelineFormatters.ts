@@ -297,7 +297,7 @@ export function isWildcardPortType(type?: string): boolean {
 const MULTI_ACCEPT_LITEGRAPH_TYPES: Record<string, string> = {
   spectral_source: 'epochs,eeg_data',
   // group 合并入口接受多种可堆叠产物——展开成逗号列表让画布原生连线放行。
-  stackable: 'evoked,psd,tfr,unit_stack',
+  stackable: 'evoked,psd,tfr,unit_stack,analysis_result',
 }
 
 export function liteGraphPortType(type?: string): string {

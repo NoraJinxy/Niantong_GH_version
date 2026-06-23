@@ -965,10 +965,10 @@ const topoCells = computed(() => {
       continue
     }
     const raw = positioned.map((c) => ({ name: c.name, x: c.x as number, y: c.y as number, value: cubeChannelValue(cube, c) }))
-    const finite = raw.filter((r) => Number.isFinite(r.value))
+    const finite = raw.filter((r) => Number.isFinite(r.value)) // 窗内无数据(NaN)的通道直接剔除，不垫 0：否则伪装成「等于全脑均值」误导，且 NaN 会毒化整张插值色面
     const center = demean && finite.length ? finite.reduce((s, r) => s + r.value, 0) / finite.length : 0
-    const points = raw.map((r) => ({ name: r.name, x: r.x, y: r.y, value: Number.isFinite(r.value) ? r.value - center : 0 }))
-    out.push({ seg, label: segLabel(seg), color: segColor(seg), points })
+    const points = finite.map((r) => ({ name: r.name, x: r.x, y: r.y, value: r.value - center }))
+    out.push({ seg, label: segLabel(seg), color: segColor(seg), points: points.length ? points : null })
   }
   return out
 })

@@ -27,9 +27,17 @@ export const useAuthStore = defineStore('auth', () => {
     const savedRefresh = localStorage.getItem('elys_refresh_token')
     const savedUser = localStorage.getItem('elys_user')
     if (saved && savedUser && !isTokenExpired(saved)) {
-      token.value = saved
-      refreshToken.value = savedRefresh
-      user.value = JSON.parse(savedUser)
+      let parsedUser: User | null = null
+      try {
+        parsedUser = JSON.parse(savedUser)
+      } catch {
+        localStorage.removeItem('elys_user')
+      }
+      if (parsedUser) {
+        token.value = saved
+        refreshToken.value = savedRefresh
+        user.value = parsedUser
+      }
     } else if (saved) {
       localStorage.removeItem('elys_token')
       localStorage.removeItem('elys_refresh_token')
@@ -49,7 +57,17 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('elys_refresh_token', res.data.refresh_token)
       localStorage.setItem('elys_user', JSON.stringify(res.data.user))
       const redirect = router.currentRoute.value.query.redirect
-      const target = typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/dashboard'
+      let target = '/dashboard'
+      if (typeof redirect === 'string' && redirect.startsWith('/')) {
+        try {
+          const url = new URL(redirect, window.location.origin)
+          if (url.origin === window.location.origin) {
+            target = url.pathname + url.search + url.hash
+          }
+        } catch {
+          target = '/dashboard'
+        }
+      }
       router.push(target)
     } catch (err: any) {
       error.value = err.response?.data?.detail || '登录失败，请重试'

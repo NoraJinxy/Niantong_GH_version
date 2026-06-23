@@ -1678,6 +1678,7 @@ let liteGraphCanvas: LGraphCanvas | null = null
 let resizeObserver: ResizeObserver | null = null
 let syncingGraph = false
 let pendingGraphSync = 0
+let pendingGraphSyncDirty = false
 // litegraph 节点类型注册 + 自绘类（ElysPipelineNode）见 composables/pipeline/useLiteGraphNodeTypes
 // getLiteGraph 注入 liteGraph 实例 getter（自绘里判 LoadData 可达性用）；registerLiteGraphNodeSpecs 由下方 init/createLiteGraphNode 调。
 const { registerLiteGraphNodeSpecs } = useLiteGraphNodeTypes({
@@ -1994,6 +1995,9 @@ watch(studyDatasets, () => {
 })
 
 onMounted(async () => {
+  // onActivated 只在 keep-alive 激活时触发，普通 mount/unmount 路径不会跑 → 这里也绑一次保证 [ / ] 布局快捷键可用。
+  // 同名函数引用重复 addEventListener 是幂等的（与 onActivated 那次同一引用），不会重复绑定。
+  document.addEventListener('keydown', handleLayoutKeydown)
   restoreLayoutState()
   await nextTick()
   initLiteGraphCanvas()
@@ -2086,6 +2090,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointercancel', onDrawerDragEnd)
   stopRunPolling()
   if (pendingGraphSync) window.cancelAnimationFrame(pendingGraphSync)
+  pendingGraphSync = 0
+  pendingGraphSyncDirty = false
   resizeObserver?.disconnect()
   liteGraphCanvas?.unbindEvents()
   liteGraph?.stop()
@@ -2411,6 +2417,14 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     })
     return
   }
+  // 事件管理器：交互节点在 waiting_user_input 时双击 → 同标签打开事件编辑台（梳理 marker → 应用后 router.back 回本页续跑）
+  if (job.node_type === 'eeg/preproc/event_manager' && job.status === 'waiting_user_input') {
+    void router.push({
+      path: '/events',
+      query: { studyId, executionId: String(activeExecutionId.value || job.execution_id || ''), jobId: job.id },
+    })
+    return
+  }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
   const saved = artifacts.filter((item) => !item.deleted_at)
   if (!saved.length) {
@@ -2455,11 +2469,13 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     })
     href = `/observe/tfr?${params.toString()}`
   } else if (stats.length) {
-    // stat_map 统计比较产物 → 统计观察页（t 图 + 显著掩码 + cluster 窗口）
+    // stat_map 统计比较产物 → 统计观察页（t 图 + 显著掩码 + cluster 窗口）；
+    // 同 evoked/psd/tfr 口径送本节点全部产物，别只送第一个（多个 stat_map 会被静默丢弃）
+    const ids = stats.map((s) => s.id).join(',')
     const params = new URLSearchParams({
       studyId,
-      study_output_id: stats[0].id,
-      name: stats[0].display_name || '统计比较',
+      study_output_id: ids,
+      name: stats.length > 1 ? '统计比较（多条件对比）' : stats[0].display_name || '统计比较',
     })
     href = `/observe/stats?${params.toString()}`
   } else if (icas.length) {
@@ -3318,10 +3334,15 @@ function scheduleLiteGraphSyncOnMove() {
 }
 
 function scheduleLiteGraphSync(markAsDirty: boolean) {
+  // 多个调用被合并到同一帧时累积标脏意图：任一请求要求标脏，本批就标脏，
+  // 否则 markDirty=true 的请求撞上已挂起的 markDirty=false 同步会被丢弃 → 连线改动不标脏致假「已保存」。
+  pendingGraphSyncDirty = pendingGraphSyncDirty || markAsDirty
   if (syncingGraph || pendingGraphSync) return
   pendingGraphSync = window.requestAnimationFrame(() => {
     pendingGraphSync = 0
-    syncDefinitionFromLiteGraph(markAsDirty)
+    const dirty = pendingGraphSyncDirty
+    pendingGraphSyncDirty = false
+    syncDefinitionFromLiteGraph(dirty)
   })
 }
 
@@ -3882,6 +3903,21 @@ function pushArtifactMarkSummary(graphNode: LiteGraphNode, params: Record<string
   pushReadonlyFact(graphNode, '坏道', action === 'interpolate' ? '插值修复' : '仅标记')
 }
 
+function pushEventManagerSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const ruleCount = Array.isArray(params.group_operations) ? params.group_operations.length : 0
+  const status = (latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode)))?.status || ''
+  const waiting = status === 'waiting_user_input'
+  const done = status === 'success' || status === 'completed' || status === 'cached'
+  if (waiting) {
+    pushReadonlyLine(graphNode, '待梳理（双击打开）', { accent: true })
+  } else if (done) {
+    pushReadonlyLine(graphNode, '已梳理事件', { muted: true })
+  } else {
+    pushReadonlyLine(graphNode, '运行后双击编辑', { muted: true })
+  }
+  pushReadonlyFact(graphNode, '分组规则', ruleCount ? `${ruleCount} 条 · 套全部` : '逐事件梳理')
+}
+
 /** 只读事实的显示值：combo→中文档位、数字→去尾零+单位、开关→开/关。 */
 function readonlyPlanValue(plan: NodeWidgetPlan, spec: NodeSpec): string {
   if (plan.kind === 'combo') return plan.value
@@ -3954,6 +3990,9 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       break
     case 'eeg/preproc/artifact_mark':
       pushArtifactMarkSummary(graphNode, params)
+      break
+    case 'eeg/preproc/event_manager':
+      pushEventManagerSummary(graphNode, params)
       break
     default:
       if (spec) {
@@ -4933,6 +4972,12 @@ function describeError(error: unknown, fallback: string) {
 .editor {
   flex: 1;
   display: grid;
+  /* 单列必须显式 minmax(0,1fr)：editor 本身也是个单列 grid，隐式 auto 列会被 grid item 的
+     min-content 撑宽（toolbar 两行 nowrap / status 底栏步骤条），把工具栏右侧动作组（含「切换参数
+     面板」开关）连同画布右上操作群顶出视口——关掉右栏后就再无按钮把面板召回。轨道钳位(本行)与
+     item 钳位(.toolbar / .status-panel 的 min-width:0)必须成对，缺一则 blowout 复发；这是外层
+     .app/.page 已修、内层 editor grid 一直漏掉的同一个坑。 */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
@@ -4946,6 +4991,7 @@ function describeError(error: unknown, fallback: string) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0; /* grid item 钳位：随轨道收缩，内容超宽交给下面的 flex-wrap 折行而非溢出顶出视口 */
   padding: 8px 14px 10px;
   border-bottom: 1px solid var(--c-border);
   background: var(--c-surface);
@@ -5004,6 +5050,14 @@ function describeError(error: unknown, fallback: string) {
 .workflow-name {
   min-width: 0;
   flex: 1;
+}
+
+/* 动作组（保存/校验/运行/删除/切换面板）允许折行：当 workflow-name 的 flex:1 把它顶到右缘、
+   而剩余空间不足时，按钮折到下一行仍留在视口内，绝不被推出屏幕——尤其是「切换参数面板」开关，
+   一旦它跟着溢出，关掉右栏就再没有入口把面板召回（本次故障即此）。 */
+.toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .caret {
@@ -5570,6 +5624,7 @@ function describeError(error: unknown, fallback: string) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0; /* grid item 钳位：底栏步骤条(run-stepbar)的 max-content 不得撑宽轨道，宽内容交其自身 overflow-x 滚动 */
   min-height: 74px;
   padding: 8px 14px;
   border-top: 1px solid var(--c-border);

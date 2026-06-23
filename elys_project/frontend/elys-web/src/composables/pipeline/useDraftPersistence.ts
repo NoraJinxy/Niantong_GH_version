@@ -5,7 +5,7 @@
 // （dirty/statusMessage/hydrating），均以 Ref/ComputedRef 通过 options 传入、保持响应式；
 // syncDefinitionToLiteGraph 是恢复草稿后让 LiteGraph 重绘的回调。
 
-import { ref, type Ref, type ComputedRef } from 'vue'
+import { ref, nextTick, type Ref, type ComputedRef } from 'vue'
 import type { Pipeline, PipelineDefinitionPayload } from '@/types'
 import { DRAFT_LS_PREFIX, DRAFT_STORAGE_VERSION } from './pipelineConstants'
 
@@ -59,14 +59,17 @@ export function useDraftPersistence(options: DraftPersistenceOptions) {
   function scheduleDraftSave() {
     if (hydrating.value) return
     if (!selectedStudyId.value) return
+    // 在 schedule 时刻就快照 study/pipeline，避免 debounce 窗口内用户切换后写错 key
+    const studyId = selectedStudyId.value
+    const pipelineId = selectedPipelineId.value || 'new'
     if (draftSaveTimer !== null) window.clearTimeout(draftSaveTimer)
     draftSaveTimer = window.setTimeout(() => {
       draftSaveTimer = null
-      const key = draftStorageKey(selectedStudyId.value, selectedPipelineId.value || 'new')
+      const key = draftStorageKey(studyId, pipelineId)
       const draft: PipelineDraft = {
         storageVersion: DRAFT_STORAGE_VERSION,
-        studyId: selectedStudyId.value,
-        pipelineId: selectedPipelineId.value || 'new',
+        studyId,
+        pipelineId,
         definition: definition.value,
         name: pipelineName.value,
         description: pipelineDescription.value,
@@ -128,7 +131,9 @@ export function useDraftPersistence(options: DraftPersistenceOptions) {
     definition.value = draft.definition
     pipelineName.value = draft.name
     pipelineDescription.value = draft.description
-    hydrating.value = false
+    // hydrating 须跨过当前 tick：同步置 false 会让批量 watcher 只看到最终 false，
+    // 守卫形同虚设。等本轮响应式写入 flush 后再清，save-on-change 才会被真正抑制。
+    void nextTick(() => { hydrating.value = false })
     dirty.value = true
     draftJustRestored.value = true
     // 让 LiteGraph 重绘

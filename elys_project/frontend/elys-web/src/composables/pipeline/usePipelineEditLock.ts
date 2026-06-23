@@ -23,10 +23,23 @@ export function usePipelineEditLock(options: PipelineEditLockOptions) {
   const pipelineEditLockLoading = ref(false)
   const pipelineEditLockError = ref('')
 
+  // 后端给的 expires_at 只是个时间戳——前端不做心跳/自动续期（TODO：后续补心跳定时器），
+  // 但至少要按本地时钟判断它有没有过期，否则 UI 会一直把已失效的锁当"仍持有"。
+  const pipelineEditLockExpired = computed(() => {
+    const lock = pipelineEditLock.value
+    if (!lock?.expires_at) return false
+    const expiresAt = Date.parse(lock.expires_at)
+    if (Number.isNaN(expiresAt)) return false
+    return Date.now() >= expiresAt
+  })
+
   const pipelineEditLockSummary = computed(() => {
     if (pipelineEditLockError.value) return pipelineEditLockError.value
     if (!currentPipeline.value) return '保存工作流后可获取编辑锁。'
     if (!pipelineEditLock.value) return '尚未获取编辑锁；保存时后端仍会检查他人锁。'
+    if (pipelineEditLockExpired.value) {
+      return `编辑锁已过期（${formatDateTime(pipelineEditLock.value.expires_at)}），请重新获取。`
+    }
     return `编辑锁由 ${pipelineEditLock.value.locked_by || '未知用户'} 持有，过期 ${formatDateTime(pipelineEditLock.value.expires_at)}`
   })
 
@@ -86,6 +99,7 @@ export function usePipelineEditLock(options: PipelineEditLockOptions) {
     pipelineEditLock,
     pipelineEditLockLoading,
     pipelineEditLockError,
+    pipelineEditLockExpired,
     pipelineEditLockSummary,
     canUsePipelineEditLockActions,
     acquirePipelineEditLock,

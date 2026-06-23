@@ -13,6 +13,10 @@ const USER_KEY = 'elys_user'
 // 单飞从根上规避这个问题。
 let refreshPromise: Promise<string> | null = null
 
+// 刷新彻底失败 / 登出已开始后置位：在跳转 /login 完成前，后到的并发 401 会被直接拒绝，
+// 不再触发第二轮注定失败的刷新风暴（refreshPromise 在 finally 里已被清空，单飞挡不住）。
+let isLoggingOut = false
+
 function runTokenRefresh(): Promise<string> {
   if (!refreshPromise) {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -60,6 +64,10 @@ function createClient(baseURL: string, timeout = 30000) {
       const originalRequest = error.config as typeof error.config & { _retry?: boolean }
       const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
 
+      if (error.response?.status === 401 && isLoggingOut) {
+        return Promise.reject(error)
+      }
+
       if (error.response?.status === 401 && refreshToken && !originalRequest?._retry) {
         originalRequest._retry = true
         try {
@@ -73,6 +81,7 @@ function createClient(baseURL: string, timeout = 30000) {
       }
 
       if (error.response?.status === 401) {
+        isLoggingOut = true
         localStorage.removeItem(ACCESS_TOKEN_KEY)
         localStorage.removeItem(REFRESH_TOKEN_KEY)
         localStorage.removeItem(USER_KEY)

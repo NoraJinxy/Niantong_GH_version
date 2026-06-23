@@ -608,16 +608,17 @@ onUnmounted(() => {
   if (cursorRaf) cancelAnimationFrame(cursorRaf)
   ro?.disconnect()
   ro = null
+  window.removeEventListener('mouseup', onMouseUp)
   const cv = canvasRef.value
   if (cv) {
     cv.removeEventListener('mousemove', onMouseMove)
     cv.removeEventListener('mouseleave', onMouseLeave)
     cv.removeEventListener('mousedown', onMouseDown)
-    window.removeEventListener('mouseup', onMouseUp)
     cv.removeEventListener('dblclick', onDblClick)
     cv.removeEventListener('contextmenu', onContextMenu)
     cv.removeEventListener('wheel', onWheel)
   }
+  matrixCv = null
 })
 
 // 高清导出：在独立离屏 canvas 以 PX_RATIO × scale 倍 DPR 重绘，坐标轴矢量级清晰，跳过鼠标叠加层

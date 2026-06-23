@@ -84,7 +84,7 @@ export function useObserveHotkeys(
     const combo = comboOf(e)
     for (const d of getDefs()) {
       if (d.key !== combo) continue
-      if (d.when && !d.when()) return // 条件不满足 → 静默吞键，不误触
+      if (d.when && !d.when()) continue // 条件不满足 → 跳过本绑定，继续匹配后续同键绑定
       if (d.preventDefault !== false) e.preventDefault()
       d.run(e)
       return

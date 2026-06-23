@@ -47,7 +47,7 @@ export function useExecutionDetail(options: ExecutionDetailOptions) {
       if (activeExecutionId.value !== executionId) return
       executionManifestError.value = describeError(error, '运行 Manifest 读取失败')
     } finally {
-      if (activeExecutionId.value === executionId) executionManifestLoading.value = false
+      executionManifestLoading.value = false
     }
   }
 
@@ -64,7 +64,7 @@ export function useExecutionDetail(options: ExecutionDetailOptions) {
       if (activeExecutionId.value !== executionId) return
       executionLineageError.value = describeError(error, '运行 lineage 读取失败')
     } finally {
-      if (activeExecutionId.value === executionId) executionLineageLoading.value = false
+      executionLineageLoading.value = false
     }
   }
 

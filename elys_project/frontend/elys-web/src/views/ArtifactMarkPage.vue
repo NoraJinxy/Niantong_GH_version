@@ -138,10 +138,14 @@
             @pointerup="ovPointerUp"
             @pointercancel="ovPointerUp"
           >
-            <div class="am-ov-cap">全程概览 · 拖动定位窗口</div>
+            <div class="am-ov-cap">全程概览 · 拖动定位窗口<template v-if="badSegments.length"> · <span class="am-ov-cap-bad">红条＝已标坏段（{{ badSegments.length }}）</span></template></div>
             <svg :viewBox="`0 0 ${OV_W} 34`" preserveAspectRatio="none" class="am-ov-svg">
+              <!-- 包络：信号形状，降为中性灰背景（红色让位给坏段标） -->
+              <polyline :points="ovPolyline" fill="none" stroke="#8593A6" stroke-width="1.1" />
+              <!-- 当前窗口位置（软蓝框） -->
               <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(55,138,221,0.18)" stroke="rgba(55,138,221,0.65)" stroke-width="0.8" />
-              <polyline :points="ovPolyline" fill="none" stroke="#E24B4A" stroke-width="1.2" />
+              <!-- 已标坏段：全局红条，与主图红块同色，画在最上层始终清晰 -->
+              <rect v-for="(m, i) in ovSegMarks" :key="i" :x="m.x" y="2" :width="m.w" height="30" :fill="OV_RED_FILL" :stroke="OV_RED_EDGE" stroke-width="0.7" />
             </svg>
             <div class="am-ov-axis">
               <span
@@ -386,6 +390,19 @@ const ovPolyline = computed(() => {
 const ovDragStart = ref<number | null>(null) // 全览带拖动中的预览窗口起点：拖动时只移指示块、不发请求，松手才取数
 const ovWinX = computed(() => (((ovDragStart.value ?? winStart.value) - rangeMin.value) / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
 const ovWinW = computed(() => (winLen.value / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
+// 坏段在全程概览里的红条：与蓝色窗口框走同一套 rangeMin/rangeMax 映射 → 窗内的坏段落进蓝框、对得上；
+// 和主图红块同色（BAD_SEG_FILL / BAD_SEG_EDGE），极短坏段也钳到 ~1.5px 保证可见。
+const OV_RED_FILL = 'rgba(226, 75, 74, 0.30)'
+const OV_RED_EDGE = 'rgba(214, 40, 40, 0.9)'
+const ovSegMarks = computed(() => {
+  const lo = rangeMin.value
+  const span = Math.max(1e-6, rangeMax.value - lo)
+  return badSegments.value.map((s) => {
+    const x = ((s.onset - lo) / span) * OV_W
+    const w = (s.duration / span) * OV_W
+    return { x: Math.max(0, Math.min(OV_W, x)), w: Math.max(1.5, w) }
+  })
+})
 // 全览带时间刻度：等分 5 段，标出对应秒数（否则看不出当前窗在整段记录的哪个时间）
 const ovTicks = computed(() => {
   const lo = rangeMin.value, hi = rangeMax.value, span = hi - lo
@@ -582,7 +599,18 @@ async function loadInteraction(): Promise<void> {
   badChannels.value = new Set(parseInitChannels(preview.initial?.bad_channels))
 }
 
+const TS_CACHE_MAX = 64
 const tsCache = new Map<string, StudyOutputTimeseries>()
+// 有界 LRU 写入：命中即提到队尾，超量从队首逐出，避免无限累积每个访问过的窗口（镜像 plotCache）。
+function tsCacheSet(key: string, v: StudyOutputTimeseries) {
+  if (tsCache.has(key)) tsCache.delete(key)
+  tsCache.set(key, v)
+  while (tsCache.size > TS_CACHE_MAX) {
+    const k = tsCache.keys().next().value
+    if (k === undefined) break
+    tsCache.delete(k)
+  }
+}
 // IndexedDB / 内存 共用的全局唯一键：含 study/execution/job（execution 是不可变快照 → 天然版本指纹，
 // 上游重跑=新 execution=新键，杜绝陈旧命中）+ 取数参数（窗口/采样/滤波）。
 function inputTsKey(params: Record<string, number | undefined>): string {
@@ -615,9 +643,9 @@ async function fetchInputTs(params: Record<string, number | undefined>): Promise
   const mem = tsCache.get(key)
   if (mem) return mem
   const idb = await idbGet<StudyOutputTimeseries>(key)
-  if (idb) { tsCache.set(key, idb); return idb }
+  if (idb) { tsCacheSet(key, idb); return idb }
   const data = await fetchInputNetwork(params)
-  tsCache.set(key, data)
+  tsCacheSet(key, data)
   void idbSet(key, data) // best-effort 回填，失败静默
   return data
 }
@@ -630,7 +658,9 @@ async function loadOverview() {
   if (!(span > 0)) return // 还没拿到时长（reload 已先 loadWindow，极少触发），跳过避免 tmax=0 退化成 10s 默认窗
   overview.value = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1 })
 }
+let winSeq = 0 // 窗口取数竞态序号：每次取数前自增，await 回来比对，过期请求不写回 state
 async function loadWindow() {
+  const my = ++winSeq // 取数前抢序号；await 回来若已被更新的窗口请求超车则丢弃，防陈旧数据覆盖新窗（画面回跳）
   viewMin.value = null // 换窗 → 回到整窗视图（清掉上一窗的滚轮缩放）
   viewMax.value = null
   const params: Record<string, number | undefined> = {
@@ -643,6 +673,7 @@ async function loadWindow() {
     if (notch.value > 0) params.notch = notch.value
   }
   const data = await fetchInputTs(params)
+  if (my !== winSeq) return // 已有更新的窗口请求 → 本次结果作废，不写回 state
   ts.value = data
   // 无游标时地形图用窗口均值
   if (!Object.keys(topoValues.value).length) {
@@ -672,13 +703,12 @@ async function reload() {
   } finally { loading.value = false }
 }
 
-// 窗口 / 滤波变 → 重取细节窗（粗全程不变）
-let winSeq = 0
-watch([winStart, winLen, filterEnabled, lFreq, hFreq, notch], async () => {
+// 窗口 / 滤波变 → 重取细节窗（粗全程不变）；竞态序号在 loadWindow 内部维护。
+// 概览(overview)异步回来前的换窗会被下面 `!overview.value` 短路丢弃，故同时 watch overview：
+// 它从 null→有值时补跑一次，保证那一窗波形最终能加载（#151）。
+watch([winStart, winLen, filterEnabled, lFreq, hFreq, notch, overview], async () => {
   if (!overview.value) return
-  const my = ++winSeq
   try { await loadWindow() } catch { /* 保留旧窗 */ }
-  void my
 })
 
 async function autoDetect() {
@@ -832,6 +862,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .am-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: grab; touch-action: none; user-select: none; }
 .am-overview:active { cursor: grabbing; }
 .am-ov-cap { font-size: 10px; color: var(--c-text-3); margin-bottom: 1px; }
+.am-ov-cap-bad { color: var(--c-danger); }
 .am-ov-svg { width: 100%; height: 34px; display: block; }
 .am-ov-axis { position: relative; height: 12px; margin-top: 1px; }
 .am-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
