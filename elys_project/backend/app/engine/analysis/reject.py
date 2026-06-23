@@ -35,13 +35,38 @@ def _run_threshold_reject(epochs: Any, params: dict[str, Any]) -> tuple[Any, dic
     ptp = params.get("reject_peak_to_peak")
     if ptp not in (None, "") and float(ptp) > 0:
         reject["eeg"] = float(ptp) * 1e-6  # µV → V
+    # EOG 阈值:眼动范式用 EOG 导抓伪迹最直接;仅当数据含 EOG 通道时生效,否则忽略。
+    eog_uv = params.get("reject_eog_uv")
+    eog_applied = False
+    if eog_uv not in (None, "") and float(eog_uv) > 0:
+        try:
+            ch_types = set(epochs.get_channel_types())
+        except Exception:  # noqa: BLE001 — 读不到通道类型则当作无 EOG,安全忽略
+            ch_types = set()
+        if "eog" in ch_types:
+            reject["eog"] = float(eog_uv) * 1e-6  # µV → V
+            eog_applied = True
     flat_value = params.get("flat")
     if flat_value not in (None, "") and float(flat_value) > 0:
         flat["eeg"] = float(flat_value) * 1e-6  # µV → V
     if not reject and not flat:
         raise ValueError("Reject Trials(阈值法)至少要设峰峰值阈值或平坦阈值之一。")
 
+    # 判据时间窗:宽 epoch + 强滤波时,限定判据窗可避开 epoch 边缘的滤波瞬态误剔。
+    # 留空 = None = 用整段 epoch。区间合法性交给 MNE 校验。
+    rmin_raw = params.get("reject_tmin")
+    rmax_raw = params.get("reject_tmax")
+    reject_tmin = None if rmin_raw in (None, "") else float(rmin_raw)
+    reject_tmax = None if rmax_raw in (None, "") else float(rmax_raw)
+
     cleaned = epochs.copy()
+    # 判据时间窗经 Epochs 属性设置:MNE 的 drop_bad 签名只有 (reject, flat, verbose),
+    # reject_tmin/reject_tmax 是 Epochs 的属性而非 drop_bad 入参。仅在非空时设置——
+    # 留空(默认)不动属性,保持旧的"整段判据"行为,无回归。
+    if reject_tmin is not None:
+        cleaned.reject_tmin = reject_tmin
+    if reject_tmax is not None:
+        cleaned.reject_tmax = reject_tmax
     cleaned.drop_bad(reject=reject or None, flat=flat or None, verbose="ERROR")
     n_after = len(cleaned)
     if n_after == 0:
@@ -59,6 +84,9 @@ def _run_threshold_reject(epochs: Any, params: dict[str, Any]) -> tuple[Any, dic
         "drop_fraction": round(n_dropped / n_before, 4) if n_before else 0.0,
         "reject_peak_to_peak_uv": float(ptp) if (ptp not in (None, "") and float(ptp) > 0) else None,
         "flat_uv": float(flat_value) if (flat_value not in (None, "") and float(flat_value) > 0) else None,
+        "reject_eog_uv": float(eog_uv) if eog_applied else None,
+        "reject_tmin": reject_tmin,
+        "reject_tmax": reject_tmax,
     }
 
 

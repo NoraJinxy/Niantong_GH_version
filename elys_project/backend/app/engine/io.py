@@ -71,6 +71,14 @@ def read_evoked_from_data_info(data_info: Any):
     evokeds = mne.read_evokeds(path, verbose="ERROR")
     if not evokeds:
         raise ValueError(f"read_evoked_from_data_info: 文件无 evoked: {path}")
+    if len(evokeds) > 1:
+        # 本平台不变量:一个 -ave.fif 只存一个 condition(写入侧保证)。出现多个=不变量被破坏
+        # (外部文件/写入侧 bug),静默取首条会丢信息——显式告警把隐性约束暴露出来。
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).warning(
+            "read_evoked_from_data_info: %s 含 %d 个 evoked,按约定只取首条(一文件一 condition)。",
+            path, len(evokeds),
+        )
     return evokeds[0]
 
 
@@ -82,7 +90,17 @@ def read_tfr_from_data_info(data_info: Any):
     )
     mne = _mne()
     tfrs = mne.time_frequency.read_tfrs(str(path))
-    obj = tfrs[0] if isinstance(tfrs, list) else tfrs
+    if isinstance(tfrs, list):
+        if len(tfrs) > 1:
+            # 同 evoked:一个 -tfr.h5 只存一个 condition,多于一个=不变量被破坏,告警后取首条。
+            import logging  # noqa: PLC0415
+            logging.getLogger(__name__).warning(
+                "read_tfr_from_data_info: %s 含 %d 个 TFR,按约定只取首条(一文件一 condition)。",
+                path, len(tfrs),
+            )
+        obj = tfrs[0] if tfrs else None
+    else:
+        obj = tfrs
     if obj is None:
         raise ValueError(f"read_tfr_from_data_info: 文件无 TFR: {path}")
     return obj
@@ -203,6 +221,9 @@ def summarize_tfr(tfr: Any) -> dict[str, Any]:
         "nave": int(getattr(tfr, "nave", 0) or 0),
         "comment": getattr(tfr, "comment", None),
         "method": str(getattr(tfr, "method", "") or ""),
+        # n_cycles 生效诊断(引擎 run_tfr 挂在 _elys_n_cycles_diag):min/max + 被地板钳到 1 周期的频点数,
+        # 让用户看到低频是否因 1 周期 Morlet 而频率定位不可靠。grandavg 等重建对象无此属性 → None。
+        "n_cycles": getattr(tfr, "_elys_n_cycles_diag", None),
     }
 
 
@@ -316,6 +337,9 @@ def summarize_psd(result: dict[str, Any]) -> dict[str, Any]:
         "n_epochs": int(result.get("n_epochs") or 0),
         "method": str(result.get("method", "welch") or "welch"),
         "band_powers": result.get("band_powers") or [],
+        # 相对功率分母口径(让 rel_power 分母可审计)+ 1/f 非周期斜率(质量/解释辅助,点数不足时为 None)
+        "rel_power_basis": result.get("rel_power_basis"),
+        "aperiodic": result.get("aperiodic"),
         "comment": result.get("condition"),
     }
 

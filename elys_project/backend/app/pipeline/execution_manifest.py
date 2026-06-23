@@ -375,8 +375,13 @@ def _serialize_task_event(item: TaskEvent) -> dict[str, Any]:
 
 
 def _software_snapshot() -> dict[str, Any]:
+    # 数值/算法依赖(scipy/numpy/mne-icalabel/pyprep/autoreject/onnxruntime)纳入指纹:TFR 等存在
+    # 跨版本数值差异,且这几个库直接决定 ICLabel/坏道/试次剔除结果,可复现必须记其版本。未装的返回 None。
     packages = {}
-    for package_name in ("fastapi", "sqlalchemy", "pydantic", "celery", "mne"):
+    for package_name in (
+        "fastapi", "sqlalchemy", "pydantic", "celery",
+        "mne", "scipy", "numpy", "mne-icalabel", "pyprep", "autoreject", "onnxruntime",
+    ):
         packages[package_name] = _package_version(package_name)
     return {
         "python": sys.version.split()[0],

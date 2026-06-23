@@ -22,7 +22,10 @@
        {"value": "multitaper", "label": "Multitaper（多窗，低方差）"},
        {"value": "fft", "label": "FFT 单段（满频率分辨率，SSVEP / 窄带）"}
      ],
-     "description": "Welch=分段做 FFT 再平均，谱平滑、频率分辨率较低；FFT 单段=整段一次 FFT，频率分辨率拉满（=1/时长），盯单个刺激频率（SSVEP 稳态、窄带峰值）用它；Multitaper=多窗、低方差。"}
+     "description": "Welch=分段做 FFT 再平均，谱平滑、频率分辨率较低；FFT 单段=整段一次 FFT，频率分辨率拉满（=1/时长），盯单个刺激频率（SSVEP 稳态、窄带峰值）用它；Multitaper=多窗、低方差。"},
+    {"name": "channels", "label": "通道（ROI）", "type": "channel_list", "default": [], "advanced": true, "description": "留空 = 全通道（默认，推荐）；只想看某些感兴趣电极时在此勾选。"},
+    {"name": "window_seconds", "label": "Welch 段长", "type": "number", "unit": "s", "default": "", "min": 0, "step": 0.5, "advanced": true, "description": "仅 Welch：每段时长（秒）。留空 = MNE 默认（推荐）。段越长频率分辨率越高、平滑越少；段越短谱越平滑、方差越低。"},
+    {"name": "overlap", "label": "段重叠比例", "type": "number", "default": 0.5, "min": 0, "max": 0.95, "step": 0.05, "advanced": true, "description": "仅 Welch 且填了段长时生效：相邻段重叠比例（0–0.95），默认 0.5。重叠越多平滑越强、相邻段越不独立。"}
   ],
   "backend": {
     "module": "app.engine.analysis.psd",

@@ -13,7 +13,8 @@
     {"name": "output", "type": "evoked", "label": "ERP", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "condition", "label": "条件", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选。"}
+    {"name": "condition", "label": "条件", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选。"},
+    {"name": "channels", "label": "通道", "type": "channel_list", "default": [], "advanced": true, "description": "只对选中通道做平均；留空＝用全部通道（默认，推荐）。"}
   ],
   "backend": {
     "module": "app.engine.analysis.erp",

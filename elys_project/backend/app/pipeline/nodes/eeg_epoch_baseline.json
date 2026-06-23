@@ -13,7 +13,8 @@
     {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
   ],
   "properties": [
-    {"name": "baseline_tmax", "label": "基线窗结束", "type": "number", "unit": "s", "default": 0, "description": "基线窗 = [epoch 起点, 此值]，默认 0（用刺激前整段做基线）。"}
+    {"name": "baseline_tmin", "label": "基线窗起点", "type": "number", "unit": "s", "default": "", "advanced": true, "description": "基线窗起点，典型 -0.2~0，避开 epoch 边缘。留空＝从 epoch 起点开始。"},
+    {"name": "baseline_tmax", "label": "基线窗结束", "type": "number", "unit": "s", "default": 0, "description": "基线窗 = [起点, 此值]，默认 0（用刺激前整段做基线）。"}
   ],
   "backend": {
     "module": "app.engine.analysis.baseline",

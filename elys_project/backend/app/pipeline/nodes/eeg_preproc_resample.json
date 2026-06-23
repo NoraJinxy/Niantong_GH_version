@@ -4,7 +4,7 @@
   "title": "Resample",
   "category": "preprocess",
   "phase": "phase1",
-  "description": "重采样，属于 preprocessing，输出写入 derivatives。",
+  "description": "把数据的采样率改成你指定的值——说白了就是给信号「换一个更稀的时间网格」。主要用来降采样：原始记录常是 1000Hz 甚至更高，对一般 EEG 分析是过采样，降到 250Hz 能把数据量和后续算力砍掉数倍而几乎不丢有用信息。建议放在流程前段（滤波/切分之前），让整条管线都跑在更小的数据上。默认 250Hz 适用于大多数 ERP/频谱分析（可覆盖到约 100Hz 以下的脑电节律）；若你关心更高频成分（如高 gamma），相应调高。注意：对连续数据重采样会让事件标记的落点产生亚毫秒到数毫秒级的量化抖动，对潜伏期精度敏感的分析（如 N170、P3 的精确潜伏期）请谨慎使用或保留较高采样率。本节点通常只用于「降」采样；把目标值设得比原始采样率还高就是上采样，只会插值出看似平滑、实则没有新信息的波形，一般无预处理意义，请谨慎。",
   "tags": ["resample", "preprocess"],
   "inputs": [
     {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}

@@ -22,8 +22,13 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
     params:
       condition:      要分析的事件分组名(必填,与 ERP 同口径;dispatcher 按 condition 逐个展开)。
       fmin / fmax:    频率范围下/上限 Hz(默认 4 / 40)。fmax 会被自动夹到奈奎斯特频率以下。
-      n_freqs:        频率点数(默认 30),在 [fmin, fmax] 上等距取点。
-      n_cycles_factor:小波周期数 = freqs × factor(默认 0.5,即 n_cycles = freqs/2 的经典启发式)。
+      n_freqs:        频率点数(默认 30),在 [fmin, fmax] 上取点。
+      freq_scale:     频率轴刻度("linear"=等距 / "log"=对数等距,默认 linear)。
+                      小波 TFR 宽频带时对数更合理(低频密、高频疏)。
+      n_cycles_mode:  小波周期数模式("factor"=随频率成比例 / "fixed"=固定周期数,默认 factor)。
+      n_cycles_factor:mode=factor 时,n_cycles = freqs × factor(默认 0.5)。
+      n_cycles_fixed: mode=fixed 时,所有频率统一用该固定周期数(默认 7)。
+                      低频做 delta 时固定周期数频率定位更好。
       decim:          时间抽取因子(默认 4),把输出时间点降采样以省内存/算力。
       baseline_mode:  基线归一化方式(默认 logratio,展示时换算成 dB);"none" 表示不做基线校正。
       baseline_tmin / baseline_tmax: 基线窗(秒)。tmin 缺省时用 epoch 起点,tmax 默认 0(刺激前)。
@@ -72,22 +77,56 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
     fmax = min(fmax, nyquist - 1e-6)
     if fmax <= fmin:
         raise ValueError(f"TFR.fmax({fmax:.3g}) must stay below Nyquist and above fmin({fmin:.3g}).")
-    freqs = np.linspace(fmin, fmax, n_freqs)
 
-    factor = float(params.get("n_cycles_factor", 0.5) or 0.5)
-    n_cycles = np.maximum(freqs * factor, 1.0)
+    # 频率轴刻度:linear=等距(默认),log=对数等距(宽频带时低频密高频疏更合理)。
+    freq_scale = str(params.get("freq_scale", "linear") or "linear").strip().lower()
+    if freq_scale == "log":
+        if fmin <= 0:
+            raise ValueError("TFR.freq_scale=log requires fmin > 0.")
+        freqs = np.logspace(np.log10(fmin), np.log10(fmax), n_freqs)
+    else:
+        freqs = np.linspace(fmin, fmax, n_freqs)
+
+    # 小波周期数:factor=随频率成比例(经典启发式),fixed=固定周期数(低频 delta 定位更好)。
+    n_cycles_mode = str(params.get("n_cycles_mode", "factor") or "factor").strip().lower()
+    if n_cycles_mode == "fixed":
+        n_cycles_fixed = float(params.get("n_cycles_fixed", 7.0) or 7.0)
+        if n_cycles_fixed < 1.0:
+            n_cycles_fixed = 1.0
+        n_cycles = np.full(freqs.shape, n_cycles_fixed, dtype=float)
+    else:
+        factor = float(params.get("n_cycles_factor", 0.5) or 0.5)
+        n_cycles = np.maximum(freqs * factor, 1.0)
+
+    # 地板回显:np.maximum(...,1.0) 会在低频静默把 n_cycles 抬到 1.0(1 周期 Morlet 频率定位极差)。
+    # 这些诊断数值需要在 io.summarize_tfr 里展示——本引擎返回的是 power 对象(非 dict)无法直接带 meta,
+    # 故此处只算出真值,经 io_surfacing_needed 报告字段,由编排者串行接线进 result/summarize。
+    n_cycles_arr = np.asarray(n_cycles, dtype=float)
+    n_cycles_effective_min = float(np.min(n_cycles_arr))
+    n_cycles_effective_max = float(np.max(n_cycles_arr))
+    n_cycles_floored_count = int(np.count_nonzero(np.isclose(n_cycles_arr, 1.0)))
 
     decim = max(1, int(params.get("decim", 4) or 4))
 
-    power = selected.compute_tfr(
-        method="morlet",
-        freqs=freqs,
-        n_cycles=n_cycles,
-        average=True,
-        return_itc=False,
-        decim=decim,
-        verbose="ERROR",
-    )
+    try:
+        power = selected.compute_tfr(
+            method="morlet",
+            freqs=freqs,
+            n_cycles=n_cycles,
+            average=True,
+            return_itc=False,
+            decim=decim,
+            verbose="ERROR",
+        )
+    except ValueError as exc:
+        # 最常见:小波比信号长(低频 + 高 n_cycles,尤其固定 n_cycles 模式)。翻成可操作中文提示。
+        if "longer than the signal" in str(exc):
+            raise ValueError(
+                f"小波比 epoch 信号还长,无法计算时频:最低频 {freqs[0]:.3g}Hz 配当前 n_cycles 需要的"
+                "时长超过了 epoch 长度。解法任一:把 Epoch 切得更长(给低频留缓冲)、调高 fmin、"
+                "减小 n_cycles(factor 模式调小系数 / fixed 模式调小固定周期数)。"
+            ) from exc
+        raise
 
     mode = str(params.get("baseline_mode", "logratio") or "logratio").strip().lower()
     if mode and mode != "none":
@@ -118,4 +157,16 @@ def run_tfr(epochs: Any, params: dict[str, Any]) -> Any:
 
     # comment 携带 condition,供下游 / 预览标注(与 evoked.comment 同口径)
     power.comment = labels[0] if len(labels) == 1 else ",".join(labels)
+
+    # n_cycles 地板诊断:挂为轻量属性(不改 power.comment、不改返回类型),
+    # 编排者可在 io.summarize_tfr 里读取这三个值并显式回显(见 io_surfacing_needed)。
+    # MNE 的 power 对象允许附加自定义属性,dispatcher/io 现状不读取故零副作用。
+    try:
+        power._elys_n_cycles_diag = {
+            "n_cycles_effective_min": n_cycles_effective_min,
+            "n_cycles_effective_max": n_cycles_effective_max,
+            "n_cycles_floored_count": n_cycles_floored_count,
+        }
+    except Exception:  # noqa: BLE001 — 附加属性失败不影响主结果
+        pass
     return power

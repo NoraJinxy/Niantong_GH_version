@@ -30,7 +30,7 @@
        {"value": "easycap-M10", "label": "EasyCap M10（等距编号）"},
        {"value": "custom", "label": "自定义（上传电极文件）"}
      ],
-     "description": "auto：≤32 导用 10-20、否则 10-05。标准帽 / 厂家预设写入标准头位坐标（非个体真实数字化）。厂家预设主要给用私有通道命名的设备（BioSemi A1…、EGI E1…）；通道名已是 10-20 写法的设备用标准帽即可。custom：用在数据集详情页上传的电极文件。"},
+     "description": "auto：先按通道命名挑最匹配的帽——BioSemi（A1…）、EGI（E1…）等私有命名会自动认对厂家帽，认不准才按通道数退回 10-20（≤32 导）/ 10-05。标准帽 / 厂家预设写入标准头位坐标（非个体真实数字化）。通道名已是 10-20 写法的设备用标准帽或 auto 均可。custom：用在数据集详情页上传的电极文件。"},
     {"name": "custom_montage_file_id", "label": "自定义电极文件", "type": "montage_picker", "default": null, "required": true,
      "visible_when": {"montage": ["custom"]},
      "description": "在「数据集详情页 → 数据文件 → 电极位置文件」上传 .elc/.sfp/.bvef/.tsv/.csv 等文件后在此选择。文件跟随数据集，本研究项挂载的数据集里上传的都可选。"},
@@ -39,9 +39,10 @@
     {"name": "on_missing", "label": "未匹配通道", "type": "select", "default": "ignore", "advanced": true,
      "options": [
        {"value": "ignore", "label": "跳过（保留无坐标）"},
-       {"value": "warn", "label": "警告但继续"}
+       {"value": "warn", "label": "警告但继续"},
+       {"value": "raise", "label": "未匹配则报错（严格）"}
      ],
-     "description": "数据里有、模板里没有的脑电通道如何处理。默认跳过——这些通道只是缺地形图坐标，不影响其余分析。"}
+     "description": "数据里有、模板里没有的脑电通道如何处理。默认跳过——这些通道只是缺地形图坐标，不影响其余分析。选「严格」则只要有脑电通道对不上模板就报错中断，用于察觉覆盖不全（多见于选错电极帽）。"}
   ],
   "backend": {
     "module": "app.engine.preprocess.channel_location",
