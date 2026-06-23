@@ -23,6 +23,7 @@ from app.schemas.pipeline import (
 LOAD_DATA_NODE_TYPE = "eeg/data/load"
 EPOCH_NODE_TYPE = "eeg/epoch/segment"
 EVENT_REMAP_NODE_TYPE = "eeg/preproc/event_remap"
+EVENT_MANAGER_NODE_TYPE = "eeg/preproc/event_manager"
 
 # 这些节点不改事件描述 → condition 词表原样透传给下游：
 # 预处理(滤波/重采样/重参考/通道定位/坏道/手动标记)、ICA 三件套、分析(ERP/TFR/PSD)。
@@ -129,6 +130,11 @@ def resolve_node_conditions(
             # 事件重映射:按规则把输入词表重命名/合并/丢弃 → 输出词表(方案 C)
             node_params = node.get("params") if isinstance(node.get("params"), dict) else {}
             result = _remap_vocab(input_vocab(nid), node_params.get("rules"))
+        elif ntype == EVENT_MANAGER_NODE_TYPE:
+            # 事件管理器:持久化的分组级规则(group_operations)同样变换输出词表，故下游 Epoch 选择器
+            # 反映改名/合并/丢弃。逐事件最终清单(events)是数据集级，解析器无法预知 → 不在此体现(透传)。
+            node_params = node.get("params") if isinstance(node.get("params"), dict) else {}
+            result = _remap_vocab(input_vocab(nid), _event_manager_rename_rules(node_params.get("group_operations")))
         else:
             # 透传类与未知类型:输出词表 = 输入词表
             result = input_vocab(nid)
@@ -169,6 +175,25 @@ def _merge(target: dict[str, dict[str, int]], other: dict[str, dict[str, int]]) 
         slot = target.setdefault(name, {"count": 0, "datasets": 0})
         slot["count"] += int(info.get("count") or 0)
         slot["datasets"] += int(info.get("datasets") or 0)
+
+
+def _event_manager_rename_rules(group_ops: Any) -> list[dict[str, Any]]:
+    """从事件管理器 group_operations 里挑出「会改名字」的规则（rename/merge/delete），喂给 _remap_vocab。
+    平移(shift)只动 onset 不改名，必须剔除——否则它没有 target，会被 build_remap_source_target 当成
+    「目标留空 = 丢弃」误删整组。无 op 字段的规则按 {sources,target} 形态视作改名（与 event_remap_rules 同构）。"""
+    rules: list[dict[str, Any]] = []
+    if not isinstance(group_ops, (list, tuple)):
+        return rules
+    for op in group_ops:
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("op") or "").strip().lower()
+        if kind == "shift":
+            continue
+        if not kind and "delta_s" in op and "target" not in op:
+            continue  # 无 op 但带 delta_s 且无 target → 也是平移，跳过
+        rules.append(op)
+    return rules
 
 
 def _remap_vocab(

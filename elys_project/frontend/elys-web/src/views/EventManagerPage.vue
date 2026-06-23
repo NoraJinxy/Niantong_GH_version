@@ -1,0 +1,697 @@
+<template>
+  <WorkbenchShell active-key="pipeline" active-top-key="analysis">
+    <div class="ev-shell">
+      <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+      <div class="ev-toolbar">
+        <h1 class="page__title ev-title" style="font-size: 22px; margin: 0">
+          <AppIcon name="bookmark" :size="22" /> 事件管理器 · 标记梳理
+        </h1>
+        <span v-if="isLive && ts" class="muted text-sm">
+          {{ events.length }} 事件 · {{ distinctLabels.length }} 类 · {{ totalDuration.toFixed(1) }} s
+        </span>
+        <span class="ev-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实数据' : '查看模式' }}</span>
+        <label v-if="datasets.length > 1" class="ev-dssel">
+          数据集
+          <select v-model.number="activeDsIndex">
+            <option v-for="(d, i) in datasets" :key="i" :value="i">{{ d.label }}</option>
+          </select>
+        </label>
+        <div style="flex: 1"></div>
+        <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="reload">刷新</button>
+      </div>
+
+      <!-- 左栏：事件类型 / 图层（全局梳理中枢） -->
+      <aside class="ev-left" v-if="isLive">
+        <div class="ev-card ev-card--grow">
+          <div class="ev-card-h">事件类型 · 图层</div>
+          <ul class="ev-typelist">
+            <li v-if="!labelTypes.length" class="muted text-sm" style="padding: 6px">暂无事件，可在波形上「新增」模式点击添加</li>
+            <li
+              v-for="t in labelTypes"
+              :key="t.label"
+              class="ev-type"
+              :class="{ 'is-sel': selectedType === t.label, 'is-hidden': !visibleTypes.has(t.label) }"
+            >
+              <input type="checkbox" class="ev-check" :checked="checkedTypes.has(t.label)" @change="toggleCheck(t.label)" @click.stop />
+              <span class="ev-type-dot" :style="{ background: t.color }"></span>
+              <span class="ev-type-name" @click="selectType(t.label)">{{ t.label }}</span>
+              <span class="ev-type-cnt">{{ t.count }}</span>
+              <button class="ev-eye" :title="visibleTypes.has(t.label) ? '隐藏' : '显示'" @click.stop="toggleVisible(t.label)">
+                <AppIcon :name="visibleTypes.has(t.label) ? 'eye' : 'eye'" :size="14" />
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="ev-card" v-if="checkedTypes.size">
+          <div class="ev-card-h">批量 · 已选 {{ checkedTypes.size }} 类</div>
+          <input v-model.trim="bulkTarget" class="ev-input" placeholder="目标名（改成 / 合并到）" />
+          <div class="ev-bulk-btns">
+            <button class="btn btn--sm" :disabled="!bulkTarget" @click="applyBulkRename">
+              {{ checkedTypes.size > 1 ? '合并' : '改名' }}
+            </button>
+            <button class="btn btn--sm btn--danger-soft" @click="applyBulkDelete">删除</button>
+          </div>
+        </div>
+
+        <div class="ev-card">
+          <div class="ev-card-h">在线滤波 <span class="ev-tag-soft">仅看</span>
+            <label class="ev-switch"><input type="checkbox" v-model="filterEnabled" /> {{ filterEnabled ? '开' : '关' }}</label>
+          </div>
+          <div v-if="filterEnabled" class="ev-filter">
+            <label>高通 <input type="number" v-model.number="lFreq" step="0.1" min="0" /> Hz</label>
+            <label>低通 <input type="number" v-model.number="hFreq" step="1" min="0" /> Hz</label>
+            <p class="muted text-sm">仅用于观察，不写入、不影响计算。</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中栏：工具条 + 波形（叠 marker） + 全览带 -->
+      <div class="ev-center">
+        <div v-if="!isLive" class="ev-empty">
+          <AppIcon name="bookmark" :size="40" />
+          <p class="ev-empty-title">在工作流的「Event Manager」节点处打开本页</p>
+          <p class="muted text-sm">在流水线里双击处于「等待人工」状态的事件管理节点，即可全局梳理 marker、添删改，确认后流水线自动继续。</p>
+        </div>
+        <div v-else-if="error" class="ev-empty is-error">
+          <AppIcon name="warning" :size="32" />
+          <p class="ev-empty-title">{{ error }}</p>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn--sm" :disabled="loading" @click="reload">重试</button>
+            <button class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
+          </div>
+        </div>
+        <div v-else-if="loading && !ts" class="ev-empty"><p class="muted">加载波形中…</p></div>
+
+        <template v-else-if="ts">
+          <div class="ev-ctoolbar">
+            <span class="ev-modeswitch">
+              <button :class="{ on: mode === 'select' }" @click="mode = 'select'" title="选择 / 编辑事件（v）"><AppIcon name="pointer" :size="13" /> 选择</button>
+              <button :class="{ on: mode === 'add' }" @click="mode = 'add'" title="点击波形新增事件（n）"><AppIcon name="plus" :size="13" /> 新增</button>
+            </span>
+            <label v-if="mode === 'add'" class="ev-num">新事件标签 <input v-model.trim="activeNewLabel" class="ev-input ev-input--inline" placeholder="标签名" /></label>
+            <label class="ev-num">窗长 <input type="number" v-model.number="visibleWinLen" min="1" step="1" /> s</label>
+            <span class="ev-presets">
+              <button v-for="p in winPresets" :key="p.label" :class="{ on: isWinPreset(p.v) }" @click="setWinLen(p.v)">{{ p.label }}</button>
+            </span>
+            <label class="ev-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
+            <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（?）">🖱 操作提示</button>
+            <span class="ev-modeswitch ev-modeswitch--right">
+              <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
+              <button :class="{ on: displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
+            </span>
+          </div>
+
+          <div class="ev-chart">
+            <TimeCourseCanvas
+              :data="chartData"
+              :series="chartSeries"
+              :display-mode="displayMode"
+              x-label="时间 (s)"
+              y-label=""
+              :y-max="ampUv"
+              :amp-scale="ampScale"
+              :view-min="viewMin"
+              :view-max="viewMax"
+              :locked="cursorLockedX != null"
+              :locked-x="cursorLockedX"
+              :markers="visibleMarkers"
+              :bad-segments="showBad ? badSegments : []"
+              select-shadow
+              :show-legend="false"
+              @select="onSelect"
+              @context-x="onContextX"
+              @cursor="onCursor"
+              @amp="ampScale = $event"
+              @zoom="onZoom"
+              @lock="onLock"
+              @unlock="onUnlock"
+            />
+          </div>
+
+          <div
+            class="ev-overview"
+            v-if="overviewEnv.length"
+            @pointerdown="ovPointerDown"
+            @pointermove="ovPointerMove"
+            @pointerup="ovPointerUp"
+            @pointercancel="ovPointerUp"
+          >
+            <div class="ev-ov-cap">全程概览 · 拖动定位窗口</div>
+            <svg :viewBox="`0 0 ${OV_W} 34`" preserveAspectRatio="none" class="ev-ov-svg">
+              <polyline :points="ovPolyline" fill="none" stroke="#8593A6" stroke-width="1.1" />
+              <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(63,127,191,0.18)" stroke="rgba(63,127,191,0.65)" stroke-width="0.8" />
+              <line v-for="(m, i) in ovEventMarks" :key="i" :x1="m.x" y1="2" :x2="m.x" y2="32" :stroke="m.color" stroke-width="0.7" />
+            </svg>
+          </div>
+        </template>
+      </div>
+
+      <!-- 右栏：明细表 + 检查器 + 暂存 + 应用 -->
+      <aside class="ev-right" v-if="isLive">
+        <div class="ev-card">
+          <div class="ev-card-h">
+            <span>{{ selectedType ? selectedType + ' · 明细' : '明细（选左侧类型）' }}</span>
+            <span v-if="selectedType" class="ev-card-cnt">{{ occurrences.length }}</span>
+          </div>
+          <ul class="ev-occlist">
+            <li v-if="selectedType && !occurrences.length" class="muted text-sm">此类型无事件</li>
+            <li v-if="!selectedType" class="muted text-sm">点左侧某个事件类型查看每一次出现</li>
+            <li
+              v-for="e in occurrences"
+              :key="e.id"
+              class="ev-occ"
+              :class="{ 'is-sel': selectedEventId === e.id }"
+              @click="selectEvent(e)"
+            >
+              <span class="ev-occ-t">{{ fmtTime(e.onset) }}</span>
+              <span class="ev-occ-d">{{ e.duration > 0 ? e.duration.toFixed(2) + 's' : '·' }}</span>
+              <button class="ev-x" title="删除" @click.stop="deleteEvent(e.id)"><AppIcon name="x" :size="12" /></button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="ev-card" v-if="selectedEvent">
+          <div class="ev-card-h">选中事件 #{{ selectedEvent.id }}</div>
+          <div class="ev-insp">
+            <label>标签 <input v-model.trim="inspLabel" class="ev-input" /></label>
+            <label>起始 <input type="number" v-model.number="inspOnset" step="0.01" min="0" /> s</label>
+            <label>时长 <input type="number" v-model.number="inspDuration" step="0.01" min="0" /> s</label>
+          </div>
+        </div>
+
+        <div class="ev-card ev-draft">
+          <div class="ev-card-h">暂存改动</div>
+          <div class="ev-chips">
+            <span class="ev-chip ev-chip--add" v-if="diff.added">+{{ diff.added }} 新增</span>
+            <span class="ev-chip ev-chip--del" v-if="diff.removed">−{{ diff.removed }} 删除</span>
+            <span class="ev-chip ev-chip--chg" v-if="diff.changed">{{ diff.changed }} 改</span>
+            <span class="ev-chip" v-if="groupOps.length">{{ groupOps.length }} 规则</span>
+            <span v-if="!dirty" class="muted text-sm">尚无改动</span>
+          </div>
+          <p class="muted text-sm" v-if="dirty">{{ originalCount }} → {{ events.length }} 事件</p>
+          <label class="ev-promote" v-if="groupOps.length">
+            <input type="checkbox" v-model="promoteRules" />
+            把分组改名固化成规则，套用到本节点全部数据集
+          </label>
+        </div>
+
+        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn" title="确认梳理并续跑工作流（Ctrl+Enter）">
+          <AppIcon name="check" :size="16" /> {{ applying ? '提交中…' : applyLabel }}
+        </button>
+        <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
+          <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
+        </button>
+        <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Event Manager」节点（等待人工）处打开本页才能提交。</p>
+        <p v-if="applyMsg" class="ev-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
+      </aside>
+    </div>
+  </WorkbenchShell>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { api, dataApi } from '@/api/client'
+import { decodeBinary } from '@/composables/observe/plotCache'
+import { idbGet, idbSet } from '@/composables/observe/idbCache'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
+import type { PipelineInteraction, StudyOutputTimeseries } from '@/types'
+
+interface EventItem { id: number; onset: number; duration: number; description: string }
+interface GroupOp { op: 'rename' | 'merge' | 'delete'; sources: string[]; target?: string }
+interface DatasetMeta { label: string; output_id?: string; events: EventItem[]; bad_segments: { onset: number; duration: number }[] }
+
+// 事件类型配色（与观察家族同调的钢蓝系起手，分类用，非渐变）
+const EVENT_PALETTE = ['#378ADD', '#1D9E75', '#BA7517', '#8A6FB0', '#D4537E', '#5E8F6B', '#B0794F', '#2E8B9A', '#9A6B6B', '#637FA5']
+const OV_W = 470
+let uid = 1
+
+const route = useRoute()
+function qstr(key: string, fallback = ''): string {
+  const raw = route.query[key]
+  if (Array.isArray(raw)) return raw[0] ?? fallback
+  return (raw as string | null) ?? fallback
+}
+
+const studyId = qstr('studyId') || qstr('study')
+const executionId = qstr('executionId') || qstr('execution_id')
+const jobId = qstr('jobId') || qstr('job_id')
+
+const isLive = computed(() => Boolean(studyId && executionId && jobId))
+const jobContext = computed(() => Boolean(isLive.value && decisionVersion.value > 0))
+
+const loading = ref(false)
+const error = ref('')
+const decisionVersion = ref(0)
+const inputTsUrl = `/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/input-timeseries`
+
+const datasets = ref<DatasetMeta[]>([])
+const activeDsIndex = ref(0)
+const events = ref<EventItem[]>([])
+const originalEvents = ref<EventItem[]>([]) // 快照，用于算暂存改动 diff
+const badSegments = ref<{ onset: number; duration: number }[]>([]) // 只读 BAD_ 上下文层
+
+const overview = ref<StudyOutputTimeseries | null>(null)
+const ts = ref<StudyOutputTimeseries | null>(null)
+
+const winStart = ref(0)
+const winLen = ref(10)
+const ampUv = ref(80)
+const ampScale = ref(1)
+const viewMin = ref<number | null>(null)
+const viewMax = ref<number | null>(null)
+const cursorLockedX = ref<number | null>(null)
+const cursorX = ref<number | null>(null)
+const displayMode = ref<'spread' | 'overlay'>('overlay')
+
+const filterEnabled = ref(false)
+const lFreq = ref(1)
+const hFreq = ref(40)
+
+// 编辑态
+const mode = ref<'select' | 'add'>('select')
+const activeNewLabel = ref('事件')
+const selectedType = ref<string | null>(null)
+const selectedEventId = ref<number | null>(null)
+const visibleTypes = ref<Set<string>>(new Set())
+const checkedTypes = ref<Set<string>>(new Set()) // 批量改名/合并/删除勾选
+const bulkTarget = ref('')
+const groupOps = ref<GroupOp[]>([]) // 记录的分组级操作（决策 group_operations + 溯源）
+const promoteRules = ref(true) // 固化成规则套用全部数据集
+const showBad = ref(true)
+
+const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline, describeError } = useReviewerHandoff({
+  studyId, executionId, jobId,
+  decisionVersion: () => decisionVersion.value,
+  buildBody: () => ({
+    type: 'event_editing',
+    events: events.value.map((e) => ({ onset: e.onset, duration: e.duration, description: e.description })),
+    group_operations: promoteRules.value ? groupOps.value : [],
+    operations: operationsSummary(),
+  }),
+  summary: () => `${events.value.length} 事件 / ${distinctLabels.value.length} 类`,
+})
+
+const sfreq = computed(() => (ts.value?.sfreq ?? overview.value?.sfreq ?? 0))
+const meta = computed(() => overview.value ?? ts.value)
+const totalDuration = computed(() => meta.value?.total_duration ?? (meta.value?.times.length ? meta.value.times[meta.value.times.length - 1] : 0))
+const rangeMin = computed(() => meta.value?.available_tmin ?? 0)
+const rangeMax = computed(() => Math.max(rangeMin.value + winLen.value, meta.value?.available_tmax ?? totalDuration.value ?? rangeMin.value + winLen.value))
+const visibleWinLen = computed<number>({
+  get: () => (viewMin.value != null && viewMax.value != null) ? Math.round((viewMax.value - viewMin.value) * 10) / 10 : winLen.value,
+  set: (v) => { const n = Math.max(1, Number(v) || winLen.value); viewMin.value = null; viewMax.value = null; winLen.value = n },
+})
+const visibleAmp = computed<number>({
+  get: () => Math.round(ampUv.value / (ampScale.value > 0 ? ampScale.value : 1)),
+  set: (v) => { const n = Math.max(1, Number(v) || ampUv.value); ampScale.value = 1; ampUv.value = n },
+})
+
+// —— 事件类型派生 ——
+const distinctLabels = computed(() => [...new Set(events.value.map((e) => e.description))].sort((a, b) => a.localeCompare(b)))
+const labelIndex = computed(() => { const m = new Map<string, number>(); distinctLabels.value.forEach((l, i) => m.set(l, i)); return m })
+function colorForLabel(label: string): string { return EVENT_PALETTE[(labelIndex.value.get(label) ?? 0) % EVENT_PALETTE.length] }
+const labelTypes = computed(() => {
+  const m = new Map<string, number>()
+  for (const e of events.value) m.set(e.description, (m.get(e.description) || 0) + 1)
+  return distinctLabels.value.map((label) => ({ label, count: m.get(label) || 0, color: colorForLabel(label) }))
+})
+
+const occurrences = computed(() => events.value.filter((e) => e.description === selectedType.value).sort((a, b) => a.onset - b.onset))
+const selectedEvent = computed(() => events.value.find((e) => e.id === selectedEventId.value) || null)
+
+// 检查器双向绑定（改即写回事件 + 记录改名为分组规则的判断交给“整类改名”，单事件改标签视作逐条重标）
+const inspLabel = computed<string>({ get: () => selectedEvent.value?.description ?? '', set: (v) => { if (selectedEvent.value && v.trim()) relabelEvent(selectedEvent.value.id, v.trim()) } })
+const inspOnset = computed<number>({ get: () => selectedEvent.value ? Math.round(selectedEvent.value.onset * 1000) / 1000 : 0, set: (v) => { if (selectedEvent.value) retimeEvent(selectedEvent.value.id, Math.max(0, Number(v) || 0)) } })
+const inspDuration = computed<number>({ get: () => selectedEvent.value ? Math.round(selectedEvent.value.duration * 1000) / 1000 : 0, set: (v) => { if (selectedEvent.value) setDuration(selectedEvent.value.id, Math.max(0, Number(v) || 0)) } })
+
+// 主图 marker：仅画当前窗内、且类型可见的事件（防上百 marker 标签糊屏）
+const winLo = computed(() => (viewMin.value ?? winStart.value))
+const winHi = computed(() => (viewMax.value ?? winStart.value + winLen.value))
+const visibleMarkers = computed(() =>
+  events.value
+    .filter((e) => visibleTypes.value.has(e.description) && e.onset >= winLo.value - 1e-6 && e.onset <= winHi.value + 1e-6)
+    .map((e) => ({ x: e.onset, label: e.description, color: e.id === selectedEventId.value ? '#11457e' : colorForLabel(e.description) })),
+)
+
+const chNames = computed<string[]>(() => (ts.value ? ts.value.channels.map((c) => c.name) : []))
+const chartData = computed<number[][]>(() => { if (!ts.value) return [[], []]; return [ts.value.times, ...ts.value.channels.map((c) => c.values)] })
+const chartSeries = computed(() => chNames.value.map((name, i) => ({ name, color: EVENT_PALETTE[(i + 3) % EVENT_PALETTE.length] })))
+
+const diff = computed(() => {
+  const origById = new Map(originalEvents.value.map((e) => [e.id, e]))
+  const curById = new Map(events.value.map((e) => [e.id, e]))
+  let added = 0, removed = 0, changed = 0
+  for (const e of events.value) if (!origById.has(e.id)) added++
+  for (const e of originalEvents.value) if (!curById.has(e.id)) removed++
+  for (const e of events.value) { const o = origById.get(e.id); if (o && (o.onset !== e.onset || o.description !== e.description || o.duration !== e.duration)) changed++ }
+  return { added, removed, changed }
+})
+const originalCount = computed(() => originalEvents.value.length)
+const dirty = computed(() => diff.value.added || diff.value.removed || diff.value.changed || groupOps.value.length > 0)
+const canApply = computed(() => jobContext.value && !applying.value)
+const applyLabel = computed(() => (dirty.value ? `应用梳理并继续` : '确认无改动 · 继续'))
+
+function fmtTime(t: number): string {
+  if (!Number.isFinite(t)) return ''
+  const mm = Math.floor(t / 60); const ss = t - mm * 60
+  return `${String(mm).padStart(2, '0')}:${ss.toFixed(2).padStart(5, '0')}`
+}
+function operationsSummary(): string[] {
+  const out = groupOps.value.map((g) => g.op === 'delete' ? `删除类型 ${g.sources.join('+')}` : `${g.op === 'merge' ? '合并' : '改名'} ${g.sources.join('+')} → ${g.target}`)
+  const d = diff.value
+  if (d.added) out.push(`新增 ${d.added}`)
+  if (d.removed) out.push(`删除 ${d.removed}`)
+  if (d.changed) out.push(`改动 ${d.changed}`)
+  return out
+}
+
+// —— 类型选择 / 可见 / 勾选 ——
+function selectType(label: string) { selectedType.value = label; selectedEventId.value = null }
+function toggleVisible(label: string) { const s = new Set(visibleTypes.value); if (s.has(label)) s.delete(label); else s.add(label); visibleTypes.value = s }
+function toggleCheck(label: string) { const s = new Set(checkedTypes.value); if (s.has(label)) s.delete(label); else s.add(label); checkedTypes.value = s }
+function selectEvent(e: EventItem) { selectedEventId.value = e.id; if (Number.isFinite(e.onset)) seekTo(e.onset) }
+
+// —— 逐事件编辑 ——
+function ensureVisible(label: string) { if (!visibleTypes.value.has(label)) { const s = new Set(visibleTypes.value); s.add(label); visibleTypes.value = s } }
+function addEventAt(x: number, duration = 0) {
+  const label = activeNewLabel.value.trim() || selectedType.value || distinctLabels.value[0] || '事件'
+  const e: EventItem = { id: uid++, onset: Math.max(0, Math.round(x * 1000) / 1000), duration: Math.round(duration * 1000) / 1000, description: label }
+  events.value = [...events.value, e]
+  ensureVisible(label); selectedType.value = label; selectedEventId.value = e.id
+}
+function deleteEvent(id: number) { events.value = events.value.filter((e) => e.id !== id); if (selectedEventId.value === id) selectedEventId.value = null }
+function retimeEvent(id: number, onset: number) { events.value = events.value.map((e) => e.id === id ? { ...e, onset } : e) }
+function setDuration(id: number, duration: number) { events.value = events.value.map((e) => e.id === id ? { ...e, duration } : e) }
+function relabelEvent(id: number, label: string) { events.value = events.value.map((e) => e.id === id ? { ...e, description: label } : e); ensureVisible(label) }
+
+// —— 类型级批量（改名 / 合并 / 删除）：既改 events（落 literal 清单），也记 groupOps（套全部 / 溯源）——
+function applyBulkRename() {
+  const target = bulkTarget.value.trim()
+  if (!target || !checkedTypes.value.size) return
+  const sources = [...checkedTypes.value]
+  events.value = events.value.map((e) => sources.includes(e.description) ? { ...e, description: target } : e)
+  groupOps.value = [...groupOps.value, { op: sources.length > 1 ? 'merge' : 'rename', sources, target }]
+  ensureVisible(target); selectedType.value = target; checkedTypes.value = new Set(); bulkTarget.value = ''
+}
+function applyBulkDelete() {
+  if (!checkedTypes.value.size) return
+  const sources = [...checkedTypes.value]
+  events.value = events.value.filter((e) => !sources.includes(e.description))
+  groupOps.value = [...groupOps.value, { op: 'delete', sources }]
+  if (selectedType.value && sources.includes(selectedType.value)) selectedType.value = null
+  checkedTypes.value = new Set()
+}
+
+// —— 画布交互 ——
+function nearestEvent(x: number): EventItem | null {
+  let best: EventItem | null = null; let bd = Infinity
+  for (const e of events.value) { if (!visibleTypes.value.has(e.description)) continue; const d = Math.abs(e.onset - x); if (d < bd) { bd = d; best = e } }
+  const tol = Math.max(0.05, winLen.value * 0.02)
+  return best && bd <= tol ? best : null
+}
+function onLock(payload: { x: number }) {
+  if (mode.value === 'add') { addEventAt(payload.x); return }
+  cursorLockedX.value = payload.x
+  const e = nearestEvent(payload.x)
+  if (e) { selectedEventId.value = e.id; selectedType.value = e.description }
+}
+function onUnlock() { cursorLockedX.value = null }
+function onSelect(region: { x0: number; x1: number } | null) {
+  if (!region || mode.value !== 'add') return
+  const a = Math.min(region.x0, region.x1); const b = Math.max(region.x0, region.x1)
+  if (b > a) addEventAt(a, b - a)
+}
+function onContextX(x: number | null) { if (x == null) return; const e = nearestEvent(x); if (e) deleteEvent(e.id) }
+function onCursor(payload: { x: number } | null) { if (payload) cursorX.value = payload.x }
+function onZoom(view: { min: number; max: number } | null) { viewMin.value = view ? view.min : null; viewMax.value = view ? view.max : null }
+
+// —— 窗口导航（仿 ArtifactMarkPage）——
+function stepWindow(dir: number) { setWinStart(winStart.value + dir * winLen.value * 0.25) }
+function shiftWindow(dir: number) { setWinStart(winStart.value + dir * winLen.value) }
+function setWinStart(v: number) { winStart.value = Math.round(Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, v)) * 1000) / 1000 }
+function seekTo(t: number) { setWinStart(t - winLen.value / 2) }
+const winPresets = [{ v: 5, label: '5s' }, { v: 10, label: '10s' }, { v: 30, label: '30s' }, { v: 0, label: '全程' }]
+function setWinLen(v: number) {
+  viewMin.value = null; viewMax.value = null
+  if (v <= 0) { winLen.value = Math.max(1, Math.ceil(totalDuration.value || winLen.value)); winStart.value = rangeMin.value; return }
+  winLen.value = Math.max(1, v); setWinStart(winStart.value)
+}
+function isWinPreset(v: number): boolean {
+  if (viewMin.value != null) return false
+  if (v <= 0) return winLen.value >= (totalDuration.value || 0) - 0.5
+  return Math.abs(winLen.value - v) < 0.5
+}
+
+// —— 全程概览带 ——
+const overviewEnv = computed<number[]>(() => {
+  const o = overview.value
+  if (!o || !o.times.length) return []
+  const n = o.times.length; const env = new Array(n).fill(0)
+  for (const ch of o.channels) for (let i = 0; i < n; i++) { const a = Math.abs(ch.values[i] || 0); if (a > env[i]) env[i] = a }
+  return env
+})
+const ovPolyline = computed(() => {
+  const o = overview.value; const env = overviewEnv.value
+  if (!o || !env.length) return ''
+  const t0 = o.times[0]; const t1 = o.times[o.times.length - 1]; const span = Math.max(1e-6, t1 - t0)
+  const sorted = [...env].sort((a, b) => a - b)
+  const norm = Math.max(1e-9, sorted[Math.floor(0.99 * (sorted.length - 1))])
+  return env.map((v, i) => `${((o.times[i] - t0) / span * OV_W).toFixed(1)},${(31 - Math.min(1, v / norm) * 28).toFixed(1)}`).join(' ')
+})
+const ovDragStart = ref<number | null>(null)
+const ovWinX = computed(() => (((ovDragStart.value ?? winStart.value) - rangeMin.value) / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
+const ovWinW = computed(() => (winLen.value / Math.max(1e-6, rangeMax.value - rangeMin.value)) * OV_W)
+const ovEventMarks = computed(() => {
+  const lo = rangeMin.value; const span = Math.max(1e-6, rangeMax.value - lo)
+  return events.value.filter((e) => visibleTypes.value.has(e.description)).map((e) => ({ x: Math.max(0, Math.min(OV_W, ((e.onset - lo) / span) * OV_W)), color: colorForLabel(e.description) }))
+})
+function ovStartFromClientX(clientX: number, el: HTMLElement): number {
+  const rect = el.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)))
+  return Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, rangeMin.value + ratio * (rangeMax.value - rangeMin.value) - winLen.value / 2))
+}
+function ovPointerDown(e: PointerEvent) { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement) }
+function ovPointerMove(e: PointerEvent) { if (ovDragStart.value == null) return; ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement) }
+function ovPointerUp() { if (ovDragStart.value == null) return; setWinStart(ovDragStart.value); ovDragStart.value = null }
+
+// —— 数据加载（交互 payload + 三级取数窗口，仿 ArtifactMarkPage）——
+function loadActiveDataset() {
+  const d = datasets.value[activeDsIndex.value]
+  const evs = (d?.events || []).map((e) => ({ id: uid++, onset: Number(e.onset) || 0, duration: Number(e.duration) || 0, description: String(e.description || '') })).filter((e) => e.description)
+  events.value = evs
+  originalEvents.value = evs.map((e) => ({ ...e }))
+  badSegments.value = (d?.bad_segments || []).map((s) => ({ onset: Number(s.onset) || 0, duration: Number(s.duration) || 0 })).filter((s) => s.duration > 0)
+  visibleTypes.value = new Set(evs.map((e) => e.description))
+  checkedTypes.value = new Set(); groupOps.value = []
+  selectedType.value = null; selectedEventId.value = null
+  selectedType.value = [...new Set(evs.map((e) => e.description))].sort((a, b) => a.localeCompare(b))[0] || null
+}
+async function loadInteraction(): Promise<void> {
+  const res = await api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`)
+  const it = res.data
+  decisionVersion.value = Number(it.decision_version || 0)
+  const preview = (it.preview_json || {}) as { datasets?: Array<{ dataset_id?: string; source_dataset_id?: string; output_id?: string; data_info?: { display_name?: string; subject?: string }; events?: EventItem[]; bad_segments?: { onset: number; duration: number }[] }> }
+  const ds = Array.isArray(preview.datasets) ? preview.datasets : []
+  datasets.value = ds.map((d, i) => ({
+    label: d.data_info?.display_name || d.data_info?.subject || d.source_dataset_id || `数据集 ${i + 1}`,
+    output_id: d.output_id,
+    events: Array.isArray(d.events) ? d.events : [],
+    bad_segments: Array.isArray(d.bad_segments) ? d.bad_segments : [],
+  }))
+  if (activeDsIndex.value >= datasets.value.length) activeDsIndex.value = 0
+  loadActiveDataset()
+}
+
+const tsCache = new Map<string, StudyOutputTimeseries>()
+function inputTsKey(params: Record<string, number | undefined>): string { return `evtman::${studyId}::${executionId}::${jobId}::${activeDsIndex.value}::${JSON.stringify(params)}` }
+async function fetchInputNetwork(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
+  try {
+    const res = await dataApi.get(inputTsUrl, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
+    const buf = res.data as ArrayBuffer
+    if (!buf || buf.byteLength < 12) throw new Error('empty binary')
+    const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 8))
+    if (magic !== 'EEGBIN01') throw new Error('bad magic')
+    return decodeBinary(buf)
+  } catch {
+    const res = await dataApi.get<StudyOutputTimeseries>(inputTsUrl, { params })
+    const data = res.data
+    if (data && data.unit !== 'uV' && Array.isArray(data.channels)) {
+      for (const ch of data.channels) ch.values = ch.values.map((v) => v * 1e6)
+      data.unit = 'uV'
+    }
+    return data
+  }
+}
+async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
+  const key = inputTsKey(params)
+  const mem = tsCache.get(key); if (mem) return mem
+  const idb = await idbGet<StudyOutputTimeseries>(key); if (idb) { tsCache.set(key, idb); return idb }
+  const data = await fetchInputNetwork(params)
+  tsCache.set(key, data); void idbSet(key, data); return data
+}
+async function loadOverview() {
+  const span = totalDuration.value
+  if (!(span > 0)) return
+  overview.value = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1, index: activeDsIndex.value })
+}
+async function loadWindow() {
+  viewMin.value = null; viewMax.value = null
+  const params: Record<string, number | undefined> = { tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 3000, max_channels: 256, index: activeDsIndex.value }
+  if (filterEnabled.value) { if (lFreq.value > 0) params.l_freq = lFreq.value; if (hFreq.value > 0) params.h_freq = hFreq.value }
+  ts.value = await fetchInputTs(params)
+}
+
+async function reload() {
+  if (!isLive.value) return
+  loading.value = true; error.value = ''
+  try {
+    await loadInteraction()
+    await loadWindow()
+    document.title = `事件管理器 · ${events.value.length} 事件 — 念析`
+    void loadOverview().catch(() => { /* 概览较重，后台加载，失败不影响主图 */ })
+  } catch (err: unknown) {
+    const msg = describeError(err)
+    error.value = /interaction not found|interaction 不存在|找不到/i.test(msg)
+      ? '该节点已处理完成或不在「等待人工」状态，无需在此梳理——可返回工作流查看结果。'
+      : msg
+    ts.value = null
+  } finally { loading.value = false }
+}
+
+let winSeq = 0
+watch([winStart, winLen, filterEnabled, lFreq, hFreq], async () => {
+  if (!overview.value) return
+  const my = ++winSeq
+  try { await loadWindow() } catch { /* 保留旧窗 */ }
+  void my
+})
+// 切数据集 → 重载事件 + 波形
+watch(activeDsIndex, async () => {
+  loadActiveDataset()
+  overview.value = null
+  try { await loadWindow() } catch { /* 保留旧窗 */ }
+  void loadOverview().catch(() => {})
+})
+
+onMounted(reload)
+
+// —— 快捷键 ——
+const mouseHints = [
+  { keys: ['点击'], label: '选择最近事件' },
+  { keys: ['新增态点击'], label: '落点新增事件' },
+  { keys: ['新增态拖动'], label: '新增时段事件' },
+  { keys: ['右键'], label: '删除最近事件' },
+  { keys: ['滚轮'], label: '缩放时间' },
+  { keys: ['Ctrl', '滚轮'], label: '调幅度' },
+  { keys: ['概览拖动'], label: '定位窗口' },
+]
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'n', label: '新增模式', group: 'mark', when: () => isLive.value, run: () => { mode.value = 'add' } },
+    { key: 'v', label: '选择模式', group: 'mark', when: () => isLive.value, run: () => { mode.value = 'select' } },
+    { key: 'Delete', label: '删选中事件', group: 'mark', when: () => selectedEventId.value != null, run: () => { if (selectedEventId.value != null) deleteEvent(selectedEventId.value) } },
+    { key: 'Backspace', label: '删选中事件', group: 'mark', when: () => selectedEventId.value != null, run: () => { if (selectedEventId.value != null) deleteEvent(selectedEventId.value) } },
+    { key: 'ArrowLeft', label: '左移窗 1/4', group: 'nav', when: () => isLive.value, run: () => stepWindow(-1) },
+    { key: 'ArrowRight', label: '右移窗 1/4', group: 'nav', when: () => isLive.value, run: () => stepWindow(1) },
+    { key: 'Shift+ArrowLeft', label: '上一整窗', group: 'nav', when: () => isLive.value, run: () => shiftWindow(-1) },
+    { key: 'Shift+ArrowRight', label: '下一整窗', group: 'nav', when: () => isLive.value, run: () => shiftWindow(1) },
+    { key: '1', label: '窗长 5s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(5) },
+    { key: '2', label: '窗长 10s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(10) },
+    { key: '3', label: '窗长 30s', group: 'zoom', when: () => isLive.value, run: () => setWinLen(30) },
+    { key: '4', label: '窗长 全程', group: 'zoom', when: () => isLive.value, run: () => setWinLen(0) },
+    { key: '0', label: '复位缩放', group: 'zoom', when: () => isLive.value, run: () => onZoom(null) },
+    { key: 'Ctrl+Enter', label: '确认并续跑', group: 'general', when: () => canApply.value, run: () => submitAndReturn() },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (cursorLockedX.value != null) { onUnlock(); return true } return false },
+    () => { if (viewMin.value != null || viewMax.value != null) { onZoom(null); return true } return false },
+    () => { if (checkedTypes.value.size) { checkedTypes.value = new Set(); return true } return false },
+  ],
+})
+</script>
+
+<style scoped>
+:deep(.page) { padding: 0; }
+.ev-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr) 248px; grid-template-rows: 56px 1fr; height: calc(100vh - var(--header-h)); overflow: hidden; }
+.ev-toolbar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-3); padding: 0 var(--s-5); background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
+.ev-title { display: flex; align-items: center; gap: 8px; }
+.ev-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.ev-source.is-real { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
+.ev-source.is-demo { background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
+.ev-dssel { font-size: 12px; color: var(--c-text-2); display: inline-flex; align-items: center; gap: 4px; }
+.ev-dssel select { font-size: 12px; padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 5px; }
+
+.ev-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-card { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 6px 7px; }
+.ev-card--grow { flex: 1 1 auto; min-height: 120px; display: flex; flex-direction: column; }
+.ev-card-h { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text-2); margin-bottom: 5px; }
+.ev-card-cnt { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--c-text-3); }
+.ev-tag-soft { font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
+.ev-switch { margin-left: auto; font-size: 11px; color: var(--c-text-2); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.ev-typelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; flex: 1; min-height: 0; overflow-y: auto; }
+.ev-type { display: flex; align-items: center; gap: 6px; padding: 3px 5px; border-radius: 5px; font-size: 12px; }
+.ev-type:hover { background: var(--c-bg-soft, #eef1f5); }
+.ev-type.is-sel { background: rgba(63, 127, 191, .12); }
+.ev-type.is-hidden .ev-type-name { color: var(--c-text-3); text-decoration: line-through; }
+.ev-check { flex-shrink: 0; }
+.ev-type-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.ev-type-name { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-type-cnt { font-variant-numeric: tabular-nums; color: var(--c-text-3); font-size: 11px; }
+.ev-eye { border: none; background: none; color: var(--c-text-3); cursor: pointer; display: inline-flex; padding: 0; }
+.ev-input { width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
+.ev-input--inline { width: 90px; }
+.ev-bulk-btns { display: flex; gap: 6px; margin-top: 6px; }
+.ev-filter { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--c-text-2); }
+.ev-filter input { width: 54px; padding: 2px 5px; font-size: 11px; border: 1px solid var(--c-border); border-radius: 5px; }
+
+.ev-center { grid-column: 2; padding: var(--s-3); min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.ev-ctoolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 4px 6px; font-size: 12px; }
+.ev-num { display: inline-flex; align-items: center; gap: 3px; color: var(--c-text-2); margin-left: 6px; }
+.ev-num input[type=number] { width: 46px; padding: 2px 4px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 5px; }
+.ev-presets { display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; margin-left: 2px; }
+.ev-presets button { padding: 2px 8px; font-size: 11px; border: none; border-left: 1px solid var(--c-border); background: transparent; color: var(--c-text-2); cursor: pointer; }
+.ev-presets button:first-child { border-left: none; }
+.ev-presets button.on { background: rgba(63, 127, 191, .14); color: var(--c-primary); }
+.ev-modeswitch { display: inline-flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
+.ev-modeswitch--right { margin-left: auto; }
+.ev-modeswitch button { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; font-size: 12px; border: none; background: transparent; color: var(--c-text-2); cursor: pointer; }
+.ev-modeswitch button.on { background: rgba(63, 127, 191, .14); color: var(--c-primary); }
+.ev-chart { flex: 1; min-height: 380px; position: relative; }
+.ev-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: grab; touch-action: none; user-select: none; }
+.ev-overview:active { cursor: grabbing; }
+.ev-ov-cap { font-size: 10px; color: var(--c-text-3); margin-bottom: 1px; }
+.ev-ov-svg { width: 100%; height: 34px; display: block; }
+
+.ev-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-occlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.ev-occ { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; padding: 3px 5px; border-radius: 5px; }
+.ev-occ:hover { background: var(--c-bg-soft, #eef1f5); }
+.ev-occ.is-sel { background: rgba(63, 127, 191, .12); }
+.ev-occ-t { font-variant-numeric: tabular-nums; flex: 1; }
+.ev-occ-d { font-variant-numeric: tabular-nums; color: var(--c-text-3); }
+.ev-x { border: none; background: none; color: var(--c-text-3); cursor: pointer; display: inline-flex; }
+.ev-insp { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--c-text-2); }
+.ev-insp label { display: flex; align-items: center; gap: 6px; }
+.ev-insp input[type=number] { width: 80px; margin-left: auto; padding: 3px 5px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 5px; }
+.ev-insp input:not([type=number]) { margin-left: auto; }
+.ev-draft .ev-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ev-chip { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-2); }
+.ev-chip--add { background: rgba(29, 158, 117, .14); color: #0F6E56; }
+.ev-chip--del { background: rgba(226, 75, 74, .14); color: #A32D2D; }
+.ev-chip--chg { background: rgba(63, 127, 191, .14); color: #185FA5; }
+.ev-promote { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; color: var(--c-text-2); margin-top: 8px; line-height: 1.4; cursor: pointer; }
+.ev-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
+.ev-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
+.ev-empty.is-error .ev-empty-title { color: var(--c-danger); }
+.btn--danger-soft { color: var(--c-danger); }
+.ev-applymsg { font-size: 12px; margin-top: 8px; color: var(--c-success); }
+.ev-applymsg.is-error { color: var(--c-danger); }
+</style>
