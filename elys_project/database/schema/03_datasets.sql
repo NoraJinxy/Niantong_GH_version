@@ -155,7 +155,10 @@ CREATE TABLE IF NOT EXISTS recordings (
     qa_status           VARCHAR(16) NOT NULL DEFAULT 'pending',
     qa_report           JSONB,
     imported_by         UUID REFERENCES users(id),
-    imported_at         TIMESTAMP NOT NULL DEFAULT NOW()
+    imported_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+    -- BIDS 四元组唯一性。注意 session/run 可空，Postgres 视 NULL 为互异，
+    -- 故该约束仅在 session/run 均非空时完全生效（单 session/单 run 的去重仍靠应用层兜底）。
+    UNIQUE(subject_id, session, task, run)
 );
 
 COMMENT ON COLUMN recordings.source_path IS '原始上传文件路径（sourcedata/original_uploads 中）。';

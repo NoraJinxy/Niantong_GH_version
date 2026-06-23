@@ -25,19 +25,22 @@ from app.tasks.celery_app import celery_app
 logger = get_task_logger(__name__)
 
 
-def release_pipeline_execution_lock(db, *, execution: PipelineExecution, async_task, reason: str):
+def release_pipeline_execution_lock(db, *, execution: PipelineExecution | None, async_task, reason: str):
     payload_json = async_task.payload_json if async_task is not None else {}
     lock_id = payload_json.get("lock_id") if isinstance(payload_json, dict) else None
-    released_lock = release_study_lock_by_id(db, lock_id, released_by=execution.started_by, reason=reason)
+    released_by = execution.started_by if execution is not None else None
+    released_lock = release_study_lock_by_id(db, lock_id, released_by=released_by, reason=reason)
     if released_lock is not None:
         return [released_lock]
+    if execution is None:
+        return []
     return release_study_locks_for_resource(
         db,
         study_id=execution.study_id,
         resource_kind="pipeline",
         resource_id=execution.pipeline_id,
         lock_type="execution",
-        released_by=execution.started_by,
+        released_by=released_by,
         reason=reason,
     )
 
@@ -116,6 +119,7 @@ def run_pipeline_task(self, execution_id: str, study_id: str | None = None) -> d
             try:
                 execution = db.query(PipelineExecution).filter(PipelineExecution.id == execution_id).first()
             except Exception:
+                logger.exception("Remedial execution lookup failed during error handling: %s", execution_id)
                 execution = None
         async_task = find_async_task_by_celery_id(db, celery_task_id) or find_async_task_for_pipeline_execution(db, execution_id)
         if async_task is not None:
@@ -137,13 +141,17 @@ def run_pipeline_task(self, execution_id: str, study_id: str | None = None) -> d
                 message=str(exc),
                 payload={"execution_id": execution_id, "celery_task_id": celery_task_id},
             )
-        if execution is not None:
+        try:
             released_locks = release_pipeline_execution_lock(
                 db,
                 execution=execution,
                 async_task=async_task,
                 reason="task_exception",
             )
+        except Exception:
+            logger.exception("Failed to release pipeline execution lock during error handling: %s", execution_id)
+            released_locks = []
+        if execution is not None:
             record_audit_event(
                 db,
                 study_id=execution.study_id,
@@ -153,13 +161,13 @@ def run_pipeline_task(self, execution_id: str, study_id: str | None = None) -> d
                 resource_id=execution.id,
                 metadata={
                     "pipeline_id": execution.pipeline_id,
-                        "execution_seq": execution.execution_seq,
-                        "error": str(exc),
-                        "celery_task_id": celery_task_id,
-                        "released_lock_ids": [str(lock.id) for lock in released_locks],
-                    },
-                )
-        if async_task is not None or execution is not None:
+                    "execution_seq": execution.execution_seq,
+                    "error": str(exc),
+                    "celery_task_id": celery_task_id,
+                    "released_lock_ids": [str(lock.id) for lock in released_locks],
+                },
+            )
+        if async_task is not None or execution is not None or released_locks:
             if execution is not None:
                 refresh_execution_manifest(db, execution=execution)
             db.commit()

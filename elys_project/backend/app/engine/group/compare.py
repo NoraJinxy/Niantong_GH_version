@@ -283,10 +283,15 @@ def _run_cluster(
     # 按 p 升序,显著者在前
     summary_sorted = sorted(range(len(summary)), key=lambda i: summary[i]["p"])
 
+    masks_sorted = [masks[i] for i in summary_sorted]
+    pvals_sorted = [
+        float(cluster_pv[i]) if i < cluster_pv.size else 1.0 for i in summary_sorted
+    ]
+
     result["roi_channels"] = roi_names
     result["roi_axis"] = _roi_axis_name(base_type)
-    result["cluster_masks"] = np.stack(masks, axis=0) if masks else None
-    result["cluster_pvals"] = [float(cluster_pv[i]) for i in range(cluster_pv.size)]
+    result["cluster_masks"] = np.stack(masks_sorted, axis=0) if masks_sorted else None
+    result["cluster_pvals"] = pvals_sorted
     result["cluster_summary"] = [summary[i] for i in summary_sorted]
 
 

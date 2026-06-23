@@ -102,7 +102,12 @@ def classify_iclabel(ica: Any, raw: Any, *, threshold: float = 0.8) -> dict[int,
         return {}
     labels = list(result.get("labels") or [])
     proba = result.get("y_pred_proba")
-    probs = [float(p) for p in proba] if proba is not None else []
+    probs: list[float] = []
+    if proba is not None:
+        np = _numpy()
+        arr = np.asarray(proba, dtype=float)
+        per_component = arr.max(axis=1) if arr.ndim == 2 else arr.ravel()
+        probs = [float(p) for p in per_component]
     out: dict[int, dict[str, Any]] = {}
     for i, raw_label in enumerate(labels):
         category, label_cn = _ICLABEL_CATEGORY.get(str(raw_label).strip().lower(), ("other", "其它"))
@@ -342,14 +347,19 @@ def _ica_cache_get(key: str) -> dict[str, Any] | None:
         return entry
 
 
+def _ica_cache_store_locked(key: str, entry: dict[str, Any]) -> None:
+    """置入缓存 + 触碰续期 + 超量驱逐；**调用方须已持有 _ICA_CACHE_LOCK**（锁不可重入）。"""
+    entry["ts"] = time.time()
+    _ICA_CACHE[key] = entry
+    if len(_ICA_CACHE) > _ICA_CACHE_MAX_ENTRIES:
+        stale = sorted(_ICA_CACHE.items(), key=lambda kv: kv[1].get("ts", 0))
+        for old_key, _entry in stale[: len(_ICA_CACHE) - _ICA_CACHE_MAX_ENTRIES]:
+            _ICA_CACHE.pop(old_key, None)
+
+
 def _ica_cache_set(key: str, entry: dict[str, Any]) -> None:
     with _ICA_CACHE_LOCK:
-        entry["ts"] = time.time()
-        _ICA_CACHE[key] = entry
-        if len(_ICA_CACHE) > _ICA_CACHE_MAX_ENTRIES:
-            stale = sorted(_ICA_CACHE.items(), key=lambda kv: kv[1].get("ts", 0))
-            for old_key, _entry in stale[: len(_ICA_CACHE) - _ICA_CACHE_MAX_ENTRIES]:
-                _ICA_CACHE.pop(old_key, None)
+        _ica_cache_store_locked(key, entry)
 
 
 def _ensure_ica(study: Any, artifact: Any) -> tuple[str, Any, dict[str, Any]]:
@@ -366,12 +376,22 @@ def _ensure_ica(study: Any, artifact: Any) -> tuple[str, Any, dict[str, Any]]:
 
 
 def _ensure_raw(study: Any, artifact: Any, key: str, entry: dict[str, Any]) -> Any:
-    """惰性载入源 raw（preload 整份 FIF，重活），命中缓存复用。raw=None 也记 raw_loaded、不反复重试。"""
-    if not entry.get("raw_loaded"):
-        entry["raw"] = _load_source_raw(study, artifact)
-        entry["raw_loaded"] = True
-        _ica_cache_set(key, entry)
-    return entry.get("raw")
+    """惰性载入源 raw（preload 整份 FIF，重活），命中缓存复用。raw=None 也记 raw_loaded、不反复重试。
+
+    双重检查锁：raw 是重活（~500MB FIF），载入与置位都在 _ICA_CACHE_LOCK 内完成，
+    避免两个并发请求各载一份把内存翻倍。锁内以缓存中的权威 entry 为准（并发线程可能已换过同 key 的 entry）。
+    """
+    with _ICA_CACHE_LOCK:
+        cached = _ICA_CACHE.get(key)
+        live = cached if cached is not None else entry
+        if not live.get("raw_loaded"):
+            live["raw"] = _load_source_raw(study, artifact)
+            live["raw_loaded"] = True
+            _ica_cache_store_locked(key, live)
+        if live is not entry:
+            entry["raw"] = live.get("raw")
+            entry["raw_loaded"] = live.get("raw_loaded")
+        return live.get("raw")
 
 
 def _has_source_ref(artifact: Any) -> bool:

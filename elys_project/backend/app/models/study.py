@@ -17,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -33,7 +34,7 @@ class Study(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     status = Column(String(16), nullable=False, default="active")
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     data_root = Column(String(512), nullable=False)
     storage_quota_bytes = Column(BigInteger, nullable=False, default=1099511627776)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -102,6 +103,9 @@ class AuditEvent(Base):
 
 class StudyMember(Base):
     __tablename__ = "study_members"
+    __table_args__ = (
+        UniqueConstraint("study_id", "user_id", name="uq_study_members_study_user"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     study_id = Column(String(12), ForeignKey("studies.id", ondelete="CASCADE"), nullable=False)
@@ -349,6 +353,9 @@ class DatasetVersionFile(Base):
 
 class Subject(Base):
     __tablename__ = "subjects"
+    __table_args__ = (
+        UniqueConstraint("study_id", "bids_subject_id", name="uq_subjects_study_bids_subject"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     study_id = Column(String(12), ForeignKey("studies.id", ondelete="CASCADE"), nullable=False)
@@ -370,6 +377,11 @@ class Recording(Base):
     原 `Dataset` 类合并到此（A 重构 2026-06-04）。"""
 
     __tablename__ = "recordings"
+    # BIDS 四元组唯一：同一被试下 session/task/run 不重复。session/run 可空，Postgres
+    # 把 NULL 视为互不相等，故此约束仅在三者非空时完整生效（含 NULL 行可重复落库）。
+    __table_args__ = (
+        UniqueConstraint("subject_id", "session", "task", "run", name="uq_recordings_bids_quadruple"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     study_id = Column(String(12), ForeignKey("studies.id", ondelete="CASCADE"), nullable=False)
@@ -545,6 +557,11 @@ class PipelineDefinition(Base):
 
 class PipelineExecution(Base):
     __tablename__ = "pipeline_executions"
+    __table_args__ = (
+        UniqueConstraint("pipeline_id", "execution_seq", name="uq_pipeline_executions_pipeline_seq"),
+        Index("idx_pipeline_executions_study_status", "study_id", "status"),
+        Index("idx_pipeline_executions_pipeline", "pipeline_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     study_id = Column(String(12), ForeignKey("studies.id", ondelete="CASCADE"), nullable=False)

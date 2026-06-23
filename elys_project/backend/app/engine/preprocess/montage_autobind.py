@@ -69,7 +69,7 @@ def _candidate_names() -> tuple[str, ...]:
     return tuple(out)
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=32)
 def _montage_for(name: str) -> Any:
     """构建并缓存内置帽对象（同进程跨多文件复用，省去每个文件重复 make_standard_montage 的开销）。"""
     import mne  # noqa: PLC0415

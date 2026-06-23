@@ -185,6 +185,7 @@ def _delete_output_storage(output: Any) -> bool:
     storage_uri = getattr(output, "storage_uri", None)
     if not storage_uri:
         return False
+    output_id = getattr(output, "id", None)
     try:
         from app.services.storage import StorageService
 
@@ -192,15 +193,36 @@ def _delete_output_storage(output: Any) -> bool:
         study_root = Path(get_settings().STUDIES_STORAGE_ROOT) / study_id
         path = StorageService().resolve_path(str(storage_uri), study_id=study_id, study_root=study_root)
     except Exception:
+        logger.exception(
+            "study_output_gc: 解析存储路径失败，跳过物理删除（uri=%s output_id=%s）",
+            storage_uri,
+            output_id,
+        )
         return False
     try:
         if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
+            rmtree_errors: list[tuple[Any, str, Any]] = []
+            shutil.rmtree(path, onerror=lambda func, p, exc: rmtree_errors.append((func, p, exc)))
+            if path.exists():
+                logger.error(
+                    "study_output_gc: 目录物理删除未完成，文件可能仍残留（path=%s uri=%s output_id=%s errors=%s）",
+                    path,
+                    storage_uri,
+                    output_id,
+                    [f"{p}: {exc[1]}" for _, p, exc in rmtree_errors],
+                )
+                return False
             return True
         if path.exists():
             path.unlink()
             return True
     except OSError:
+        logger.exception(
+            "study_output_gc: 物理删除失败，文件可能仍残留（path=%s uri=%s output_id=%s）",
+            path,
+            storage_uri,
+            output_id,
+        )
         return False
     return False
 

@@ -40,6 +40,8 @@ celery_app.conf.update(
     },
     task_serializer="json",
     task_track_started=True,
+    task_soft_time_limit=1800,
+    task_time_limit=2100,
     timezone="UTC",
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,

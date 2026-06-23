@@ -10,7 +10,7 @@ execution-scoped outputs list (list_pipeline_execution_study_outputs) also stays
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -537,7 +537,7 @@ def get_study_output_timeseries(
     index: int | None = Query(default=None, ge=0),
     max_points: int = Query(default=2000, ge=50, le=8000),
     max_channels: int = Query(default=64, ge=1, le=256),
-    format: str = Query(default="json"),
+    format: Literal["json", "binary"] = Query(default="json"),
     l_freq: float | None = Query(default=None, description="高通 Hz（view-only 瞬时滤波，不存储）"),
     h_freq: float | None = Query(default=None, description="低通 Hz（view-only）"),
     notch: float | None = Query(default=None, description="陷波 Hz（view-only）"),
@@ -697,7 +697,11 @@ def get_study_output_ica_preview(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，ICA 预览不可用。"},
         )
-    excluded_list = [int(tok) for tok in re.split(r"[,;\s]+", excluded or "") if tok.strip().lstrip("-").isdigit()]
+    excluded_list = [
+        int(tok)
+        for tok in re.split(r"[,;\s]+", excluded or "")
+        if tok.strip().isdigit()
+    ]
     try:
         return build_ica_preview(study, dataset, excluded=excluded_list, channel=channel, max_seconds=max_seconds)
     except StudyOutputPreviewError as exc:
@@ -731,7 +735,11 @@ def get_study_output_ica_component_detail(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DERIVED_DATASET_DELETED", "message": "输出已删除，ICA 成分不可用。"},
         )
-    excluded_list = [int(tok) for tok in re.split(r"[,;\s]+", excluded or "") if tok.strip().lstrip("-").isdigit()]
+    excluded_list = [
+        int(tok)
+        for tok in re.split(r"[,;\s]+", excluded or "")
+        if tok.strip().isdigit()
+    ]
     try:
         return build_ica_component_detail(
             study, dataset, index, excluded=excluded_list, max_seconds=max_seconds, fmax=fmax
@@ -834,7 +842,7 @@ def get_study_output_tfr_cube(
     dataset_id: UUID,
     max_freqs: int = Query(default=60, ge=4, le=200),
     max_times: int = Query(default=120, ge=8, le=400),
-    format: str = Query(default="json"),
+    format: Literal["json", "binary"] = Query(default="json"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -895,7 +903,7 @@ def get_study_output_psd(
     channel: str | None = Query(default=None),
     max_freqs: int = Query(default=300, ge=8, le=2000),
     max_channels: int = Query(default=64, ge=1, le=256),
-    format: str = Query(default="json"),
+    format: Literal["json", "binary"] = Query(default="json"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

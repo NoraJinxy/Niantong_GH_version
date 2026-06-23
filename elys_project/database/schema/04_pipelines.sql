@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_study ON pipeline_definitions(study_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_executions_pipeline ON pipeline_executions(study_id, pipeline_id, execution_seq DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_executions_study_status ON pipeline_executions(study_id, status);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_execution_topo ON pipeline_jobs(execution_id, topo_index);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_study_status ON pipeline_jobs(study_id, status);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_study_hash ON pipeline_jobs(study_id, node_hash);

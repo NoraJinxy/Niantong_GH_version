@@ -10,7 +10,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import AsyncTask, PipelineExecution, TaskEvent
@@ -32,12 +31,24 @@ def normalize_task_progress(progress: float | int | str | Decimal | None) -> Dec
 def find_async_task_by_celery_id(db: Session, celery_task_id: str | None) -> AsyncTask | None:
     if not celery_task_id:
         return None
-    filters = [AsyncTask.celery_task_id == celery_task_id]
+    match = (
+        db.query(AsyncTask)
+        .filter(AsyncTask.celery_task_id == celery_task_id)
+        .order_by(AsyncTask.created_at.desc())
+        .first()
+    )
+    if match is not None:
+        return match
     try:
-        filters.append(AsyncTask.id == UUID(str(celery_task_id)))
+        row_id = UUID(str(celery_task_id))
     except ValueError:
-        pass
-    return db.query(AsyncTask).filter(or_(*filters)).order_by(AsyncTask.created_at.desc()).first()
+        return None
+    return (
+        db.query(AsyncTask)
+        .filter(AsyncTask.id == row_id)
+        .order_by(AsyncTask.created_at.desc())
+        .first()
+    )
 
 
 def find_async_task_for_pipeline_execution(db: Session, execution_id: str | UUID) -> AsyncTask | None:

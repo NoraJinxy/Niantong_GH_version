@@ -36,7 +36,8 @@ def run_group_average(data_info: dict[str, Any], params: dict[str, Any]) -> dict
     if n_units == 0:
         raise ValueError("Grand Average: unit_stack 为空(0 个 unit)。")
 
-    unit_n = np.asarray(stk.get("unit_n") or [], dtype=float)
+    unit_n_raw = stk.get("unit_n")
+    unit_n = np.asarray([] if unit_n_raw is None else unit_n_raw, dtype=float)
     weighted = bool(params.get("weighted", False))
     if weighted and unit_n.size == n_units and float(unit_n.sum()) > 0:
         weights = unit_n / float(unit_n.sum())
@@ -50,12 +51,19 @@ def run_group_average(data_info: dict[str, Any], params: dict[str, Any]) -> dict
         else np.zeros_like(mean)
     )
 
+    ch_types_raw = stk.get("ch_types")
+    ch_types = (
+        ["eeg"] * len(stk["ch_names"]) if ch_types_raw is None else list(ch_types_raw)
+    )
+    subjects_raw = stk.get("unit_subjects")
+    subjects = [] if subjects_raw is None else list(subjects_raw)
+
     return {
         "base_type": str(stk["base_type"]),
         "mean": mean,
         "sem": sem,
         "ch_names": list(stk["ch_names"]),
-        "ch_types": list(stk.get("ch_types") or (["eeg"] * len(stk["ch_names"]))),
+        "ch_types": ch_types,
         "times": stk.get("times"),
         "freqs": stk.get("freqs"),
         "sfreq": float(stk.get("sfreq") or 0.0),
@@ -63,7 +71,7 @@ def run_group_average(data_info: dict[str, Any], params: dict[str, Any]) -> dict
         "nave_total": int(unit_n.sum()) if unit_n.size else n_units,
         "label": str(stk.get("label") or ""),
         "unit_kind": str(stk.get("unit_kind") or "subject"),
-        "subjects": list(stk.get("unit_subjects") or []),
+        "subjects": subjects,
     }
 
 

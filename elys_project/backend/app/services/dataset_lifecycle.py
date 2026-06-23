@@ -644,6 +644,7 @@ def emergency_takedown_version(
         admin_notes=normalized_reason,
     )
     db.add(request)
+    db.flush()  # id 由 DB server_default 生成，flush 后才有值供审计/通知引用
 
     record_audit_event(
         db,
@@ -750,6 +751,7 @@ def request_publicization(
     if PUBLICIZATION_AUTO_APPROVE:
         # 调试期：无人工审核策略，自动通过并即时升 public，decision='auto' 留痕。
         request.decision = "auto"
+        request.reviewed_by = actor.id
         request.reviewed_at = now
         request.admin_notes = "调试期自动通过（无人工审核策略）"
         old_visibility = asset.visibility

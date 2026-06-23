@@ -69,7 +69,7 @@ def run_bad_channels(raw: Any, params: dict[str, Any]) -> tuple[Any, dict[str, A
     eeg_picks = mne.pick_types(work.info, eeg=True, meg=False, exclude=[])
     n_eeg = len(eeg_picks)
     if n_eeg < 3:
-        raise ValueError(f"LOF 坏道检测至少需要 3 个 EEG 通道，当前仅 {n_eeg} 个。")
+        raise ValueError(f"坏道检测至少需要 3 个 EEG 通道，当前仅 {n_eeg} 个。")
     n_neighbors = min(n_neighbors, n_eeg - 1)
 
     preexisting = list(work.info.get("bads", []) or [])

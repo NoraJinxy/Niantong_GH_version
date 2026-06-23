@@ -244,7 +244,7 @@ def build_active_executions(db: Session, study_ids: list[str]) -> list[Dashboard
         return []
     rows = (
         db.query(PipelineExecution, PipelineDefinition.name)
-        .join(
+        .outerjoin(
             PipelineDefinition,
             and_(
                 PipelineDefinition.study_id == PipelineExecution.study_id,
@@ -254,7 +254,6 @@ def build_active_executions(db: Session, study_ids: list[str]) -> list[Dashboard
         .filter(
             PipelineExecution.study_id.in_(study_ids),
             PipelineExecution.status.in_(DASHBOARD_EXECUTION_STATUSES),
-            PipelineDefinition.status != "deleted",
         )
         .order_by(PipelineExecution.started_at.desc(), PipelineExecution.execution_seq.desc())
         .limit(100)
@@ -265,7 +264,7 @@ def build_active_executions(db: Session, study_ids: list[str]) -> list[Dashboard
             id=str(execution.id),
             study_id=execution.study_id,
             pipeline_id=execution.pipeline_id,
-            pipeline_name=pipeline_name,
+            pipeline_name=pipeline_name or "（流程已删除）",
             execution_seq=execution.execution_seq,
             status=execution.status,
             stage_label=execution_stage_label(execution.status),

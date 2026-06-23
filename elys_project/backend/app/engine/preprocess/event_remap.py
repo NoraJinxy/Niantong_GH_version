@@ -38,7 +38,9 @@ def run_event_remap(raw: Any, params: dict[str, Any]) -> Any:
     for onset, duration, desc, gname in zip(
         annotations.onset, annotations.duration, descriptions, group_names
     ):
-        if gname in mapping:
+        if desc.upper().startswith("BAD_"):
+            new_description.append(desc)  # 坏段注解 → 不参与重映射，原样保留
+        elif gname in mapping:
             target = mapping[gname]
             if not target:
                 continue  # 目标留空 = 丢弃

@@ -234,7 +234,7 @@ async def _elys_generic_handler(request, exc):
     _sys.stderr.flush()
     return CustomJSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {type(exc).__name__}"},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -244,5 +244,4 @@ def health_check():
         "status": "healthy",
         "service": "elys-api",
         "version": settings.VERSION,
-        "cors_origins": cors_origins,
     }

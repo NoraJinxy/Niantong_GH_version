@@ -11,8 +11,7 @@ from typing import Any
 def run_apply_ica(raw: Any, ica: Any, params: dict[str, Any]):
     excluded = parse_excluded_components(params.get("excluded_components"))
     cleaned = raw.copy()
-    ica.exclude = excluded
-    ica.apply(cleaned, verbose="ERROR")
+    ica.apply(cleaned, exclude=excluded, verbose="ERROR")
     return cleaned
 
 

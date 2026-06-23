@@ -98,7 +98,7 @@ class StudyOutput(Base):
     # ---- Provenance --------------------------------------------------------
     produced_by_execution_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("pipeline_executions.id", ondelete="CASCADE"),
+        ForeignKey("pipeline_executions.id", ondelete="SET NULL"),
     )
     produced_by_job_id = Column(
         UUID(as_uuid=True),

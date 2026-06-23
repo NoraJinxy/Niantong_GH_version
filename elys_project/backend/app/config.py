@@ -3,10 +3,16 @@ Purpose: Load application settings from environment variables for API, database,
 Related: deploy/profiles/*.env, app/main.py, app/database.py, app/tasks/celery_app.py.
 """
 
+import logging
 from functools import lru_cache
 from typing import Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+INSECURE_DEFAULT_SECRET_KEY = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -71,7 +77,7 @@ class Settings(BaseSettings):
         "http://localhost:5173"
     )
 
-    SECRET_KEY: str = "change-me-in-production"
+    SECRET_KEY: str = INSECURE_DEFAULT_SECRET_KEY
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
@@ -79,6 +85,20 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+
+    @model_validator(mode="after")
+    def _guard_secret_key(self):
+        if self.SECRET_KEY == INSECURE_DEFAULT_SECRET_KEY:
+            message = (
+                "INSECURE DEFAULT SECRET_KEY: SECRET_KEY 仍是占位默认值 "
+                f"'{INSECURE_DEFAULT_SECRET_KEY}'，JWT 将用公开已知密钥签名、任意 token 可被伪造。"
+                "请通过环境变量注入真实 SECRET_KEY。"
+            )
+            if self.DEBUG:
+                logger.warning(message)
+            else:
+                raise RuntimeError(message)
+        return self
 
 
 @lru_cache()

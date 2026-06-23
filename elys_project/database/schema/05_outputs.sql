@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS study_outputs (
     study_id               CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
 
     -- 来源追溯
-    produced_by_execution_id       UUID REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    produced_by_execution_id       UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
     produced_by_job_id  UUID REFERENCES pipeline_jobs(id) ON DELETE SET NULL,
     produced_by_node_id      VARCHAR(128),
     produced_by_node_type    VARCHAR(128),

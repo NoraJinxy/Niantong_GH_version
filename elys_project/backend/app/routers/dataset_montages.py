@@ -20,6 +20,7 @@ from app.models import DatasetMontage, Study, StudyDatasetMount, User
 from app.routers._dataset_shared import require_system_permission
 from app.routers.auth import get_current_user
 from app.services.dataset_assets import can_write_dataset_asset, get_dataset_asset_for_user
+from app.services.study_access import require_study_read
 
 settings = get_settings()
 
@@ -85,6 +86,7 @@ async def upload_dataset_montage(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前用户没有写该 Dataset 资产的权限")
 
     raw_name = (file.filename or "montage").replace("\\", "/").split("/")[-1]
+    raw_name = "".join(ch for ch in raw_name if ch.isprintable())[:128] or "montage"
     ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else ""
     if ext not in SUPPORTED_MONTAGE_EXTENSIONS:
         supported = ", ".join("." + e for e in sorted(SUPPORTED_MONTAGE_EXTENSIONS))
@@ -204,9 +206,7 @@ def list_study_montages(
 ):
     """研究项可见的全部自定义电极文件 = 该研究项挂载的所有数据集资产下的 montage。供「通道定位」节点选择器用。"""
     require_system_permission(current_user, "data:read", "当前用户没有查看电极位置文件的权限")
-    study = db.query(Study).filter(Study.id == study_id).first()
-    if study is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="研究项不存在")
+    require_study_read(db.query(Study).filter(Study.id == study_id).first(), db, current_user)
     asset_ids = [
         m.dataset_asset_id
         for m in db.query(StudyDatasetMount.dataset_asset_id)

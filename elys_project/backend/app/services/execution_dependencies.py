@@ -16,7 +16,7 @@ from app.models import StudyOutput, PipelineExecution, PipelineExecutionDependen
 from app.pipeline.contracts import NodeInput
 
 
-@dataclass(frozen=True)
+@dataclass
 class ArtifactDependencyError(Exception):
     artifact_id: str
     blockers: list[dict[str, Any]]

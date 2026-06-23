@@ -13,6 +13,17 @@ from typing import Any
 
 HASH_VERSION = "pipeline-node-hash-v2"
 
+# 纯运行时 / 记账字段：交互节点 resume 时由执行器/路由注入，不是真正的算法参数，
+# 引擎从不读它们。尤其 decision_version 每次 resume 自增 —— 若进 params_hash，
+# 交互节点（artifact_mark / ica_apply / event_manager）每次 resume 都换 node_hash、
+# 永远命不中缓存、每 resume 必重算。这些字段无内容区分度（真正的决策内容由
+# excluded_components / bad_segments / bad_channels / channel_action / events /
+# group_operations 等真实参数承载，照常参与 hash），故一律排除。
+RUNTIME_PARAM_KEYS = frozenset({
+    "decision_version",
+    "interaction_decision",
+})
+
 
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
@@ -35,7 +46,7 @@ def params_hash(params: dict[str, Any] | None, node_spec: dict[str, Any] | None 
                 continue
             name = str(name)
             known.add(name)
-            if prop.get("hash", True) is False:
+            if name in RUNTIME_PARAM_KEYS or prop.get("hash", True) is False:
                 excluded.add(name)
                 continue
             if name in params:
@@ -45,6 +56,8 @@ def params_hash(params: dict[str, Any] | None, node_spec: dict[str, Any] | None 
 
     for key, value in params.items():
         text_key = str(key)
+        if text_key in RUNTIME_PARAM_KEYS:
+            continue
         if text_key not in known and text_key not in excluded:
             hashable[text_key] = value
 

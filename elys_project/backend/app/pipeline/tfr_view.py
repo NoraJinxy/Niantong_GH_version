@@ -196,7 +196,11 @@ def build_tfr_topomap(
     times = np.asarray(tfr.times, dtype=float)
     data = np.asarray(tfr.data, dtype=float) * scale  # (n_channels, n_freqs, n_times)
 
-    t_lo = float(times[0]) if tmin is None else float(tmin)
+    # 时窗默认刺激后(t>=0):与 _resolve_channel_index / _band_stats 一致,默认排基线避免稀释功率。
+    # 全是基线(无 t>=0 样本)时回退到 times[0],下游 tmask 越界兜底会再展回全幅。
+    post_times = times[times >= 0]
+    default_t_lo = float(post_times[0]) if post_times.size else float(times[0])
+    t_lo = default_t_lo if tmin is None else float(tmin)
     t_hi = float(times[-1]) if tmax is None else float(tmax)
     f_lo = float(freqs[0]) if fmin is None else float(fmin)
     f_hi = float(freqs[-1]) if fmax is None else float(fmax)

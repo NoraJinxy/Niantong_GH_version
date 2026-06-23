@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS studies (
     description         TEXT,
     status              VARCHAR(16) NOT NULL DEFAULT 'active'
                             CHECK (status IN ('active', 'archived', 'trashed')),
-    owner_id            UUID NOT NULL REFERENCES users(id),
+    owner_id            UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     data_root           VARCHAR(512) NOT NULL,
     storage_quota_bytes BIGINT NOT NULL DEFAULT 1099511627776,
     created_at          TIMESTAMP NOT NULL DEFAULT NOW(),

@@ -3,10 +3,13 @@ Purpose: Define FastAPI routes for the auth API area and translate HTTP requests
 Related: app/schemas/*, app/models/*, app/services/*, app/routers/auth.py, docs_v2/2-50.
 """
 
+import time
+from collections import deque
 from datetime import datetime
+from threading import Lock
 from uuid import UUID as PyUUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -18,6 +21,34 @@ from app.utils.security import verify_password, create_access_token, decode_toke
 router = APIRouter(prefix="/api/v1/auth", tags=["认证"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+# 登录限流：单进程内存滑动窗口，按客户端 IP 计数。
+# 多 worker 部署需换成共享后端（如 redis）才能跨进程生效。
+_LOGIN_RATE_LIMIT = 10
+_LOGIN_RATE_WINDOW = 60.0
+_login_attempts: dict[str, deque] = {}
+_login_attempts_lock = Lock()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_login_rate_limit(request: Request) -> None:
+    ip = _client_ip(request)
+    now = time.monotonic()
+    with _login_attempts_lock:
+        attempts = _login_attempts.setdefault(ip, deque())
+        while attempts and now - attempts[0] > _LOGIN_RATE_WINDOW:
+            attempts.popleft()
+        if len(attempts) >= _LOGIN_RATE_LIMIT:
+            raise HTTPException(
+                status_code=429, detail="登录尝试过于频繁，请稍后再试"
+            )
+        attempts.append(now)
 
 
 def get_current_user(
@@ -42,19 +73,20 @@ def get_current_user(
     if user is None:
         raise exc
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="用户已被禁用")
+        raise HTTPException(status_code=403, detail="用户已被禁用")
     return user
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    _check_login_rate_limit(request)
+    user = db.query(User).filter(User.username == payload.username).first()
 
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="账号已被禁用")
-    if not verify_password(request.password, user.password_hash):
+    if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     user.last_login_at = datetime.utcnow()

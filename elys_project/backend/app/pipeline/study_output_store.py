@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from sqlalchemy.exc import IntegrityError
+
 from app.config import get_settings
 from app.services.storage import StorageService
 
@@ -381,8 +383,10 @@ class StudyOutputStore:
 
         # === content-addressed dedup ===
         # 写文件已经完成，sha256 已知；查 DB 是否已有同 (study, sha256) 的行（不分死活）
-        if checksum:
-            existing = (
+        def _find_existing() -> Any | None:
+            if not checksum:
+                return None
+            return (
                 self.db.query(derived_model)
                 .filter(
                     derived_model.study_id == self.study_id,
@@ -391,20 +395,25 @@ class StudyOutputStore:
                 .order_by(derived_model.created_at.asc())
                 .first()
             )
-            if existing is not None:
-                if getattr(existing, "deleted_at", None) is not None:
-                    # 复活回收站 / 已清盘行（磁盘文件已就位，见 docstring）
-                    existing.deleted_at = None
-                    existing.purged_at = None
-                    existing.keep = keep
-                    existing.cache_eligible = cache_eligible
-                    existing.retention_expires_at = retention_expires_at
-                    existing.updated_at = datetime.utcnow()
-                    self.db.flush()
-                # 复用旧行：produced_by_* 保留旧 execution（canonical 首产者）；本次执行另记一条
-                # execution_outputs.reused 边，运行面板据此把它算进「本次执行产物」。
-                self._link_output(getattr(existing, "id", None), "reused")
-                return self._derived_summary_from_row(existing)
+
+        def _reuse_existing(existing: Any) -> StudyOutputSummary:
+            if getattr(existing, "deleted_at", None) is not None:
+                # 复活回收站 / 已清盘行（磁盘文件已就位，见 docstring）
+                existing.deleted_at = None
+                existing.purged_at = None
+                existing.keep = keep
+                existing.cache_eligible = cache_eligible
+                existing.retention_expires_at = retention_expires_at
+                existing.updated_at = datetime.utcnow()
+                self.db.flush()
+            # 复用旧行：produced_by_* 保留旧 execution（canonical 首产者）；本次执行另记一条
+            # execution_outputs.reused 边，运行面板据此把它算进「本次执行产物」。
+            self._link_output(getattr(existing, "id", None), "reused")
+            return self._derived_summary_from_row(existing)
+
+        existing = _find_existing()
+        if existing is not None:
+            return _reuse_existing(existing)
 
         node_id = self._safe_str(getattr(self.job, "node_id", None))
         node_type = self._safe_str(getattr(self.job, "node_type", None))
@@ -458,8 +467,18 @@ class StudyOutputStore:
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
-        self.db.add(derived)
-        self.db.flush()
+        # check-then-act 之间另一 worker 可能已 INSERT 同 (study, sha256)；INSERT 包在
+        # SAVEPOINT(begin_nested) 里——撞 idx_study_output_sha256 unique 时只回滚 savepoint，
+        # 外层事务存活，随后重查拿到竞争对手那行，按 dedup 命中复用（reused 边，不双计）。
+        try:
+            with self.db.begin_nested():
+                self.db.add(derived)
+                self.db.flush()
+        except IntegrityError:
+            existing = _find_existing()
+            if existing is None:
+                raise
+            return _reuse_existing(existing)
         # 首次产出：记一条 execution_outputs.created 边（本执行=canonical 首产者）。
         self._link_output(getattr(derived, "id", None), "created")
 

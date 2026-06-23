@@ -291,7 +291,7 @@ def force_release_stale_pipeline_execution_locks(
             release_reason = f"execution_already_{execution.status}"
         else:
             # status 还是 'running' / 'queued'，看 started_at 是否超时
-            execution_started = execution.started_at or execution.created_at if hasattr(execution, "created_at") else execution.started_at
+            execution_started = execution.started_at or (execution.created_at if hasattr(execution, "created_at") else None)
             if execution_started is None or execution_started < stale_threshold:
                 # stuck execution，强制标 failed
                 execution.status = "failed"
