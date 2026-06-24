@@ -350,15 +350,14 @@ function drawCell(canvas: HTMLCanvasElement, kernel: ReadyKernel, points: TopoPo
 
   const t = prepCanvas(canvas)
   const { ctx, scale, mapX, mapY, cx, cy } = t
-  // 色面贴 [-1,1]²，裁到头罩圆。绕圆心翻转 y：kernel 网格行号(py)向下递增=屏幕下方，
-  // 但电极坐标约定 +y=前(电极点画在 mapY(-p.y)=屏幕上方、与鼻子一致)；不翻则色斑与电极点
-  // 关于圆心上下镜像（前部电极的色斑跑到后部）。translate(0,2cy)+scale(1,-1) 对齐二者。
+  // 色面贴 [-1,1]²，裁到头罩圆。**不可翻转 y**：kernel 已按 dataY=-sy 把「前(+y)」摆到缓冲区
+  // 顶行（见 topoKernel.ts），缓冲顶行→屏幕上方，与电极点 mapY(-p.y)、鼻子（mapY(-0.99..-1.24)）
+  // 天然同在上方对齐。这里若再 translate(0,2cy)+scale(1,-1) 翻一次，色面相对电极点/鼻子前后镜像
+  // （前部色斑被画到后部）——即 d35b26d 因误判引入、2026-06-24 真 canvas 探针证伪后删除的那次翻转。
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, scale, 0, Math.PI * 2)
   ctx.clip()
-  ctx.translate(0, 2 * cy)
-  ctx.scale(1, -1)
   ctx.drawImage(o.canvas, mapX(-1), mapY(-1), 2 * scale, 2 * scale)
   ctx.restore()
 
