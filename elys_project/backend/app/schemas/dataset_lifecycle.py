@@ -8,11 +8,10 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.dataset import DatasetVersionResponse
 from app.services.semver import is_valid_semver
 
 
-DatasetVersionState = Literal["unpublished", "published", "withdraw_requested", "withdrawn"]
-DatasetVersionQaStatus = Literal["pass", "fail", "not_run"]
 WithdrawalDecision = Literal["approved", "rejected", "emergency"]
 # 可见范围开放目标（只升不降，私有不在内——私有是发布默认态、非可开放目标）
 OpenVisibilityTarget = Literal["shared", "public"]
@@ -67,27 +66,6 @@ class DatasetVersionPublishRequest(BaseModel):
         if not normalized:
             raise ValueError("发布前必须填写伦理与版权声明（事后审计需要）")
         return normalized
-
-
-class DatasetVersionResponse(BaseModel):
-    id: str
-    dataset_asset_id: str
-    version_label: str
-    state: DatasetVersionState
-    qa_status: DatasetVersionQaStatus
-    content_hash: Optional[str] = None
-    version_doi: Optional[str] = None
-    storage_uri: Optional[str] = None
-    published_at: Optional[datetime] = None
-    published_by: Optional[str] = None
-    withdraw_requested_at: Optional[datetime] = None
-    withdraw_requested_by: Optional[str] = None
-    withdraw_reason: Optional[str] = None
-    withdrawn_at: Optional[datetime] = None
-    withdrawn_by: Optional[str] = None
-    withdrawal_admin_notes: Optional[str] = None
-    created_at: datetime
-    created_by: Optional[str] = None
 
 
 class DatasetVersionPublishResponse(BaseModel):

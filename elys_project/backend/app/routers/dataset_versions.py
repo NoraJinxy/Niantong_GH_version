@@ -22,11 +22,11 @@ from app.models import (
     User,
 )
 from app.routers.auth import get_current_user
+from app.schemas.dataset import DatasetVersionResponse
 from app.schemas.dataset_lifecycle import (
     DatasetPublicizationRequestResponse,
     DatasetVersionPublishRequest,
     DatasetVersionPublishResponse,
-    DatasetVersionResponse,
     DatasetVersionWithdrawRequest,
     DatasetWithdrawalRequestResponse,
     EmergencyTakedownRequest,
