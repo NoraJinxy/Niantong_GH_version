@@ -6,8 +6,6 @@ Related: app/config.py, app/routers/*, docs_v2/2-50 and docs_v2/7-10.
 import json
 import logging
 import uuid
-from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -16,78 +14,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 调试期：每次重部署（= 重启服务）全量重置业务数据。
-    # 保留：users / roles / permissions / user_roles / role_permissions（账号不丢）。
-    # 清除：所有研究项、数据集、Pipeline 历史、产物 DB 行 + 磁盘文件。
-    try:
-        _full_reset_on_startup()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("startup full reset failed (non-fatal): %s", exc)
-    yield
-
-
-def _full_reset_on_startup() -> None:
-    """重部署自动全量重置：清除所有业务表（保留认证表）+ 删除所有存储文件。"""
-    import shutil  # noqa: PLC0415
-    from pathlib import Path  # noqa: PLC0415
-    from sqlalchemy import text  # noqa: PLC0415
-    from app.database import SessionLocal  # noqa: PLC0415
-
-    # 从叶表到根表列出，CASCADE 会自动处理任何遗漏的依赖。
-    _TABLES = ", ".join([
-        "execution_outputs",
-        "pipeline_execution_dependencies",
-        "pipeline_execution_inputs",
-        "pipeline_jobs",
-        "pipeline_executions",
-        "pipeline_definitions",
-        "study_outputs",
-        "recording_versions",
-        "recordings",
-        "dataset_file_derivations",
-        "dataset_version_files",
-        "dataset_version_references",
-        "dataset_files",
-        "dataset_montages",
-        "dataset_withdrawal_requests",
-        "dataset_publicization_requests",
-        "dataset_versions",
-        "dataset_members",
-        "dataset_assets",
-        "study_dataset_mounts",
-        "study_members",
-        "study_locks",
-        "study_settings",
-        "subjects",
-        "task_events",
-        "async_tasks",
-        "audit_events",
-        "studies",
-    ])
-
-    db = SessionLocal()
-    try:
-        db.execute(text(f"TRUNCATE TABLE {_TABLES} CASCADE"))
-        db.commit()
-        logger.info("startup full reset: all business tables truncated")
-    finally:
-        db.close()
-
-    # 清文件：删除整个存储根目录下所有内容，重建空子目录。
-    storage_root = Path(settings.ELYS_STORAGE_ROOT)
-    if storage_root.exists():
-        for child in storage_root.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-    for sub in ("datasets", "studies", "trash"):
-        (storage_root / sub).mkdir(parents=True, exist_ok=True)
-    logger.info("startup full reset: storage cleared at %s", storage_root)
 
 from app.routers import (
     admin_router,
@@ -133,7 +59,6 @@ app = FastAPI(
     version=settings.VERSION,
     description="念析 (ELYS) EEG 分析平台",
     default_response_class=CustomJSONResponse,
-    lifespan=lifespan,
 )
 
 app.add_middleware(

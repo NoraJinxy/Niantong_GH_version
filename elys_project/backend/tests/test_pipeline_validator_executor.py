@@ -126,3 +126,34 @@ def test_validate_filter_node_notch_only_params() -> None:
 
     param_errors = [issue for issue in result.errors if issue.code == "PARAM_REQUIRED"]
     assert param_errors == []
+
+
+def test_validate_required_channel_list_rejects_empty_selection() -> None:
+    result = validate_definition(
+        make_definition("eeg/preproc/rereference", filter_params={"ref_channels": []})
+    )
+
+    assert not result.valid
+    assert any(
+        issue.code == "PARAM_REQUIRED"
+        and issue.node_id == "filter-1"
+        and "ref_channels" in issue.message
+        for issue in result.errors
+    )
+
+
+def test_validate_required_event_select_rejects_empty_selection() -> None:
+    result = validate_definition(
+        make_definition(
+            "eeg/epoch/segment",
+            filter_params={"conditions": [], "tmin": -0.2, "tmax": 1.0},
+        )
+    )
+
+    assert not result.valid
+    assert any(
+        issue.code == "PARAM_REQUIRED"
+        and issue.node_id == "filter-1"
+        and "conditions" in issue.message
+        for issue in result.errors
+    )

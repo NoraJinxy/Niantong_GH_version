@@ -36,6 +36,16 @@ def is_all_or_list(value: Any) -> bool:
     return value == "all" or isinstance(value, list)
 
 
+def is_missing_required_param(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, set)):
+        return len(value) == 0
+    return False
+
+
 def validate_load_data_params(
     params: dict[str, Any],
     issues: list[PipelineValidationIssue],
@@ -419,7 +429,7 @@ def validate_definition(
         for prop in spec.get("properties", []):
             if not _property_visible(prop, effective_params):
                 continue
-            if prop.get("required") and params.get(prop["name"]) in (None, ""):
+            if prop.get("required") and is_missing_required_param(params.get(prop["name"])):
                 issues.append(
                     PipelineValidationIssue(
                         code="PARAM_REQUIRED",

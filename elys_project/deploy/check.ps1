@@ -14,12 +14,21 @@ $backend  = Join-Path $repo 'elys_project\backend'
 $frontend = Join-Path $repo 'elys_project\frontend\elys-web'
 $wiki     = Join-Path $repo 'wiki'
 $failures = @()
+$localVenvPython = Join-Path $repo '.venv\Scripts\python.exe'
+$pythonExe = $null
+if(Test-Path $localVenvPython){
+  $pythonExe = $localVenvPython
+} else {
+  $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+  if($pythonCmd){ $pythonExe = $pythonCmd.Source }
+}
 
 function Section($name){ Write-Host ''; Write-Host ('  ' + ([string][char]0x2500) * 2 + " $name " + ([string][char]0x2500) * 2) -ForegroundColor DarkGray }
 
 Section 'Backend: Python compile (compileall)'
-if(Get-Command python -ErrorAction SilentlyContinue){
-  python -m compileall -q (Join-Path $backend 'app')
+if($pythonExe){
+  Write-Host ("[INFO] python: {0}" -f $pythonExe) -ForegroundColor DarkGray
+  & $pythonExe -m compileall -q (Join-Path $backend 'app')
   if($LASTEXITCODE -ne 0){ $failures += 'backend py_compile'; Write-Host '[FAIL] backend compile' -ForegroundColor Red }
   else { Write-Host '[OK] backend compile' -ForegroundColor Green }
 } else {
@@ -63,11 +72,15 @@ if($Docs){
 
 if($Pytest){
   Section 'Backend: pytest (local; cloud elys_debug is authoritative)'
-  Push-Location $backend
-  python -m pytest -q
-  if($LASTEXITCODE -ne 0){ Write-Host '[WARN] pytest failed locally (may lack DB/deps; cloud is source of truth)' -ForegroundColor Yellow }
-  else { Write-Host '[OK] pytest' -ForegroundColor Green }
-  Pop-Location
+  if($pythonExe){
+    Push-Location $backend
+    & $pythonExe -m pytest -q
+    if($LASTEXITCODE -ne 0){ Write-Host '[WARN] pytest failed locally (may lack DB/deps; cloud is source of truth)' -ForegroundColor Yellow }
+    else { Write-Host '[OK] pytest' -ForegroundColor Green }
+    Pop-Location
+  } else {
+    Write-Host '[WARN] pytest skipped because python is missing' -ForegroundColor Yellow
+  }
 }
 
 Write-Host ''

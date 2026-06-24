@@ -116,6 +116,7 @@
                 type="text"
                 placeholder="工作流名称"
                 @input="markDirty"
+                @keydown.enter.stop.prevent="handlePipelineNameEnter"
               />
               <span v-if="dirty" class="badge badge--warn">未保存</span>
               <span v-else-if="currentPipeline" class="badge">版本 {{ currentPipeline.version }}</span>
@@ -4247,6 +4248,12 @@ function selectNode(nodeId: string) {
 function deleteSelectedNode() {
   if (!selectedNode.value) return
   deleteNodeById(selectedNode.value.id)
+}
+
+function handlePipelineNameEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (!canSave.value || saving.value) return
+  void savePipeline()
 }
 
 async function savePipeline() {
