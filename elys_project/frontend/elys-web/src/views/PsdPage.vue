@@ -12,7 +12,7 @@
           <div class="ov-sub">
             <span class="text-mono">{{ shortId(datasetId) }}</span>
             <span v-if="isMultiOutput" class="ov-dot">·</span>
-            <span v-if="isMultiOutput" class="ov-cond">{{ outputIds.length }} 个数据集对比</span>
+            <span v-if="isMultiOutput" class="ov-cond">{{ datasetOptions.length }} 个数据集对比</span>
           </div>
         </div>
       </div>
@@ -29,20 +29,22 @@
           <section class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('dataset')">
               数据集
-              <span class="ov-sec-cnt" v-if="isMultiOutput">{{ selectedSegs.size }}/{{ outputIds.length }}</span>
+              <span class="ov-sec-cnt" v-if="isMultiOutput">{{ selectedDatasetKeys.size || datasetOptions.length }}/{{ datasetOptions.length }}</span>
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.dataset }">▾</span>
             </div>
             <div v-show="!collapsed.dataset" class="ov-sec-body">
               <div v-if="isMultiOutput" class="ov-seglist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
-                  v-for="(oid, i) in outputIds"
-                  :key="oid"
+                  v-for="(item, i) in datasetOptions"
+                  :key="item.key"
                   class="ov-li"
-                  :class="{ 'is-sel': selectedSegs.has(i) }"
-                  @click="segSel.onClick(i, $event)"
+                  :class="{ 'is-sel': !selectedDatasetKeys.size || selectedDatasetKeys.has(item.key) }"
+                  @click="datasetSel.onClick(i, $event)"
+                  @mousedown="datasetSel.onPointerDown(i, $event)"
+                  @mouseenter="datasetSel.onPointerEnter(i, $event)"
                 >
-                  <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
-                  <span class="ov-li-name" :title="rawDatasetLabel(i)">{{ segLabel(i) }}</span>
+                  <span class="ov-li-dot" :style="{ background: !selectedDatasetKeys.size || selectedDatasetKeys.has(item.key) ? segColor(item.firstSeg) : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name" :title="item.title">{{ item.label }}</span>
                 </div>
               </div>
               <div v-else class="ov-li is-static">
@@ -62,11 +64,13 @@
             <div v-show="!collapsed.event" class="ov-sec-body">
               <div class="ov-seglist" title="按事件过滤当前数据集列表">
                 <div
-                  v-for="label in eventOptions"
+                  v-for="(label, i) in eventOptions"
                   :key="label"
                   class="ov-li"
                   :class="{ 'is-sel': selectedEvents.size === 0 || selectedEvents.has(label) }"
-                  @click="setEvent(label)"
+                  @click="eventSel.onClick(i, $event)"
+                  @mousedown="eventSel.onPointerDown(i, $event)"
+                  @mouseenter="eventSel.onPointerEnter(i, $event)"
                 >
                   <span class="ov-li-dot" :style="{ background: selectedEvents.size === 0 || selectedEvents.has(label) ? TYPE_COLOR : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ label }}</span>
@@ -90,11 +94,13 @@
               <div class="ov-chanlist" title="单击单选 · Ctrl 加选 · Shift 连选">
                 <div
                   v-for="(name, i) in allChanNames"
-                  :key="name"
-                  class="ov-li"
-                  :class="{ 'is-sel': selectedChans.has(name) }"
-                  @click="chanSel.onClick(i, $event)"
-                >
+                    :key="name"
+                    class="ov-li"
+                    :class="{ 'is-sel': selectedChans.has(name) }"
+                    @click="chanSel.onClick(i, $event)"
+                    @mousedown="chanSel.onPointerDown(i, $event)"
+                    @mouseenter="chanSel.onPointerEnter(i, $event)"
+                  >
                   <span class="ov-li-dot" :style="{ background: selectedChans.has(name) ? chColor(i) : INACTIVE_DOT }"></span>
                   <span class="ov-li-name text-mono">{{ name }}</span>
                   <MiniSparkline class="ov-li-spark" :values="chanValues(name)" :color="chColor(i)" />
@@ -550,6 +556,21 @@ const partialNote = ref('')
 const labelCache = reactive<Record<number, string>>({})
 const outputMetaCache = reactive<Record<number, OutputOptionMeta>>({})
 const compactSegLabels = computed(() => compactDatasetLabels(outputIds.map((_, i) => rawDatasetLabel(i))))
+const datasetOptions = computed(() => {
+  const seen = new Map<string, { key: string; label: string; title: string; firstSeg: number; segs: number[] }>()
+  outputIds.forEach((_, i) => {
+    const key = datasetKey(i)
+    const hit = seen.get(key)
+    if (hit) {
+      hit.segs.push(i)
+      if (!hit.title.includes(rawDatasetLabel(i))) hit.title += `\n${rawDatasetLabel(i)}`
+      return
+    }
+    seen.set(key, { key, label: segLabel(i), title: rawDatasetLabel(i), firstSeg: i, segs: [i] })
+  })
+  return [...seen.values()]
+})
+const datasetKeys = computed(() => datasetOptions.value.map((item) => item.key))
 
 const showStats = ref(true)
 const showGrid = ref(true)
@@ -582,10 +603,18 @@ const segKeys = computed(() => outputIds.map((_, i) => i))
 // 糊一墙「加载中」；其余列出待勾，要对比再手动加（与 TFR / 时域一致）。
 const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
-const selectedEvents = ref<Set<string>>(new Set())
+const eventSel = useMultiSelect<string>(() => eventOptions.value, [])
+const selectedEvents = eventSel.selected
+const datasetSel = useMultiSelect<string>(() => datasetKeys.value, [])
+const selectedDatasetKeys = datasetSel.selected
 const sortedSegs = computed(() =>
-  [...selectedSegs.value]
-    .filter((seg) => selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg)))
+  (isMultiOutput ? outputIds.map((_, i) => i) : [...selectedSegs.value])
+    .filter((seg) => {
+      if (!isMultiOutput) return true
+      const datasetSelected = !selectedDatasetKeys.value.size || selectedDatasetKeys.value.has(datasetKey(seg))
+      const eventSelected = selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg))
+      return datasetSelected && eventSelected
+    })
     .sort((a, b) => a - b),
 )
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
@@ -634,6 +663,9 @@ function rawDatasetLabel(seg: number): string {
   const fromLoaded = psd ? (fmtSubject(psd.subject) || psd.display_name || '') : ''
   return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
 }
+function datasetKey(seg: number): string {
+  return compactSegLabels.value[seg] || rawDatasetLabel(seg)
+}
 function segLabel(seg: number): string {
   return isMultiOutput ? compactSegLabels.value[seg] || rawDatasetLabel(seg) : rawDatasetLabel(seg)
 }
@@ -649,10 +681,11 @@ watch(eventOptions, (labels) => {
   const current = [...selectedEvents.value].filter((label) => labels.includes(label))
   selectedEvents.value = new Set(current.length ? current : labels)
 }, { immediate: true })
-function setEvent(label: string) {
-  if (selectedEvents.value.size === 1 && selectedEvents.value.has(label)) return
-  selectedEvents.value = new Set([label])
-}
+watch(datasetKeys, (keys) => {
+  if (!isMultiOutput || !keys.length) return
+  const current = [...selectedDatasetKeys.value].filter((key) => keys.includes(key))
+  selectedDatasetKeys.value = new Set(current.length ? current : [keys[0]])
+}, { immediate: true })
 
 // ---------- facet 单元（数据访问注入 useFacetGrid）----------
 function cellAccent(cell: { series: { color: string }[] }): string {

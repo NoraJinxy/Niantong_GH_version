@@ -10,6 +10,9 @@ export interface MultiSelect<K> {
   anchor: Ref<number | null>
   /** 列表项点击：i=列表索引，e 带 shift/ctrl/meta 修饰。 */
   onClick: (index: number, e: MouseEvent) => void
+  /** 鼠标左键按住拖过列表项：连续选中拖过范围。 */
+  onPointerDown: (index: number, e: MouseEvent) => void
+  onPointerEnter: (index: number, e: MouseEvent) => void
   selectAll: () => void
   selectNone: () => void
   /** 直接置入一组键（如默认前 N 个）。 */
@@ -20,8 +23,38 @@ export interface MultiSelect<K> {
 export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSelect<K> {
   const selected = ref<Set<K>>(new Set(initial)) as Ref<Set<K>>
   const anchor = ref<number | null>(null)
+  let dragStart: number | null = null
+  let dragBase: Set<K> | null = null
+  let dragMoved = false
+  let suppressClick = false
+
+  function applyRange(from: number, to: number, additive: boolean) {
+    const arr = keys()
+    const lo = Math.min(from, to)
+    const hi = Math.max(from, to)
+    const s = additive && dragBase ? new Set(dragBase) : new Set<K>()
+    for (let j = lo; j <= hi; j++) {
+      const kk = arr[j]
+      if (kk !== undefined) s.add(kk)
+    }
+    selected.value = s
+    anchor.value = to
+  }
+
+  function endDrag() {
+    const moved = dragMoved
+    dragStart = null
+    dragBase = null
+    dragMoved = false
+    window.removeEventListener('mouseup', endDrag)
+    if (moved) window.setTimeout(() => { suppressClick = false }, 0)
+  }
 
   function onClick(index: number, e: MouseEvent) {
+    if (suppressClick) {
+      suppressClick = false
+      return
+    }
     const arr = keys()
     const k = arr[index]
     if (k === undefined) return
@@ -62,6 +95,25 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
     anchor.value = index
   }
 
+  function onPointerDown(index: number, e: MouseEvent) {
+    if (e.button !== 0) return
+    dragStart = index
+    dragBase = (e.ctrlKey || e.metaKey) ? new Set(selected.value) : null
+    dragMoved = false
+    suppressClick = false
+    anchor.value = index
+    applyRange(index, index, !!dragBase)
+    window.addEventListener('mouseup', endDrag)
+    e.preventDefault()
+  }
+
+  function onPointerEnter(index: number, e: MouseEvent) {
+    if (dragStart == null || e.buttons !== 1) return
+    if (index !== dragStart) dragMoved = true
+    suppressClick = dragMoved
+    applyRange(dragStart, index, !!dragBase)
+  }
+
   function selectAll() {
     selected.value = new Set(keys())
   }
@@ -72,5 +124,5 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
     selected.value = new Set(ks)
   }
 
-  return { selected, anchor, onClick, selectAll, selectNone, set }
+  return { selected, anchor, onClick, onPointerDown, onPointerEnter, selectAll, selectNone, set }
 }
