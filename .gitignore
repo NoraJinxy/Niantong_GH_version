@@ -36,6 +36,7 @@ Thumbs.db
 
 # === Large data kept out of VCS (added after history slim; 2026-06-13) ===
 # EEG raw/intermediate data — keep locally or in external storage, never in git
+/elys_scripts/projects/*/data/
 *.eeg
 *.bdf
 *.fif
