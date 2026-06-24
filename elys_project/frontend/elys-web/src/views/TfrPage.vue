@@ -42,7 +42,7 @@
                   @click="segSel.onClick(i, $event)"
                 >
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
-                  <span class="ov-li-name">{{ segLabel(i) }}</span>
+                  <span class="ov-li-name" :title="rawDatasetLabel(i)">{{ segLabel(i) }}</span>
                 </div>
               </div>
               <div v-else class="ov-li is-static">
@@ -51,6 +51,28 @@
                 <span class="ov-li-tag">{{ allChanNames.length }}ch</span>
               </div>
               <p v-if="isMultiOutput" class="ov-sec-hint">勾选多个结果并排对比（同一研究项下的时频产物，如不同条件 / 被试）。</p>
+            </div>
+          </section>
+
+          <section v-if="isMultiOutput && eventOptions.length" class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('event')">
+              事件
+              <span class="ov-sec-cnt">{{ selectedEvents.size || eventOptions.length }}/{{ eventOptions.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.event }">▾</span>
+            </div>
+            <div v-show="!collapsed.event" class="ov-sec-body">
+              <div class="ov-seglist" title="按事件过滤当前数据集列表">
+                <div
+                  v-for="label in eventOptions"
+                  :key="label"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedEvents.size === 0 || selectedEvents.has(label) }"
+                  @click="setEvent(label)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedEvents.size === 0 || selectedEvents.has(label) ? TYPE_COLOR : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name">{{ label }}</span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -392,7 +414,7 @@ import { heatmapCssGradient, HEATMAP_CMAPS, IS_SEQUENTIAL, type HeatmapCmap } fr
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
-import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { compactDatasetLabels, loadOutputOptionMeta, type OutputOptionMeta } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
@@ -475,6 +497,8 @@ const loading = ref(true)
 const error = ref('')
 const partialNote = ref('')
 const labelCache = reactive<Record<number, string>>({})
+const outputMetaCache = reactive<Record<number, OutputOptionMeta>>({})
+const compactSegLabels = computed(() => compactDatasetLabels(outputIds.value.map((_, i) => rawDatasetLabel(i))))
 
 const showStats = ref(true)
 const showGrid = ref(false)
@@ -494,7 +518,7 @@ const mouseHints = [
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 const cmap = ref<HeatmapCmap>('elys')
-const collapsed = reactive<Record<string, boolean>>({ dataset: false, channel: false, cmap: false, modules: false })
+const collapsed = reactive<Record<string, boolean>>({ dataset: false, event: false, channel: false, cmap: false, modules: false })
 
 const { colorAt } = usePalette('elys')
 
@@ -504,7 +528,12 @@ const segKeys = computed(() => outputIds.value.map((_, i) => i))
 // 十几路云端请求糊一墙「加载中」；其余列出待勾，要对比再手动加。
 const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
-const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
+const selectedEvents = ref<Set<string>>(new Set())
+const sortedSegs = computed(() =>
+  [...selectedSegs.value]
+    .filter((seg) => selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg)))
+    .sort((a, b) => a - b),
+)
 
 const chanSel = useMultiSelect<string>(() => allChanNames.value, [])
 const selectedChans = chanSel.selected
@@ -516,16 +545,29 @@ function chColor(i: number) {
 function segColor(seg: number) {
   return colorAt(seg, Math.max(1, outputIds.value.length))
 }
-function segLabel(seg: number): string {
+function rawDatasetLabel(seg: number): string {
   const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
-  if (meta) {
-    // 数据集名优先「被试 · 条件」(sub-H01D01B01 · clench_fist)——多被试时 condition 会重复，
-    // 必须带被试才分得清谁是谁；都缺则退化到 display_name。
-    const parts = [fmtSubject(meta.subject), meta.condition || ''].filter(Boolean)
-    if (parts.length) return parts.join(' · ')
-    if (meta.display_name) return meta.display_name
-  }
-  return labelCache[seg] || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
+  const fromLoaded = meta ? (fmtSubject(meta.subject) || meta.display_name || '') : ''
+  return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
+}
+function segLabel(seg: number): string {
+  return isMultiOutput.value ? compactSegLabels.value[seg] || rawDatasetLabel(seg) : rawDatasetLabel(seg)
+}
+function eventLabel(seg: number): string {
+  const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
+  return outputMetaCache[seg]?.eventLabel || meta?.condition || '整体'
+}
+const eventOptions = computed(() =>
+  isMultiOutput.value ? [...new Set(outputIds.value.map((_, i) => eventLabel(i)))].filter(Boolean) : [],
+)
+watch(eventOptions, (labels) => {
+  if (!isMultiOutput.value || !labels.length) return
+  const current = [...selectedEvents.value].filter((label) => labels.includes(label))
+  selectedEvents.value = new Set(current.length ? current : labels)
+}, { immediate: true })
+function setEvent(label: string) {
+  if (selectedEvents.value.size === 1 && selectedEvents.value.has(label)) return
+  selectedEvents.value = new Set([label])
 }
 function findAnyForSeg(seg: number): StudyOutputTfr | null {
   for (const ch of orderedChans.value) {
@@ -1126,7 +1168,6 @@ async function bootstrap() {
     m.set(`0::${d.channel}`, d)
     tfrMap.value = m
     probe.done('数据'); probe.paint(); probe.log() // 临时探针
-    if (d.condition) labelCache[0] = d.condition
     if (!selectedChans.value.size) chanSel.set([d.channel])
     document.title = `时频分析 · ${displayName.value} — 念析`
     await syncLoad()
@@ -1164,7 +1205,6 @@ async function syncLoad() {
       if (s.status === 'fulfilled') {
         const [seg, ch, data] = s.value
         m.set(`${seg}::${ch}`, data)
-        if (data.condition && labelCache[seg] === undefined) labelCache[seg] = data.condition
       } else {
         failed++
       }
@@ -1255,7 +1295,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 
 onMounted(() => {
   document.title = '时频分析 — 念析'
-  if (isMultiOutput.value) void loadOutputLabels(studyId, outputIds.value, labelCache)
+  if (isMultiOutput.value) void loadOutputOptionMeta(studyId, outputIds.value, outputMetaCache)
   void bootstrap()
 })
 </script>

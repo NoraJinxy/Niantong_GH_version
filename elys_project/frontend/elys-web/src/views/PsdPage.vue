@@ -42,13 +42,35 @@
                   @click="segSel.onClick(i, $event)"
                 >
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
-                  <span class="ov-li-name">{{ segLabel(i) }}</span>
+                  <span class="ov-li-name" :title="rawDatasetLabel(i)">{{ segLabel(i) }}</span>
                 </div>
               </div>
               <div v-else class="ov-li is-static">
                 <span class="ov-li-dot" :style="{ background: TYPE_COLOR }"></span>
                 <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
                 <span class="ov-li-tag">{{ allChanNames.length }}ch</span>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="isMultiOutput && eventOptions.length" class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('event')">
+              事件
+              <span class="ov-sec-cnt">{{ selectedEvents.size || eventOptions.length }}/{{ eventOptions.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.event }">▾</span>
+            </div>
+            <div v-show="!collapsed.event" class="ov-sec-body">
+              <div class="ov-seglist" title="按事件过滤当前数据集列表">
+                <div
+                  v-for="label in eventOptions"
+                  :key="label"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedEvents.size === 0 || selectedEvents.has(label) }"
+                  @click="setEvent(label)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedEvents.size === 0 || selectedEvents.has(label) ? TYPE_COLOR : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name">{{ label }}</span>
+                </div>
               </div>
             </div>
           </section>
@@ -453,7 +475,7 @@ import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useQueryString, round, toNum, shortId, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { composeLineExport, triggerPngDownload, sanitizeExportName } from '@/composables/observe/useObserveExport'
-import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { compactDatasetLabels, loadOutputOptionMeta, type OutputOptionMeta } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
@@ -526,6 +548,8 @@ const loading = ref(true)
 const error = ref('')
 const partialNote = ref('')
 const labelCache = reactive<Record<number, string>>({})
+const outputMetaCache = reactive<Record<number, OutputOptionMeta>>({})
+const compactSegLabels = computed(() => compactDatasetLabels(outputIds.map((_, i) => rawDatasetLabel(i))))
 
 const showStats = ref(true)
 const showGrid = ref(true)
@@ -544,7 +568,7 @@ const pageRef = ref<HTMLElement | null>(null)
 const { isFullscreen, toggleFullscreen } = useFullscreen(pageRef)
 useNumberWheelGuard(pageRef) // 滚轮落在聚焦的数字框上时不偷改其值（页面滚轮=缩放图，见 composable 注释）
 const collapsed = reactive<Record<string, boolean>>({
-  dataset: false, channel: false, range: false, layout: false, modules: false,
+  dataset: false, event: false, channel: false, range: false, layout: false, modules: false,
 })
 
 // 配色
@@ -558,7 +582,12 @@ const segKeys = computed(() => outputIds.map((_, i) => i))
 // 糊一墙「加载中」；其余列出待勾，要对比再手动加（与 TFR / 时域一致）。
 const segSel = useMultiSelect<number>(() => segKeys.value, [0])
 const selectedSegs = segSel.selected
-const sortedSegs = computed(() => [...selectedSegs.value].sort((a, b) => a - b))
+const selectedEvents = ref<Set<string>>(new Set())
+const sortedSegs = computed(() =>
+  [...selectedSegs.value]
+    .filter((seg) => selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg)))
+    .sort((a, b) => a - b),
+)
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const primaryPsd = computed<StudyOutputPsd | null>(
   () => psdMap.value.get(primarySeg.value) ?? psdMap.value.values().next().value ?? null,
@@ -600,15 +629,29 @@ function chColor(i: number) {
 function segColor(seg: number) {
   return colorAt(seg, segCount.value)
 }
-function segLabel(seg: number): string {
+function rawDatasetLabel(seg: number): string {
   const psd = psdMap.value.get(seg)
-  if (psd) {
-    // 数据集名优先「被试 · 条件」——多被试时 condition 重复，必须带被试才分得清；都缺退化 display_name
-    const parts = [fmtSubject(psd.subject), psd.condition || ''].filter(Boolean)
-    if (parts.length) return parts.join(' · ')
-    if (psd.display_name) return psd.display_name
-  }
-  return labelCache[seg] || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
+  const fromLoaded = psd ? (fmtSubject(psd.subject) || psd.display_name || '') : ''
+  return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || (isMultiOutput ? `数据集 ${seg + 1}` : nameHint || '功率谱')
+}
+function segLabel(seg: number): string {
+  return isMultiOutput ? compactSegLabels.value[seg] || rawDatasetLabel(seg) : rawDatasetLabel(seg)
+}
+function eventLabel(seg: number): string {
+  const psd = psdMap.value.get(seg)
+  return outputMetaCache[seg]?.eventLabel || psd?.condition || '整体'
+}
+const eventOptions = computed(() =>
+  isMultiOutput ? [...new Set(outputIds.map((_, i) => eventLabel(i)))].filter(Boolean) : [],
+)
+watch(eventOptions, (labels) => {
+  if (!isMultiOutput || !labels.length) return
+  const current = [...selectedEvents.value].filter((label) => labels.includes(label))
+  selectedEvents.value = new Set(current.length ? current : labels)
+}, { immediate: true })
+function setEvent(label: string) {
+  if (selectedEvents.value.size === 1 && selectedEvents.value.has(label)) return
+  selectedEvents.value = new Set([label])
 }
 
 // ---------- facet 单元（数据访问注入 useFacetGrid）----------
@@ -1219,7 +1262,6 @@ async function load() {
     const m = new Map<number, StudyOutputPsd>()
     for (const s of ok) {
       m.set(s.value[0], s.value[1])
-      if (s.value[1].condition) labelCache[s.value[0]] = s.value[1].condition
     }
     psdMap.value = m
     probe.done('数据'); probe.paint(); probe.log() // 临时探针
@@ -1261,7 +1303,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   document.title = '功率谱 — 念析'
   window.addEventListener('keydown', onKeydown)
-  if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
+  if (isMultiOutput) void loadOutputOptionMeta(studyId, outputIds, outputMetaCache)
   void load()
 })
 // ---------- 键盘快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------

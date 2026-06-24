@@ -2440,6 +2440,8 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
   const tfrs = saved.filter((item) => (item.data_type || '').toLowerCase() === 'tfr')
   const stats = saved.filter((item) => (item.data_type || '').toLowerCase() === 'stat_map')
   const icas = saved.filter((item) => (item.data_type || '').toLowerCase() === 'ica')
+  const waveformTypes = new Set(['raw', 'filtered_raw', 'ica_cleaned', 'epochs', 'evoked'])
+  const waveforms = saved.filter((item) => waveformTypes.has((item.data_type || '').toLowerCase()))
   let href: string
   if (evokeds.length) {
     const ids = evokeds.map((e) => e.id).join(',')
@@ -2483,6 +2485,16 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     // ICA 矩阵产物 → 成分审阅页（只读查看；选成分的决策流走 Apply ICA 暂停）
     const params = new URLSearchParams({ studyId, study_output_id: icas[0].id, name: icas[0].display_name || 'ICA 成分' })
     href = `/ica?${params.toString()}`
+  } else if (waveforms.length) {
+    const ids = waveforms.map((w) => w.id).join(',')
+    const first = waveforms[0]
+    const params = new URLSearchParams({
+      studyId,
+      study_output_id: ids,
+      name: waveforms.length > 1 ? `${job.node_title || first.display_name || '结果'}（${waveforms.length} 数据集）` : first.display_name || first.data_type || '结果',
+      type: first.data_type || '',
+    })
+    href = `/observe/waveform?${params.toString()}`
   } else {
     const target = saved[0]
     const base = {

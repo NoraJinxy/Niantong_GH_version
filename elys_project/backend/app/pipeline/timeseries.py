@@ -343,9 +343,15 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
     channels = [{"name": names[k], "values": sub[k]} for k in range(len(picks))]
 
     inverse = {int(code): str(name) for name, code in epochs.event_id.items()}
+    segment_options: list[str] = []
+    seen_labels: dict[str, int] = {}
+    for ev in epochs.events:
+        raw_label = inverse.get(int(ev[2]), str(int(ev[2])))
+        seen_labels[raw_label] = seen_labels.get(raw_label, 0) + 1
+        segment_options.append(f"{raw_label}-{seen_labels[raw_label]}")
     label: str | None = None
     try:
-        label = inverse.get(int(epochs.events[ei, 2]), str(int(epochs.events[ei, 2])))
+        label = segment_options[ei]
     except Exception:
         label = None
 
@@ -361,7 +367,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
         "segment_index": ei,
         "segment_label": label,
         "segment_kind": "epoch",
-        "segment_options": None,
+        "segment_options": segment_options,
         "n_channels_total": len(epochs.ch_names),
         "ch_names_all": [str(c) for c in epochs.ch_names],
         "ch_pos": channel_positions_2d(epochs.info, names),

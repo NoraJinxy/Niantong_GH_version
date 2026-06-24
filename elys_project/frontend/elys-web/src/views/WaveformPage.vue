@@ -42,7 +42,7 @@
                   @click="segSel.onClick(i, $event)"
                 >
                   <span class="ov-li-dot" :style="{ background: selectedSegs.has(i) ? segColor(i) : INACTIVE_DOT }"></span>
-                  <span class="ov-li-name">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
+                  <span class="ov-li-name" :title="rawDatasetLabel(i)">{{ segOptions?.[i] ?? ('数据集 ' + (i + 1)) }}</span>
                   <span class="ov-li-ord">
                     <button class="ov-ord-btn" :disabled="pos === 0" title="上移" @click.stop="moveSeg(i, -1)">↑</button>
                     <button class="ov-ord-btn" :disabled="pos === displayOrder.length - 1" title="下移" @click.stop="moveSeg(i, 1)">↓</button>
@@ -53,6 +53,28 @@
                 <span class="ov-li-dot" :style="{ background: typeColor }"></span>
                 <span class="ov-li-name" :title="displayName">{{ displayName }}</span>
                 <span class="ov-li-tag">{{ ts?.n_channels_total ?? '–' }}ch</span>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="isMultiOutput && eventOptions.length" class="ov-sec">
+            <div class="ov-sec-head" @click="toggleSec('event')">
+              事件
+              <span class="ov-sec-cnt">{{ selectedEvents.size || eventOptions.length }}/{{ eventOptions.length }}</span>
+              <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.event }">▾</span>
+            </div>
+            <div v-show="!collapsed.event" class="ov-sec-body">
+              <div class="ov-seglist" title="按事件过滤当前数据集列表">
+                <div
+                  v-for="label in eventOptions"
+                  :key="label"
+                  class="ov-li"
+                  :class="{ 'is-sel': selectedEvents.size === 0 || selectedEvents.has(label) }"
+                  @click="setEvent(label)"
+                >
+                  <span class="ov-li-dot" :style="{ background: selectedEvents.size === 0 || selectedEvents.has(label) ? typeColor : INACTIVE_DOT }"></span>
+                  <span class="ov-li-name">{{ label }}</span>
+                </div>
               </div>
             </div>
           </section>
@@ -512,7 +534,7 @@ import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObse
 import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import { useQueryString, round, toNum, shortId, clampInt, fmtSubject, triggerCsvDownload } from '@/composables/observe/observeUtils'
 import { composeLineExport, triggerPngDownload, sanitizeExportName } from '@/composables/observe/useObserveExport'
-import { loadOutputLabels } from '@/composables/observe/outputLabels'
+import { compactDatasetLabels, loadOutputOptionMeta, type OutputOptionMeta } from '@/composables/observe/outputLabels'
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
@@ -560,6 +582,7 @@ const error = ref('')
 // 段(条件/数据集/Epoch)选择走 useMultiSelect（与 PSD/TFR 同源）；默认只选第 1 个
 const segSel = useMultiSelect<number>(() => Array.from({ length: segCount.value }, (_, i) => i), [0])
 const selectedSegs = segSel.selected
+const selectedEvents = ref<Set<string>>(new Set())
 // 绘图布局：行/列因素分配；未分配（none）的因素在格内叠加
 // 默认沿用已验证的观感：单产物=单格全通道叠加（行列都—）；多产物=每通道一子图、数据集格内叠加（行=通道）
 // 叠加维度（#6）：数据集/条件/Epoch(=seg) 或 通道(chan) 三选一在子图内叠加；其余维度自动拆成子图(行/列)。
@@ -707,7 +730,7 @@ const copied = ref(false)
 const partialNote = ref('') // 部分产物加载失败时的非致命提示
 // 左栏分区折叠
 const collapsed = reactive<Record<string, boolean>>({
-  dataset: false, segment: false, channel: false, range: false, filter: true, layout: false, modules: false,
+  dataset: false, event: false, segment: false, channel: false, range: false, filter: true, layout: false, modules: false,
 })
 
 // ---------- 主 / 段 ----------
@@ -722,7 +745,9 @@ const segRank = computed(() => {
   return m
 })
 const sortedSegs = computed(() =>
-  [...selectedSegs.value].sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b)),
+  [...selectedSegs.value]
+    .filter((seg) => !isMultiOutput || isMultiOutputEpochs.value || selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg)))
+    .sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b)),
 )
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const ts = computed<StudyOutputTimeseries | null>(
@@ -749,11 +774,32 @@ const segCount = computed(() => (isMultiOutput ? outputIds.length : ts.value?.n_
 const segKindLabel = computed(() => (isMultiOutput ? '数据集' : ts.value?.segment_kind === 'condition' ? '条件' : 'Epoch'))
 // 数据集名缓存：取过名就记住，避免取消勾选（不再取数）后名字退回「数据集 N」
 const labelCache = reactive<Record<number, string>>({})
+const outputMetaCache = reactive<Record<number, OutputOptionMeta>>({})
+const isMultiOutputEpochs = computed(() => isMultiOutput && dataType.value === 'epochs')
+const compactSegLabels = computed(() => compactDatasetLabels(outputIds.map((_, i) => rawDatasetLabel(i))))
 const segOptions = computed(() =>
   isMultiOutput
     ? outputIds.map((_, i) => segLabel(i))
     : ts.value?.segment_options ?? null,
 )
+const eventOptions = computed(() => {
+  if (!isMultiOutput) return []
+  if (isMultiOutputEpochs.value) return ts.value?.segment_options ?? []
+  return [...new Set(outputIds.map((_, i) => eventLabel(i)))].filter(Boolean)
+})
+const selectedEpochIndex = computed(() => {
+  if (!isMultiOutputEpochs.value) return null
+  const labels = eventOptions.value
+  if (!labels.length) return 0
+  const selected = [...selectedEvents.value]
+  const hit = selected.map((label) => labels.indexOf(label)).find((i) => i >= 0)
+  return hit ?? 0
+})
+watch(eventOptions, (labels) => {
+  if (!isMultiOutput || !labels.length) return
+  const current = isMultiOutputEpochs.value ? [] : [...selectedEvents.value].filter((label) => labels.includes(label))
+  selectedEvents.value = new Set(current.length ? current : labels)
+}, { immediate: true })
 const segCheckboxes = computed(() => Array.from({ length: Math.min(segCount.value, MAX_SEG_BOXES) }, (_, k) => k))
 // 左栏数据集列表的展示顺序：segOrderRaw 前缀 + 补齐 [0..segCount) 中缺失项（自然序在后）。
 // 仅此处读 segCount；segRank/sortedSegs 不读，故不会回指自己造成环。
@@ -791,6 +837,11 @@ const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() 
 function fmtX(v: number) {
   return Number(v.toFixed(xPrec.value))
 }
+function rawDatasetLabel(seg: number) {
+  const t = tsMap.value.get(seg)
+  const fromLoaded = fmtSubject(t?.subject) || t?.display_name || ''
+  return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || `数据集 ${seg + 1}`
+}
 function segLabel(seg: number) {
   // epochs：用序号 #N 标识（同条件的多 epoch 才分得清；图例 / 卡片 / 表 / 地形图统一）
   if (!isMultiOutput && ts.value?.segment_kind === 'epoch') return `#${seg + 1}`
@@ -800,11 +851,20 @@ function segLabel(seg: number) {
     // 全列表同一套拼法，避免「选中谁=加载谁」把已加载项降级成光秃秃的被试名
     // （曾出现：已选 S5 显示「S5」，未选项却显示「Grand Average · S4 (12 runs)」）。
     // 缓存未就绪时才退回已加载数据的「被试 · 段标签」，最后退「数据集 N」。
-    const fromLoaded = [fmtSubject(t?.subject), t?.segment_label || ''].filter(Boolean).join(' · ')
-    return labelCache[seg] || fromLoaded || `数据集 ${seg + 1}`
+    return compactSegLabels.value[seg] || rawDatasetLabel(seg)
   }
   if (t?.segment_label) return t.segment_label
   return ts.value?.segment_options?.[seg] ?? `#${seg + 1}`
+}
+function eventLabel(seg: number) {
+  if (!isMultiOutput) return ts.value?.segment_options?.[seg] || tsMap.value.get(seg)?.segment_label || '整体'
+  const t = tsMap.value.get(seg)
+  if (isMultiOutputEpochs.value) return t?.segment_label || ts.value?.segment_options?.[0] || 'Epoch-1'
+  return outputMetaCache[seg]?.eventLabel || t?.segment_label || '整体'
+}
+function setEvent(label: string) {
+  if (selectedEvents.value.size === 1 && selectedEvents.value.has(label)) return
+  selectedEvents.value = new Set([label])
 }
 function segColor(seg: number) {
   // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色；连续色板按段数铺满渐变
@@ -1214,6 +1274,7 @@ async function load() {
           // 多产物对比：键=产物序号(0..N-1)，把"数据集"摆到段维度复用对比/网格机制
           const oid = outputIds[seg] ?? outputIds[0]
           const { ts: data } = await fetchTimeseries(studyId, oid, {
+            index: selectedEpochIndex.value ?? undefined,
             tmin: reqTmin.value, tmax: reqTmax.value, maxPoints: MAX_POINTS, maxChannels: MAX_CHANNELS, ...reqFilter.value,
           })
           return [seg, data] as const
@@ -1378,7 +1439,13 @@ function toggleStats() {
 
 // 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配、数据集排序是客户端的，不触发）。
 // 注意键是「成员级」（按下标数字序 join），只认勾了哪些、不认展示顺序——重排 ↑/↓ 不该整批重取。
-watch([() => [...selectedSegs.value].sort((a, b) => a - b).join(','), reqTmin, reqTmax, () => JSON.stringify(reqFilter.value)], () => {
+watch([
+  () => [...selectedSegs.value].sort((a, b) => a - b).join(','),
+  () => [...selectedEvents.value].sort().join(','),
+  reqTmin,
+  reqTmax,
+  () => JSON.stringify(reqFilter.value),
+], () => {
   resetZoom() // 取新窗口的数据 = 新视图，清掉旧的视觉缩放
   void load()
 })
@@ -1487,7 +1554,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 onMounted(() => {
   document.title = '时域 — 念析'
   window.addEventListener('keydown', onKeydown)
-  if (isMultiOutput) void loadOutputLabels(studyId, outputIds, labelCache)
+  if (isMultiOutput) void loadOutputOptionMeta(studyId, outputIds, outputMetaCache)
   void load()
 })
 onUnmounted(() => {
