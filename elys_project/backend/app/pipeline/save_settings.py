@@ -1,0 +1,373 @@
+"""
+Purpose: 节点保存设置统一计算 —— 把 NodeSpec 的 save 子对象（step_label /
+         auto_tags / name_template / dynamic_tags）与拓扑角色 (leaf /
+         intermediate) + BIDS 实体 + 用户参数合成最终
+         {display_name, tags, keep, cache_eligible, retention_expires_at}，
+         注入到 StudyOutput metadata。
+
+设计目标:
+- 取消 Save 节点：每个处理节点的产物在 dispatcher 阶段就决定好名字 / 标签 / 保留期；
+- 模板渲染允许 {subject} {task} {condition} {node_title} 等占位符；
+- 自动 tag 前缀 step:* / type:* / cond:* 由 spec 写死；用户额外加的 tag 与之合并；
+- display_name 冲突时自动加 (2) (3) 后缀（无配对中转事务，单 execution 内事务可见）；
+- 保留三层解耦 —— keep(用户是否保留)默认由拓扑决定(leaf=True / intermediate=False)，
+  用户可在节点参数里通过 `keep` 显式覆盖；cache_eligible(系统是否缓存)由 P4 评分自动定；
+  retention_expires_at 仅 keep=False 的缓存/临时行需要。
+
+Related:
+- app/pipeline/nodes/*.json (save 子对象)
+- app/pipeline/topology.py (拓扑角色)
+- app/pipeline/dispatcher.py (调用入口)
+- app/pipeline/artifacts.py (写 study_outputs 行)
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime, timedelta
+from typing import Any
+
+from app.pipeline.cache_policy import is_cache_eligible, should_lookup_cache
+from app.pipeline.topology import ROLE_INTERMEDIATE
+
+
+_TEMPLATE_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+# 可选段 [..]：段内任一占位符缺值则整段省略（连同段内连接符），避免单 run/无 session 数据出现 __ 空洞
+_OPTIONAL_SEGMENT = re.compile(r"\[([^\[\]]*)\]")
+
+# 逐数据集产物的默认命名策略：BIDS 四元组(subject/session/task/run) + condition + 节点名。
+# session/run/condition 缺值时其可选段自然省略，单 run 数据收缩成 sub_task_节点。
+# 任何 spec 模板里含 {subject} 的「逐数据集」命名都升级走这条——修复历史模板只用 subject_task
+# 丢 run/session、同被试多 run 全部重名靠 (N) 退化的缺陷；不含 {subject} 的组级模板
+# (Grand Average / Unit Stack / Group Compare) 保持 spec 原样，因其本就是跨被试聚合产物。
+DEFAULT_NAME_TEMPLATE = "{subject}[_{session}]_{task}[_{run}][_{condition}]_{node_title}"
+
+# 中间节点的默认缓存保留天数（cleanup task 在到期后清理磁盘文件）
+DEFAULT_INTERMEDIATE_RETENTION_DAYS = 7
+
+# 用户动作（取消保留 / 回收站恢复）后给非缓存行的宽限天数。
+# 产出时临时档"登记即过期"（TTL=now）没问题，但用户显式操作后若 TTL 仍为
+# NULL / 已过期，下一轮每日 cleanup 会立即再次软删，动作形同无效；
+# 天数对齐决策清单 P3-g~l 拍板的"删除/恢复 TTL 7 天"。
+USER_ACTION_GRACE_DAYS = 7
+
+
+def retention_expiry_after_user_action(*, keep: bool, cache_eligible: bool) -> datetime | None:
+    """用户动作（PATCH keep / 回收站恢复）后的 retention_expires_at 重算口径。
+
+    与产出时 apply_save_settings 一致：keep=True → None（永不自动清）、
+    缓存档 → now + DEFAULT_INTERMEDIATE_RETENTION_DAYS；唯一差别是非缓存行
+    不再"立即过期"，而是给 USER_ACTION_GRACE_DAYS 宽限期。
+    """
+    if keep:
+        return None
+    days = DEFAULT_INTERMEDIATE_RETENTION_DAYS if cache_eligible else USER_ACTION_GRACE_DAYS
+    return datetime.utcnow() + timedelta(days=days)
+
+
+def _resolve_value(name: str, ctx: dict[str, Any]) -> str | None:
+    """解析单个占位符 → 字符串值；缺失/空 → None（供可选段判定省略、必需段回落字面）。"""
+    if name == "subject":
+        value = ctx.get("subject") or ctx.get("bids_subject_id") or ctx.get("subject_id")
+        return str(value) if value else None
+    if name == "bids_subject_id":
+        value = ctx.get("bids_subject_id") or ctx.get("subject")
+        return str(value) if value else None
+    if name == "index":
+        value = ctx.get("index")
+        return str(value) if value is not None else None
+    value = ctx.get(name)
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def render_template(template: str, ctx: dict[str, Any]) -> str:
+    """渲染模板字符串，支持 {subject} {task} {session} {run} {condition}
+    {node_title} {step_label} {data_type} {index} {bids_subject_id} 等占位符。
+
+    可选段语法 `[..]`：段内任一占位符缺值 → 整段省略（连同段内的连接符），用于
+    `{subject}[_{session}]_{task}[_{run}]_{node_title}` 在无 session / 单 run 数据上
+    自然收缩、不留 `__` 空洞；段内占位符齐全时去掉方括号、就地渲染。
+
+    必需占位符（方括号外）缺失回落为 '{name?}' 字面值（不抛错，便于夜班批处理不被一个缺字段炸掉）。
+    模板为空时返回空串。
+    """
+    if not template:
+        return ""
+
+    # 1) 先消化可选段 [..]：任一占位符缺值 → 整段丢弃；否则去括号、段内占位符就地渲染
+    def render_optional(match: "re.Match[str]") -> str:
+        inner = match.group(1)
+        for nm in _TEMPLATE_PATTERN.findall(inner):
+            if _resolve_value(nm, ctx) is None:
+                return ""
+        return _TEMPLATE_PATTERN.sub(lambda m: _resolve_value(m.group(1), ctx) or "", inner)
+
+    body = _OPTIONAL_SEGMENT.sub(render_optional, template)
+
+    # 2) 必需占位符（段外）：缺值回落字面 {name?}
+    def render_required(match: "re.Match[str]") -> str:
+        value = _resolve_value(match.group(1), ctx)
+        return value if value is not None else f"{{{match.group(1)}?}}"
+
+    return _TEMPLATE_PATTERN.sub(render_required, body)
+
+
+def merge_tags(*sources: Any, ctx: dict[str, Any] | None = None) -> list[str]:
+    """合并多个 tag 来源，去重 + 保序 + 剔除空串。
+
+    每个来源可以是 None / str / list[str]；str 会按逗号拆分。
+    含模板占位符的 tag 会用 ctx 渲染。
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for source in sources:
+        if source is None:
+            continue
+        if isinstance(source, str):
+            items = [piece.strip() for piece in source.split(",")]
+        elif isinstance(source, (list, tuple, set)):
+            items = [str(item).strip() for item in source]
+        else:
+            items = [str(source).strip()]
+        for raw in items:
+            if not raw:
+                continue
+            if "{" in raw and ctx is not None:
+                rendered = render_template(raw, ctx)
+            else:
+                rendered = raw
+            rendered = rendered.strip()
+            if not rendered or rendered in seen:
+                continue
+            seen.add(rendered)
+            result.append(rendered)
+    return result
+
+
+def resolve_display_name_conflict(
+    db: Any,
+    study_id: Any,
+    base_name: str,
+) -> str:
+    """查同 study_id 下是否已有同名活跃 study_output，若有则自动加 (2) (3) 后缀。
+
+    匹配规则:
+      - 排除 deleted_at IS NOT NULL 的行
+      - 命中 display_name = base 或 display_name LIKE 'base (N)'
+
+    返回:
+      - 无冲突 → base 原样
+      - 有冲突 → "base (N)"，N 是当前未占用的最小整数 ≥2
+    """
+    if not base_name:
+        return base_name
+
+    # 延迟导入避免循环：本模块被 dispatcher 加载时 app.models 链已就绪
+    from app.models import StudyOutput
+    from sqlalchemy import or_
+
+    base = base_name.strip()
+    if not base:
+        return base_name
+
+    # 转义 LIKE 通配符（防止 base 自身含 % 或 _）
+    escaped = base.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+    like_pattern = f"{escaped} (%)"
+
+    rows = (
+        db.query(StudyOutput.display_name)
+        .filter(
+            StudyOutput.study_id == study_id,
+            StudyOutput.deleted_at.is_(None),
+            or_(
+                StudyOutput.display_name == base,
+                StudyOutput.display_name.like(like_pattern, escape="\\"),
+            ),
+        )
+        .all()
+    )
+
+    used: set[int] = set()
+    base_exists = False
+    suffix_pattern = re.compile(re.escape(base) + r" \((\d+)\)$")
+    for row in rows:
+        # SQLAlchemy 2.x 的 Row 不继承 tuple，但永远支持 row[0] indexing；
+        # 测试 mock 也按 tuple 形式给 (name,)。统一用 row[0]。
+        name = row[0] if row is not None else None
+        if not name or not isinstance(name, str):
+            continue
+        if name == base:
+            base_exists = True
+            continue
+        match = suffix_pattern.match(name)
+        if match:
+            used.add(int(match.group(1)))
+
+    if not base_exists and not used:
+        return base
+
+    # 找下一个未占用的 N（从 2 开始）
+    n = 2
+    while n in used:
+        n += 1
+    return f"{base} ({n})"
+
+
+def default_keep_for_role(role: str | None) -> bool:
+    """根据拓扑角色返回默认 keep（用户是否保留）。
+
+    - leaf → True            终产物，结果页可见、永久保留
+    - intermediate → False   中间产物，默认不保留，仅按缓存判定临时存盘
+    - 其他 / None → True      保守默认：宁可保留
+    """
+    return role != ROLE_INTERMEDIATE
+
+
+def _normalise_keep_param(value: Any) -> bool | None:
+    """把用户参数里的 keep override 标准化为 True / False / None（None=走拓扑默认）。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"true", "1", "yes", "keep", "current", "pinned", "study", "permanent"}:
+        return True
+    if text in {"false", "0", "no", "discard", "none", "temporary", "trash", "cache", "cached"}:
+        return False
+    return None
+
+
+def apply_save_settings(
+    *,
+    db: Any,
+    study_id: Any,
+    node: dict[str, Any],
+    node_spec: dict[str, Any] | None,
+    params: dict[str, Any] | None,
+    topology: dict[str, str] | None,
+    bids_entities: dict[str, Any] | None = None,
+    split_value: str | None = None,
+    index: int = 0,
+    display_name_override: str | None = None,
+) -> dict[str, Any]:
+    """组合 spec.save + 拓扑 + BIDS + 用户参数，返回保存配置 dict。
+
+    返回键:
+      display_name              冲突已自动解决的最终名字
+      tags                      list[str]，已合并 auto/dynamic/user，保序去重
+      keep                      bool，用户是否保留（leaf 默认 True / intermediate False）
+      cache_eligible            bool，系统是否缓存（= is_cache_eligible(spec)，P4 评分）
+      retention_expires_at      datetime 或 None（仅 keep=False 的行有 TTL）
+      step_label                来自 spec.save.step_label（透传给 metadata）
+      data_type                 来自 spec.save.data_type（透传给 metadata）
+
+    dispatcher 应该把这个 dict 合并进 metadata，让 artifacts._register_artifact
+    接管写入。
+    """
+    save_cfg = ((node_spec or {}).get("save") or {})
+    node_id = str(node.get("id") or "")
+    node_type = str(node.get("type") or "")
+    node_title = str(node.get("title") or save_cfg.get("step_label") or node_type).strip()
+    params = params or {}
+    bids = bids_entities or {}
+    role = (topology or {}).get(node_id)
+
+    # 1) 构造渲染上下文（subject 多源回退）
+    ctx: dict[str, Any] = {
+        "node_title": node_title,
+        "node_id": node_id,
+        "node_type": node_type,
+        "step_label": save_cfg.get("step_label", ""),
+        "data_type": save_cfg.get("data_type", ""),
+        "subject": bids.get("bids_subject_id") or bids.get("subject") or bids.get("subject_id"),
+        "bids_subject_id": bids.get("bids_subject_id") or bids.get("subject"),
+        "task": bids.get("task"),
+        "session": bids.get("session"),
+        "run": bids.get("run") or bids.get("run_label"),
+        "condition": split_value or bids.get("condition"),
+        "index": index + 1,
+    }
+
+    # 2) 选模板（用户 override > 调用方显式名 override > spec.split 模板 > spec.default 模板 > 兜底）
+    #    display_name_override：dispatcher 拿到运行期信息（如组平均的 unit 数）后拼好的成品名，
+    #    比静态模板更准；用户在节点参数里显式给的模板仍最高优先。
+    user_template_raw = params.get("display_name_template") or params.get("display_name")
+    user_template = str(user_template_raw or "").strip()
+    if split_value:
+        spec_template = save_cfg.get("name_template_default_split") or save_cfg.get("name_template_default")
+    else:
+        spec_template = save_cfg.get("name_template_default")
+    # 逐数据集命名统一走四元组默认策略：spec 模板含 {subject}（按被试命名的逐数据集产物）
+    # 或 spec 未定义模板时，一律用 DEFAULT_NAME_TEMPLATE 补齐 session/run（condition 由可选段
+    # 自动决定，不再需要 _split 变体）；不含 {subject} 的组级模板（Grand Average 等）按 spec 原样。
+    if spec_template and "{subject}" not in spec_template:
+        per_dataset_template = spec_template
+    else:
+        per_dataset_template = DEFAULT_NAME_TEMPLATE
+    if user_template:
+        rendered_base = render_template(user_template, ctx).strip()
+    elif display_name_override:
+        rendered_base = str(display_name_override).strip()
+    else:
+        rendered_base = render_template(per_dataset_template, ctx).strip()
+    if not rendered_base:
+        rendered_base = f"{node_title or 'node'}-{index + 1}"
+
+    # 3) 冲突检测自动 (N)
+    display_name = resolve_display_name_conflict(db, study_id, rendered_base)
+
+    # 4) 合并 tags：auto_tags + dynamic_tags(when split/always) + user_tags
+    auto_tags = save_cfg.get("auto_tags", [])
+    dynamic_tags: list[str] = []
+    if save_cfg.get("always_per_condition"):
+        dynamic_tags = list(save_cfg.get("dynamic_tags_always", []) or [])
+    elif split_value:
+        dynamic_tags = list(save_cfg.get("dynamic_tags_when_split", []) or [])
+    user_tags = params.get("tags")
+    tags = merge_tags(auto_tags, dynamic_tags, user_tags, ctx=ctx)
+
+    # 5) 保留与缓存（三层解耦）
+    #    keep：用户 override（params.keep）> 拓扑默认（leaf=True / intermediate=False）
+    #    cache_eligible：系统按 P4 存储优先评分自动判定（与 keep 独立）
+    #    retention_expires_at：仅 keep=False 的行需要 TTL
+    #      - keep=False 且该节点可能被查缓存（should_lookup_cache）→ now+7d（保留供复用）
+    #      - keep=False 且无需缓存（source/interactive/explosive）→ now（立即过期，GC 清）
+    #    注意：should_lookup_cache 比 is_cache_eligible 更宽松：只要不是 source/interactive/explosive
+    #    节点，产物就保留 7 天，确保「无变化重跑」时文件还在、缓存命中能实际生效。
+    keep_override = _normalise_keep_param(params.get("keep"))
+    keep = keep_override if keep_override is not None else default_keep_for_role(role)
+    cache_eligible = is_cache_eligible(node_spec or {})
+    retention_expires_at: datetime | None
+    if keep:
+        retention_expires_at = None
+    elif should_lookup_cache(node_spec or {}):
+        retention_expires_at = datetime.utcnow() + timedelta(days=DEFAULT_INTERMEDIATE_RETENTION_DAYS)
+    else:
+        retention_expires_at = datetime.utcnow()
+
+    return {
+        "display_name": display_name,
+        "tags": tags,
+        "keep": keep,
+        "cache_eligible": cache_eligible,
+        "retention_expires_at": retention_expires_at,
+        "step_label": save_cfg.get("step_label"),
+        "data_type": save_cfg.get("data_type"),
+    }
+
+
+__all__ = [
+    "render_template",
+    "DEFAULT_NAME_TEMPLATE",
+    "merge_tags",
+    "resolve_display_name_conflict",
+    "default_keep_for_role",
+    "apply_save_settings",
+    "retention_expiry_after_user_action",
+    "DEFAULT_INTERMEDIATE_RETENTION_DAYS",
+    "USER_ACTION_GRACE_DAYS",
+]

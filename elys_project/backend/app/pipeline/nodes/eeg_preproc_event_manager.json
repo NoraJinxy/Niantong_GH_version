@@ -1,0 +1,40 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/event_manager",
+  "title": "Event Manager",
+  "category": "preprocess",
+  "phase": "phase1",
+  "description": "事件管理器（交互节点）：双击节点打开事件编辑台，在波形时间轴上全局查看所有事件标记（marker），并新增 / 删除 / 改名 / 合并 / 改时 / 改时长，得到干净的 condition 供下游 Epoch 切分。只动 raw.annotations（非破坏，输出写 derivatives）；坏段 BAD_ 注解归「Artifact Mark」管、本节点原样保留。单数据集逐事件精修；分组级改名/合并可固化成规则套用到多数据集（等价 Event Remap 的批量能力）。",
+  "tags": ["event", "marker", "annotation", "condition", "manual", "review", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "events", "label": "事件清单", "type": "text", "default": "", "advanced": true,
+     "description": "事件编辑台算出的「最终事件清单」（JSON [{onset,duration,description}]，秒）。单数据集逐事件精修时落盘此清单；一般在编辑台里改，不手填。"},
+    {"name": "group_operations", "label": "分组级规则", "type": "event_remap_rules", "default": [], "required": false,
+     "description": "分组级改名 / 合并 / 丢弃 / 平移规则；按事件分组名套用到本节点全部输入数据集。在编辑台点「固化成规则套用全部」生成，可复现可批量（等价 Event Remap）。"},
+    {"name": "decision_version", "label": "决策版本", "type": "integer", "default": 1, "advanced": true}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.event_manager",
+    "function": "run_event_manager",
+    "save_descriptor": "evtman",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": true
+  },
+  "save": {
+    "step_label": "event-manager",
+    "auto_tags": ["step:event-manager", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "large",
+  "ui": {"color": "#3F7FBF", "default_size": [200, 110], "preview_type": "time_series"}
+}

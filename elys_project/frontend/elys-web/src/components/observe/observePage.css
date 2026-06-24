@@ -1,0 +1,271 @@
+/*
+ * 观察页共享外壳样式（PSD / TFR 共用，未来时域页验证后也迁过来）。
+ * 移植自 WaveformDetailPage 的 .wf-* 三栏壳，前缀改 .ov-（observe）独占、全局导入不与他处冲突。
+ * 结构：顶部信息条 + 三栏（左选择器 / 中工具条+facet+状态条 / 右统计）。
+ */
+
+/* ===== 页根 ===== */
+.ov-page { display: flex; flex-direction: column; height: 100vh; background: var(--c-bg-soft); color: var(--c-text); font-family: var(--ff-sans); }
+
+/* 操作提示：工具条上的触发器，点击打开「操作与快捷键」卡（鼠标+键盘并入 HotkeyHelp，内容见各视图 mouseHints） */
+.ov-help { position: relative; cursor: pointer; }
+.ov-help-trigger { font-size: 11px; color: var(--c-text-3); user-select: none; }
+.ov-help:hover .ov-help-trigger { color: var(--c-primary); }
+
+/* ===== 顶部信息条 ===== */
+.ov-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
+.ov-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ov-badge { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--r); color: #fff; font-weight: 700; font-size: 12px; flex-shrink: 0; }
+.ov-title { font-size: 14px; font-weight: 600; }
+.ov-region { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--c-text-3); }
+.ov-sub { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-text-2); margin-top: 2px; flex-wrap: wrap; }
+.ov-dot { color: var(--c-text-3); }
+.ov-cond { display: inline-flex; align-items: center; gap: 4px; background: var(--c-bg-tint); padding: 1px 7px; border-radius: var(--r-pill); }
+.ov-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ov-lyt { width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-3); cursor: pointer; padding: 0; }
+.ov-lyt svg { width: 16px; height: 16px; }
+.ov-lyt:hover { background: var(--c-bg-tint); color: var(--c-text-2); }
+.ov-lyt.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); }
+.ov-btn { height: 28px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; }
+.ov-btn:hover { background: var(--c-bg-tint); }
+.ov-btn:disabled { opacity: .5; cursor: default; }
+.ov-btn--ghost { color: var(--c-text-2); }
+
+/* ===== 三栏主体 ===== */
+.ov-main { flex: 1; display: flex; min-height: 0; }
+
+/* ===== 左栏：选择器 ===== */
+.ov-left { width: 280px; min-width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--c-surface); border-right: 1px solid var(--c-border); overflow: hidden; }
+.ov-left-scroll { flex: 1; overflow-y: auto; }
+.ov-sec { border-left: 3px solid transparent; padding: 7px 11px 8px 13px; }
+.ov-sec:nth-child(7n+1) { border-left-color: #3F5E8F; }
+.ov-sec:nth-child(7n+2) { border-left-color: #7B5EA8; }
+.ov-sec:nth-child(7n+3) { border-left-color: #4F8A6B; }
+.ov-sec:nth-child(7n+4) { border-left-color: #B07F33; }
+.ov-sec:nth-child(7n+5) { border-left-color: #B0544C; }
+.ov-sec:nth-child(7n+6) { border-left-color: #5E7BA8; }
+.ov-sec:nth-child(7n+7) { border-left-color: #2F8A86; }
+.ov-sec + .ov-sec { border-top: 1px solid var(--c-border); }
+.ov-sec-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--c-text-3); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.ov-sec-cnt { font-weight: 400; font-size: 11px; background: var(--c-bg-tint); padding: 1px 5px; border-radius: 8px; color: var(--c-text-2); }
+.ov-sec-arr { margin-left: auto; font-size: 10px; transition: transform .2s; }
+.ov-sec-arr.is-collapsed { transform: rotate(-90deg); }
+.ov-sec-body { display: flex; flex-direction: column; gap: 2px; }
+.ov-sec-actions { display: flex; gap: 8px; margin-bottom: 2px; }
+.ov-sec-hint { margin: 4px 0 0; font-size: 11px; color: var(--c-text-3); line-height: 1.4; }
+.ov-link { background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 12px; padding: 0; }
+.ov-link:hover { text-decoration: underline; }
+
+.ov-li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 3px; font-size: 12px; color: var(--c-text-2); cursor: pointer; user-select: none; transition: background .1s, color .1s; }
+.ov-li:hover { background: var(--c-bg-tint); }
+.ov-li.is-sel { background: var(--c-primary-soft); color: var(--c-primary); font-weight: 500; }
+.ov-li.is-static, .ov-li.is-static:hover { cursor: default; background: none; }
+.ov-li-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.ov-li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-li-tag { margin-left: auto; font-size: 10px; color: var(--c-text-3); background: var(--c-bg-tint); padding: 0 4px; border-radius: 3px; }
+/* 数据集列表的 ↑/↓ 排序按钮：默认低调、行悬停或选中时提亮；移动端无 hover 故常驻可点 */
+.ov-li-ord { margin-left: auto; display: inline-flex; gap: 1px; flex-shrink: 0; opacity: .35; transition: opacity .1s; }
+.ov-li:hover .ov-li-ord, .ov-li.is-sel .ov-li-ord { opacity: 1; }
+.ov-ord-btn { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; line-height: 1; padding: 1px 3px; border-radius: 3px; }
+.ov-ord-btn:hover:not(:disabled) { background: var(--c-bg); color: var(--c-primary); }
+.ov-ord-btn:disabled { opacity: .35; cursor: default; }
+.ov-chanlist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ov-seglist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ov-sec-row { display: flex; align-items: flex-start; }
+.ov-sec--half { flex: 1 1 0; min-width: 0; }
+.ov-sec--half + .ov-sec--half { border-left: 1px solid var(--c-border); }
+/* 叠加维度单选：选中维度在子图内叠加，其余自动分面 */
+.ov-ovpick { display: flex; gap: 4px; }
+.ov-ovbtn { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 12px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; white-space: nowrap; }
+.ov-ovbtn:hover { border-color: var(--c-primary); }
+.ov-ovbtn.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+.ov-li-spark { margin-left: auto; flex-shrink: 0; }
+
+.ov-row { display: flex; align-items: center; gap: 4px; }
+.ov-row-lbl { font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
+.ov-row-end { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.ov-unit-tag { font-size: 11px; color: var(--c-text-3); }
+.ov-sep { color: var(--c-text-3); font-size: 11px; }
+.ov-inp { width: 100%; min-width: 0; height: 24px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); font-size: 12px; outline: none; font-family: var(--ff-mono); }
+.ov-inp:focus { border-color: var(--c-primary); background: var(--c-surface); }
+.ov-inp:disabled { opacity: .5; }
+.ov-grid2-lbl { font-size: 11px; color: var(--c-text-3); margin-bottom: 1px; }
+/* 配色选择器：当前条 + 内联展开的点选行 */
+.ov-pal { position: relative; }
+.ov-pal-cur { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 6px; background: var(--c-bg-soft); border: 1px solid var(--c-border-2); border-radius: 3px; color: var(--c-text); cursor: pointer; }
+.ov-pal-cur:hover { border-color: var(--c-primary); }
+.ov-pal-cur.is-open { border-color: var(--c-primary); background: var(--c-surface); }
+.ov-pal-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-pal-arr { font-size: 11px; color: var(--c-text-3); transition: transform .15s; }
+.ov-pal-cur.is-open .ov-pal-arr { transform: rotate(180deg); }
+.ov-pal-sw { display: inline-flex; flex-shrink: 0; border-radius: 2px; overflow: hidden; box-shadow: 0 0 0 1px var(--c-border) inset; }
+.ov-pal-sw i { width: 8px; height: 14px; }
+.ov-pal-list { margin-top: 4px; display: flex; flex-direction: column; gap: 1px; padding: 4px; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, .06); }
+.ov-pal-grp { font-size: 10px; color: var(--c-text-3); padding: 3px 4px 2px; letter-spacing: .04em; }
+.ov-pal-grp:not(:first-child) { margin-top: 2px; padding-top: 5px; border-top: 1px dashed var(--c-border); }
+.ov-pal-opt { display: flex; align-items: center; gap: 7px; width: 100%; padding: 4px 5px; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--c-text-2); cursor: pointer; }
+.ov-pal-opt:hover { background: var(--c-bg-soft); }
+.ov-pal-opt.is-on { background: var(--c-bg-soft); border-color: var(--c-primary); color: var(--c-text); }
+.ov-pal-opt .ov-pal-sw i { width: 12px; height: 16px; }
+.ov-pal-opt-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-pal-tag { flex-shrink: 0; font-size: 10px; padding: 1px 5px; border-radius: 999px; background: var(--c-primary); color: #fff; }
+.ov-chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-2); cursor: pointer; padding: 2px 0; }
+.ov-chk input { accent-color: var(--c-primary); width: 12px; height: 12px; }
+.ov-topo-mode { display: flex; gap: 4px; margin: 3px 0 0 18px; }
+.ov-mini2 { flex: 1; padding: 2px 4px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
+.ov-mini2:hover { background: var(--c-bg-tint); }
+.ov-mini2.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
+
+/* ===== 中栏 ===== */
+.ov-center { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.ov-ctoolbar { display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-wrap: wrap; flex-shrink: 0; }
+.ov-tg { display: flex; align-items: center; gap: 4px; padding: 0 8px; border-right: 1px solid var(--c-border); }
+.ov-tg:last-child { border-right: none; }
+.ov-tg:first-child { padding-left: 0; }
+.ov-tg--lyt { gap: 2px; }
+.ov-tg--hint { border-right: none; opacity: .85; }
+.ov-tg--end { margin-left: auto; padding-right: 0; }
+.ov-lyt-sep { width: 1px; height: 16px; background: var(--c-border-2); margin: 0 2px; flex-shrink: 0; }
+.ov-lbl { font-size: 11px; color: var(--c-text-3); }
+.ov-cin { width: 58px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; font-family: var(--ff-mono); text-align: center; }
+.ov-cin:focus { border-color: var(--c-primary); outline: none; }
+.ov-csel { height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text); font-size: 12px; padding: 0 6px; }
+.ov-csel:focus { border-color: var(--c-primary); outline: none; }
+.ov-csel:disabled { opacity: .5; cursor: default; }
+.ov-dash { color: var(--c-text-3); }
+.ov-step { width: 24px; height: 26px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; font-size: 13px; padding: 0; }
+.ov-step:hover:not(:disabled) { background: var(--c-bg-tint); color: var(--c-text); }
+.ov-step:disabled { opacity: .4; cursor: default; }
+.ov-ctb { height: 26px; padding: 0 9px; border: 1px solid var(--c-border-2); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); font-size: 12px; cursor: pointer; }
+.ov-ctb:hover:not(:disabled) { background: var(--c-bg-tint); color: var(--c-text); }
+.ov-ctb.is-on { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); font-weight: 600; }
+.ov-ctb:disabled { opacity: .5; cursor: default; }
+
+.ov-chart-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 12px; background: var(--c-bg-soft); }
+.ov-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--c-text-2); font-size: 13px; text-align: center; }
+.ov-state--err { color: var(--c-danger); }
+.ov-partial { margin-bottom: 8px; padding: 5px 10px; font-size: 12px; color: var(--c-warning); background: var(--c-warning-soft); border: 1px solid rgba(176, 127, 51, .3); border-radius: var(--r-sm); flex-shrink: 0; }
+.ov-err-title { font-size: 15px; font-weight: 600; }
+.ov-err-msg { color: var(--c-text-2); font-size: 13px; max-width: 480px; }
+
+/* grid-auto-rows 用 minmax(240px,1fr)：行少时 1fr 撑满容器高度（地形图开关时热图自适应补白），行多时回落 240px 最小高并滚动 */
+.ov-facet { flex: 1; min-height: 0; display: grid; grid-auto-rows: minmax(240px, 1fr); gap: 10px; overflow: auto; align-content: stretch; }
+.ov-facet.is-few { display: flex; }
+.ov-cell { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .04); }
+.ov-facet.is-few .ov-cell { flex: 1; min-width: 0; }
+.ov-cell-hd { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 8px; border-bottom: 1px solid var(--c-border); background: var(--c-bg-soft); }
+.ov-cell-tag { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.ov-cell-name { font-size: 12px; font-weight: 600; color: var(--c-text-2); font-family: var(--ff-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-cell-meta { margin-left: auto; font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
+.ov-cell-dl { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 12px; padding: 2px 6px; min-width: 24px; min-height: 22px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 1; }
+.ov-cell-dl:hover { color: var(--c-primary); }
+.ov-cell-plot { flex: 1; min-height: 0; padding: 6px 8px; }
+/* 多视图并排对比时不做「选中某 panel」的修饰：去掉原 .ov-cell.is-focus 蓝色外框（三页共用→时域/频域/时频同步）。
+   focusKey/effectiveFocus 仍驱动主格取数与曲线高亮、顶部通道色边仍标识 panel，只是不再给选中 panel 加外框光圈。 */
+
+/* ===== 状态条 ===== */
+.ov-sbar { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--c-surface); border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text-3); flex-shrink: 0; overflow: hidden; }
+.ov-sbar-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-success); flex-shrink: 0; }
+.ov-sbar-sep { color: var(--c-border-2); }
+.ov-readout { display: inline-flex; align-items: center; gap: 7px; flex-wrap: nowrap; overflow: hidden; color: var(--c-text-2); }
+.ov-cursor-state { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+.ov-cursor-state.is-idle { background: var(--c-bg-soft); color: var(--c-text-3); }
+.ov-cursor-state.is-follow { background: rgba(63, 94, 143, .1); color: #3F5E8F; }
+.ov-cursor-state.is-locked { background: rgba(217, 130, 43, .14); color: #B66A1E; }
+.ov-sbar-zoom { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(63, 94, 143, .1); color: #3F5E8F; white-space: nowrap; flex-shrink: 0; cursor: pointer; font-family: var(--ff-mono); }
+.ov-sbar-zoom:hover { background: rgba(63, 94, 143, .18); }
+.ov-sbar-zoom-x { font-family: var(--ff-sans); opacity: .7; }
+
+/* ===== 右栏：统计 ===== */
+.ov-right { width: 296px; min-width: 296px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--c-surface); border-left: 1px solid var(--c-border); overflow: hidden; }
+.ov-right-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--c-border); background: var(--c-bg-soft); flex-shrink: 0; }
+.ov-right-head strong { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.ov-right-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); }
+.ov-right-btns { display: flex; gap: 4px; }
+.ov-rbtn { padding: 3px 8px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
+.ov-rbtn:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.ov-rbtn.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+.ov-right-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+.ov-right-empty { color: var(--c-text-3); font-size: 12px; line-height: 1.6; padding: 12px 4px; text-align: center; }
+
+/* 右栏：① 焦点卡（以选中曲线为主——最大/最小或 IAF/比值，曲线本色圆点 + 克制深灰，沿用「强化显示」配色而非钢蓝英雄数字） */
+.ov-focus { padding: 10px 12px; border-bottom: 1px solid var(--c-border); }
+.ov-focus-lbl { font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
+.ov-focus-row { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; }
+.ov-focus-k { font-size: 12px; color: var(--c-text-2); min-width: 32px; }
+.ov-focus-k2 { font-size: 12px; color: var(--c-text-2); margin-left: 14px; }
+.ov-focus-v { font-size: 16px; font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.ov-focus-uu { font-size: 11px; color: var(--c-text-3); }
+.ov-focus-lat { margin-left: auto; font-size: 12px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.ov-focus-hint { padding: 11px 12px; font-size: 12px; line-height: 1.6; color: var(--c-text-3); border-bottom: 1px solid var(--c-border); }
+/* ② 对比：横向条形 */
+.ov-contrast { padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+.ov-contrast-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+.ov-sec-mini { font-size: 11px; color: var(--c-text-3); margin-bottom: 5px; }
+.ov-contrast-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; font-size: 12px; }
+.ov-contrast-lbl { width: 64px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }
+.ov-contrast-bar { flex: 1; height: 8px; background: var(--c-bg-soft); border-radius: 4px; overflow: hidden; }
+.ov-contrast-fill { display: block; height: 100%; border-radius: 4px; }
+.ov-contrast-val { width: 50px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+/* ③ 明细表折叠 */
+.ov-detail { padding: 8px 12px; }
+.ov-detail-toggle { width: 100%; text-align: left; background: none; border: none; cursor: pointer; font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.ov-detail-arr { display: inline-block; transition: transform .15s; }
+.ov-detail-arr.is-open { transform: rotate(90deg); }
+.ov-dtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ov-dtable th { position: sticky; top: 0; background: var(--c-bg-soft); color: var(--c-text-3); font-weight: 600; text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--c-border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+.ov-dtable th:first-child, .ov-dtable th:nth-child(2) { text-align: left; }
+.ov-dtable td { padding: 3px 5px; text-align: right; border-bottom: 1px solid var(--c-border); color: var(--c-text-2); font-family: var(--ff-mono); }
+.ov-dtable td:first-child, .ov-dtable td:nth-child(2) { text-align: left; }
+
+/* 区间统计块（右栏）：默认关——点开关或图上框选才出对比/明细/着色带，与「焦点」同为按需。三页（时域/频域/时频）统一。精确范围输入收纳于「调整范围」折叠里。 */
+.ov-stat-block { padding: 10px 12px; border-top: 1px solid var(--c-border); }
+.ov-stat-head { display: flex; align-items: center; gap: 8px; }
+.ov-stat-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--c-border-2); border-radius: 3px; background: var(--c-surface); font-size: 11px; color: var(--c-text-2); cursor: pointer; }
+.ov-stat-toggle:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.ov-stat-toggle.is-on { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+.ov-stat-ico { font-weight: 700; font-size: 12px; }
+.ov-stat-rng { font-size: 11px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.ov-stat-edit { margin-top: 9px; background: none; border: none; cursor: pointer; font-size: 12px; color: var(--c-text-2); display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.ov-stat-inps { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; flex-wrap: wrap; }
+.ov-stat-inps .ov-inp { width: 62px; flex: 0 0 auto; }
+.ov-stat-note, .ov-stat-off { margin-top: 9px; font-size: 12px; line-height: 1.6; color: var(--c-text-3); }
+.ov-dtable tr:hover td { background: var(--c-bg-tint); }
+.ov-dt-row { cursor: pointer; }
+.ov-dtable tr.is-focus td { background: var(--c-primary-soft); }
+
+/* 游标读数卡：最小高度常驻（idle 与少量读数同高，游标进出不跳） */
+.ov-hover { min-height: 104px; box-sizing: border-box; margin-bottom: 8px; padding: 7px 9px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-bg-soft); display: flex; flex-direction: column; }
+.ov-hover-hd { display: flex; align-items: center; font-size: 12px; color: var(--c-text-3); margin-bottom: 5px; flex-shrink: 0; }
+.ov-hover-lock { color: #B66A1E; font-weight: 600; margin-right: 4px; }
+.ov-hover-tip { color: var(--c-text-3); margin-left: 6px; }
+.ov-hover-unit { margin-left: auto; font-size: 11px; color: var(--c-text-3); }
+.ov-hover-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+.ov-hover.is-expanded .ov-hover-list { max-height: 240px; overflow-y: auto; }
+.ov-hover-idle { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-3); text-align: center; }
+.ov-hover-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; cursor: default; transition: opacity 0.1s; border-radius: 3px; }
+.ov-hover-row.is-pick { cursor: pointer; }
+.ov-hover-row.is-pick:hover { background: var(--c-bg-mute); }
+.ov-hover-row.is-hl .ov-hover-name { color: var(--c-text); font-weight: 600; }
+.ov-hover-row.is-dim { opacity: 0.32; }
+.ov-row-pin { color: var(--c-primary, #2e6bff); font-size: 9px; flex-shrink: 0; line-height: 1; }
+.ov-hover-name { font-size: 13px; color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-hover-val { margin-left: auto; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c-text); }
+.ov-hover-toggle { margin-top: 5px; background: none; border: none; color: var(--c-primary); cursor: pointer; font-size: 11px; padding: 2px 0; flex-shrink: 0; text-align: left; }
+
+/* ===== 时域页迁入：view-only 滤波 / 段步进 / 明细表分列着色（原 .wf-* 专属，统一为 .ov-*）===== */
+.ov-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 4px; }
+.ov-grid2.is-off { opacity: .55; }
+.ov-apply { width: 100%; padding: 5px 0; margin-top: 5px; border: none; border-radius: 3px; background: var(--c-primary); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.ov-apply:hover:not(:disabled) { opacity: .9; }
+.ov-apply:disabled { opacity: .45; cursor: default; }
+.ov-view-tag { font-size: 10px; color: var(--c-warning); background: var(--c-warning-soft); border-radius: 6px; padding: 0 4px; margin-left: 4px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.ov-seg-stepper { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.ov-seg-idx { font-size: 12px; color: var(--c-text-2); min-width: 48px; text-align: center; }
+.ov-sbar-filter { color: var(--c-warning); font-weight: 600; }
+.ov-chk.is-disabled { color: var(--c-text-3); cursor: default; }
+.ov-dt-seg { color: var(--c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; }
+.ov-dt-ch { display: flex; align-items: center; gap: 4px; }
+.ov-dt-peak { color: #3F5E8F; font-weight: 600; }
+.ov-dt-trough { color: #B0544C; font-weight: 600; }
+.ov-dt-lat { color: var(--c-text-3); }

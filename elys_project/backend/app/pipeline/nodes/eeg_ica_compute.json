@@ -1,0 +1,42 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/ica/compute",
+  "title": "Compute ICA",
+  "category": "ica",
+  "phase": "phase1",
+  "description": "拟合 ICA 矩阵，后续需要 Inspect/Apply。",
+  "tags": ["ica", "artifact"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"},
+    {"name": "ica_matrix", "type": "ica_matrix", "label": "ICA", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "n_components", "label": "成分数", "type": "integer", "default": null, "min": 1},
+    {"name": "method", "label": "方法", "type": "select", "default": "picard", "options": [{"value": "picard", "label": "Picard"}, {"value": "fastica", "label": "FastICA"}, {"value": "infomax", "label": "Infomax"}]},
+    {"name": "decim", "label": "抽取因子", "type": "integer", "default": null, "min": 1},
+    {"name": "fit_highpass", "label": "ICA 训练高通", "type": "number", "unit": "Hz", "default": 1.0, "min": 0, "advanced": true,
+     "description": "仅用于 ICA 训练：拟合前对数据副本做此高通（默认 1.0Hz，Winkler 2015 / Makoto 推荐——慢漂移会拖垮分解）。解混矩阵随后由 Apply 套回你的原数据，不影响最终数据的低频 / 慢成分。设 0 = 不额外高通、按原样训练。"},
+    {"name": "random_state", "label": "随机种子", "type": "integer", "default": 42}
+  ],
+  "backend": {
+    "module": "app.engine.ica.compute",
+    "function": "run_compute_ica",
+    "save_descriptor": "ica",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "ica-compute",
+    "auto_tags": ["step:ica-compute", "type:ica"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "ica"
+  },
+  "compute_cost": "expensive",
+  "output_footprint": "small",
+  "ui": {"color": "#8B5CF6", "default_size": [190, 100], "preview_type": "ica"}
+}

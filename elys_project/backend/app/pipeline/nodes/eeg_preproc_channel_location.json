@@ -1,0 +1,65 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/channel_location",
+  "title": "Ch Loc Assign",
+  "category": "preprocess",
+  "phase": "phase1",
+  "description": "指派标准电极位置（10-20 / 10-05 模板）写入数据，供地形图 / ICA 成分图 / 坏导插值使用。可自动按通道数选帽并把通道名归一化到标准命名。输出写入 derivatives，不改写 fifdata。",
+  "tags": ["channel", "montage", "topomap", "location", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "montage", "label": "电极帽模板", "type": "select", "default": "auto", "required": true,
+     "options": [
+       {"value": "auto", "label": "自动（按通道数）"},
+       {"value": "standard_1020", "label": "标准 10-20"},
+       {"value": "standard_1005", "label": "标准 10-05（高密度）"},
+       {"value": "biosemi64", "label": "BioSemi 64"},
+       {"value": "biosemi128", "label": "BioSemi 128"},
+       {"value": "biosemi256", "label": "BioSemi 256"},
+       {"value": "GSN-HydroCel-64_1.0", "label": "EGI HydroCel 64"},
+       {"value": "GSN-HydroCel-128", "label": "EGI HydroCel 128"},
+       {"value": "GSN-HydroCel-256", "label": "EGI HydroCel 256"},
+       {"value": "GSN-HydroCel-257", "label": "EGI HydroCel 257"},
+       {"value": "EGI_256", "label": "EGI 256"},
+       {"value": "easycap-M1", "label": "EasyCap M1（10-10 命名）"},
+       {"value": "easycap-M10", "label": "EasyCap M10（等距编号）"},
+       {"value": "custom", "label": "自定义（上传电极文件）"}
+     ],
+     "description": "auto：先按通道命名挑最匹配的帽——BioSemi（A1…）、EGI（E1…）等私有命名会自动认对厂家帽，认不准才按通道数退回 10-20（≤32 导）/ 10-05。标准帽 / 厂家预设写入标准头位坐标（非个体真实数字化）。通道名已是 10-20 写法的设备用标准帽或 auto 均可。custom：用在数据集详情页上传的电极文件。"},
+    {"name": "custom_montage_file_id", "label": "自定义电极文件", "type": "montage_picker", "default": null, "required": true,
+     "visible_when": {"montage": ["custom"]},
+     "description": "在「数据集详情页 → 数据文件 → 电极位置文件」上传 .elc/.sfp/.bvef/.tsv/.csv 等文件后在此选择。文件跟随数据集，本研究项挂载的数据集里上传的都可选。"},
+    {"name": "rename", "label": "自动规范通道名", "type": "boolean", "default": true,
+     "description": "把 FP1 / 'EEG Fp1-Ref' 等写法归一化到标准命名（Fp1）以便匹配电极帽；非脑电通道（EOG / 触发）不动。"},
+    {"name": "on_missing", "label": "未匹配通道", "type": "select", "default": "ignore", "advanced": true,
+     "options": [
+       {"value": "ignore", "label": "跳过（保留无坐标）"},
+       {"value": "warn", "label": "警告但继续"},
+       {"value": "raise", "label": "未匹配则报错（严格）"}
+     ],
+     "description": "数据里有、模板里没有的脑电通道如何处理。默认跳过——这些通道只是缺地形图坐标，不影响其余分析。选「严格」则只要有脑电通道对不上模板就报错中断，用于察觉覆盖不全（多见于选错电极帽）。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.channel_location",
+    "function": "run_channel_location",
+    "save_descriptor": "chanloc",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "channel-location",
+    "auto_tags": ["step:channel-location", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
+  "ui": {"color": "#00A5A8", "default_size": [190, 90], "preview_type": "time_series"}
+}

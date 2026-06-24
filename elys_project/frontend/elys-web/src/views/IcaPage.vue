@@ -1,0 +1,686 @@
+<template>
+  <WorkbenchShell active-key="ica" active-top-key="analysis">
+    <div class="ica-shell">
+      <HotkeyHelp v-if="helpOpen" :groups="helpGroups" :mouse-hints="mouseHints" @close="helpOpen = false" />
+      <PerfBadge :perf="probe.perf" />
+      <!-- 顶部工具条 -->
+      <div class="ica-toolbar">
+        <h1 class="page__title ica-title" style="font-size: 22px; margin: 0">
+          <IconLine name="brain" :size="24" /> ICA 成分审核
+        </h1>
+        <span v-if="isLive && overview" class="muted text-sm">
+          {{ overview.method || 'ICA' }} · {{ overview.n_components }} 成分 · {{ overview.n_channels }} 通道
+          <template v-if="overview.total_variance_explained != null">
+            · 解释方差 {{ overview.total_variance_explained.toFixed(1) }}%
+          </template>
+          <template v-if="labelsLoading"> · <span class="ica-live">标注加载中…</span></template>
+          <template v-else-if="overview.iclabel_available"> · ICLabel 已自动标注</template>
+        </span>
+        <span class="ica-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实 ICA 数据' : '查看模式' }}</span>
+        <div style="flex: 1"></div>
+        <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（快捷键 ?）">🖱 操作提示</button>
+        <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="load">刷新</button>
+        <!-- 应用决策（原底栏移到顶栏，常驻不占画布高度） -->
+        <template v-if="isLive">
+          <span class="ica-tb-div"></span>
+          <span class="muted text-sm" :class="{ 'ica-rm-count': removeList.length }">待去除 {{ removeList.length }}</span>
+          <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
+          <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
+          <span v-else-if="!jobContext" class="muted text-sm" title="在工作流「ICA Apply」节点处打开才能提交">查看模式</span>
+          <template v-else>
+            <button class="btn btn--sm" :disabled="applying" @click="returnToPipeline">取消</button>
+            <button class="btn btn--primary btn--sm" :disabled="!canApply" @click="submitAndReturn" title="应用剔除并续跑工作流（Ctrl+Enter）">
+              <AppIcon name="check" :size="15" /> {{ applying ? '提交中…' : '应用并继续' }}
+            </button>
+          </template>
+        </template>
+      </div>
+
+      <!-- 空态 / 错误 / 加载 -->
+      <div v-if="!isLive" class="ica-empty ica-empty--full">
+        <AppIcon name="brain" :size="40" />
+        <p class="ica-empty-title">从结果选择一个 ICA 结果查看成分</p>
+        <p class="muted text-sm">
+          在工作流运行「Compute ICA」节点后，于结果页或 ICA Apply 节点处打开本页，
+          即可看到真实的成分地形图、时域、频谱与去除前后对比。
+        </p>
+      </div>
+      <div v-else-if="error" class="ica-empty ica-empty--full is-error">
+        <AppIcon name="warning" :size="32" />
+        <p class="ica-empty-title">{{ error }}</p>
+        <button class="btn btn--sm" :disabled="loading" @click="load">重试</button>
+      </div>
+      <div v-else-if="loading && !components.length" class="ica-empty ica-empty--full">
+        <p class="muted">加载 ICA 成分中…</p>
+      </div>
+
+      <!-- 三区主体：左·挑选 / 中·验证 / 右·端详（无底栏，应用决策在顶栏） -->
+      <template v-else>
+        <div class="ica-main">
+          <!-- 左·遍历挑选：成分墙（扫描 / 点选 / 标记剔除） -->
+          <section class="ica-left">
+            <div class="ica-sec-head">
+              <span>成分 · {{ components.length }}</span>
+              <div class="ica-sortseg" role="group" aria-label="成分排序">
+                <button type="button" :class="{ 'is-on': sortMode === 'index' }" @click="sortMode = 'index'">编号</button>
+                <button type="button" :class="{ 'is-on': sortMode === 'iclabel' }" @click="sortMode = 'iclabel'">伪迹概率 ↓</button>
+              </div>
+            </div>
+            <div class="ica-sec-hint">单击看详情 · 双击 / 勾选 = 标记剔除（红 = 已标记）· 更多见「操作提示」</div>
+            <div class="ica-wall-body">
+              <TopoStrip
+                layout="grid"
+                selectable
+                checkable
+                :grid-cols="wallCols"
+                :cells="componentCells"
+                :vmax="1"
+                :active-seg="selectedIndex"
+                subtitle=""
+                unit=""
+                lo-label="−"
+                hi-label="+"
+                @cell-click="onCellClick"
+                @cell-dblclick="toggleRemove"
+                @cell-check="toggleRemove"
+              />
+            </div>
+          </section>
+
+          <!-- 中：整体去除前后对比（主视图）+ 选中成分时域激活（下方全宽） -->
+          <section class="ica-center">
+            <div class="ica-center-head">
+              <div class="ica-center-title">
+                整体去除前后对比
+                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }}</span>
+              </div>
+              <div class="ica-center-controls">
+                <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">全部时段</button>
+                <span v-if="previewLoading" class="ica-live">● 刷新中</span>
+                <span v-else-if="preview?.has_comparison && removeList.length && preview.variance_reduction != null" class="ica-vr">
+                  方差 ↓ {{ preview.variance_reduction }}%
+                </span>
+              </div>
+            </div>
+            <div class="ica-cmp-body">
+              <div v-if="preview?.has_comparison" class="ica-cmp-host">
+                <TimeCourseCanvas
+                  :data="previewData"
+                  :series="cmpSeries"
+                  x-label="时间 (s)"
+                  y-label="µV"
+                  show-legend
+                  pan-on-drag
+                  :view-min="viewMin"
+                  :view-max="viewMax"
+                  :amp-scale="cmpAmp"
+                  @zoom="onZoom"
+                  @amp="cmpAmp = $event"
+                />
+                <div class="ica-zoom-hint">拖动平移 · 滚轮缩放时间 · Ctrl+滚轮缩放幅度</div>
+              </div>
+              <div v-else class="ica-cmp-empty muted text-sm">
+                <AppIcon name="brain" :size="32" />
+                <p>{{ cmpChannel ? '加载对比波形…' : '选择一个对比通道' }}</p>
+              </div>
+            </div>
+
+            <!-- 选中成分时域激活：全宽、窄高，与主图 X 轴同步缩放 -->
+            <div class="ica-tc-body">
+              <div class="ica-tc-cap">
+                选中成分时域激活（源）<template v-if="activeComp">· {{ activeComp.label }}</template>
+              </div>
+              <div class="ica-tc-host">
+                <TimeCourseCanvas
+                  v-if="activeComp"
+                  :data="tcData"
+                  :series="tcSeries"
+                  x-label="时间 (s)"
+                  y-label="a.u."
+                  :show-legend="false"
+                  pan-on-drag
+                  :view-min="viewMin"
+                  :view-max="viewMax"
+                  :amp-scale="tcAmp"
+                  :loading="detailLoading"
+                  @zoom="onZoom"
+                  @amp="tcAmp = $event"
+                />
+                <div v-else class="ica-tc-empty muted text-sm">点击左侧成分查看其时域激活</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 右·端详选中：选中成分地形图 + 频谱 + 主导通道 + 对比通道选择 -->
+          <aside class="ica-right">
+            <div class="ica-insp">
+              <div class="ica-spec-head">
+                <template v-if="activeComp">
+                  <span class="ica-spec-title">{{ activeComp.label }}</span>
+                  <span v-if="activeComp.iclabel" class="ica-tag" :class="activeComp.iclabel.category === 'brain' ? 'is-brain' : 'is-artifact'">
+                    {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
+                  </span>
+                  <span v-if="activeComp.explained_variance != null" class="muted text-sm">方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
+                </template>
+                <span v-else class="muted text-sm">点左侧成分看详情</span>
+              </div>
+              <TopoStrip v-if="activeComp" :cells="detailCells" :vmax="1" subtitle="" unit="" lo-label="−" hi-label="+" />
+              <div v-if="activeComp" class="muted text-sm ica-insp-chans">主导：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
+              <div class="ica-insp-cap">Welch 频谱 · dB / Hz</div>
+              <div class="ica-spec-host">
+                <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline dense-axes :loading="detailLoading" />
+                <div v-else class="ica-insp-empty muted text-sm">选择成分看频谱</div>
+              </div>
+            </div>
+
+            <div class="ica-chan">
+              <div class="ica-sec-head ica-sec-head--sub">
+                <span>对比通道</span>
+                <span class="muted text-sm">{{ cmpChannel || '—' }}</span>
+              </div>
+              <div class="ica-chan-list">
+                <button
+                  v-for="ch in overview?.ch_names || []"
+                  :key="ch"
+                  class="ica-chan-chip"
+                  :class="{ 'is-on': ch === cmpChannel }"
+                  @click="cmpChannel = ch"
+                >
+                  {{ ch }}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </template>
+    </div>
+  </WorkbenchShell>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { dataApi } from '@/api/client'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import IconLine from '@/components/IconLine.vue'
+import TopoStrip from '@/components/observe/TopoStrip.vue'
+import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
+import { useIcaComparison } from '@/composables/observe/useIcaComparison'
+import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
+import { useTieredFetch } from '@/composables/observe/useTieredFetch'
+import { usePerfProbe } from '@/composables/observe/usePerfProbe'
+import PerfBadge from '@/components/observe/PerfBadge.vue'
+import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
+import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
+
+// ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
+interface TopoPoint { name: string; x: number; y: number; weight: number }
+interface IcaLabel { category: string; label_cn: string; probability: number | null; suggested: boolean }
+interface IcaComponent {
+  index: number
+  label: string
+  vmax: number
+  explained_variance: number | null
+  topography: TopoPoint[]
+  top_channels: string[]
+  has_positions: boolean
+  iclabel?: IcaLabel | null
+}
+interface IcaComponentsResponse {
+  n_components: number
+  method: string | null
+  exclude: number[]
+  ch_names: string[]
+  n_channels: number
+  total_variance_explained: number | null
+  study_output_id: string
+  has_source_raw: boolean
+  iclabel_available?: boolean
+  suggested_exclude?: number[]
+  labels_pending?: boolean // 快路径标记：true→去拉 /labels 补方差+ICLabel
+  components: IcaComponent[]
+}
+// /labels 慢路径（异步补）：每成分方差% + ICLabel 标签 + 建议剔除
+interface IcaLabelsResponse {
+  has_source_raw: boolean
+  iclabel_available: boolean
+  total_variance_explained: number | null
+  suggested_exclude: number[]
+  variances: Record<string, number>
+  iclabel: Record<string, IcaLabel>
+}
+interface IcaDetail {
+  index: number
+  label: string
+  explained_variance: number | null
+  sfreq: number
+  timecourse: { times: number[]; values: number[] }
+  spectrum: { frequencies: number[]; power_db: number[]; fmax: number }
+}
+
+// TopoStrip 的 cell 形状（与组件内 TopoCell 结构兼容）
+interface TopoCell {
+  seg: number
+  label: string
+  color: string
+  points: { name: string; x: number; y: number; value: number }[] | null
+  sub?: string
+  marked?: boolean
+}
+
+// 成分墙配色：中性灰=保留、红=标记剔除（选中态由 TopoStrip 自身的 active 环表达）。
+const NEUTRAL = '#C4CCD8'
+const DANGER = '#EF4444'
+const PRIMARY = '#3F5E8F' // elys 招牌蓝（画布内硬编码，与观察页一致）
+const ACCENT = '#7A5AA6' // 频谱用紫
+const GRAY = '#79859A' // 对比图"原始"用灰
+
+// 去除前后对比 / 时域激活载入的时窗（秒）：固定窗，缩放在前端做（拖动 / 滚轮），不再用时窗下拉。
+const WINDOW_SECONDS = 30
+
+const route = useRoute()
+function qstr(key: string, fallback = ''): string {
+  const raw = route.query[key]
+  if (Array.isArray(raw)) return raw[0] ?? fallback
+  return (raw as string | null) ?? fallback
+}
+
+const studyId = qstr('studyId') || qstr('study')
+const outputId = qstr('study_output_id') || qstr('dd')
+const probe = usePerfProbe('ica') // 临时性能探针，测完删
+
+// ICA 成分详情(时程+频谱，信号派生、不可变)三级缓存：重点击同一成分秒回。键用 outputId+成分序号。
+// 注：成分网格(components)含可变的 exclude 决策，不进 IDB（避免陈旧命中显示旧决策），且本就小、gzip 够。
+const icaDetailFetch = useTieredFetch<IcaDetail>({
+  namespace: 'ica_detail',
+  endpoint: (p) => `/studies/${studyId}/outputs/${outputId}/ica-components/${String(p.index)}`,
+  keyOf: (p) => `${studyId}::${outputId}::${String(p.index)}::${String(p.max_seconds)}`,
+})
+// 交互上下文（从工作流 waiting_user_input 的 ICA Apply 节点打开时带上），用于提交剔除决策
+const executionId = qstr('executionId') || qstr('execution_id')
+const jobId = qstr('jobId') || qstr('job_id')
+const decisionVersion = Number(qstr('decisionVersion') || qstr('decision_version') || '0')
+
+const isLive = computed(() => Boolean(studyId && outputId))
+const jobContext = computed(() => Boolean(isLive.value && executionId && jobId && decisionVersion > 0))
+
+const loading = ref(false)
+const labelsLoading = ref(false) // 阶段二（方差+ICLabel）异步加载中
+let serverHadExclude = false // 服务端已存人工决策（有则不套用 ICLabel 默认建议）
+const error = ref('')
+const overview = ref<IcaComponentsResponse | null>(null)
+const components = ref<IcaComponent[]>([])
+
+const selectedIndex = ref<number | null>(null)
+const detail = ref<IcaDetail | null>(null)
+const detailLoading = ref(false)
+let detailSeq = 0
+
+// 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与伪迹审核页共用同一套
+const { applying, applyMsg, applyError, applyDone, submitAndReturn, returnToPipeline } = useReviewerHandoff({
+  studyId, executionId, jobId,
+  decisionVersion: () => decisionVersion,
+  buildBody: () => ({ excluded_components: removeList.value }),
+  summary: () => `剔除 ${removeList.value.length} 个成分`,
+})
+
+// 前端视觉缩放（与三观察页同一套手感）：viewMin/Max=可见时间窗（两图共享，X 同步），*Amp=各自幅度系数。
+// 默认看前半段（约 WINDOW_SECONDS/2 秒）：曲线不挤、且一打开就能拖动平移（满量程视图无处可平移）。
+const viewMin = ref<number | null>(0)
+const viewMax = ref<number | null>(WINDOW_SECONDS / 2)
+const cmpAmp = ref(1)
+const tcAmp = ref(1)
+const isZoomed = computed(() => viewMin.value != null || Math.abs(cmpAmp.value - 1) > 1e-3 || Math.abs(tcAmp.value - 1) > 1e-3)
+function onZoom(v: { min: number; max: number } | null) {
+  viewMin.value = v ? v.min : null
+  viewMax.value = v ? v.max : null
+}
+function resetZoom() {
+  viewMin.value = null
+  viewMax.value = null
+  cmpAmp.value = 1
+  tcAmp.value = 1
+}
+
+// 中心「整体去除前后对比」编排：剔除集是唯一事实源，墙/清单/应用都从这里派生。
+const studyIdRef = ref(studyId)
+const outputIdRef = ref(outputId)
+const {
+  excludedSet,
+  preview,
+  previewLoading,
+  channel: cmpChannel,
+  maxSeconds: cmpSeconds,
+  toggle: toggleExcluded,
+  setExcluded,
+} = useIcaComparison(studyIdRef, outputIdRef, () => isLive.value)
+cmpSeconds.value = WINDOW_SECONDS
+
+const activeComp = computed(() => components.value.find((c) => c.index === selectedIndex.value) || null)
+const removeList = computed(() => [...excludedSet.value].sort((a, b) => a - b))
+const canApply = computed(() => jobContext.value && !applying.value)
+
+function isRemoved(index: number): boolean {
+  return excludedSet.value.has(index)
+}
+function toggleRemove(index: number) {
+  toggleExcluded(index)
+}
+function labelOf(idx: number): string {
+  return components.value.find((c) => c.index === idx)?.label || `IC${String(idx).padStart(3, '0')}`
+}
+
+// 单成分权重 → TopoStrip 电极点：除以该成分自身 vmax 归一到 [-1,1]，配合 TopoStrip vmax=1 实现"每成分独立归一"。
+function cellPoints(c: IcaComponent): TopoCell['points'] {
+  if (!c.has_positions) return null
+  const m = c.vmax > 0 ? c.vmax : 1
+  return c.topography.map((p) => ({ name: p.name, x: p.x, y: p.y, value: p.weight / m }))
+}
+
+// 成分墙排序：默认「编号」(稳定 native 顺序)；可切「伪迹概率↓」(ICLabel 判为伪迹且置信度高的顶上来，
+// 对审核最有用)。去掉「方差↓」——ICA 不按方差排是固有属性，且高方差≠是伪迹(α 也高方差却要留)，对挑伪迹无益。
+const sortMode = ref<'index' | 'iclabel'>('index')
+function artifactScore(c: IcaComponent): number {
+  const l = c.iclabel
+  if (!l || l.category === 'brain' || l.category === 'other' || l.probability == null) return -1
+  return l.probability
+}
+const sortedComponents = computed(() => {
+  const list = [...components.value]
+  if (sortMode.value === 'iclabel') {
+    list.sort((a, b) => artifactScore(b) - artifactScore(a))
+  }
+  return list
+})
+
+// 成分墙：每成分一格插值地形图缩略图，颜色/标记态由剔除集驱动，sub 显 ICLabel 标签+概率（无则显方差%）。
+function cellSub(c: IcaComponent): string {
+  const l = c.iclabel
+  if (l && l.probability != null) return `${l.label_cn} ${Math.round(l.probability * 100)}%`
+  if (l) return l.label_cn
+  return c.explained_variance != null ? `方差 ${c.explained_variance.toFixed(1)}%` : ''
+}
+// 成分墙列数据成分数自适应：少(≤24)用 2 栏(缩略图大)、多用 3 栏(行数减半、滚动条短)——避免细长滚动条。
+const wallCols = computed(() => (components.value.length > 24 ? 3 : 2))
+const componentCells = computed<TopoCell[]>(() =>
+  sortedComponents.value.map((c) => {
+    const removed = excludedSet.value.has(c.index)
+    return {
+      seg: c.index,
+      label: `IC ${c.index}`,
+      color: removed ? DANGER : NEUTRAL,
+      marked: removed,
+      sub: cellSub(c),
+      points: cellPoints(c),
+    }
+  }),
+)
+
+// 右栏检查器：选中成分的大地形图（单元素喂 TopoStrip strip 模式，看清拓扑识别伪迹类型）
+const detailCells = computed<TopoCell[]>(() => {
+  const c = activeComp.value
+  if (!c) return []
+  return [
+    {
+      seg: c.index,
+      label: c.label,
+      color: excludedSet.value.has(c.index) ? DANGER : PRIMARY,
+      marked: excludedSet.value.has(c.index),
+      points: cellPoints(c),
+    },
+  ]
+})
+
+// 时域激活（中心下方）+ 频谱（右栏）数据（喂 TimeCourseCanvas：data=[x, ...ys]）
+const tcSeries = [{ name: '激活', color: PRIMARY }]
+const specSeries = [{ name: '功率', color: ACCENT }]
+const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
+const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectrum.frequencies, detail.value.spectrum.power_db] : [[], []]))
+
+// 中心整体对比：原始（灰） vs 去除后（蓝），同轴叠加；后端给 Volts，×1e6 换 µV。
+const cmpSeries = [
+  { name: '原始', color: GRAY },
+  { name: '去除后', color: PRIMARY },
+]
+const previewData = computed<number[][]>(() => {
+  const p = preview.value
+  if (!p || !p.has_comparison || !p.times || !p.original || !p.filtered) return [[], []]
+  return [p.times, p.original.map((v) => v * 1e6), p.filtered.map((v) => v * 1e6)]
+})
+
+// 阶段一（快）：成分地形图网格——秒出，不等 raw / ICLabel。
+async function load() {
+  if (!isLive.value) return
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await dataApi.get<IcaComponentsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components`)
+    overview.value = res.data
+    components.value = res.data.components || []
+    probe.done('数据'); probe.paint(); probe.log() // 临时探针
+    if (res.data.ch_names?.length && !cmpChannel.value) cmpChannel.value = res.data.ch_names[0]
+    // 已存人工决策先生效（空则等 /labels 回来用 ICLabel 建议）
+    serverHadExclude = (res.data.exclude || []).length > 0
+    setExcluded(new Set(res.data.exclude || []))
+    document.title = `ICA 审核 · ${res.data.n_components} 成分 — 念析`
+    if (components.value.length) {
+      selectComponent(selectedIndex.value ?? components.value[0].index)
+    }
+    // 阶段二（慢，异步）：方差 + ICLabel 标签 + 默认勾选——网格已显示，不挡首屏。
+    if (res.data.labels_pending !== false) loadLabels()
+  } catch (err: unknown) {
+    error.value = describeError(err)
+    components.value = []
+    overview.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+// 阶段二：拉方差 + ICLabel，合并进已显示的成分网格；无已存决策则套用 ICLabel 建议作默认勾选。
+async function loadLabels() {
+  labelsLoading.value = true
+  try {
+    const res = await dataApi.get<IcaLabelsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components/labels`)
+    const vmap = res.data.variances || {}
+    const lmap = res.data.iclabel || {}
+    components.value = components.value.map((c) => ({
+      ...c,
+      explained_variance: vmap[String(c.index)] ?? c.explained_variance ?? null,
+      iclabel: lmap[String(c.index)] ?? c.iclabel ?? null,
+    }))
+    if (overview.value) {
+      overview.value = {
+        ...overview.value,
+        iclabel_available: res.data.iclabel_available,
+        total_variance_explained: res.data.total_variance_explained,
+      }
+    }
+    if (!serverHadExclude && (res.data.suggested_exclude || []).length) {
+      setExcluded(new Set(res.data.suggested_exclude))
+    }
+  } catch {
+    /* 标签加载失败：网格照常用，只是没方差 / 标签（best-effort） */
+  } finally {
+    labelsLoading.value = false
+  }
+}
+
+// 单击成分 → 拉详情（时域激活 + 频谱；去除前后对比交给中心视图，这里不再重复算，更快）
+async function selectComponent(index: number) {
+  selectedIndex.value = index
+  const myId = ++detailSeq
+  detailLoading.value = true
+  try {
+    const { data } = await icaDetailFetch.fetch({ index, max_seconds: WINDOW_SECONDS })
+    if (myId !== detailSeq) return
+    detail.value = data
+  } catch {
+    if (myId === detailSeq) detail.value = null
+  } finally {
+    if (myId === detailSeq) detailLoading.value = false
+  }
+}
+
+function onCellClick(index: number) {
+  selectComponent(index)
+}
+
+// ---------- 键盘审阅 + 快捷键（共享 useObserveHotkeys 引擎；按 ? 唤出速查卡）----------
+function selectNextComponent() {
+  const list = sortedComponents.value
+  if (!list.length) return
+  const cur = list.findIndex((c) => c.index === selectedIndex.value)
+  selectComponent(list[cur < 0 ? 0 : Math.min(cur + 1, list.length - 1)].index)
+}
+function selectPrevComponent() {
+  const list = sortedComponents.value
+  if (!list.length) return
+  const cur = list.findIndex((c) => c.index === selectedIndex.value)
+  selectComponent(list[cur < 0 ? 0 : Math.max(cur - 1, 0)].index)
+}
+function cycleCompareChannel(dir: 1 | -1) {
+  const chans = overview.value?.ch_names || []
+  if (!chans.length) return
+  const cur = chans.indexOf(cmpChannel.value)
+  cmpChannel.value = chans[((cur < 0 ? 0 : cur) + dir + chans.length) % chans.length]
+}
+function toggleCurrentRemove() {
+  if (selectedIndex.value != null) toggleRemove(selectedIndex.value)
+}
+// 「操作提示」鼠标操作：与键盘快捷键并入同一张卡（HotkeyHelp 的「鼠标」分区）
+const mouseHints = [
+  { keys: ['单击成分'], label: '看频谱 / 时域' },
+  { keys: ['双击'], label: '标记 / 取消剔除' },
+  { keys: ['勾选框'], label: '标记剔除' },
+  { keys: ['拖动'], label: '平移对比图' },
+  { keys: ['滚轮'], label: '缩放时间' },
+  { keys: ['Ctrl', '滚轮'], label: '缩放幅度' },
+]
+
+function buildHotkeys(): HotkeyDef[] {
+  return [
+    { key: 'j', label: '下一个成分', group: 'nav', run: () => selectNextComponent() },
+    { key: 'k', label: '上一个成分', group: 'nav', run: () => selectPrevComponent() },
+    { key: 'ArrowDown', label: '下一个成分', group: 'nav', run: () => selectNextComponent() },
+    { key: 'ArrowUp', label: '上一个成分', group: 'nav', run: () => selectPrevComponent() },
+    { key: ',', label: '上一个对比通道', group: 'nav', run: () => cycleCompareChannel(-1) },
+    { key: '.', label: '下一个对比通道', group: 'nav', run: () => cycleCompareChannel(1) },
+    { key: ' ', label: '标记 / 取消剔除当前成分', group: 'mark', when: () => selectedIndex.value != null, run: () => toggleCurrentRemove() },
+    { key: 'x', label: '标记 / 取消剔除当前成分', group: 'mark', when: () => selectedIndex.value != null, run: () => toggleCurrentRemove() },
+    { key: '0', label: '复位缩放', group: 'zoom', when: () => isZoomed.value, run: () => resetZoom() },
+    { key: 'Ctrl+Enter', label: '应用并继续（提交剔除决策）', group: 'general', when: () => canApply.value, run: () => submitAndReturn() },
+  ]
+}
+const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
+  escLayers: [
+    () => { if (isZoomed.value) { resetZoom(); return true } return false },
+  ],
+})
+
+function describeError(err: unknown): string {
+  const e = err as { response?: { data?: { detail?: { message?: string } | string } }; message?: string }
+  const detailField = e?.response?.data?.detail
+  if (typeof detailField === 'string') return detailField
+  if (detailField?.message) return detailField.message
+  return e?.message || '加载失败'
+}
+
+onMounted(load)
+</script>
+
+<style scoped>
+:deep(.page) { padding: 0; }
+.ica-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--header-h));
+  max-height: calc(100vh - var(--header-h));
+}
+.ica-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-5);
+  min-height: 56px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex-wrap: wrap;
+}
+.ica-title { display: flex; align-items: center; gap: 8px; }
+.ica-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.ica-source.is-real { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
+.ica-source.is-demo { background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
+
+.ica-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
+.ica-empty--full { flex: 1; }
+.ica-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
+.ica-empty.is-error .ica-empty-title { color: var(--c-danger); }
+
+/* ── 两区主体 ── */
+.ica-main { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+
+/* 左·遍历挑选：成分缩略图墙（扫描 / 点选 / 标记），只此一职、不再拥挤 */
+.ica-left {
+  width: 256px; min-width: 256px;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-surface);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.ica-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px 2px; font-size: 13px; font-weight: 600; color: var(--c-text); }
+.ica-sec-head--sub { font-size: 12px; padding: 8px 12px 4px; }
+.ica-sec-hint { padding: 0 12px 6px; font-size: 11px; color: var(--c-text-3); border-bottom: 1px solid var(--c-border); }
+/* 成分排序：二选一分段切换条（编号 / 伪迹概率），替代下拉 */
+.ica-sortseg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-sm); overflow: hidden; }
+.ica-sortseg button { font-size: 12px; padding: 2px 9px; border: none; background: var(--c-surface); color: var(--c-text-3); cursor: pointer; line-height: 1.6; }
+.ica-sortseg button + button { border-left: 1px solid var(--c-border); }
+.ica-sortseg button:hover { color: var(--c-text-2); }
+.ica-sortseg button.is-on { background: var(--c-primary); color: #fff; }
+.ica-wall-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
+
+/* 右·端详检查器：选中成分地形图 + 频谱 + 主导通道 + 对比通道（替代原左栏拥挤的三合一） */
+.ica-right { width: 320px; min-width: 320px; border-left: 1px solid var(--c-border); background: var(--c-surface); display: flex; flex-direction: column; overflow: hidden; }
+.ica-insp { flex: 1; min-height: 0; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; }
+.ica-spec-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ica-spec-title { font-weight: 600; font-size: 13px; color: var(--c-text); }
+.ica-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
+.ica-tag.is-artifact { background: rgba(239, 68, 68, .12); color: var(--c-danger); }
+.ica-tag.is-brain { background: rgba(34, 197, 94, .14); color: #15803d; }
+.ica-spec-host { flex: 1; min-height: 140px; position: relative; }
+.ica-insp-cap { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--c-text-3); margin-top: 2px; }
+.ica-insp-chans { font-size: 11px; }
+.ica-insp-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
+
+/* 通道列表：chip 点选（不下拉），可换行滚动 */
+.ica-chan { min-height: 0; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; }
+.ica-chan-list { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+.ica-chan-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; line-height: 1.5; }
+.ica-chan-chip:hover { border-color: var(--c-primary); color: var(--c-text); }
+.ica-chan-chip.is-on { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
+
+/* 中：整体对比（主视图，flex 高）+ 选中成分时域激活（窄高） */
+.ica-center { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.ica-center-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
+.ica-center-title { font-weight: 600; font-size: 14px; color: var(--c-text); }
+.ica-center-controls { display: inline-flex; align-items: center; gap: 12px; font-size: 12px; color: var(--c-text-3); }
+.ica-live { color: var(--c-primary); font-size: 12px; }
+.ica-vr { color: var(--c-success); font-size: 12px; font-weight: 600; }
+.ica-cmp-body { flex: 1; min-height: 0; padding: 12px 16px 6px; display: flex; }
+.ica-cmp-host { flex: 1; min-height: 0; position: relative; }
+.ica-zoom-hint { position: absolute; right: 8px; top: 4px; font-size: 10px; color: var(--c-text-3); pointer-events: none; background: color-mix(in srgb, var(--c-surface) 80%, transparent); padding: 1px 5px; border-radius: 4px; }
+.ica-cmp-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--c-text-3); padding: 24px; }
+/* 选中成分时域激活：全宽、窄高 */
+.ica-tc-body { flex-shrink: 0; height: 152px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; padding: 6px 16px 10px; }
+.ica-tc-cap { font-size: 11px; font-weight: 600; color: var(--c-text-2); padding-bottom: 4px; }
+.ica-tc-host { flex: 1; min-height: 0; position: relative; }
+.ica-tc-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
+
+/* 顶栏应用决策组（原底栏移上来，常驻不占画布高度） */
+.ica-tb-div { width: 1px; height: 18px; background: var(--c-border); margin: 0 2px; }
+.ica-rm-count { color: var(--c-danger); font-weight: 600; }
+.ica-applymsg { font-size: 12px; color: var(--c-success); }
+.ica-applymsg.is-error { color: var(--c-danger); }
+</style>

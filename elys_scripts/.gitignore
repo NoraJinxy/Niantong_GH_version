@@ -1,0 +1,5 @@
+# Large EEG binaries are not version-controlled (git is bad at big binaries; keep test data locally)
+*.bdf
+
+# Local debug/reference artifacts (local_ prefix) — not versioned, regenerable
+local_*

@@ -1,0 +1,36 @@
+{
+  "schema_version": "3.0",
+  "type": "eeg/preproc/event_remap",
+  "title": "Event Remap",
+  "category": "preprocess",
+  "phase": "phase1",
+  "description": "事件重映射：把上游识别出的事件分组重命名 / 合并 / 丢弃，得到干净的 condition 供下游 Epoch 切分。不改原始数据，输出写入 derivatives。",
+  "tags": ["event", "condition", "rename", "merge", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "rules", "label": "重映射规则", "type": "event_remap_rules", "default": [], "required": false,
+     "description": "每条规则把若干上游事件分组映射到一个新名字（多个源 = 合并）；目标留空 = 丢弃这些事件。未被任何规则命中的事件原样保留。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.event_remap",
+    "function": "run_event_remap",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "event-remap",
+    "auto_tags": ["step:event-remap"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "large",
+  "ui": {"color": "#0EA5A8", "default_size": [200, 110], "preview_type": "time_series"}
+}
