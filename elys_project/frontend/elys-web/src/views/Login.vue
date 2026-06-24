@@ -89,7 +89,7 @@
         <div>
           <div class="alert__title">测试账号</div>
           <div class="alert__body">
-            用户 <code>admin / user1 / user2</code> · 密码 <code>qwer123456.</code>
+            用户 <code>admin / user1 / user2</code> · 密码由部署环境提供
           </div>
         </div>
       </div>

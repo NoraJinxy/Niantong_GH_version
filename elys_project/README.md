@@ -38,7 +38,7 @@ cd .\elys_project\deploy
 
 ```powershell
 $KEY="$env:USERPROFILE\.ssh\elys_deploy_ed25519"
-$HOST="root@8.135.52.84"
+$HOST="root@REPLACE_WITH_COMPUTE_PUBLIC_IP"
 
 ssh -i $KEY $HOST "systemctl status elys-backend nginx postgresql redis-server --no-pager"
 ssh -i $KEY $HOST "curl -i http://127.0.0.1:8000/api/v1/health && curl -i http://127.0.0.1/api/v1/health"

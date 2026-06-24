@@ -1,6 +1,6 @@
 # ════════════════════════════════════════════════════════════
 # 念析 ELYS · .gitignore（2026-06-05 首次建立版本控制）
-# 只追踪源码与文档；依赖 / 构建产物 / 备份 / 超大输入资产不入库。
+# 公开仓库只追踪源码；依赖 / 构建产物 / 本地配置 / 数据资产不入库。
 # ════════════════════════════════════════════════════════════
 
 # ── 依赖 ──
@@ -9,6 +9,8 @@ node_modules/
 # ── 构建产物 ──
 dist/
 /wiki/site/
+/elys_project/frontend/elys-web/dist/
+/elys_project/frontend/elys-web/.vite/
 
 # ── Python ──
 __pycache__/
@@ -23,11 +25,32 @@ _backups/
 **/config_local.py
 *.log
 *.tmp
+*.temp
+/logs/
+/tmp/
+/temp/
 
 # ── 设计系统：超大 / 可再生的输入资产（zip、其解压目录、16MB 独立 HTML）──
+/design/
 /design/_ds_extracted/
 /design/*.zip
 /design/念析 ELYS UI Kit (standalone).html
+
+# ── 公开 GitHub 只上传代码；内部文档和会议日志留本地/内网 ──
+/wiki/
+/日志/
+
+# ── 环境配置 / 真实部署 profile ──
+.env
+.env.*
+*.env
+!/elys_project/deploy/profiles/*.example.env
+!.env.example
+!*.example.env
+/elys_project/deploy/profiles/*.env
+!/elys_project/deploy/profiles/*.example.env
+/elys_project/database/seeds/02_dev_users.sql
+/elys_project/database/seeds/*dev*users*.sql
 
 # ── 编辑器 / 操作系统 / 本地工具 ──
 .DS_Store
@@ -37,6 +60,14 @@ Thumbs.db
 # === Large data kept out of VCS (added after history slim; 2026-06-13) ===
 # EEG raw/intermediate data — keep locally or in external storage, never in git
 /elys_scripts/projects/*/data/
+/data/
+/DATA/
+/elys_project/data/
+/elys_project/storage/
+/elys_project/uploads/
+/elys_project/backend/data/
+/elys_project/backend/storage/
+/elys_project/backend/uploads/
 *.eeg
 *.bdf
 *.fif
@@ -45,5 +76,33 @@ Thumbs.db
 *.vmrk
 *.edf
 *.cnt
+*.npy
+*.npz
+*.mat
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.parquet
+*.feather
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+*.backup
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.tgz
+*.bz2
+*.xz
 # FTP / download backup dirs (papers, PDFs) — not versioned
 **/ftp_bak/

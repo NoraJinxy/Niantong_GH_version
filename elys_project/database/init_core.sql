@@ -1,7 +1,7 @@
 -- Purpose: 一键初始化 ELYS PostgreSQL 数据库（不含 demo 用户）— 适合生产/准生产环境。
--- Related: database/init.sql（含 demo 用户的 MVP 版本），database/schema/*.sql, database/seeds/01_roles_permissions.sql。
+-- Related: database/init.sql, database/schema/*.sql, database/seeds/01_roles_permissions.sql。
 -- Usage: psql -d <db> -v ON_ERROR_STOP=1 -f database/init_core.sql
--- Notes: 与 init.sql 唯一差别是不引入 seeds/02_dev_users.sql。其它说明详见 init.sql。
+-- Notes: 保留该入口用于脚本兼容；当前与 init.sql 均不引入 demo 用户。
 
 \set ON_ERROR_STOP on
 

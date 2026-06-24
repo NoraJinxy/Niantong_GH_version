@@ -67,12 +67,6 @@ class Settings(BaseSettings):
         "https://www.elysbrain.site,"
         "http://data.elysbrain.site,"
         "https://data.elysbrain.site,"
-        "http://8.135.40.150,"
-        "https://8.135.40.150,"
-        "http://8.135.52.84,"
-        "https://8.135.52.84,"
-        "http://8.135.57.42,"
-        "https://8.135.57.42,"
         "http://localhost:3000,"
         "http://localhost:5173"
     )

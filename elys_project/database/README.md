@@ -12,10 +12,9 @@ database/
 │   ├── 05_outputs.sql    # 结果、文件派生、Run 输入与依赖
 │   └── 06_async.sql      # 异步任务、任务事件
 ├── seeds/
-│   ├── 01_roles_permissions.sql  # 系统角色、权限、映射
-│   └── 02_dev_users.sql          # MVP/demo 用户（仅 init.sql 使用）
-├── init.sql       # 一键入口：schema + roles/permissions + demo 用户
-└── init_core.sql  # 一键入口：schema + roles/permissions（不含 demo 用户）
+│   └── 01_roles_permissions.sql  # 系统角色、权限、映射
+├── init.sql       # 一键入口：schema + roles/permissions
+└── init_core.sql  # 兼容入口：schema + roles/permissions
 ```
 
 `schema/*.sql` 是当前 schema 的**单一事实来源**。文件编号代表加载顺序，受外键依赖约束，**不可调整**。
@@ -28,13 +27,13 @@ MVP / 本地 / 开发环境：
 psql -d elys -v ON_ERROR_STOP=1 -f database/init.sql
 ```
 
-生产 / 准生产环境（不含 demo 用户）：
+生产 / 准生产环境：
 
 ```bash
 psql -d elys -v ON_ERROR_STOP=1 -f database/init_core.sql
 ```
 
-部署脚本 `deploy/deploy.sh` 已自动调用 `init.sql`，无需手动执行。
+部署脚本 `deploy/deploy.sh` 已自动调用 `init.sql`，无需手动执行。demo/dev 用户请在本地未追踪 seed 中维护，不进入公开仓库。
 
 ## 升级线上库
 

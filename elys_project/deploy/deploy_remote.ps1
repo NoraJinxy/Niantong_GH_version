@@ -7,8 +7,8 @@
   Related: deploy/deploy.sh, deploy/profiles/*.env, docs_v2/2-10 deployment architecture.
 
   混合入口架构:
-    入口服务器  8.135.40.150  — Nginx + Vue 前端 + 轻 API 反代
-    计算服务器  8.135.52.84   — Nginx + FastAPI + PostgreSQL + Redis + 项目数据目录
+    入口服务器  REPLACE_WITH_ENTRY_PUBLIC_IP  — Nginx + Vue 前端 + 轻 API 反代
+    计算服务器  REPLACE_WITH_COMPUTE_PUBLIC_IP — Nginx + FastAPI + PostgreSQL + Redis + 项目数据目录
 
   备案完成前默认使用 IP 访问; 备案完成后可用 -AccessMode domain 切换到域名访问。
 
@@ -28,7 +28,7 @@
   .\deploy_remote.ps1 -PublicScheme http
 
 .EXAMPLE
-  .\deploy_remote.ps1 -EntryServerIP 8.135.40.150 -ComputeServerIP 8.135.52.84 -ServerUser root -Port 22
+  .\deploy_remote.ps1 -EntryServerIP REPLACE_WITH_ENTRY_PUBLIC_IP -ComputeServerIP REPLACE_WITH_COMPUTE_PUBLIC_IP -ServerUser root -Port 22
 
 .EXAMPLE
   .\deploy_remote.ps1 -DataUpstream http://172.16.0.12
@@ -55,9 +55,9 @@ param(
 
     [string]$ProfilePath = "",
 
-    [string]$EntryServerIP = "8.135.40.150",
+    [string]$EntryServerIP = "",
 
-    [string]$ComputeServerIP = "8.135.52.84",
+    [string]$ComputeServerIP = "",
 
     [string]$EntryDomain = "elysbrain.site",
 
@@ -271,7 +271,13 @@ if ([string]::IsNullOrWhiteSpace($DataUpstream)) {
     $DataUpstream = "http://${ComputeServerIP}"
 }
 foreach ($requiredValue in @($EntryServerIP, $ComputeServerIP, $DataUpstream, $EntryDomain, $DataDomain)) {
+    if ([string]::IsNullOrWhiteSpace($requiredValue)) {
+        throw "Profile '$Profile' is missing a required deployment value. Check deploy/profiles/*.env or pass parameters explicitly."
+    }
     if ($requiredValue -like "*CHANGE_ME*") {
+        throw "Profile '$Profile' still contains placeholder value: $requiredValue"
+    }
+    if ($requiredValue -like "*REPLACE_WITH*") {
         throw "Profile '$Profile' still contains placeholder value: $requiredValue"
     }
 }

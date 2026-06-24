@@ -8,15 +8,15 @@
 # 适用: ubuntu_22_04_uefi
 #
 # 两台服务器分工:
-#   entry   入口服务器  8.135.40.150  (备案通过后: elysbrain.site)
+#   entry   入口服务器  REPLACE_WITH_ENTRY_PUBLIC_IP  (备案通过后: elysbrain.site)
 #           Nginx + Vue 前端 + 轻 API 反代
 #
-#   compute 计算服务器  8.135.52.84   (备案通过后: data.elysbrain.site)
+#   compute 计算服务器  REPLACE_WITH_COMPUTE_PUBLIC_IP   (备案通过后: data.elysbrain.site)
 #           Nginx + FastAPI + PostgreSQL + Redis + 项目数据目录
 #
 # 用法:
 #   ./deploy.sh --role compute
-#   ./deploy.sh --role entry --data-upstream http://8.135.52.84
+#   ./deploy.sh --role entry --data-upstream http://REPLACE_WITH_COMPUTE_PRIVATE_OR_PUBLIC_IP
 #   ./deploy.sh --role compute --reset-db --reset-data-root # 明确需要清空演示环境时使用
 # =============================================================================
 
@@ -70,10 +70,10 @@ log_error()   { echo -e "  ${RED}[FAIL]${NC} $1"; _log_to_file "[FAIL] $1"; }
 ROLE=""                         # "entry" | "compute"
 ENTRY_DOMAIN="elysbrain.site"
 DATA_DOMAIN="data.elysbrain.site"
-ENTRY_PUBLIC_IP="8.135.40.150"
-COMPUTE_PUBLIC_IP="8.135.52.84"
-ENTRY_ACCESS_HOST="8.135.40.150"
-DATA_ACCESS_HOST="8.135.52.84"
+ENTRY_PUBLIC_IP=""
+COMPUTE_PUBLIC_IP=""
+ENTRY_ACCESS_HOST=""
+DATA_ACCESS_HOST=""
 PUBLIC_SCHEME="http"            # 证书就绪后可改为 https
 DATA_UPSTREAM=""                # entry 反代目标, 默认 http://${COMPUTE_PUBLIC_IP}
 EXTRA_APT_PACKAGES=""           # profile 声明的额外系统包(空格分隔), 缺失则当场安装
@@ -83,8 +83,8 @@ NODE_VERSION="20.18.1"          # Node.js 版本(前端构建用, LTS 20.x)
 
 DB_NAME="elys"
 DB_USER="elys_user"
-DB_PASSWORD="Elys@2026!"
-TEST_USER_PASSWORD="qwer123456."
+DB_PASSWORD="${ELYS_DB_PASSWORD:-}"
+TEST_USER_PASSWORD="${ELYS_TEST_USER_PASSWORD:-}"
 APP_DIR="/var/www/elys"
 BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend/elys-web"
@@ -117,6 +117,14 @@ RESET_STORAGE=false
 RESET_DATA_ROOT=false
 RESET_VENV=false
 RESET_NODE_MODULES=false
+
+generate_password() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 32
+    else
+        date +%s%N | sha256sum | awk '{print substr($1,1,32)}'
+    fi
+}
 DB_BOOTSTRAPPED=false
 
 # ---- 解析参数 ----
@@ -149,6 +157,15 @@ done
 if [[ "$ROLE" != "entry" && "$ROLE" != "compute" ]]; then
     echo "Usage: $0 --role entry|compute [--entry-domain DOMAIN] [--data-domain DOMAIN] [--entry-public-ip IP] [--compute-public-ip IP] [--entry-access-host HOST] [--data-access-host HOST] [--public-scheme http|https] [--data-upstream URL] [--studies-dir PATH] [--extra-apt-packages \"PKG ...\"] [--use-cn-mirrors true|false] [--reset-db] [--reset-storage] [--reset-data-root] [--reset-venv] [--reset-node-modules]"
     exit 1
+fi
+
+if [[ -z "$ENTRY_PUBLIC_IP" || -z "$COMPUTE_PUBLIC_IP" || -z "$ENTRY_ACCESS_HOST" || -z "$DATA_ACCESS_HOST" ]]; then
+    echo "Missing deployment host values. Pass --entry-public-ip/--compute-public-ip/--entry-access-host/--data-access-host from a local profile."
+    exit 1
+fi
+
+if [[ -z "$DB_PASSWORD" ]]; then
+    DB_PASSWORD="$(generate_password)"
 fi
 
 if [[ "${STUDIES_DIR}" != "/" ]]; then
@@ -1111,8 +1128,10 @@ self_check_v2() {
         print_kv "Data URL" "${DATA_ORIGIN}"
         print_kv "Legacy project root" "${STUDIES_DIR}"
         print_kv "Storage root" "${ELYS_STORAGE_ROOT}"
-        print_kv "Test users" "admin / user1 / user2"
-        print_kv "Test pass" "${TEST_USER_PASSWORD}"
+        if [[ -n "${TEST_USER_PASSWORD}" ]]; then
+            print_kv "Test users" "admin / user1 / user2"
+            print_kv "Test pass" "${TEST_USER_PASSWORD}"
+        fi
     fi
     print_kv "Log file" "${DEPLOY_LOG_FILE}"
     echo -e "${GREEN}======================================================================${NC}"

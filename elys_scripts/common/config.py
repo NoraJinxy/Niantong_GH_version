@@ -84,5 +84,5 @@ BASE_URL = _resolve_url(os.environ.get("ELYS_BASE_URL"), ENTRY_HOST, label="入�
 DATA_BASE_URL = _resolve_url(os.environ.get("ELYS_DATA_BASE_URL"), COMPUTE_HOST, label="计算服", profile_key="COMPUTE_SERVER_IP", env_key="ELYS_COMPUTE_HOST")
 
 # 浏览器登录页那一对（不是 SSH）
-USERNAME = "admin"
-PASSWORD = "qwer123456."
+USERNAME = os.environ.get("ELYS_USERNAME", "admin")
+PASSWORD = os.environ.get("ELYS_PASSWORD", "")

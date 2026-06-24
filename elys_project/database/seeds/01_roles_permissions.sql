@@ -88,7 +88,3 @@ WHERE r.code = 'pi' AND p.code IN (
     'task:read', 'task:write'
 )
 ON CONFLICT DO NOTHING;
-
--- ============================================
--- 7. 测试用户（密码统一：qwer123456.）
--- bcrypt hash for "qwer123456.": $2b$12$ykVyCPCS1jq1QIVsMIlJAOI1gDWuQjRmazwyNkEZTVyx7gNW8kiK.
