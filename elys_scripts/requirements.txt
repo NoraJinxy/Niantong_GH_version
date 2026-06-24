@@ -1,0 +1,7 @@
+requests>=2.31
+# 可选：流式看 task events
+# sseclient-py>=1.7
+
+# ---- 本地分析脚本（grandavg_psd.py 等）----
+mne>=1.5
+matplotlib>=3.7

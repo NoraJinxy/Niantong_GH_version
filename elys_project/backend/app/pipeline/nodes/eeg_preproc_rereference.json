@@ -1,0 +1,36 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/preproc/rereference",
+  "title": "Re-reference",
+  "category": "preprocess",
+  "phase": "phase1",
+  "description": "重参考，禁止写入 fifdata，输出写入 derivatives。",
+  "tags": ["reference", "preprocess"],
+  "inputs": [
+    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "ref_channels", "label": "参考通道", "type": "channel_list", "default": [], "required": true, "help": "勾选用作参考的通道。单选 = 单通道参考；多选 = 这些通道的平均做参考；全选 = 共同平均参考 (common average reference)。"}
+  ],
+  "backend": {
+    "module": "app.engine.preprocess.reference",
+    "function": "run_rereference",
+    "save_descriptor": "ref",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "reref",
+    "auto_tags": ["step:reref", "type:raw"],
+    "name_template_default": "{subject}_{task}_{node_title}",
+    "split_supported": false,
+    "data_type": "raw"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "large",
+  "ui": {"color": "#00A5A8", "default_size": [190, 90], "preview_type": "time_series"}
+}

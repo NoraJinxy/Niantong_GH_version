@@ -1,0 +1,53 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/group/average",
+  "title": "Grand Average",
+  "category": "group",
+  "phase": "phase2",
+  "description": "对 unit_stack 沿 unit 轴求均值与标准误（SEM，即跨被试的均值标准误），并回吐成原形态：ERP→evoked、PSD→psd_grandavg、TFR→tfr，可直接在对应观察页渲染。通吃 ERP / PSD / TFR。",
+  "tags": ["group", "average", "grand-average", "sem", "erp", "psd", "tfr"],
+  "inputs": [
+    {
+      "name": "input",
+      "type": "unit_stack",
+      "label": "Unit Stack",
+      "required": true,
+      "cardinality": "one"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "type": "analysis_result",
+      "label": "Average",
+      "cardinality": "one"
+    }
+  ],
+  "properties": [
+    {
+      "name": "weighted",
+      "label": "按试次数加权",
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "description": "按每个 unit 的试次数加权平均（各被试 trial 数不等时，ERP 跨被试常用）。关闭则等权平均。"
+    }
+  ],
+  "backend": {
+    "module": "app.engine.group.average",
+    "function": "run_group_average",
+    "save_descriptor": "grandavg",
+    "output_kind": "dynamic",
+    "supports_batch": false,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "grandavg",
+    "name_template_default": "Grand Average",
+    "auto_tags": ["step:grand_average", "type:grandavg"],
+    "data_type": "analysis_result"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "small",
+  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "psd_grandavg"}
+}

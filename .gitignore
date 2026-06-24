@@ -1,0 +1,51 @@
+# ════════════════════════════════════════════════════════════
+# 念析 ELYS · .gitignore（2026-06-05 首次建立版本控制）
+# 只追踪源码与文档；依赖 / 构建产物 / 备份 / 超大输入资产不入库。
+# ════════════════════════════════════════════════════════════
+
+# ── 依赖 ──
+node_modules/
+
+# ── 构建产物 ──
+dist/
+/wiki/site/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ── 本地状态 / 备份 / 日志 ──
+_backups/
+**/config_local.py
+*.env
+!*.example.env
+*.log
+*.tmp
+
+# ── 设计系统：超大 / 可再生的输入资产（zip、其解压目录、16MB 独立 HTML）──
+/design/_ds_extracted/
+/design/*.zip
+/design/念析 ELYS UI Kit (standalone).html
+
+# ── 编辑器 / 操作系统 / 本地工具 ──
+.DS_Store
+Thumbs.db
+.claude/
+
+# === Large data kept out of VCS (added after history slim; 2026-06-13) ===
+# EEG raw/intermediate data — keep locally or in external storage, never in git
+/elys_scripts/projects/*/data/
+*.eeg
+*.bdf
+*.fif
+*.set
+*.vhdr
+*.vmrk
+*.edf
+*.cnt
+# FTP / download backup dirs (papers, PDFs) — not versioned
+**/ftp_bak/

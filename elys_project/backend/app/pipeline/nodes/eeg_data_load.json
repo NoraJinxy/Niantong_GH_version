@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "type": "eeg/data/load",
+  "title": "LoadData",
+  "category": "data",
+  "phase": "phase1",
+  "description": "从项目 fifdata 工作数据集中按实体筛选或固定选择输入数据。",
+  "tags": ["data", "load", "dataset", "fifdata"],
+  "inputs": [],
+  "outputs": [
+    {"name": "output", "type": "eeg_data", "label": "EEG", "cardinality": "many"}
+  ],
+  "properties": [
+    {
+      "name": "selection_mode",
+      "label": "Selection Mode",
+      "type": "select",
+      "default": "filter",
+      "required": true,
+      "options": [
+        {"label": "Filter by entities", "value": "filter"},
+        {"label": "Pinned dataset list", "value": "explicit"}
+      ],
+      "description": "filter 会在执行时按条件重新匹配数据；explicit 固定当前选择的数据集。",
+      "hash": true
+    },
+    {
+      "name": "dataset_filter",
+      "label": "Dataset Filter",
+      "type": "dataset_filter",
+      "default": {
+        "subjects": "all",
+        "sessions": "all",
+        "tasks": "all",
+        "runs": "all",
+        "qa_status": "all",
+        "require_fif": true
+      },
+      "required": true,
+      "description": "按 BIDS 实体和数据状态筛选 fifdata 当前工作数据。",
+      "hash": true
+    },
+    {
+      "name": "dataset_ids",
+      "label": "Pinned Dataset IDs",
+      "type": "dataset_ids",
+      "default": [],
+      "description": "selection_mode=explicit 时使用，保存被固定选择的数据集 id。",
+      "hash": true
+    }
+  ],
+  "backend": {
+    "module": "app.pipeline.load_data",
+    "function": "resolve_load_data_selection",
+    "output_kind": "data_infos",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "ui": {"color": "#2E6BFF", "default_size": [180, 90], "preview_type": "table"}
+}

@@ -1,0 +1,219 @@
+-- Purpose: 结果与 Pipeline I/O — 由 Pipeline 节点产出的数据、文件派生关系、Run 输入快照与依赖。
+-- Related: backend/app/models/study_output.py, backend/app/models/study.py 中的
+--          DatasetFileDerivation / PipelineExecutionInput / PipelineExecutionDependency。
+-- Notes: 依赖 03_datasets.sql (recordings/recording_versions/dataset_files) 和 04_pipelines.sql (pipeline_executions/jobs)。
+--        本文件中 study_outputs 必须先创建，再创建 dataset_file_derivations / pipeline_execution_inputs /
+--        pipeline_execution_dependencies 等引用 study_outputs 的表。
+
+-- ============================================
+-- 结果（取代旧的 pipeline_artifacts + analysis_results）
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS study_outputs (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id               CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+
+    -- 来源追溯
+    produced_by_execution_id       UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    produced_by_job_id  UUID REFERENCES pipeline_jobs(id) ON DELETE SET NULL,
+    produced_by_node_id      VARCHAR(128),
+    produced_by_node_type    VARCHAR(128),
+    produced_by_params       JSONB NOT NULL DEFAULT '{}',
+    upstream_dataset_ids     JSONB NOT NULL DEFAULT '[]',
+    upstream_recording_ids   JSONB NOT NULL DEFAULT '[]',
+
+    -- 数据语义
+    data_type                VARCHAR(64) NOT NULL,
+    subject_id               UUID REFERENCES subjects(id) ON DELETE SET NULL,
+    bids_subject_id          VARCHAR(64),
+    session                  VARCHAR(64),
+    task                     VARCHAR(64),
+    run_label                VARCHAR(64),
+    condition                VARCHAR(128),
+
+    -- 用户层面
+    display_name             VARCHAR(256),
+    description              TEXT,
+    tags                     JSONB NOT NULL DEFAULT '[]',
+
+    -- 物理存储
+    storage_uri              VARCHAR(1024) NOT NULL,
+    logical_path             VARCHAR(1024),
+    file_role                VARCHAR(64),
+    file_size                BIGINT,
+    sha256                   VARCHAR(64),
+    mime_type                VARCHAR(128),
+
+    -- 保留与缓存（三层解耦：keep=用户是否保留 / cache_eligible=系统是否缓存 / deleted_at=回收站）
+    keep                     BOOLEAN NOT NULL DEFAULT false,
+    cache_eligible           BOOLEAN NOT NULL DEFAULT false,
+    retention_expires_at     TIMESTAMP,   -- 仅缓存行(keep=false)的 TTL；keep=true 恒为 NULL(永久保留)
+
+    -- 结果生命周期（与 DatasetVersion.state 同口径，2026-06-09 v2）。继承 upstream 状态：
+    --   upstream unpublished  → lifecycle_state=unpublished，跨研究项不可见
+    --   upstream published    → 主研究项 owner 可手动升级到 published，跨研究项可见
+    --   upstream withdrawn    → 联动 withdrawn，新引用禁止但旧引用保留
+    lifecycle_state          VARCHAR(32) NOT NULL DEFAULT 'unpublished'
+                             CHECK (lifecycle_state IN ('unpublished', 'published', 'withdrawn')),
+    visibility               VARCHAR(32) NOT NULL DEFAULT 'private'
+                             CHECK (visibility IN ('private', 'shared')),
+
+    -- 预览索引
+    preview_json             JSONB NOT NULL DEFAULT '{}',
+
+    -- 元数据
+    created_at               TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by               UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at               TIMESTAMP NOT NULL DEFAULT NOW(),
+    deleted_at               TIMESTAMP,
+    purged_at                TIMESTAMP   -- GC 物理清盘磁盘文件后置位；DB 行保留可追溯（仅文件没了）
+);
+
+COMMENT ON TABLE study_outputs IS
+    '输出表。Pipeline 各节点产出的文件统一登记于此，取代旧的 pipeline_artifacts + analysis_results。'
+    '用户视角通过 display_name + tags 命名分类；keep 控制是否保留、cache_eligible 控制是否缓存。';
+
+-- ============================================
+-- 执行 ↔ 输出 关联（多对多：哪次执行的哪个 job 产出/复用了哪条输出）
+-- ============================================
+-- 为什么需要：study_outputs 按 (study_id, sha256) content-addressed 去重，一条物理结果只有一行，
+-- produced_by_execution_id / produced_by_job_id 永远指向"最早产出它的那次执行"。重跑（结果字节相同→
+-- 去重命中）或缓存命中时，新执行不再新建行 —— 运行面板若按 produced_by_execution_id 统计，新执行的
+-- 产物会显示为 0（即便分析其实成功了）。本表为每次"执行产出/复用"记一条边：运行面板改从这里统计，
+-- 既修显示又保留血缘（study_outputs.produced_by_* 仍指 canonical 首产者，不动）。
+
+CREATE TABLE IF NOT EXISTS execution_outputs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id            CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    execution_id        UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    job_id              UUID REFERENCES pipeline_jobs(id) ON DELETE SET NULL,
+    study_output_id     UUID NOT NULL REFERENCES study_outputs(id) ON DELETE CASCADE,
+    node_id             VARCHAR(128),
+    node_type           VARCHAR(128),
+    -- created = 本次执行新建了该 study_output 行；reused = 本次执行去重/缓存命中复用了已存在的行
+    relation            VARCHAR(16) NOT NULL DEFAULT 'created'
+                        CHECK (relation IN ('created', 'reused')),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE execution_outputs IS
+    '执行↔输出多对多关联。每次执行产出/复用一条 study_output 记一条边，使运行面板能正确统计'
+    '"本次执行的产物"，同时 study_outputs.produced_by_* 保留 canonical 首产者血缘。';
+
+-- ============================================
+-- 数据集文件派生关系
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS dataset_file_derivations (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id          CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    source_file_id      UUID NOT NULL REFERENCES dataset_files(id) ON DELETE RESTRICT,
+    derived_file_id     UUID NOT NULL REFERENCES dataset_files(id) ON DELETE CASCADE,
+    execution_id              UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    study_output_id  UUID REFERENCES study_outputs(id) ON DELETE SET NULL,
+    derivation_kind     VARCHAR(64) NOT NULL DEFAULT 'canonical_fif',
+    transform_name      VARCHAR(128),
+    transform_version   VARCHAR(64),
+    parameters_json     JSONB NOT NULL DEFAULT '{}',
+    metadata            JSONB NOT NULL DEFAULT '{}',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (source_file_id <> derived_file_id)
+);
+
+COMMENT ON TABLE dataset_file_derivations IS 'Dataset 文件派生关系表。用于记录 raw source 到 canonical FIF、后续派生文件之间的来源关系。';
+COMMENT ON COLUMN dataset_file_derivations.derivation_kind IS '派生类型，例如 canonical_fif、raw_bids_view、preprocessed_derivative。';
+
+-- ============================================
+-- Pipeline Run 输入快照
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS pipeline_execution_inputs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    execution_id              UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    study_id          CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    pipeline_id         INTEGER NOT NULL REFERENCES pipeline_definitions(id) ON DELETE CASCADE,
+    job_id         UUID REFERENCES pipeline_jobs(id) ON DELETE SET NULL,
+    node_id             VARCHAR(128),
+    node_type           VARCHAR(128),
+    input_slot          VARCHAR(128) NOT NULL,
+    input_index         INTEGER NOT NULL DEFAULT 0,
+    input_kind          VARCHAR(32) NOT NULL,
+    dataset_asset_id    UUID REFERENCES dataset_assets(id) ON DELETE SET NULL,
+    recording_id            UUID REFERENCES recordings(id) ON DELETE SET NULL,
+    recording_version_id    UUID REFERENCES recording_versions(id) ON DELETE SET NULL,
+    dataset_file_id     UUID REFERENCES dataset_files(id) ON DELETE SET NULL,
+    file_role           VARCHAR(64),
+    storage_uri         VARCHAR(1024),
+    logical_path        VARCHAR(1024),
+    upstream_execution_id     UUID REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    upstream_dataset_id UUID REFERENCES study_outputs(id) ON DELETE SET NULL,
+    selector_json       JSONB NOT NULL DEFAULT '{}',
+    resolved_metadata_json JSONB NOT NULL DEFAULT '{}',
+    sha256              VARCHAR(128),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE pipeline_execution_inputs IS 'Pipeline Run 输入快照表。Run 创建时冻结 LoadData 解析出的实际数据、上传版本和文件索引，后续执行优先使用本表而不是重新读取当前数据选择器。';
+COMMENT ON COLUMN pipeline_execution_inputs.input_kind IS '输入类型。MVP 使用 selector、dataset_file、dataset；后续可扩展 upstream_dataset。';
+COMMENT ON COLUMN pipeline_execution_inputs.file_role IS 'Run 创建时冻结的 dataset_files.file_role，例如 canonical_fif。';
+COMMENT ON COLUMN pipeline_execution_inputs.storage_uri IS 'Run 创建时冻结的文件 storage_uri，不能依赖后续 dataset_files 当前值。';
+COMMENT ON COLUMN pipeline_execution_inputs.logical_path IS 'Run 创建时冻结的 Dataset/Study 逻辑路径，用于历史追溯和文件选择器展示。';
+COMMENT ON COLUMN pipeline_execution_inputs.selector_json IS 'LoadData 当时的选择器和参数快照。';
+COMMENT ON COLUMN pipeline_execution_inputs.resolved_metadata_json IS 'LoadData 当时解析出的数据元数据快照。';
+
+-- ============================================
+-- Pipeline Run 依赖关系（跨 Run 的派生链）
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS pipeline_execution_dependencies (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id           CHAR(12) NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    execution_id               UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    depends_on_execution_id    UUID NOT NULL REFERENCES pipeline_executions(id) ON DELETE RESTRICT,
+    upstream_dataset_id  UUID REFERENCES study_outputs(id) ON DELETE RESTRICT,
+    dependency_kind      VARCHAR(64) NOT NULL DEFAULT 'upstream_execution',
+    metadata             JSONB NOT NULL DEFAULT '{}',
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (execution_id <> depends_on_execution_id)
+);
+
+-- ============================================
+-- 索引
+-- ============================================
+
+CREATE INDEX IF NOT EXISTS idx_study_output_study ON study_outputs (study_id, keep, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_output_subject_type ON study_outputs (study_id, bids_subject_id, data_type);
+CREATE INDEX IF NOT EXISTS idx_study_output_execution ON study_outputs (produced_by_execution_id);
+CREATE INDEX IF NOT EXISTS idx_study_output_job ON study_outputs (produced_by_job_id);
+CREATE INDEX IF NOT EXISTS idx_study_output_tags ON study_outputs USING GIN (tags);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_study_output_sha256 ON study_outputs (study_id, sha256) WHERE sha256 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_study_output_retention_expires ON study_outputs (retention_expires_at) WHERE retention_expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_study_output_deleted ON study_outputs (study_id, deleted_at) WHERE deleted_at IS NOT NULL;
+-- GC 清盘候选：已删除且未清盘的行，按 deleted_at 找超期项
+CREATE INDEX IF NOT EXISTS idx_study_output_purge_candidate ON study_outputs (deleted_at) WHERE deleted_at IS NOT NULL AND purged_at IS NULL;
+
+-- Phase 1 (3-25): 结果生命周期索引（支持跨 Study 列出可引用的 published 结果）
+CREATE INDEX IF NOT EXISTS idx_study_output_lifecycle ON study_outputs (lifecycle_state);
+CREATE INDEX IF NOT EXISTS idx_study_output_shared_published ON study_outputs (lifecycle_state, visibility) WHERE lifecycle_state = 'published' AND visibility = 'shared';
+
+-- 执行↔输出关联：按执行/按 job 列出本次产物、按输出回查涉及的执行；唯一索引去重一条边
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_execution ON execution_outputs (execution_id);
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_job ON execution_outputs (job_id);
+CREATE INDEX IF NOT EXISTS idx_execution_outputs_output ON execution_outputs (study_output_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_outputs_unique ON execution_outputs (execution_id, job_id, study_output_id);
+
+CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_source ON dataset_file_derivations(source_file_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_derived ON dataset_file_derivations(derived_file_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_execution ON dataset_file_derivations(execution_id);
+CREATE INDEX IF NOT EXISTS idx_dataset_file_derivations_study_output ON dataset_file_derivations(study_output_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_run ON pipeline_execution_inputs(execution_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_run_node ON pipeline_execution_inputs(execution_id, node_id, input_index);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_study_pipeline ON pipeline_execution_inputs(study_id, pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_dataset_asset ON pipeline_execution_inputs(dataset_asset_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_recording ON pipeline_execution_inputs(recording_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_dataset_file ON pipeline_execution_inputs(dataset_file_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_storage_uri ON pipeline_execution_inputs(storage_uri);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_inputs_upstream_dataset ON pipeline_execution_inputs(upstream_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_dependencies_run ON pipeline_execution_dependencies(execution_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_dependencies_upstream_run ON pipeline_execution_dependencies(depends_on_execution_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_execution_dependencies_upstream_dataset ON pipeline_execution_dependencies(upstream_dataset_id);

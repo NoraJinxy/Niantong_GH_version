@@ -1,0 +1,36 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/epoch/baseline",
+  "title": "Baseline 基线校正",
+  "category": "epoch",
+  "phase": "phase1",
+  "description": "对 Epochs 做基线校正：减去基线窗（默认刺激前 [起点, 0]）的均值。常接在分段之后、ERP/时频之前。",
+  "tags": ["baseline", "epochs", "preprocess", "erp"],
+  "inputs": [
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "baseline_tmin", "label": "基线窗起点", "type": "number", "unit": "s", "default": "", "advanced": true, "description": "基线窗起点，典型 -0.2~0，避开 epoch 边缘。留空＝从 epoch 起点开始。"},
+    {"name": "baseline_tmax", "label": "基线窗结束", "type": "number", "unit": "s", "default": 0, "description": "基线窗 = [起点, 此值]，默认 0（用刺激前整段做基线）。"}
+  ],
+  "backend": {
+    "module": "app.engine.analysis.baseline",
+    "function": "run_baseline",
+    "save_descriptor": "bl",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "baseline",
+    "auto_tags": ["step:baseline", "type:epochs"],
+    "split_supported": false,
+    "data_type": "epochs"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
+  "ui": {"color": "#0EA5E9", "default_size": [200, 90], "preview_type": "epochs"}
+}

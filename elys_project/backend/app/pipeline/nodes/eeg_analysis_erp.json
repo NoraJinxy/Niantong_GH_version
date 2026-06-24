@@ -1,0 +1,39 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/analysis/erp",
+  "title": "ERP Average",
+  "category": "analysis",
+  "phase": "phase1",
+  "description": "对 Epochs 做条件平均，生成 Evoked/ERP 结果。",
+  "tags": ["erp", "evoked", "analysis"],
+  "inputs": [
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "evoked", "label": "ERP", "cardinality": "same_as_input"}
+  ],
+  "properties": [
+    {"name": "condition", "label": "条件", "type": "event_select", "default": "", "required": true, "description": "从上游 Epoch 勾选的 condition 里选。"},
+    {"name": "channels", "label": "通道", "type": "channel_list", "default": [], "advanced": true, "description": "只对选中通道做平均；留空＝用全部通道（默认，推荐）。"}
+  ],
+  "backend": {
+    "module": "app.engine.analysis.erp",
+    "function": "run_erp_average",
+    "save_descriptor": "erp",
+    "output_kind": "fif",
+    "supports_batch": true,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "erp-average",
+    "auto_tags": ["step:erp-average", "type:evoked"],
+    "dynamic_tags_always": ["cond:{condition}"],
+    "name_template_default": "{subject}_{task}_{condition}_{node_title}",
+    "split_supported": false,
+    "always_per_condition": true,
+    "data_type": "evoked"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "small",
+  "ui": {"color": "#059669", "default_size": [190, 90], "preview_type": "erp"}
+}
