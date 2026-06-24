@@ -35,10 +35,10 @@
 
 ## 开发与部署
 
-- 本地 Windows 写代码 → 跑 `s2_deploy_remote.cmd` → 在阿里云双服务器（入口 + 计算）上调试，**没有本地运行环境**。
-- 部署前可本地静态校验：后端 `python -m py_compile`、前端 `npm run typecheck`、文档 `mkdocs build`；真实 pytest / 起服务只能在云端。
-- 计算服务器是阿里云按量实例、**IP 每次部署都会变**，部署后需更新 `elys_scripts/common/config.py` 的 `DATA_BASE_URL`。
-- 测试账号、密钥、服务器密码等**不写进本仓库**，找用户或看 `deploy/` 配置。
+- 本地 Windows 写代码 → 从仓库根跑 `s2_deploy.cmd` → 在阿里云双服务器（入口 + 计算）上调试，**没有本地运行环境**。常用组合：`s23.cmd`（部署 + 测试）、`s123.cmd`（买机器 + 部署 + 测试）；单独买 / 放计算服是 `s1_buy_ecs.cmd` / `s4_release_ecs.cmd`。
+- 部署前可本地静态校验：跑仓库根 `check.cmd` 一键过（后端 `py_compile` + 前端 `typecheck` + vitest）；`s2_deploy.cmd` 上传前也会自动跑这道校验门禁（加 `-SkipCheck` 跳过）。真实 pytest / 起服务只能在云端。
+- 计算服务器是阿里云按量实例、**IP 每次部署都会变**，但 IP 单一事实源是 `deploy/profiles/*.env` 的 `COMPUTE_SERVER_IP`（`s1_buy_ecs.cmd` 买机器时自动写回）；`elys_scripts/common/config.py` 等调试脚本自动跟随，**无需手改**。
+- 测试账号、密钥、服务器密码等**不写进本仓库**：非密配置（IP / 端口 / OSS 桶名）在 `deploy/profiles/*.env`；SSH 部署 key 在 `~/.ssh/elys_deploy_ed25519`、OSS AccessKey 在 `~/.elys/oss.env`、阿里云 ECS 凭证（买 / 放机器用）在 `~/.aliyun/config.json`（均在仓库外用户目录），root 密码不落盘。位置详见 wiki `2-10` §6。
 
 ## 多会话共享工作树：git 安全
 

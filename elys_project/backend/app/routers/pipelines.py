@@ -611,6 +611,28 @@ def apply_interaction_decision(
             "channel_action": channel_action,
             "decision_version": expected_version,
         }
+    elif interaction_type == "event_editing":
+        # 事件管理器梳理：events=最终非 BAD 事件清单（literal，数据集级，单数据集时由执行器落盘）、
+        # group_operations=分组级规则（改名/合并/丢弃/平移，套全部数据集）、operations=溯源摘要。
+        # decision 须带 type='event_editing'，否则 dispatcher._event_manager_decision 认不出 → 节点卡在等待确认。
+        events = payload.events if isinstance(payload.events, list) else []
+        group_operations = payload.group_operations if isinstance(payload.group_operations, list) else []
+        operations = payload.operations if isinstance(payload.operations, list) else []
+        decision = {
+            "type": interaction_type,
+            "events": events,
+            "group_operations": group_operations,
+            "operations": operations,
+            "decision_version": expected_version,
+            **submitted,
+        }
+        # 只把分组级规则 + 摘要固化进 params（params 会套到所有数据集，故逐事件 literal 清单不入 params，
+        # 由 decision 透传给执行器、仅在唯一数据集时落盘）。
+        params_update = {
+            "group_operations": group_operations,
+            "operations": operations,
+            "decision_version": expected_version,
+        }
     else:
         excluded_components = sorted({int(item) for item in payload.excluded_components if int(item) >= 0})
         decision = {

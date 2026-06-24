@@ -16,6 +16,6 @@
 
 —— 以上为通用规则。Claude Code 专属补充：
 
-- 仓库根目录同时含 `elys_project/`（后端 + 前端）、`wiki/`（mkdocs 文档）、`elys_scripts/`、`deploy/`。
+- 仓库根目录含 `elys_project/`（后端 + 前端 + `deploy/` 部署脚本）、`wiki/`（mkdocs 文档）、`elys_scripts/`（云端调试脚本）、`日志/`（方案 / 会议记录）。
 - **接手任务前务必先扫 `wiki/docs/9-00-更新日志.md` 了解最近进展**（完整上手顺序见 AGENTS.md「上手第一步」）。
-- 本机没有运行环境，调试在阿里云，改完代码先本地静态校验（py_compile / typecheck / mkdocs build）再 `s2_deploy_remote.cmd`。
+- 本机没有运行环境，调试在阿里云，改完代码先本地静态校验（仓库根 `check.cmd` 一键跑后端编译 + 前端 typecheck；改文档另跑 `mkdocs build`）再从仓库根跑 `s2_deploy.cmd`。

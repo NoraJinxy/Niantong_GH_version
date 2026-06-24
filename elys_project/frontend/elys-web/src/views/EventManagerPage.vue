@@ -61,6 +61,7 @@
           <div v-if="filterEnabled" class="ev-filter">
             <label>高通 <input type="number" v-model.number="lFreq" step="0.1" min="0" /> Hz</label>
             <label>低通 <input type="number" v-model.number="hFreq" step="1" min="0" /> Hz</label>
+            <label>陷波 <input type="number" v-model.number="notch" step="1" min="0" /> Hz</label>
             <p class="muted text-sm">仅用于观察，不写入、不影响计算。</p>
           </div>
         </div>
@@ -308,6 +309,7 @@ const chanStart = ref(0)
 const filterEnabled = ref(false)
 const lFreq = ref(1)
 const hFreq = ref(40)
+const notch = ref(50)
 
 // 编辑态
 const mode = ref<'select' | 'add'>('select')
@@ -562,7 +564,19 @@ async function loadInteraction(): Promise<void> {
   loadActiveDataset()
 }
 
+const TS_CACHE_MAX = 64
 const tsCache = new Map<string, StudyOutputTimeseries>()
+// 有界 LRU 写入（镜像 ArtifactMarkPage）：命中即提到队尾，超量从队首逐出，避免每个窗口/数据集/滤波组合
+// 都缓存且永不淘汰导致内存无限增长（键含 activeDsIndex + 取数参数，长会话多数据集切换尤甚）。
+function tsCacheSet(key: string, v: StudyOutputTimeseries) {
+  if (tsCache.has(key)) tsCache.delete(key)
+  tsCache.set(key, v)
+  while (tsCache.size > TS_CACHE_MAX) {
+    const k = tsCache.keys().next().value
+    if (k === undefined) break
+    tsCache.delete(k)
+  }
+}
 function inputTsKey(params: Record<string, number | undefined>): string { return `evtman::${studyId}::${executionId}::${jobId}::${activeDsIndex.value}::${JSON.stringify(params)}` }
 async function fetchInputNetwork(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
   try {
@@ -586,20 +600,28 @@ async function fetchInputNetwork(params: Record<string, number | undefined>): Pr
 async function fetchInputTs(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
   const key = inputTsKey(params)
   const mem = tsCache.get(key); if (mem) return mem
-  const idb = await idbGet<StudyOutputTimeseries>(key); if (idb) { tsCache.set(key, idb); return idb }
+  const idb = await idbGet<StudyOutputTimeseries>(key); if (idb) { tsCacheSet(key, idb); return idb }
   const data = await fetchInputNetwork(params)
-  tsCache.set(key, data); void idbSet(key, data); return data
+  tsCacheSet(key, data); void idbSet(key, data); return data
 }
 async function loadOverview() {
   const span = totalDuration.value
   if (!(span > 0)) return
   overview.value = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1, index: activeDsIndex.value })
 }
+let winSeq = 0 // 窗口取数竞态序号：取数前自增抢号，await 回来若被更新窗口请求超车则丢弃，防陈旧数据覆盖新窗（画面回跳）
 async function loadWindow() {
+  const my = ++winSeq
   viewMin.value = null; viewMax.value = null
   const params: Record<string, number | undefined> = { tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 3000, max_channels: 256, index: activeDsIndex.value }
-  if (filterEnabled.value) { if (lFreq.value > 0) params.l_freq = lFreq.value; if (hFreq.value > 0) params.h_freq = hFreq.value }
-  ts.value = await fetchInputTs(params)
+  if (filterEnabled.value) {
+    if (lFreq.value > 0) params.l_freq = lFreq.value
+    if (hFreq.value > 0) params.h_freq = hFreq.value
+    if (notch.value > 0) params.notch = notch.value
+  }
+  const data = await fetchInputTs(params)
+  if (my !== winSeq) return // 已有更新的窗口请求 → 本次结果作废，不写回 state
+  ts.value = data
 }
 
 async function reload() {
@@ -619,12 +641,11 @@ async function reload() {
   } finally { loading.value = false }
 }
 
-let winSeq = 0
-watch([winStart, winLen, filterEnabled, lFreq, hFreq], async () => {
+// 依赖含 overview：概览异步到达前改窗会被下面 `!overview.value` 短路丢弃，故 overview 由 null→有值时
+// 补跑一次，保证那一窗波形最终能加载（竞态序号在 loadWindow 内部维护，#151）。notch 在内也一并触发重取。
+watch([winStart, winLen, filterEnabled, lFreq, hFreq, notch, overview], async () => {
   if (!overview.value) return
-  const my = ++winSeq
   try { await loadWindow() } catch { /* 保留旧窗 */ }
-  void my
 })
 watch(activeDsIndex, async () => {
   loadActiveDataset()

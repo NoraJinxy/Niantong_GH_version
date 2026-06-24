@@ -376,6 +376,13 @@ class PipelineInteractionDecisionRequest(BaseModel):
     bad_segments: list[dict[str, Any]] = Field(default_factory=list)
     bad_channels: list[str] = Field(default_factory=list)
     channel_action: Optional[str] = None
+    # 事件管理器梳理用（event_editing 交互）：
+    #   events           = 最终非 BAD 事件清单（literal，数据集级，单数据集时落盘）
+    #   group_operations = 分组级规则（改名/合并/丢弃/平移，可固化套全部数据集）
+    #   operations       = 人类可读操作摘要（仅溯源透传，喂 Methods 自动生成）
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    group_operations: list[dict[str, Any]] = Field(default_factory=list)
+    operations: list[str] = Field(default_factory=list)
     decision_version: int = Field(..., ge=1)
 
 
