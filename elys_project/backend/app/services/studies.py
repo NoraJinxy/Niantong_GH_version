@@ -86,11 +86,12 @@ def study_storage_uri(study: Study) -> str:
 
 
 def study_storage_policy(study: Study, settings_obj=None) -> dict:
+    # 只存逻辑 URI（elys:// / study://）。不放 study_storage_root / legacy_data_root 这类服务器
+    # 绝对路径——storage_policy 会经 GET/PUT /settings 原样回前端，放绝对路径即泄漏服务器路径。
+    # 需要绝对路径的内部逻辑各自从 study_storage_root() / study.data_root 现取，不靠这份 dict。
     return {
         "study_storage_uri": study_storage_uri(study),
-        "study_storage_root": str(study_storage_root(study, settings_obj=settings_obj)),
         "legacy_study_uri": f"study://{study.id}",
-        "legacy_data_root": study.data_root,
     }
 
 

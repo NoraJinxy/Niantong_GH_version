@@ -124,16 +124,21 @@ def test_create_study_storage_directories_keeps_legacy_and_study_roots(tmp_path,
     assert study_marker["study_storage_uri"] == f"elys://studies/{study.id}"
 
     policy = studies.study_storage_policy(study)
-    assert policy["legacy_data_root"] == study.data_root
+    # storage_policy 只回逻辑 URI——它经 GET/PUT /settings 原样回前端，放服务器绝对路径
+    # （legacy_data_root / study_storage_root）即泄漏。需要绝对路径的内部逻辑各自现取。
     assert policy["study_storage_uri"] == f"elys://studies/{study.id}"
+    assert policy["legacy_study_uri"] == f"study://{study.id}"
+    assert "legacy_data_root" not in policy
+    assert "study_storage_root" not in policy
 
 
-def test_study_response_schema_preserves_legacy_api_shape() -> None:
+def test_study_response_schema_omits_server_paths() -> None:
     import_studies_module()
     from app.schemas.study import StudyResponse
 
+    # StudyResponse 经 /studies 端点回所有成员（含 viewer），不得暴露服务器绝对路径 data_root。
     fields = set(StudyResponse.model_fields)
-    assert "data_root" in fields
+    assert "data_root" not in fields
     assert "study_storage_root" not in fields
     assert "study_storage_uri" not in fields
 

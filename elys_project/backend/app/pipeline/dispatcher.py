@@ -2399,7 +2399,9 @@ class NodeDispatcher:
             "content_hash",
             "data_type",
             "ica_path",
-            "ica_abs_path",
+            # 不收 *_abs_path / study_root 等服务器绝对路径：紧凑表示会进交互 payload、preview_json.source_ref、
+            # 产物 metadata 等会回前端的位置（泄漏服务器路径）。回溯载入源 raw（ica_inspect._load_source_raw）
+            # 走 storage_uri/fif_path 即可，从不需要绝对路径；引擎读 ICA 用的是 _ica_data_info 的独立 data_info。
         )
         return {key: data_info.get(key) for key in keys if key in data_info}
 

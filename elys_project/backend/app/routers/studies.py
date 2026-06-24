@@ -117,6 +117,23 @@ def get_study_membership(db: Session, study: Study, user: User) -> StudyMember |
     )
 
 
+def _sanitize_storage_policy(policy):
+    """剔除 storage_policy 里值为服务器绝对路径的项——该 dict 经 GET/PUT /settings 原样回前端，
+    旧库行（曾种入 study_storage_root / legacy_data_root）与客户端 PUT 注入的任意绝对路径键都在此
+    切断。逻辑 URI（elys:// / study://）与非路径配置保留。服务器为 POSIX，路径以 '/' 开头；顺带
+    防 Windows 盘符形态。"""
+    if not isinstance(policy, dict):
+        return policy
+    out = {}
+    for key, value in policy.items():
+        if isinstance(value, str) and (
+            value.startswith("/") or (len(value) >= 3 and value[1] == ":" and value[2] in ("\\", "/"))
+        ):
+            continue
+        out[key] = value
+    return out
+
+
 def study_settings_to_response(study_id: str, settings_obj: StudySettings | None) -> StudySettingsResponse:
     defaults = default_study_settings_payload()
     if settings_obj is None:
@@ -125,7 +142,7 @@ def study_settings_to_response(study_id: str, settings_obj: StudySettings | None
         study_id=settings_obj.study_id,
         default_dataset_filter=settings_obj.default_dataset_filter or defaults["default_dataset_filter"],
         run_policy=settings_obj.run_policy or defaults["run_policy"],
-        storage_policy=settings_obj.storage_policy or defaults["storage_policy"],
+        storage_policy=_sanitize_storage_policy(settings_obj.storage_policy or defaults["storage_policy"]),
         updated_by=str(settings_obj.updated_by) if settings_obj.updated_by else None,
         updated_at=settings_obj.updated_at,
     )

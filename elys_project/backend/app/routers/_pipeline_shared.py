@@ -28,6 +28,26 @@ from app.schemas.study_output import StudyOutputResponse
 from app.services.study_access import require_study_read, require_study_run, require_study_write
 
 
+# data_info 里这些键存的是服务器本地绝对文件系统路径（如 /mnt/elys_data/...）。引擎执行时要靠
+# storage_uri / *_abs_path / study_root 定位文件（见 engine/io.materialize_reference 的兜底 key 链），
+# 故 DB 的 output_json / result_json / resolved_metadata_json 与落盘的 manifest 必须原样保留；但它们
+# 绝不该出现在返回浏览器的响应体里——会泄漏服务器路径。strip_server_paths 只在「序列化进响应那一刻」
+# 做一次深拷贝去键，不触碰库内与磁盘上的原值。
+_SERVER_PATH_KEYS = frozenset({"fif_abs_path", "source_abs_path", "ica_abs_path", "study_root"})
+
+
+def strip_server_paths(value: Any) -> Any:
+    """递归剔除自由 JSON 字段（output_json/result_json/manifest 等）里指向服务器绝对路径的键。
+
+    返回新结构，不修改入参——库内/磁盘上的原 dict 保持完整供引擎物化与溯源复现使用。
+    """
+    if isinstance(value, dict):
+        return {k: strip_server_paths(v) for k, v in value.items() if k not in _SERVER_PATH_KEYS}
+    if isinstance(value, list):
+        return [strip_server_paths(item) for item in value]
+    return value
+
+
 def get_study_for_read(study_id: str, db: Session, user: User) -> Study:
     study = db.query(Study).filter(Study.id == study_id).first()
     return require_study_read(study, db, user)

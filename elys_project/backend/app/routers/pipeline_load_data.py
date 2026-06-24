@@ -16,7 +16,13 @@ from app.schemas.pipeline import LoadDataResolveRequest, LoadDataResolveResponse
 router = APIRouter(prefix="/api/v1", tags=["工作流"])
 
 
-@router.post("/studies/{study_id}/pipeline/load-data/resolve", response_model=LoadDataResolveResponse)
+# fif_abs_path 是服务器绝对路径，引擎要靠它（保留在模型里供 dispatcher 喂引擎），但前端只需
+# fif_exists 布尔 + storage_uri/logical_path 逻辑标识，故从本端点响应里排除、不泄漏服务器路径。
+@router.post(
+    "/studies/{study_id}/pipeline/load-data/resolve",
+    response_model=LoadDataResolveResponse,
+    response_model_exclude={"data_infos": {"__all__": {"fif_abs_path"}}},
+)
 def resolve_load_data(
     study_id: str,
     payload: LoadDataResolveRequest,

@@ -99,6 +99,7 @@ from app.routers._pipeline_shared import (
     get_study_for_read,
     get_study_for_run,
     get_study_for_write,
+    strip_server_paths,
     study_output_to_response,
 )
 
@@ -131,7 +132,7 @@ def pipeline_execution_to_response(execution: PipelineExecution) -> PipelineExec
         dataset_count=execution.dataset_count,
         definition_snapshot=execution.definition_snapshot or {},
         manifest_json=execution.manifest_json or {},
-        result_json=execution.result_json or {},
+        result_json=strip_server_paths(execution.result_json or {}),
         error_json=execution.error_json or {},
         started_by=str(execution.started_by) if execution.started_by else None,
         started_at=execution.started_at,
@@ -151,8 +152,8 @@ def pipeline_job_to_response(job: PipelineJob) -> PipelineJobResponse:
         status=job.status,
         topo_index=job.topo_index,
         params_json=job.params_json or {},
-        input_json=job.input_json or {},
-        output_json=job.output_json or {},
+        input_json=strip_server_paths(job.input_json or {}),
+        output_json=strip_server_paths(job.output_json or {}),
         input_hash=job.input_hash,
         params_hash=job.params_hash,
         node_hash=job.node_hash,
@@ -187,7 +188,7 @@ def pipeline_execution_input_to_response(execution_input: PipelineExecutionInput
         upstream_execution_id=str(execution_input.upstream_execution_id) if execution_input.upstream_execution_id else None,
         upstream_dataset_id=str(execution_input.upstream_dataset_id) if execution_input.upstream_dataset_id else None,
         selector_json=execution_input.selector_json or {},
-        resolved_metadata_json=execution_input.resolved_metadata_json or {},
+        resolved_metadata_json=strip_server_paths(execution_input.resolved_metadata_json or {}),
         sha256=execution_input.sha256,
         created_at=execution_input.created_at,
     )
@@ -559,7 +560,9 @@ def interaction_to_response(job: PipelineJob) -> PipelineInteractionResponse:
         interaction_type=str(interaction.get("type") or "ica_component_selection"),
         decision_version=int(interaction.get("decision_version") or 1),
         components=interaction.get("components") if isinstance(interaction.get("components"), list) else [],
-        preview_json=interaction.get("preview_json") if isinstance(interaction.get("preview_json"), dict) else {},
+        # preview_json.datasets[].data_info 经 _compact_input_data_info 白名单带出 ica_abs_path（服务器
+        # 绝对路径），审核页只用 output_id/dataset_id 走 id 端点取数、不读 abs path，故响应边界剥离。
+        preview_json=strip_server_paths(interaction.get("preview_json")) if isinstance(interaction.get("preview_json"), dict) else {},
         decision=interaction.get("decision") if isinstance(interaction.get("decision"), dict) else None,
     )
 
@@ -1825,7 +1828,9 @@ def get_pipeline_execution_manifest(
     )
     manifest = ensure_execution_manifest(db, study=study, pipeline=pipeline, execution=execution)
     db.commit()
-    return manifest
+    # 落盘 manifest 与 execution.manifest_json 已在 ensure_execution_manifest 内写入完整路径（内部溯源/
+    # 复现要用），这里只净化返回浏览器的副本，剥掉服务器绝对路径键。
+    return strip_server_paths(manifest)
 
 
 @router.post("/studies/{study_id}/pipeline-executions/{execution_id}/cancel", response_model=PipelineExecutionResponse)

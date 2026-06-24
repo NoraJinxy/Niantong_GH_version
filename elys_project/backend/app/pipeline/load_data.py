@@ -455,7 +455,6 @@ def dataset_to_data_info(
         run=dataset.run,
         source_format=dataset.source_format,
         source_path=dataset.source_path,
-        source_abs_path=str(source_abs_path) if source_abs_path else None,
         source_exists=source_exists,
         fif_path=dataset.fif_path,
         fif_abs_path=str(fif_abs_path) if fif_abs_path else None,

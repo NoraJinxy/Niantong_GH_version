@@ -424,9 +424,11 @@ class LoadDataDataInfo(BaseModel):
     run: Optional[str] = None
     source_format: str
     source_path: str
-    source_abs_path: Optional[str] = None
     source_exists: bool = False
     fif_path: Optional[str] = None
+    # fif_abs_path: 服务器绝对路径，引擎 io.materialize_reference 把它当 storage_uri 之后的兜底 key
+    # 消费（见 engine/io.py），故保留供 dispatcher.model_dump 喂引擎；但**不可进 HTTP 响应**——
+    # resolve 端点用 response_model_exclude 排除它，run 产物里的同名键由 strip_server_paths 在响应边界剥离。
     fif_abs_path: Optional[str] = None
     fif_exists: bool = False
     current_upload_id: Optional[str] = None

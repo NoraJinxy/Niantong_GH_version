@@ -51,7 +51,6 @@ class StudyResponse(BaseModel):
     description: Optional[str]
     status: str
     owner_id: str
-    data_root: str
     storage_quota_bytes: int
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
