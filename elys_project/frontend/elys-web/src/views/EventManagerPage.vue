@@ -20,12 +20,12 @@
         <button v-if="isLive" class="btn btn--sm" :disabled="loading" @click="reload">刷新</button>
       </div>
 
-      <!-- 左栏：事件类型 / 图层（全局梳理中枢） -->
+      <!-- 左栏：事件类型图层 + 批量 + 滤波 + 信息 -->
       <aside class="ev-left" v-if="isLive">
-        <div class="ev-card ev-card--grow">
-          <div class="ev-card-h">事件类型 · 图层</div>
+        <div class="ev-card ev-card--grow" v-if="ts">
+          <div class="ev-card-h">事件类型 · 点名选中 · 勾选批量</div>
           <ul class="ev-typelist">
-            <li v-if="!labelTypes.length" class="muted text-sm" style="padding: 6px">暂无事件，可在波形上「新增」模式点击添加</li>
+            <li v-if="!labelTypes.length" class="muted text-sm" style="padding: 6px 2px">暂无事件，切「新增」模式点波形添加</li>
             <li
               v-for="t in labelTypes"
               :key="t.label"
@@ -33,11 +33,11 @@
               :class="{ 'is-sel': selectedType === t.label, 'is-hidden': !visibleTypes.has(t.label) }"
             >
               <input type="checkbox" class="ev-check" :checked="checkedTypes.has(t.label)" @change="toggleCheck(t.label)" @click.stop />
-              <span class="ev-type-dot" :style="{ background: t.color }"></span>
+              <span class="ev-type-dot" :style="{ background: visibleTypes.has(t.label) ? t.color : GRAY }"></span>
               <span class="ev-type-name" @click="selectType(t.label)">{{ t.label }}</span>
               <span class="ev-type-cnt">{{ t.count }}</span>
               <button class="ev-eye" :title="visibleTypes.has(t.label) ? '隐藏' : '显示'" @click.stop="toggleVisible(t.label)">
-                <AppIcon :name="visibleTypes.has(t.label) ? 'eye' : 'eye'" :size="14" />
+                <AppIcon :name="visibleTypes.has(t.label) ? 'eye' : 'eye-off'" :size="14" />
               </button>
             </li>
           </ul>
@@ -45,23 +45,34 @@
 
         <div class="ev-card" v-if="checkedTypes.size">
           <div class="ev-card-h">批量 · 已选 {{ checkedTypes.size }} 类</div>
-          <input v-model.trim="bulkTarget" class="ev-input" placeholder="目标名（改成 / 合并到）" />
+          <input v-model.trim="bulkTarget" class="ev-input" placeholder="目标名（改成 / 合并到）" @keyup.enter="applyBulkRename" />
           <div class="ev-bulk-btns">
-            <button class="btn btn--sm" :disabled="!bulkTarget" @click="applyBulkRename">
-              {{ checkedTypes.size > 1 ? '合并' : '改名' }}
-            </button>
-            <button class="btn btn--sm btn--danger-soft" @click="applyBulkDelete">删除</button>
+            <button class="btn btn--sm" :disabled="!bulkTarget" @click="applyBulkRename">{{ checkedTypes.size > 1 ? '合并' : '改名' }}</button>
+            <button class="btn btn--sm ev-btn-danger" @click="applyBulkDelete">删除</button>
           </div>
         </div>
 
         <div class="ev-card">
-          <div class="ev-card-h">在线滤波 <span class="ev-tag-soft">仅看</span>
+          <div class="ev-card-h">
+            <span>在线滤波</span>
+            <span class="ev-tag-soft">仅看</span>
             <label class="ev-switch"><input type="checkbox" v-model="filterEnabled" /> {{ filterEnabled ? '开' : '关' }}</label>
           </div>
           <div v-if="filterEnabled" class="ev-filter">
             <label>高通 <input type="number" v-model.number="lFreq" step="0.1" min="0" /> Hz</label>
             <label>低通 <input type="number" v-model.number="hFreq" step="1" min="0" /> Hz</label>
             <p class="muted text-sm">仅用于观察，不写入、不影响计算。</p>
+          </div>
+        </div>
+
+        <div class="ev-card">
+          <div class="ev-card-h">EEG 信息</div>
+          <div class="ev-info">
+            <span>事件</span><strong>{{ events.length }}</strong>
+            <span>类型</span><strong>{{ distinctLabels.length }}</strong>
+            <span>坏段</span><strong>{{ badSegments.length }}</strong>
+            <span>采样率</span><strong>{{ sfreq }} Hz</strong>
+            <span>通道</span><strong>{{ totalCh }}</strong>
           </div>
         </div>
       </aside>
@@ -89,16 +100,24 @@
               <button :class="{ on: mode === 'select' }" @click="mode = 'select'" title="选择 / 编辑事件（v）"><AppIcon name="pointer" :size="13" /> 选择</button>
               <button :class="{ on: mode === 'add' }" @click="mode = 'add'" title="点击波形新增事件（n）"><AppIcon name="plus" :size="13" /> 新增</button>
             </span>
-            <label v-if="mode === 'add'" class="ev-num">新事件标签 <input v-model.trim="activeNewLabel" class="ev-input ev-input--inline" placeholder="标签名" /></label>
+            <label v-if="mode === 'add'" class="ev-num">标签 <input v-model.trim="activeNewLabel" class="ev-input ev-input--inline" placeholder="新事件名" /></label>
             <label class="ev-num">窗长 <input type="number" v-model.number="visibleWinLen" min="1" step="1" /> s</label>
             <span class="ev-presets">
               <button v-for="p in winPresets" :key="p.label" :class="{ on: isWinPreset(p.v) }" @click="setWinLen(p.v)">{{ p.label }}</button>
             </span>
             <label class="ev-num">幅度 <input type="number" v-model.number="visibleAmp" min="1" step="10" /> µV</label>
+            <span class="ev-chanpager" v-if="totalCh">
+              <button class="ev-pgbtn" :disabled="chanStart <= 0" @click="chanPageBy(-1)" title="上一页通道">▲</button>
+              <span class="ev-chanrange">通道 {{ chanStart + 1 }}–{{ chanEnd }} / {{ totalCh }}</span>
+              <button class="ev-pgbtn" :disabled="chanEnd >= totalCh" @click="chanPageBy(1)" title="下一页通道">▼</button>
+              <span class="ev-presets">
+                <button v-for="p in chanPresets" :key="p.label" :class="{ on: isChanPreset(p.v) }" @click="setChanPerPage(p.v)">{{ p.label }}</button>
+              </span>
+            </span>
             <button type="button" class="btn btn--sm" @click="helpOpen = true" title="操作与快捷键（?）">🖱 操作提示</button>
             <span class="ev-modeswitch ev-modeswitch--right">
-              <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
               <button :class="{ on: displayMode === 'spread' }" @click="displayMode = 'spread'">排列</button>
+              <button :class="{ on: displayMode === 'overlay' }" @click="displayMode = 'overlay'">叠加</button>
             </span>
           </div>
 
@@ -137,12 +156,19 @@
             @pointerup="ovPointerUp"
             @pointercancel="ovPointerUp"
           >
-            <div class="ev-ov-cap">全程概览 · 拖动定位窗口</div>
+            <div class="ev-ov-cap">全程概览 · 拖动定位窗口 · <span class="ev-ov-cap-mark">竖线＝事件（{{ events.length }}）</span></div>
             <svg :viewBox="`0 0 ${OV_W} 34`" preserveAspectRatio="none" class="ev-ov-svg">
               <polyline :points="ovPolyline" fill="none" stroke="#8593A6" stroke-width="1.1" />
               <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(63,127,191,0.18)" stroke="rgba(63,127,191,0.65)" stroke-width="0.8" />
-              <line v-for="(m, i) in ovEventMarks" :key="i" :x1="m.x" y1="2" :x2="m.x" y2="32" :stroke="m.color" stroke-width="0.7" />
+              <line v-for="(m, i) in ovEventMarks" :key="i" :x1="m.x" y1="2" :x2="m.x" y2="32" :stroke="m.color" stroke-width="0.8" />
             </svg>
+            <div class="ev-ov-axis">
+              <span
+                v-for="(tk, i) in ovTicks"
+                :key="i"
+                :style="{ left: tk.pct + '%', transform: i === 0 ? 'none' : i === ovTicks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }"
+              >{{ tk.label }}</span>
+            </div>
           </div>
         </template>
       </div>
@@ -164,6 +190,7 @@
               :class="{ 'is-sel': selectedEventId === e.id }"
               @click="selectEvent(e)"
             >
+              <span class="ev-occ-dot" :style="{ background: colorForLabel(e.description) }"></span>
               <span class="ev-occ-t">{{ fmtTime(e.onset) }}</span>
               <span class="ev-occ-d">{{ e.duration > 0 ? e.duration.toFixed(2) + 's' : '·' }}</span>
               <button class="ev-x" title="删除" @click.stop="deleteEvent(e.id)"><AppIcon name="x" :size="12" /></button>
@@ -177,6 +204,7 @@
             <label>标签 <input v-model.trim="inspLabel" class="ev-input" /></label>
             <label>起始 <input type="number" v-model.number="inspOnset" step="0.01" min="0" /> s</label>
             <label>时长 <input type="number" v-model.number="inspDuration" step="0.01" min="0" /> s</label>
+            <button class="btn btn--sm ev-seek" @click="seekTo(selectedEvent.onset)">定位到此事件</button>
           </div>
         </div>
 
@@ -189,7 +217,7 @@
             <span class="ev-chip" v-if="groupOps.length">{{ groupOps.length }} 规则</span>
             <span v-if="!dirty" class="muted text-sm">尚无改动</span>
           </div>
-          <p class="muted text-sm" v-if="dirty">{{ originalCount }} → {{ events.length }} 事件</p>
+          <p class="muted text-sm" v-if="dirty" style="margin: 6px 0 0">{{ originalCount }} → {{ events.length }} 事件</p>
           <label class="ev-promote" v-if="groupOps.length">
             <input type="checkbox" v-model="promoteRules" />
             把分组改名固化成规则，套用到本节点全部数据集
@@ -227,9 +255,13 @@ interface EventItem { id: number; onset: number; duration: number; description: 
 interface GroupOp { op: 'rename' | 'merge' | 'delete'; sources: string[]; target?: string }
 interface DatasetMeta { label: string; output_id?: string; events: EventItem[]; bad_segments: { onset: number; duration: number }[] }
 
-// 事件类型配色（与观察家族同调的钢蓝系起手，分类用，非渐变）
+const GRAY = '#79859A'
+// 通道线用低饱和中性色，把鲜艳留给事件 marker（colorForLabel）→ 事件在波形上一眼可辨
+const CHAN_PALETTE = ['#6E7B91', '#5E7C8F', '#7A7290', '#8A8470', '#6B8478', '#80727A']
+// 事件类型配色（与观察家族同调的钢蓝系起手，分类用、非渐变）
 const EVENT_PALETTE = ['#378ADD', '#1D9E75', '#BA7517', '#8A6FB0', '#D4537E', '#5E8F6B', '#B0794F', '#2E8B9A', '#9A6B6B', '#637FA5']
 const OV_W = 470
+const CHAN_ALL = 9999
 let uid = 1
 
 const route = useRoute()
@@ -254,7 +286,7 @@ const inputTsUrl = `/studies/${studyId}/pipeline-executions/${executionId}/jobs/
 const datasets = ref<DatasetMeta[]>([])
 const activeDsIndex = ref(0)
 const events = ref<EventItem[]>([])
-const originalEvents = ref<EventItem[]>([]) // 快照，用于算暂存改动 diff
+const originalEvents = ref<EventItem[]>([]) // 快照，算暂存改动 diff
 const badSegments = ref<{ onset: number; duration: number }[]>([]) // 只读 BAD_ 上下文层
 
 const overview = ref<StudyOutputTimeseries | null>(null)
@@ -268,7 +300,10 @@ const viewMin = ref<number | null>(null)
 const viewMax = ref<number | null>(null)
 const cursorLockedX = ref<number | null>(null)
 const cursorX = ref<number | null>(null)
-const displayMode = ref<'spread' | 'overlay'>('overlay')
+const displayMode = ref<'spread' | 'overlay'>('spread')
+// 通道分页（高密度脑电 64/128/256 道不全塞一屏；同 ArtifactMarkPage）：一屏 chanPerPage 道、纵向翻页。
+const chanPerPage = ref(32)
+const chanStart = ref(0)
 
 const filterEnabled = ref(false)
 const lFreq = ref(1)
@@ -280,10 +315,10 @@ const activeNewLabel = ref('事件')
 const selectedType = ref<string | null>(null)
 const selectedEventId = ref<number | null>(null)
 const visibleTypes = ref<Set<string>>(new Set())
-const checkedTypes = ref<Set<string>>(new Set()) // 批量改名/合并/删除勾选
+const checkedTypes = ref<Set<string>>(new Set())
 const bulkTarget = ref('')
-const groupOps = ref<GroupOp[]>([]) // 记录的分组级操作（决策 group_operations + 溯源）
-const promoteRules = ref(true) // 固化成规则套用全部数据集
+const groupOps = ref<GroupOp[]>([])
+const promoteRules = ref(true)
 const showBad = ref(true)
 
 const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline, describeError } = useReviewerHandoff({
@@ -324,13 +359,11 @@ const labelTypes = computed(() => {
 
 const occurrences = computed(() => events.value.filter((e) => e.description === selectedType.value).sort((a, b) => a.onset - b.onset))
 const selectedEvent = computed(() => events.value.find((e) => e.id === selectedEventId.value) || null)
-
-// 检查器双向绑定（改即写回事件 + 记录改名为分组规则的判断交给“整类改名”，单事件改标签视作逐条重标）
 const inspLabel = computed<string>({ get: () => selectedEvent.value?.description ?? '', set: (v) => { if (selectedEvent.value && v.trim()) relabelEvent(selectedEvent.value.id, v.trim()) } })
 const inspOnset = computed<number>({ get: () => selectedEvent.value ? Math.round(selectedEvent.value.onset * 1000) / 1000 : 0, set: (v) => { if (selectedEvent.value) retimeEvent(selectedEvent.value.id, Math.max(0, Number(v) || 0)) } })
 const inspDuration = computed<number>({ get: () => selectedEvent.value ? Math.round(selectedEvent.value.duration * 1000) / 1000 : 0, set: (v) => { if (selectedEvent.value) setDuration(selectedEvent.value.id, Math.max(0, Number(v) || 0)) } })
 
-// 主图 marker：仅画当前窗内、且类型可见的事件（防上百 marker 标签糊屏）
+// 主图 marker：只画当前窗内、类型可见的事件（防上百 marker 标签糊屏）
 const winLo = computed(() => (viewMin.value ?? winStart.value))
 const winHi = computed(() => (viewMax.value ?? winStart.value + winLen.value))
 const visibleMarkers = computed(() =>
@@ -339,9 +372,18 @@ const visibleMarkers = computed(() =>
     .map((e) => ({ x: e.onset, label: e.description, color: e.id === selectedEventId.value ? '#11457e' : colorForLabel(e.description) })),
 )
 
-const chNames = computed<string[]>(() => (ts.value ? ts.value.channels.map((c) => c.name) : []))
-const chartData = computed<number[][]>(() => { if (!ts.value) return [[], []]; return [ts.value.times, ...ts.value.channels.map((c) => c.values)] })
-const chartSeries = computed(() => chNames.value.map((name, i) => ({ name, color: EVENT_PALETTE[(i + 3) % EVENT_PALETTE.length] })))
+// —— 通道分页（同 ArtifactMarkPage：全通道随窗加载，分页只切「画布画哪几道」）——
+const totalCh = computed(() => ts.value?.channels.length ?? 0)
+const effChanPerPage = computed(() => Math.min(chanPerPage.value, Math.max(1, totalCh.value)))
+const maxChanStart = computed(() => Math.max(0, totalCh.value - effChanPerPage.value))
+const chanEnd = computed(() => Math.min(chanStart.value + effChanPerPage.value, totalCh.value))
+const visibleChannels = computed(() => (ts.value ? ts.value.channels.slice(chanStart.value, chanEnd.value) : []))
+function chanColorOf(name: string): string {
+  const i = ts.value ? ts.value.channels.findIndex((c) => c.name === name) : -1
+  return CHAN_PALETTE[(i < 0 ? 0 : i) % CHAN_PALETTE.length]
+}
+const chartData = computed<number[][]>(() => { if (!ts.value) return [[], []]; return [ts.value.times, ...visibleChannels.value.map((c) => c.values)] })
+const chartSeries = computed(() => visibleChannels.value.map((c) => ({ name: c.name, color: chanColorOf(c.name) })))
 
 const diff = computed(() => {
   const origById = new Map(originalEvents.value.map((e) => [e.id, e]))
@@ -355,7 +397,7 @@ const diff = computed(() => {
 const originalCount = computed(() => originalEvents.value.length)
 const dirty = computed(() => diff.value.added || diff.value.removed || diff.value.changed || groupOps.value.length > 0)
 const canApply = computed(() => jobContext.value && !applying.value)
-const applyLabel = computed(() => (dirty.value ? `应用梳理并继续` : '确认无改动 · 继续'))
+const applyLabel = computed(() => (dirty.value ? '应用梳理并继续' : '确认无改动 · 继续'))
 
 function fmtTime(t: number): string {
   if (!Number.isFinite(t)) return ''
@@ -375,7 +417,7 @@ function operationsSummary(): string[] {
 function selectType(label: string) { selectedType.value = label; selectedEventId.value = null }
 function toggleVisible(label: string) { const s = new Set(visibleTypes.value); if (s.has(label)) s.delete(label); else s.add(label); visibleTypes.value = s }
 function toggleCheck(label: string) { const s = new Set(checkedTypes.value); if (s.has(label)) s.delete(label); else s.add(label); checkedTypes.value = s }
-function selectEvent(e: EventItem) { selectedEventId.value = e.id; if (Number.isFinite(e.onset)) seekTo(e.onset) }
+function selectEvent(e: EventItem) { selectedEventId.value = e.id }
 
 // —— 逐事件编辑 ——
 function ensureVisible(label: string) { if (!visibleTypes.value.has(label)) { const s = new Set(visibleTypes.value); s.add(label); visibleTypes.value = s } }
@@ -390,7 +432,7 @@ function retimeEvent(id: number, onset: number) { events.value = events.value.ma
 function setDuration(id: number, duration: number) { events.value = events.value.map((e) => e.id === id ? { ...e, duration } : e) }
 function relabelEvent(id: number, label: string) { events.value = events.value.map((e) => e.id === id ? { ...e, description: label } : e); ensureVisible(label) }
 
-// —— 类型级批量（改名 / 合并 / 删除）：既改 events（落 literal 清单），也记 groupOps（套全部 / 溯源）——
+// —— 类型级批量（改 events 落 literal 清单，记 groupOps 套全部 / 溯源）——
 function applyBulkRename() {
   const target = bulkTarget.value.trim()
   if (!target || !checkedTypes.value.size) return
@@ -431,7 +473,7 @@ function onContextX(x: number | null) { if (x == null) return; const e = nearest
 function onCursor(payload: { x: number } | null) { if (payload) cursorX.value = payload.x }
 function onZoom(view: { min: number; max: number } | null) { viewMin.value = view ? view.min : null; viewMax.value = view ? view.max : null }
 
-// —— 窗口导航（仿 ArtifactMarkPage）——
+// —— 窗口导航 ——
 function stepWindow(dir: number) { setWinStart(winStart.value + dir * winLen.value * 0.25) }
 function shiftWindow(dir: number) { setWinStart(winStart.value + dir * winLen.value) }
 function setWinStart(v: number) { winStart.value = Math.round(Math.max(rangeMin.value, Math.min(rangeMax.value - winLen.value, v)) * 1000) / 1000 }
@@ -447,6 +489,12 @@ function isWinPreset(v: number): boolean {
   if (v <= 0) return winLen.value >= (totalDuration.value || 0) - 0.5
   return Math.abs(winLen.value - v) < 0.5
 }
+// 通道分页档位
+const chanPresets = [{ v: 16, label: '16' }, { v: 32, label: '32' }, { v: 64, label: '64' }, { v: CHAN_ALL, label: '全部' }]
+function setChanPerPage(v: number) { chanPerPage.value = v }
+function isChanPreset(v: number): boolean { return v >= CHAN_ALL ? chanPerPage.value >= totalCh.value : chanPerPage.value === v }
+function chanPageBy(dir: number) { chanStart.value = Math.max(0, Math.min(maxChanStart.value, chanStart.value + dir * effChanPerPage.value)) }
+watch([totalCh, chanPerPage], () => { if (chanStart.value > maxChanStart.value) chanStart.value = maxChanStart.value })
 
 // —— 全程概览带 ——
 const overviewEnv = computed<number[]>(() => {
@@ -471,6 +519,12 @@ const ovEventMarks = computed(() => {
   const lo = rangeMin.value; const span = Math.max(1e-6, rangeMax.value - lo)
   return events.value.filter((e) => visibleTypes.value.has(e.description)).map((e) => ({ x: Math.max(0, Math.min(OV_W, ((e.onset - lo) / span) * OV_W)), color: colorForLabel(e.description) }))
 })
+const ovTicks = computed(() => {
+  const lo = rangeMin.value, hi = rangeMax.value, span = hi - lo
+  if (!(span > 0)) return [] as { pct: number; label: string }[]
+  const N = 5
+  return Array.from({ length: N + 1 }, (_, i) => { const t = lo + (i / N) * span; return { pct: (i / N) * 100, label: `${t.toFixed(t < 10 ? 1 : 0)}s` } })
+})
 function ovStartFromClientX(clientX: number, el: HTMLElement): number {
   const rect = el.getBoundingClientRect()
   const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)))
@@ -480,7 +534,7 @@ function ovPointerDown(e: PointerEvent) { (e.currentTarget as HTMLElement).setPo
 function ovPointerMove(e: PointerEvent) { if (ovDragStart.value == null) return; ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement) }
 function ovPointerUp() { if (ovDragStart.value == null) return; setWinStart(ovDragStart.value); ovDragStart.value = null }
 
-// —— 数据加载（交互 payload + 三级取数窗口，仿 ArtifactMarkPage）——
+// —— 数据加载（交互 payload + 三级取数窗口，与 ArtifactMarkPage 同款）——
 function loadActiveDataset() {
   const d = datasets.value[activeDsIndex.value]
   const evs = (d?.events || []).map((e) => ({ id: uid++, onset: Number(e.onset) || 0, duration: Number(e.duration) || 0, description: String(e.description || '') })).filter((e) => e.description)
@@ -489,7 +543,7 @@ function loadActiveDataset() {
   badSegments.value = (d?.bad_segments || []).map((s) => ({ onset: Number(s.onset) || 0, duration: Number(s.duration) || 0 })).filter((s) => s.duration > 0)
   visibleTypes.value = new Set(evs.map((e) => e.description))
   checkedTypes.value = new Set(); groupOps.value = []
-  selectedType.value = null; selectedEventId.value = null
+  selectedEventId.value = null
   selectedType.value = [...new Set(evs.map((e) => e.description))].sort((a, b) => a.localeCompare(b))[0] || null
 }
 async function loadInteraction(): Promise<void> {
@@ -512,6 +566,7 @@ const tsCache = new Map<string, StudyOutputTimeseries>()
 function inputTsKey(params: Record<string, number | undefined>): string { return `evtman::${studyId}::${executionId}::${jobId}::${activeDsIndex.value}::${JSON.stringify(params)}` }
 async function fetchInputNetwork(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
   try {
+    // 二进制端点(EEGBIN01)：体积小 3–5 倍、免 JSON 序列化、已是 µV。失败回退 JSON。
     const res = await dataApi.get(inputTsUrl, { params: { ...params, format: 'binary' }, responseType: 'arraybuffer' })
     const buf = res.data as ArrayBuffer
     if (!buf || buf.byteLength < 12) throw new Error('empty binary')
@@ -571,7 +626,6 @@ watch([winStart, winLen, filterEnabled, lFreq, hFreq], async () => {
   try { await loadWindow() } catch { /* 保留旧窗 */ }
   void my
 })
-// 切数据集 → 重载事件 + 波形
 watch(activeDsIndex, async () => {
   loadActiveDataset()
   overview.value = null
@@ -620,7 +674,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 
 <style scoped>
 :deep(.page) { padding: 0; }
-.ev-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr) 248px; grid-template-rows: 56px 1fr; height: calc(100vh - var(--header-h)); overflow: hidden; }
+.ev-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr) 232px; grid-template-rows: 56px 1fr; height: calc(100vh - var(--header-h)); overflow: hidden; }
 .ev-toolbar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-3); padding: 0 var(--s-5); background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
 .ev-title { display: flex; align-items: center; gap: 8px; }
 .ev-source { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
@@ -631,7 +685,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 
 .ev-left { grid-column: 1; border-right: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .ev-card { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 6px 7px; }
-.ev-card--grow { flex: 1 1 auto; min-height: 120px; display: flex; flex-direction: column; }
+.ev-card--grow { flex: 1 1 auto; min-height: 110px; display: flex; flex-direction: column; }
 .ev-card-h { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text-2); margin-bottom: 5px; }
 .ev-card-cnt { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--c-text-3); }
 .ev-tag-soft { font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
@@ -647,10 +701,13 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .ev-type-cnt { font-variant-numeric: tabular-nums; color: var(--c-text-3); font-size: 11px; }
 .ev-eye { border: none; background: none; color: var(--c-text-3); cursor: pointer; display: inline-flex; padding: 0; }
 .ev-input { width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
-.ev-input--inline { width: 90px; }
+.ev-input--inline { width: 92px; }
 .ev-bulk-btns { display: flex; gap: 6px; margin-top: 6px; }
+.ev-btn-danger { color: var(--c-danger); }
 .ev-filter { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--c-text-2); }
 .ev-filter input { width: 54px; padding: 2px 5px; font-size: 11px; border: 1px solid var(--c-border); border-radius: 5px; }
+.ev-info { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; font-size: 12px; color: var(--c-text-3); }
+.ev-info strong { color: var(--c-text); text-align: right; }
 
 .ev-center { grid-column: 2; padding: var(--s-3); min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 .ev-ctoolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 4px 6px; font-size: 12px; }
@@ -664,24 +721,33 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .ev-modeswitch--right { margin-left: auto; }
 .ev-modeswitch button { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; font-size: 12px; border: none; background: transparent; color: var(--c-text-2); cursor: pointer; }
 .ev-modeswitch button.on { background: rgba(63, 127, 191, .14); color: var(--c-primary); }
+.ev-chanpager { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; color: var(--c-text-2); }
+.ev-pgbtn { padding: 1px 5px; font-size: 11px; line-height: 1.2; border: 1px solid var(--c-border); border-radius: 5px; background: transparent; color: var(--c-text-2); cursor: pointer; }
+.ev-pgbtn:disabled { opacity: .4; cursor: default; }
+.ev-chanrange { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 96px; text-align: center; }
 .ev-chart { flex: 1; min-height: 380px; position: relative; }
 .ev-overview { border: 1px solid var(--c-border); border-radius: var(--r-sm, 7px); padding: 3px 5px; cursor: grab; touch-action: none; user-select: none; }
 .ev-overview:active { cursor: grabbing; }
 .ev-ov-cap { font-size: 10px; color: var(--c-text-3); margin-bottom: 1px; }
+.ev-ov-cap-mark { color: var(--c-primary); }
 .ev-ov-svg { width: 100%; height: 34px; display: block; }
+.ev-ov-axis { position: relative; height: 12px; margin-top: 1px; }
+.ev-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .ev-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.ev-occlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
-.ev-occ { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; padding: 3px 5px; border-radius: 5px; }
+.ev-occlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.ev-occ { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; padding: 3px 5px; border-radius: 5px; }
 .ev-occ:hover { background: var(--c-bg-soft, #eef1f5); }
 .ev-occ.is-sel { background: rgba(63, 127, 191, .12); }
+.ev-occ-dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
 .ev-occ-t { font-variant-numeric: tabular-nums; flex: 1; }
 .ev-occ-d { font-variant-numeric: tabular-nums; color: var(--c-text-3); }
 .ev-x { border: none; background: none; color: var(--c-text-3); cursor: pointer; display: inline-flex; }
 .ev-insp { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--c-text-2); }
 .ev-insp label { display: flex; align-items: center; gap: 6px; }
 .ev-insp input[type=number] { width: 80px; margin-left: auto; padding: 3px 5px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 5px; }
-.ev-insp input:not([type=number]) { margin-left: auto; }
+.ev-insp label > input.ev-input { margin-left: auto; width: 120px; }
+.ev-seek { margin-top: 2px; }
 .ev-draft .ev-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .ev-chip { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-2); }
 .ev-chip--add { background: rgba(29, 158, 117, .14); color: #0F6E56; }
@@ -691,7 +757,6 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .ev-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
 .ev-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
 .ev-empty.is-error .ev-empty-title { color: var(--c-danger); }
-.btn--danger-soft { color: var(--c-danger); }
 .ev-applymsg { font-size: 12px; margin-top: 8px; color: var(--c-success); }
 .ev-applymsg.is-error { color: var(--c-danger); }
 </style>
