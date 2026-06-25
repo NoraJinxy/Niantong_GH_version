@@ -242,6 +242,21 @@
                 <button class="ov-mini2" :class="{ 'is-on': topoMode === 'window' }" @click="topoMode = 'window'">区间均值</button>
                 <button class="ov-mini2" :class="{ 'is-on': topoMode === 'cursor' }" @click="topoMode = 'cursor'">跟随游标</button>
               </div>
+              <template v-if="canShowTriggerLabels">
+                <label class="ov-chk"><input type="checkbox" :checked="showTriggers" @change="setTriggerEnabled(($event.target as HTMLInputElement).checked)" /> 事件标签</label>
+                <div v-if="showTriggers" class="ov-trigger-list">
+                  <div class="ov-sec-actions">
+                    <button v-if="selectedTriggerCount < triggerLabels.length" type="button" class="ov-link" @click="selectAllTriggerLabels">全选</button>
+                    <button v-if="selectedTriggerCount > 0" type="button" class="ov-link" @click="clearTriggerLabels">清空</button>
+                  </div>
+                  <label v-for="item in triggerLabelRows" :key="item.label" class="ov-trigger-item">
+                    <input type="checkbox" :checked="activeTriggerLabels.has(item.label)" @change="setTriggerLabel(item.label, ($event.target as HTMLInputElement).checked)" />
+                    <span class="ov-li-dot" :style="{ background: activeTriggerLabels.has(item.label) ? item.color : INACTIVE_DOT }"></span>
+                    <span class="ov-trigger-name" :title="item.label">{{ item.label }}</span>
+                    <span class="ov-trigger-count">{{ item.count }}</span>
+                  </label>
+                </div>
+              </template>
             </div>
           </section>
         </div>
@@ -329,6 +344,7 @@
                     :loading="loading"
                     :region="statsActive ? region : null"
                     :ref-lines="refLinesOn"
+                    :markers="triggerMarkersFor(cell.segs)"
                     :highlight="effectiveFocus"
                     :pickable="hasOverlap && focusEnabled"
                     :show-legend="ci === legendCellIndex"
@@ -353,6 +369,29 @@
                 </div>
               </section>
             </div>
+            <div
+              v-if="showTriggers && overviewEnv.length"
+              class="ov-overview"
+              @pointerdown="ovPointerDown"
+              @pointermove="ovPointerMove"
+              @pointerup="ovPointerUp"
+              @pointercancel="ovPointerUp"
+            >
+              <div class="ov-ov-cap">全程概览 · 拖动定位窗口 · <span class="ov-ov-cap-mark">竖线=事件（{{ overviewVisibleEvents.length }}）</span></div>
+              <svg :viewBox="`0 0 ${OV_W} 34`" preserveAspectRatio="none" class="ov-ov-svg">
+                <polyline :points="ovPolyline" fill="none" stroke="#8593A6" stroke-width="1.1" />
+                <rect :x="ovWinX" y="2" :width="ovWinW" height="30" fill="rgba(63,127,191,0.18)" stroke="rgba(63,127,191,0.65)" stroke-width="0.8" />
+                <line v-for="(m, i) in ovEventMarks" :key="i" :x1="m.x" y1="2" :x2="m.x" y2="32" :stroke="m.color" stroke-width="0.8" />
+              </svg>
+              <div class="ov-ov-axis">
+                <span
+                  v-for="(tk, i) in ovTicks"
+                  :key="i"
+                  :style="{ left: tk.pct + '%', transform: i === 0 ? 'none' : i === ovTicks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }"
+                >{{ tk.label }}</span>
+              </div>
+            </div>
+            <div v-else-if="showTriggers && triggerOverviewLoading" class="ov-overview ov-overview--loading">全程概览加载中...</div>
             <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="yMaxValue" :domain="effectiveYDomain" :subtitle="topoSubtitle" />
           </template>
 
@@ -523,15 +562,16 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { StudyOutputTimeseries } from '@/types'
+import type { StudyOutputTimeseries, TimeseriesEvent } from '@/types'
 import TimeCourseCanvas from '@/components/observe/TimeCourseCanvas.vue'
 import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 import CacheDebugOverlay from '@/components/observe/CacheDebugOverlay.vue'
 import MiniSparkline from '@/components/observe/MiniSparkline.vue'
 import TopoStrip from '@/components/observe/TopoStrip.vue'
-import { fetchTimeseries } from '@/composables/observe/plotCache'
+import { fetchTimeseries, type FetchParams } from '@/composables/observe/plotCache'
 import { useFacetGrid } from '@/composables/observe/useFacetGrid'
 import { useMultiSelect } from '@/composables/observe/useMultiSelect'
+import { useDebouncedJob } from '@/composables/observe/useDebouncedJob'
 import { usePalette } from '@/composables/observe/usePalette'
 import { useCursorState } from '@/composables/observe/useCursorState'
 import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
@@ -561,6 +601,13 @@ const DATA_TYPE_LABELS: Record<string, string> = {
   epochs: '分段 (epochs)',
   evoked: '平均 (evoked / ERP)',
 }
+const SELECT_RENDER_DEBOUNCE_MS = 80
+const SELECT_LOAD_DEBOUNCE_MS = 120
+const LOCAL_TS_CACHE_MAX = 96
+const OVERVIEW_POINTS = 1500
+const OVERVIEW_CHANNELS = 256
+const OV_W = 470
+const EVENT_PALETTE = ['#378ADD', '#1D9E75', '#BA7517', '#8A6FB0', '#D4537E', '#5E8F6B', '#B0794F', '#2E8B9A', '#9A6B6B', '#637FA5']
 const DEFAULT_SELECT = 8
 const INACTIVE_DOT = '#cbd2dc' // 未选中项的灰点（Niantong 风格：选中=彩色、未选=灰）
 
@@ -618,6 +665,8 @@ const yHiInput = ref<number | string>('')
 const showGrid = ref(true)
 const showStats = ref(true)
 const showTopo = ref(true)
+const showTriggers = ref(false)
+const selectedTriggerLabels = ref<Set<string>>(new Set())
 const topoMode = ref<'window' | 'cursor'>('cursor') // 地形图取值：区间均值 / 跟随游标时刻（默认跟随游标）
 const showLeft = ref(true) // 左栏（选择器）折叠
 const pageRef = ref<HTMLElement | null>(null) // 全屏目标（整页）
@@ -761,6 +810,11 @@ const sortedSegs = computed(() =>
     })
     .sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b)),
 )
+const renderSegs = ref<number[]>([])
+const renderSegsJob = useDebouncedJob(() => {
+  renderSegs.value = [...sortedSegs.value]
+}, SELECT_RENDER_DEBOUNCE_MS)
+const plotSegs = computed(() => renderSegs.value.length ? renderSegs.value : sortedSegs.value)
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const ts = computed<StudyOutputTimeseries | null>(
   () => tsMap.value.get(primarySeg.value) ?? tsMap.value.values().next().value ?? null,
@@ -914,6 +968,212 @@ function scaleFor(t: StudyOutputTimeseries): number {
   return maxAbs > 0 && maxAbs < 0.01 ? 1e6 : 1
 }
 
+type TriggerMarker = { x: number; label: string; color: string }
+const triggerOverview = ref<StudyOutputTimeseries | null>(null)
+const triggerOverviewSeg = ref<number | null>(null)
+const triggerOverviewLoading = ref(false)
+const ovDragStart = ref<number | null>(null)
+let triggerOverviewSeq = 0
+
+function cleanTrigger(e: TimeseriesEvent): TimeseriesEvent | null {
+  const description = String(e.description || '').trim()
+  if (!description) return null
+  const onset = Number(e.onset)
+  const duration = Math.max(0, Number(e.duration) || 0)
+  if (!Number.isFinite(onset)) return null
+  return { onset, duration, description }
+}
+function eventsForSeg(seg: number): TimeseriesEvent[] {
+  return (tsMap.value.get(seg)?.events ?? []).map(cleanTrigger).filter((e): e is TimeseriesEvent => Boolean(e))
+}
+const triggerLabelCounts = computed(() => {
+  const m = new Map<string, number>()
+  for (const seg of plotSegs.value) for (const e of eventsForSeg(seg)) m.set(e.description, (m.get(e.description) || 0) + 1)
+  return m
+})
+const triggerLabels = computed(() => [...triggerLabelCounts.value.keys()].sort((a, b) => a.localeCompare(b)))
+const triggerLabelIndex = computed(() => {
+  const m = new Map<string, number>()
+  triggerLabels.value.forEach((label, i) => m.set(label, i))
+  return m
+})
+const triggerLabelRows = computed(() => triggerLabels.value.map((label) => ({
+  label,
+  count: triggerLabelCounts.value.get(label) || 0,
+  color: triggerColorFor(label),
+})))
+const canShowTriggerLabels = computed(() => isContinuous.value && triggerLabels.value.length > 0)
+const activeTriggerLabels = computed(() => new Set([...selectedTriggerLabels.value].filter((label) => triggerLabelCounts.value.has(label))))
+const visibleTriggerLabels = computed(() => (showTriggers.value ? activeTriggerLabels.value : new Set<string>()))
+const selectedTriggerCount = computed(() => activeTriggerLabels.value.size)
+function triggerColorFor(label: string): string {
+  return EVENT_PALETTE[(triggerLabelIndex.value.get(label) ?? 0) % EVENT_PALETTE.length]
+}
+function setTriggerEnabled(on: boolean) {
+  showTriggers.value = on
+  if (on && !selectedTriggerLabels.value.size) selectedTriggerLabels.value = new Set(triggerLabels.value)
+}
+function setTriggerLabel(label: string, on: boolean) {
+  const next = new Set(selectedTriggerLabels.value)
+  if (on) next.add(label)
+  else next.delete(label)
+  selectedTriggerLabels.value = next
+}
+function selectAllTriggerLabels() {
+  selectedTriggerLabels.value = new Set(triggerLabels.value)
+  showTriggers.value = true
+}
+function clearTriggerLabels() {
+  selectedTriggerLabels.value = new Set()
+}
+function triggerMarkersFor(segs: number[]): TriggerMarker[] {
+  if (!showTriggers.value || !canShowTriggerLabels.value) return []
+  const labels = visibleTriggerLabels.value
+  if (!labels.size) return []
+  const out: TriggerMarker[] = []
+  const seen = new Set<string>()
+  for (const seg of segs) {
+    for (const e of eventsForSeg(seg)) {
+      if (!labels.has(e.description)) continue
+      const key = `${e.onset.toFixed(5)}::${e.description}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ x: e.onset * xFactor.value, label: e.description, color: triggerColorFor(e.description) })
+    }
+  }
+  return out
+}
+
+watch(triggerLabels, (labels) => {
+  const available = new Set(labels)
+  const kept = [...selectedTriggerLabels.value].filter((label) => available.has(label))
+  selectedTriggerLabels.value = new Set(kept.length ? kept : labels)
+  if (!labels.length) showTriggers.value = false
+}, { immediate: true })
+watch(showTriggers, (on) => {
+  if (on && !selectedTriggerLabels.value.size) selectedTriggerLabels.value = new Set(triggerLabels.value)
+})
+
+function outputIdForSeg(seg: number): string {
+  return isMultiOutput ? (outputIds[seg] ?? outputIds[0] ?? '') : datasetId
+}
+async function loadTriggerOverview() {
+  if (!studyId || !showTriggers.value || !canShowTriggerLabels.value) {
+    triggerOverview.value = null
+    triggerOverviewSeg.value = null
+    return
+  }
+  const seg = primarySeg.value
+  const oid = outputIdForSeg(seg)
+  const src = tsMap.value.get(seg) ?? ts.value
+  const hi = Number(src?.available_tmax ?? src?.total_duration ?? src?.tmax ?? 0)
+  if (!oid || !(hi > 0)) return
+  const myId = ++triggerOverviewSeq
+  triggerOverviewLoading.value = true
+  try {
+    const { ts: data } = await fetchTimeseries(studyId, oid, {
+      tmin: 0,
+      tmax: hi,
+      maxPoints: OVERVIEW_POINTS,
+      maxChannels: OVERVIEW_CHANNELS,
+      lFreq: 1,
+      hFreq: null,
+      notch: null,
+    })
+    if (myId !== triggerOverviewSeq) return
+    triggerOverview.value = data
+    triggerOverviewSeg.value = seg
+  } finally {
+    if (myId === triggerOverviewSeq) triggerOverviewLoading.value = false
+  }
+}
+const overviewWindowLen = computed(() => Math.max(1e-6, (ts.value?.tmax ?? 10) - (ts.value?.tmin ?? 0)))
+const overviewRangeMin = computed(() => triggerOverview.value?.available_tmin ?? ts.value?.available_tmin ?? 0)
+const overviewRangeMax = computed(() => Math.max(
+  overviewRangeMin.value + overviewWindowLen.value,
+  triggerOverview.value?.available_tmax ?? ts.value?.available_tmax ?? overviewRangeMin.value + overviewWindowLen.value,
+))
+const overviewWindowStart = computed(() => ovDragStart.value ?? ts.value?.tmin ?? reqTmin.value ?? overviewRangeMin.value)
+const overviewEnv = computed<number[]>(() => {
+  const o = triggerOverview.value
+  if (!showTriggers.value || !o || !o.times.length) return []
+  const n = o.times.length
+  const env = new Array(n).fill(0)
+  const sc = scaleFor(o)
+  for (const ch of o.channels) for (let i = 0; i < n; i++) {
+    const a = Math.abs((ch.values[i] || 0) * sc)
+    if (a > env[i]) env[i] = a
+  }
+  return env
+})
+const ovPolyline = computed(() => {
+  const o = triggerOverview.value
+  const env = overviewEnv.value
+  if (!o || !env.length) return ''
+  const t0 = o.times[0]
+  const t1 = o.times[o.times.length - 1]
+  const span = Math.max(1e-6, t1 - t0)
+  const sorted = [...env].sort((a, b) => a - b)
+  const norm = Math.max(1e-9, sorted[Math.floor(0.99 * (sorted.length - 1))] || 1)
+  return env.map((v, i) => `${((o.times[i] - t0) / span * OV_W).toFixed(1)},${(31 - Math.min(1, v / norm) * 28).toFixed(1)}`).join(' ')
+})
+const ovWinX = computed(() => (((overviewWindowStart.value - overviewRangeMin.value) / Math.max(1e-6, overviewRangeMax.value - overviewRangeMin.value)) * OV_W))
+const ovWinW = computed(() => (overviewWindowLen.value / Math.max(1e-6, overviewRangeMax.value - overviewRangeMin.value)) * OV_W)
+const overviewVisibleEvents = computed(() => {
+  const labels = visibleTriggerLabels.value
+  if (!showTriggers.value || !labels.size) return []
+  return (triggerOverview.value?.events ?? []).map(cleanTrigger).filter((e): e is TimeseriesEvent => Boolean(e) && labels.has(e.description))
+})
+const ovEventMarks = computed(() => {
+  const lo = overviewRangeMin.value
+  const span = Math.max(1e-6, overviewRangeMax.value - lo)
+  return overviewVisibleEvents.value.map((e) => ({
+    x: Math.max(0, Math.min(OV_W, ((e.onset - lo) / span) * OV_W)),
+    color: triggerColorFor(e.description),
+  }))
+})
+const ovTicks = computed(() => {
+  const lo = overviewRangeMin.value
+  const hi = overviewRangeMax.value
+  const span = hi - lo
+  if (!(span > 0)) return [] as { pct: number; label: string }[]
+  const n = 5
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = lo + (i / n) * span
+    return { pct: (i / n) * 100, label: `${t.toFixed(t < 10 ? 1 : 0)}s` }
+  })
+})
+function ovStartFromClientX(clientX: number, el: HTMLElement): number {
+  const rect = el.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)))
+  const maxStart = Math.max(overviewRangeMin.value, overviewRangeMax.value - overviewWindowLen.value)
+  return Math.max(overviewRangeMin.value, Math.min(maxStart, overviewRangeMin.value + ratio * (overviewRangeMax.value - overviewRangeMin.value) - overviewWindowLen.value / 2))
+}
+function setOverviewWindowStart(start: number) {
+  const len = overviewWindowLen.value
+  const maxStart = Math.max(overviewRangeMin.value, overviewRangeMax.value - len)
+  const lo = Math.max(overviewRangeMin.value, Math.min(maxStart, start))
+  const hi = Math.min(overviewRangeMax.value, lo + len)
+  reqTmin.value = lo
+  reqTmax.value = hi
+  winLoInput.value = round(lo * xFactor.value, xPrec.value)
+  winHiInput.value = round(hi * xFactor.value, xPrec.value)
+  resetZoom()
+}
+function ovPointerDown(e: PointerEvent) {
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement)
+}
+function ovPointerMove(e: PointerEvent) {
+  if (ovDragStart.value == null) return
+  ovDragStart.value = ovStartFromClientX(e.clientX, e.currentTarget as HTMLElement)
+}
+function ovPointerUp() {
+  if (ovDragStart.value == null) return
+  setOverviewWindowStart(ovDragStart.value)
+  ovDragStart.value = null
+}
+
 const allChanNames = computed(() => (ts.value?.channels ?? []).map((c) => c.name))
 const orderedChans = computed(() => allChanNames.value.filter((n) => selectedChans.value.has(n)))
 
@@ -968,7 +1228,7 @@ function xsFor(t: StudyOutputTimeseries) {
 // 本页只注入「每格画什么」(buildCell)：多段×多通道叠加 + 单位换算(scaleFor) → µV，颜色按叠加维度编码。
 // rowFactor/colFactor 仍取出，供下方「把段推成分面时自动补第 2 段」(maybeAddSecondSeg) 用。
 const { effectiveOverlay, facetDims, rowFactor, colFactor, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
-  segs: () => sortedSegs.value,
+  segs: () => plotSegs.value,
   chans: () => orderedChans.value,
   segCount: () => segCount.value,
   overlayDim,
@@ -1050,7 +1310,7 @@ interface StatRow {
 const statsRows = computed<StatRow[]>(() => {
   const r = region.value
   const chans = orderedChans.value
-  const segs = sortedSegs.value
+  const segs = plotSegs.value
   if (!r || !chans.length) return []
   const out: StatRow[] = []
   for (const seg of segs) {
@@ -1126,7 +1386,7 @@ interface CondCard {
   peakLat: number
 }
 const condCards = computed<CondCard[]>(() => {
-  if (sortedSegs.value.length < 2) return []
+  if (plotSegs.value.length < 2) return []
   const bySeg = new Map<number, StatRow[]>()
   for (const r of statsRows.value) {
     const arr = bySeg.get(r.seg)
@@ -1134,7 +1394,7 @@ const condCards = computed<CondCard[]>(() => {
     else bySeg.set(r.seg, [r])
   }
   const out: CondCard[] = []
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     const rows = bySeg.get(seg)
     if (!rows || !rows.length) continue
     let pk = rows[0]
@@ -1199,7 +1459,7 @@ const topoCells = computed<TopoCell[]>(() => {
   const live = topoMode.value === 'cursor' && cursorX.value != null
   const cx = cursorX.value
   const out: TopoCell[] = []
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     const t = tsMap.value.get(seg)
     if (!t) continue
     const pos = t.ch_pos
@@ -1287,6 +1547,68 @@ function exportCsv() {
 
 // ---------- 拉取时域数据 ----------
 let loadSeq = 0 // 请求令牌：丢弃被后续请求取代的乱序回包
+const localTsCache = new Map<string, StudyOutputTimeseries>()
+
+function tsCacheKey(seg: number, oid: string, params: FetchParams): string {
+  return [
+    seg,
+    oid,
+    params.index ?? '',
+    params.tmin ?? '',
+    params.tmax ?? '',
+    params.maxPoints,
+    params.maxChannels,
+    params.lFreq ?? '',
+    params.hFreq ?? '',
+    params.notch ?? '',
+  ].join('::')
+}
+
+function rememberTs(key: string, data: StudyOutputTimeseries) {
+  if (localTsCache.has(key)) localTsCache.delete(key)
+  localTsCache.set(key, data)
+  while (localTsCache.size > LOCAL_TS_CACHE_MAX) {
+    const first = localTsCache.keys().next().value
+    if (first === undefined) break
+    localTsCache.delete(first)
+  }
+}
+
+async function fetchWaveformSeg(seg: number): Promise<readonly [number, StudyOutputTimeseries]> {
+  if (isMultiOutput) {
+    const oid = outputIds[seg] ?? outputIds[0]
+    const params: FetchParams = {
+      index: selectedEpochIndex.value ?? undefined,
+      tmin: reqTmin.value,
+      tmax: reqTmax.value,
+      maxPoints: MAX_POINTS,
+      maxChannels: MAX_CHANNELS,
+      ...reqFilter.value,
+    }
+    const key = tsCacheKey(seg, oid, params)
+    const cached = localTsCache.get(key)
+    if (cached) return [seg, cached] as const
+    const { ts: data } = await fetchTimeseries(studyId, oid, params)
+    rememberTs(key, data)
+    return [seg, data] as const
+  }
+
+  const params: FetchParams = {
+    index: seg,
+    tmin: reqTmin.value,
+    tmax: reqTmax.value,
+    maxPoints: MAX_POINTS,
+    maxChannels: MAX_CHANNELS,
+    ...reqFilter.value,
+  }
+  const key = tsCacheKey(seg, datasetId, params)
+  const cached = localTsCache.get(key)
+  if (cached) return [cached.segment_index ?? seg, cached] as const
+  const { ts: data } = await fetchTimeseries(studyId, datasetId, params)
+  rememberTs(key, data)
+  return [data.segment_index ?? seg, data] as const
+}
+
 async function load() {
   if (!studyId || !outputIds.length) {
     error.value = '缺少参数：需要 studyId 和 study_output_id（结果 ID）。'
@@ -1300,21 +1622,7 @@ async function load() {
     const segs = sortedSegs.value.length ? sortedSegs.value : [0]
     // allSettled：单个段/产物失败（如某结果文件被清理）不连累其它已成功的，部分可用也能看
     const settled = await Promise.allSettled(
-      segs.map(async (seg) => {
-        if (isMultiOutput) {
-          // 多产物对比：键=产物序号(0..N-1)，把"数据集"摆到段维度复用对比/网格机制
-          const oid = outputIds[seg] ?? outputIds[0]
-          const { ts: data } = await fetchTimeseries(studyId, oid, {
-            index: selectedEpochIndex.value ?? undefined,
-            tmin: reqTmin.value, tmax: reqTmax.value, maxPoints: MAX_POINTS, maxChannels: MAX_CHANNELS, ...reqFilter.value,
-          })
-          return [seg, data] as const
-        }
-        const { ts: data } = await fetchTimeseries(studyId, datasetId, {
-          index: seg, tmin: reqTmin.value, tmax: reqTmax.value, maxPoints: MAX_POINTS, maxChannels: MAX_CHANNELS, ...reqFilter.value,
-        })
-        return [data.segment_index ?? seg, data] as const
-      }),
+      segs.map((seg) => fetchWaveformSeg(seg)),
     )
     if (myId !== loadSeq) return // 已被更新的请求取代，丢弃这次结果
     const ok = settled.filter(
@@ -1470,6 +1778,11 @@ function toggleStats() {
 
 // 段集合 / 窗口 / 滤波变化 → 重新取数（通道选择、行列分配、数据集排序是客户端的，不触发）。
 // 注意键是「成员级」（按下标数字序 join），只认勾了哪些、不认展示顺序——重排 ↑/↓ 不该整批重取。
+watch(() => sortedSegs.value.join(','), () => renderSegsJob.schedule(), { immediate: true })
+const loadJob = useDebouncedJob(() => {
+  resetZoom()
+  void load()
+}, SELECT_LOAD_DEBOUNCE_MS)
 watch([
   () => [...selectedSegs.value].sort((a, b) => a - b).join(','),
   () => [...selectedDatasetKeys.value].sort().join(','),
@@ -1478,10 +1791,22 @@ watch([
   reqTmax,
   () => JSON.stringify(reqFilter.value),
 ], () => {
-  resetZoom() // 取新窗口的数据 = 新视图，清掉旧的视觉缩放
-  void load()
+  loadJob.schedule()
 })
 // 改 Y 轴上限 = 重设幅度基准、切叠加/排列 = 幅度语义变 → 复位幅度系数（保留时间缩放）
+watch([
+  showTriggers,
+  canShowTriggerLabels,
+  () => primarySeg.value,
+  () => ts.value?.available_tmax,
+  () => triggerLabels.value.join('\u0001'),
+], () => {
+  if (showTriggers.value && canShowTriggerLabels.value) void loadTriggerOverview()
+  else {
+    triggerOverview.value = null
+    triggerOverviewSeg.value = null
+  }
+})
 watch([yLoManual, yHiManual, displayMode], () => { ampScale.value = 1 })
 // 滚轮视觉缩放 → 回写「时间窗」输入框，让工具条数字始终 = 屏上可见窗（与频域/时频一致）。
 // 注意：时域工具条的时间窗本是取数窗（reqTmin/Max），与纯前端视觉缩放(viewX*)是两套；此处只做显示同步。
@@ -1590,6 +1915,8 @@ onMounted(() => {
   void load()
 })
 onUnmounted(() => {
+  renderSegsJob.cancel()
+  loadJob.cancel()
   window.removeEventListener('keydown', onKeydown)
 })
 </script>

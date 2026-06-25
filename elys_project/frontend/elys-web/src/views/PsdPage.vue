@@ -485,6 +485,7 @@ import { compactDatasetLabels, loadOutputOptionMeta, type OutputOptionMeta } fro
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
+import { useDebouncedJob } from '@/composables/observe/useDebouncedJob'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
 import { decodeElysBin } from '@/composables/observe/binaryCodec'
 import { usePerfProbe } from '@/composables/observe/usePerfProbe'
@@ -499,6 +500,7 @@ const cellTimeCourseRefs: any[] = []
 // ---------- 常量 ----------
 const MAX_CHANNELS = 64
 const DEFAULT_SELECT = 8
+const SELECT_RENDER_DEBOUNCE_MS = 80
 const INACTIVE_DOT = '#cbd2dc'
 const HOVER_COLLAPSED = 6
 const TYPE_COLOR = '#7B5EA8'
@@ -617,6 +619,11 @@ const sortedSegs = computed(() =>
     })
     .sort((a, b) => a - b),
 )
+const renderSegs = ref<number[]>([])
+const renderSegsJob = useDebouncedJob(() => {
+  renderSegs.value = [...sortedSegs.value]
+}, SELECT_RENDER_DEBOUNCE_MS)
+const plotSegs = computed(() => renderSegs.value.length ? renderSegs.value : sortedSegs.value)
 const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0] : 0))
 const primaryPsd = computed<StudyOutputPsd | null>(
   () => psdMap.value.get(primarySeg.value) ?? psdMap.value.values().next().value ?? null,
@@ -686,13 +693,14 @@ watch(datasetKeys, (keys) => {
   const current = [...selectedDatasetKeys.value].filter((key) => keys.includes(key))
   selectedDatasetKeys.value = new Set(current.length ? current : [keys[0]])
 }, { immediate: true })
+watch(() => sortedSegs.value.join(','), () => renderSegsJob.schedule(), { immediate: true })
 
 // ---------- facet 单元（数据访问注入 useFacetGrid）----------
 function cellAccent(cell: { series: { color: string }[] }): string {
   return cell.series[0]?.color || 'var(--c-border)'
 }
 const { effectiveOverlay, rowFactor, colFactor, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
-  segs: () => sortedSegs.value,
+  segs: () => plotSegs.value,
   chans: () => orderedChans.value,
   segCount: () => segCount.value,
   overlayDim,
@@ -728,7 +736,7 @@ const facetColLabel = computed(() => (colFactor.value === 'seg' ? '数据集' : 
 const yDomainAll = computed<[number, number] | null>(() => {
   let lo = Infinity
   let hi = -Infinity
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     const psd = psdMap.value.get(seg)
     if (!psd) continue
     for (const ch of psd.channels) {
@@ -1013,7 +1021,7 @@ interface PsdStatRow {
 }
 const statsRows = computed<PsdStatRow[]>(() => {
   const chans = orderedChans.value
-  const segs = sortedSegs.value
+  const segs = plotSegs.value
   if (!chans.length) return []
   const out: PsdStatRow[] = []
   for (const seg of segs) {
@@ -1117,7 +1125,7 @@ const topoCells = computed<TopoCell[]>(() => {
     ? (cursorHz === null ? '把鼠标移到谱线上查看' : '该频率无数据')
     : (custLo === null || custHi === null ? '请设置频率区间' : '该区间内无数据')
   const out: TopoCell[] = []
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     const psd = psdMap.value.get(seg)
     if (!psd) continue
     const pos = psd.ch_pos
@@ -1397,6 +1405,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 })
 
 onUnmounted(() => {
+  renderSegsJob.cancel()
   window.removeEventListener('keydown', onKeydown)
 })
 </script>

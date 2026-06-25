@@ -28,10 +28,11 @@ export const cacheStats = reactive({
 })
 
 const MEM_MAX = 64
+const CACHE_SCHEMA = 'timeseries-v2-events'
 const mem = new Map<string, StudyOutputTimeseries>()
 
 function keyOf(studyId: string, dd: string, p: FetchParams): string {
-  return [studyId, dd, p.index ?? 0, p.tmin ?? '', p.tmax ?? '', p.maxPoints, p.maxChannels, p.lFreq ?? '', p.hFreq ?? '', p.notch ?? ''].join('::')
+  return [CACHE_SCHEMA, studyId, dd, p.index ?? 0, p.tmin ?? '', p.tmax ?? '', p.maxPoints, p.maxChannels, p.lFreq ?? '', p.hFreq ?? '', p.notch ?? ''].join('::')
 }
 
 function memSet(key: string, v: StudyOutputTimeseries) {

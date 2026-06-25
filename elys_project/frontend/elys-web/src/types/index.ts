@@ -1163,6 +1163,12 @@ export interface TimeseriesChannel {
   values: number[]
 }
 
+export interface TimeseriesEvent {
+  onset: number
+  duration: number
+  description: string
+}
+
 export interface StudyOutputTimeseries {
   data_type: string
   unit?: string | null
@@ -1183,6 +1189,7 @@ export interface StudyOutputTimeseries {
   ch_names_all: string[]
   /** 通道 2D 头皮投影坐标（单位圆内，+x=右 +y=前）；无 montage 时为 null。供地形图条。 */
   ch_pos?: Record<string, [number, number]> | null
+  events?: TimeseriesEvent[] | null
   times: number[]
   channels: TimeseriesChannel[]
 }

@@ -268,6 +268,31 @@ def _apply_view_filter(np, data, sfreq, l_freq, h_freq, notch):
         return data
 
 
+def _raw_events(raw) -> list[dict[str, Any]]:
+    annotations = getattr(raw, "annotations", None)
+    if annotations is None:
+        return []
+    try:
+        onsets = list(getattr(annotations, "onset", []) or [])
+        durations = list(getattr(annotations, "duration", []) or [])
+        descriptions = list(getattr(annotations, "description", []) or [])
+    except Exception:
+        return []
+    events: list[dict[str, Any]] = []
+    for onset, duration, description in zip(onsets, durations, descriptions):
+        label = str(description or "").strip()
+        if not label or label.upper().startswith("BAD_"):
+            continue
+        try:
+            t = float(onset)
+            d = max(0.0, float(duration or 0.0))
+        except Exception:
+            continue
+        events.append({"onset": round(t, 5), "duration": round(d, 5), "description": label})
+    events.sort(key=lambda item: (item["onset"], item["description"]))
+    return events
+
+
 def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels, l_freq=None, h_freq=None, notch=None) -> dict[str, Any]:
     mne = _mne()
     np = _numpy()
@@ -309,6 +334,7 @@ def _ts_raw(path: Path, data_type: str, tmin, tmax, max_points, max_channels, l_
         "n_channels_total": len(raw.ch_names),
         "ch_names_all": [str(c) for c in raw.ch_names],
         "ch_pos": channel_positions_2d(raw.info, names),
+        "events": _raw_events(raw),
         "times": out_times,
         "channels": channels,
     }

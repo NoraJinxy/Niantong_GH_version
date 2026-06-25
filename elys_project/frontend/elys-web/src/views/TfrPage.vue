@@ -409,7 +409,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
 import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
@@ -424,6 +424,7 @@ import { compactDatasetLabels, loadOutputOptionMeta, type OutputOptionMeta } fro
 import { useFullscreen } from '@/composables/observe/useFullscreen'
 import { useNumberWheelGuard } from '@/composables/observe/useNumberWheelGuard'
 import { useClickOutside } from '@/composables/observe/useClickOutside'
+import { useDebouncedJob } from '@/composables/observe/useDebouncedJob'
 import { useTieredFetch } from '@/composables/observe/useTieredFetch'
 import { decodeElysBin } from '@/composables/observe/binaryCodec'
 import { usePerfProbe } from '@/composables/observe/usePerfProbe'
@@ -440,6 +441,8 @@ const TYPE_COLOR = '#B0544C'
 const MAX_FREQS = 80
 const MAX_TIMES = 160
 const MAX_CELLS = 16 // 软上限：通道×数据集 同时显示的热图数（防一墙小图 + 海量请求）
+const SELECT_RENDER_DEBOUNCE_MS = 80
+const SELECT_LOAD_DEBOUNCE_MS = 120
 const TIME_WINDOWS = [
   { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
   { key: 'post', label: '刺激后', lo: 0, hi: null as number | null },
@@ -563,6 +566,11 @@ const sortedSegs = computed(() =>
     })
     .sort((a, b) => a - b),
 )
+const renderSegs = ref<number[]>([])
+const renderSegsJob = useDebouncedJob(() => {
+  renderSegs.value = [...sortedSegs.value]
+}, SELECT_RENDER_DEBOUNCE_MS)
+const plotSegs = computed(() => renderSegs.value.length ? renderSegs.value : sortedSegs.value)
 
 const chanSel = useMultiSelect<string>(() => allChanNames.value, [])
 const selectedChans = chanSel.selected
@@ -602,6 +610,7 @@ watch(datasetKeys, (keys) => {
   const current = [...selectedDatasetKeys.value].filter((key) => keys.includes(key))
   selectedDatasetKeys.value = new Set(current.length ? current : [keys[0]])
 }, { immediate: true })
+watch(() => sortedSegs.value.join(','), () => renderSegsJob.schedule(), { immediate: true })
 function findAnyForSeg(seg: number): StudyOutputTfr | null {
   for (const ch of orderedChans.value) {
     const hit = tfrMap.value.get(`${seg}::${ch}`)
@@ -637,7 +646,7 @@ interface Cell {
 const swapAxes = ref(false)
 const cells = computed<Cell[]>(() => {
   const out: Cell[] = []
-  const segs = sortedSegs.value
+  const segs = plotSegs.value
   const chans = orderedChans.value
   const multiSeg = segs.length > 1
   // 外层循环=行因素：默认 seg 外层(行=数据集)；swap 时 chan 外层(行=通道)
@@ -662,8 +671,8 @@ const cells = computed<Cell[]>(() => {
   return out
 })
 // 严格矩阵（数据集×通道 都>1）：列因素 swap 后由通道变数据集
-const isMatrix = computed(() => sortedSegs.value.length > 1 && orderedChans.value.length > 1)
-const gridCols = computed(() => (isMatrix.value ? (swapAxes.value ? sortedSegs.value.length : orderedChans.value.length) : 0))
+const isMatrix = computed(() => plotSegs.value.length > 1 && orderedChans.value.length > 1)
+const gridCols = computed(() => (isMatrix.value ? (swapAxes.value ? plotSegs.value.length : orderedChans.value.length) : 0))
 const facetRowLabel = computed(() => (!isMatrix.value ? '—' : swapAxes.value ? '通道' : '数据集'))
 const facetColLabel = computed(() => (!isMatrix.value ? '—' : swapAxes.value ? '数据集' : '通道'))
 const facetStyle = computed<Record<string, string>>(() => {
@@ -980,7 +989,7 @@ const windowRange = computed(() => {
 // 一次性取回所选数据集的全通道立方体（缺哪个取哪个，已取的不重复）→ 之后切模式/移游标全本地算
 async function loadCubes() {
   if (!showTopo.value || !studyId || !primaryMeta.value) return
-  const need = sortedSegs.value.filter((seg) => !cubeMap.value.has(seg))
+  const need = plotSegs.value.filter((seg) => !cubeMap.value.has(seg))
   if (!need.length) return
   const myId = ++cubeSeq
   const settled = await Promise.allSettled(
@@ -1031,7 +1040,7 @@ const topoCells = computed(() => {
   const out: { seg: number; label: string; color: string; points: TopoPoint[] | null }[] = []
   if (!showTopo.value) return out
   const demean = unit.value === 'power' // 绝对功率单侧 → 去均值才有红蓝；有符号(dB/%/z)天然绕 0，不去
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     const cube = cubeMap.value.get(seg)
     if (!cube) continue
     const positioned = cube.channels.filter((c) => c.x != null && c.y != null)
@@ -1079,11 +1088,12 @@ const topoModeHint = computed(() => {
   return `${win} ${scale}`
 })
 // 取数集变化 / 开关地形图 → 取回缺失的立方体（一次性，之后切模式/移游标都本地算、不再回后端）
+const cubeLoadJob = useDebouncedJob(() => {
+  if (showTopo.value) void loadCubes()
+}, SELECT_LOAD_DEBOUNCE_MS)
 watch(
   () => [sortedSegs.value.join(','), showTopo.value],
-  () => {
-    if (showTopo.value) void loadCubes()
-  },
+  () => { cubeLoadJob.schedule() },
 )
 
 // ---------- 导出 ----------
@@ -1215,7 +1225,7 @@ async function bootstrap() {
 async function syncLoad() {
   if (!studyId) return
   const pairs: [number, string][] = []
-  for (const seg of sortedSegs.value) {
+  for (const seg of plotSegs.value) {
     for (const ch of orderedChans.value) {
       if (!tfrMap.value.has(`${seg}::${ch}`)) pairs.push([seg, ch])
       if (pairs.length + tfrMap.value.size >= MAX_CELLS + 4) break
@@ -1265,11 +1275,12 @@ function describeError(err: unknown): string {
 }
 
 // 选择变化 → 增量取缺失的 (数据集×通道)
+const syncLoadJob = useDebouncedJob(() => {
+  if (primaryMeta.value) void syncLoad()
+}, SELECT_LOAD_DEBOUNCE_MS)
 watch(
   () => [sortedSegs.value.join(','), orderedChans.value.join(',')],
-  () => {
-    if (primaryMeta.value) void syncLoad()
-  },
+  () => { syncLoadJob.schedule() },
 )
 
 // ---------- 左栏折叠 ----------
@@ -1330,6 +1341,11 @@ onMounted(() => {
   document.title = '时频分析 — 念析'
   if (isMultiOutput.value) void loadOutputOptionMeta(studyId, outputIds.value, outputMetaCache)
   void bootstrap()
+})
+onUnmounted(() => {
+  renderSegsJob.cancel()
+  cubeLoadJob.cancel()
+  syncLoadJob.cancel()
 })
 </script>
 
