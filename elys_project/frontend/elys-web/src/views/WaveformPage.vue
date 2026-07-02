@@ -370,7 +370,7 @@
               </section>
             </div>
             <div
-              v-if="showTriggers && overviewEnv.length"
+              v-if="canShowTriggerLabels && overviewEnv.length"
               class="ov-overview"
               @pointerdown="ovPointerDown"
               @pointermove="ovPointerMove"
@@ -391,7 +391,7 @@
                 >{{ tk.label }}</span>
               </div>
             </div>
-            <div v-else-if="showTriggers && triggerOverviewLoading" class="ov-overview ov-overview--loading">全程概览加载中...</div>
+            <div v-else-if="canShowTriggerLabels && triggerOverviewLoading" class="ov-overview ov-overview--loading">全程概览加载中...</div>
             <TopoStrip v-if="showTopo && topoCells.length" :cells="topoCells" :vmax="yMaxValue" :domain="effectiveYDomain" :subtitle="topoSubtitle" />
           </template>
 
@@ -608,6 +608,7 @@ const OVERVIEW_POINTS = 1500
 const OVERVIEW_CHANNELS = 256
 const OV_W = 470
 const EVENT_PALETTE = ['#378ADD', '#1D9E75', '#BA7517', '#8A6FB0', '#D4537E', '#5E8F6B', '#B0794F', '#2E8B9A', '#9A6B6B', '#637FA5']
+const WHOLE_EVENT_LABELS = new Set(['整体', '全程', '全部', 'overall', 'all'])
 const DEFAULT_SELECT = 8
 const INACTIVE_DOT = '#cbd2dc' // 未选中项的灰点（Niantong 风格：选中=彩色、未选=灰）
 
@@ -951,6 +952,20 @@ function eventLabel(seg: number) {
   if (isMultiOutputEpochs.value) return t?.segment_label || ts.value?.segment_options?.[0] || 'Epoch-1'
   return outputMetaCache[seg]?.eventLabel || t?.segment_label || '整体'
 }
+function isWholeEventLabel(label: string | null | undefined): boolean {
+  const s = String(label || '').trim()
+  return WHOLE_EVENT_LABELS.has(s) || WHOLE_EVENT_LABELS.has(s.toLowerCase())
+}
+const currentEventLabels = computed(() => {
+  const labels = plotSegs.value.map((seg) => eventLabel(seg)).filter(Boolean)
+  if (labels.length) return [...new Set(labels)]
+  const fallback = eventLabel(primarySeg.value)
+  return fallback ? [fallback] : []
+})
+const currentEventIsWhole = computed(() => {
+  const labels = currentEventLabels.value
+  return labels.length > 0 && labels.every(isWholeEventLabel)
+})
 function segColor(seg: number) {
   // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色；连续色板按段数铺满渐变
   return colorAt(seg, Math.max(1, segCount.value))
@@ -974,6 +989,12 @@ const triggerOverviewSeg = ref<number | null>(null)
 const triggerOverviewLoading = ref(false)
 const ovDragStart = ref<number | null>(null)
 let triggerOverviewSeq = 0
+function clearTriggerOverview() {
+  triggerOverviewSeq++
+  triggerOverviewLoading.value = false
+  triggerOverview.value = null
+  triggerOverviewSeg.value = null
+}
 
 function cleanTrigger(e: TimeseriesEvent): TimeseriesEvent | null {
   const description = String(e.description || '').trim()
@@ -1002,7 +1023,7 @@ const triggerLabelRows = computed(() => triggerLabels.value.map((label) => ({
   count: triggerLabelCounts.value.get(label) || 0,
   color: triggerColorFor(label),
 })))
-const canShowTriggerLabels = computed(() => isContinuous.value && triggerLabels.value.length > 0)
+const canShowTriggerLabels = computed(() => isContinuous.value && currentEventIsWhole.value)
 const activeTriggerLabels = computed(() => new Set([...selectedTriggerLabels.value].filter((label) => triggerLabelCounts.value.has(label))))
 const visibleTriggerLabels = computed(() => (showTriggers.value ? activeTriggerLabels.value : new Set<string>()))
 const selectedTriggerCount = computed(() => activeTriggerLabels.value.size)
@@ -1048,26 +1069,30 @@ watch(triggerLabels, (labels) => {
   const available = new Set(labels)
   const kept = [...selectedTriggerLabels.value].filter((label) => available.has(label))
   selectedTriggerLabels.value = new Set(kept.length ? kept : labels)
-  if (!labels.length) showTriggers.value = false
 }, { immediate: true })
 watch(showTriggers, (on) => {
   if (on && !selectedTriggerLabels.value.size) selectedTriggerLabels.value = new Set(triggerLabels.value)
+})
+watch(canShowTriggerLabels, (canShow) => {
+  if (!canShow) showTriggers.value = false
 })
 
 function outputIdForSeg(seg: number): string {
   return isMultiOutput ? (outputIds[seg] ?? outputIds[0] ?? '') : datasetId
 }
 async function loadTriggerOverview() {
-  if (!studyId || !showTriggers.value || !canShowTriggerLabels.value) {
-    triggerOverview.value = null
-    triggerOverviewSeg.value = null
+  if (!studyId || !canShowTriggerLabels.value) {
+    clearTriggerOverview()
     return
   }
   const seg = primarySeg.value
   const oid = outputIdForSeg(seg)
   const src = tsMap.value.get(seg) ?? ts.value
   const hi = Number(src?.available_tmax ?? src?.total_duration ?? src?.tmax ?? 0)
-  if (!oid || !(hi > 0)) return
+  if (!oid || !(hi > 0)) {
+    clearTriggerOverview()
+    return
+  }
   const myId = ++triggerOverviewSeq
   triggerOverviewLoading.value = true
   try {
@@ -1096,7 +1121,7 @@ const overviewRangeMax = computed(() => Math.max(
 const overviewWindowStart = computed(() => ovDragStart.value ?? ts.value?.tmin ?? reqTmin.value ?? overviewRangeMin.value)
 const overviewEnv = computed<number[]>(() => {
   const o = triggerOverview.value
-  if (!showTriggers.value || !o || !o.times.length) return []
+  if (!o || !o.times.length) return []
   const n = o.times.length
   const env = new Array(n).fill(0)
   const sc = scaleFor(o)
@@ -1795,17 +1820,13 @@ watch([
 })
 // 改 Y 轴上限 = 重设幅度基准、切叠加/排列 = 幅度语义变 → 复位幅度系数（保留时间缩放）
 watch([
-  showTriggers,
   canShowTriggerLabels,
   () => primarySeg.value,
   () => ts.value?.available_tmax,
   () => triggerLabels.value.join('\u0001'),
 ], () => {
-  if (showTriggers.value && canShowTriggerLabels.value) void loadTriggerOverview()
-  else {
-    triggerOverview.value = null
-    triggerOverviewSeg.value = null
-  }
+  if (canShowTriggerLabels.value) void loadTriggerOverview()
+  else clearTriggerOverview()
 })
 watch([yLoManual, yHiManual, displayMode], () => { ampScale.value = 1 })
 // 滚轮视觉缩放 → 回写「时间窗」输入框，让工具条数字始终 = 屏上可见窗（与频域/时频一致）。

@@ -23,6 +23,7 @@ from app.pipeline.contracts import NodeExecutionContext, NodeInput, NodeOutput
 from app.pipeline.dispatcher import NodeDispatcher, NodeExecutorNotImplemented
 from app.pipeline.hash import input_hash, node_hash, params_hash, trace_code
 from app.pipeline.load_data import resolve_load_data_selection
+from app.pipeline.ports import canonical_input_port_name
 from app.pipeline.registry import NodeRegistry, get_node_registry
 from app.pipeline.execution_manifest import generate_execution_manifest, should_generate_execution_manifest
 from app.pipeline.topology import analyze_pipeline_topology
@@ -800,6 +801,8 @@ class PipelineExecutor:
         outputs_by_node: dict[str, NodeOutput],
     ) -> dict[str, NodeInput]:
         node_id = str(node.get("id") or "")
+        node_type = str(node.get("type") or "")
+        node_spec = get_node_registry().get(node_type)
         graph = definition_json.get("graph") if isinstance(definition_json, dict) else {}
         links = graph.get("links", []) if isinstance(graph, dict) else []
         inputs: dict[str, NodeInput] = {}
@@ -815,7 +818,7 @@ class PipelineExecutor:
             source = link.get("from") or {}
             source_node_id = str(source.get("node") or "")
             source_port = str(source.get("port") or "output")
-            target_port = str(target.get("port") or "input")
+            target_port = canonical_input_port_name(node_spec, str(target.get("port") or "input"))
             source_output = outputs_by_node.get(source_node_id)
             if source_output is None:
                 inputs.setdefault(target_port, NodeInput(port=target_port))

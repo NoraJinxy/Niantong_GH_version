@@ -846,7 +846,24 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($WorkerMemoryMax)) {
         $workerMemoryMaxArg = " --worker-memory-max ${WorkerMemoryMax}"
     }
-    $computeCmd = "rm -rf $RemoteTmp && mkdir -p $RemoteTmp && tar -xzf /tmp/elys_project.tar.gz -C $RemoteTmp && chmod +x $RemoteDeploy && rm -f /tmp/elys_project.tar.gz && $RemoteDeploy --role compute --entry-domain ${EntryDomain} --data-domain ${DataDomain} --entry-public-ip ${EntryServerIP} --compute-public-ip ${ComputeServerIP} --entry-access-host ${EntryAccessHost} --data-access-host ${DataAccessHost} --public-scheme ${PublicScheme} --studies-dir '${StudiesDir}' --extra-apt-packages '${ExtraAptPackages}' --use-cn-mirrors ${UseCnMirrors}${workerConcurrencyArg}${workerMemoryHighArg}${workerMemoryMaxArg}${resetDbArg}${resetStorageArg}${resetDataRootArg}${resetVenvArg}"
+    $testUserPasswordForDeploy = $env:ELYS_TEST_USER_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($testUserPasswordForDeploy)) {
+        $testUserPasswordForDeploy = [Environment]::GetEnvironmentVariable("ELYS_TEST_USER_PASSWORD", "User")
+    }
+    if ([string]::IsNullOrWhiteSpace($testUserPasswordForDeploy)) {
+        $testUserPasswordForDeploy = $env:ELYS_PASSWORD
+    }
+    if ([string]::IsNullOrWhiteSpace($testUserPasswordForDeploy)) {
+        $testUserPasswordForDeploy = [Environment]::GetEnvironmentVariable("ELYS_PASSWORD", "User")
+    }
+    $computeEnvPrefix = ""
+    if (-not [string]::IsNullOrWhiteSpace($testUserPasswordForDeploy)) {
+        $computeEnvPrefix = "ELYS_TEST_USER_PASSWORD=$(Quote-RemoteValue $testUserPasswordForDeploy) "
+    }
+    else {
+        Write-LocalWarn "ELYS_TEST_USER_PASSWORD/ELYS_PASSWORD is empty; remote dev test users will not be seeded."
+    }
+    $computeCmd = "rm -rf $RemoteTmp && mkdir -p $RemoteTmp && tar -xzf /tmp/elys_project.tar.gz -C $RemoteTmp && chmod +x $RemoteDeploy && rm -f /tmp/elys_project.tar.gz && ${computeEnvPrefix}$RemoteDeploy --role compute --entry-domain ${EntryDomain} --data-domain ${DataDomain} --entry-public-ip ${EntryServerIP} --compute-public-ip ${ComputeServerIP} --entry-access-host ${EntryAccessHost} --data-access-host ${DataAccessHost} --public-scheme ${PublicScheme} --studies-dir '${StudiesDir}' --extra-apt-packages '${ExtraAptPackages}' --use-cn-mirrors ${UseCnMirrors}${workerConcurrencyArg}${workerMemoryHighArg}${workerMemoryMaxArg}${resetDbArg}${resetStorageArg}${resetDataRootArg}${resetVenvArg}"
     Invoke-Remote -ServerIP $ComputeServerIP -Command $computeCmd
     Write-LocalOk "Remote compute deployment complete"
 

@@ -26,6 +26,7 @@ import {
   graphNodeSize,
   type LiteGraphNode,
 } from './litegraphUtils'
+import { allowsMultipleInputLinks, liteGraphInputPorts } from './dynamicPorts'
 
 // node type 经 LiteGraph.registerNodeType 全局注册、进程内只注册一次：其自绘（onDrawForeground）闭包会永久
 // 指向「首次挂载」那次 useLiteGraphNodeTypes 的运行态实例。从 /artifact /ica 这类顶级路由重挂返回后，
@@ -96,7 +97,7 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
           this.bgcolor = '#FFFFFF'
           this.shape = LiteGraph.ROUND_SHAPE
           this.resizable = true
-          for (const input of spec.inputs || []) {
+          for (const input of liteGraphInputPorts(spec)) {
             const color = portTypeColor(input.type)
             this.addInput(input.name, liteGraphPortType(input.type), {
               label: input.label || input.name,
@@ -104,6 +105,9 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
               color_off: withAlpha(color, 0.36),
               shape: LiteGraph.CIRCLE_SHAPE,
             })
+            const slot = (this as unknown as { inputs?: Array<{ cardinality?: string | null }> })
+              .inputs?.[(this.inputs?.length || 1) - 1]
+            if (slot) slot.cardinality = input.cardinality || null
           }
           for (const output of spec.outputs || []) {
             const color = portTypeColor(output.type)
@@ -118,6 +122,21 @@ export function useLiteGraphNodeTypes(options: LiteGraphNodeTypesOptions) {
 
         getTitle() {
           return compactNodeTitle(String(this.title || spec.title || spec.type || 'Node'))
+        }
+
+        onConnectInput(targetSlot: number) {
+          const input = (this as unknown as {
+            inputs?: Array<{ cardinality?: string | null; link?: unknown; links?: unknown[] }>
+          }).inputs?.[targetSlot]
+          const specInput = liteGraphInputPorts(spec)[targetSlot] || null
+          if (allowsMultipleInputLinks(spec, specInput)) {
+            // LiteGraph outputs use output.links[] for one-to-many. Group Merge
+            // mirrors that shape on its input while keeping native input.link
+            // empty so new upstreams never replace the previous one.
+            if (input && !Array.isArray(input.links)) input.links = []
+            input.link = null
+          }
+          return true
         }
 
         onDrawTitleBar(ctx: CanvasRenderingContext2D, titleHeight: number, size: [number, number]) {

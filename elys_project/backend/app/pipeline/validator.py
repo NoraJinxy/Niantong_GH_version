@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.pipeline.dispatcher import NodeDispatcher, NodeExecutorNotImplemented
+from app.pipeline.ports import canonical_input_port_name, input_port_by_name
 from app.pipeline.registry import get_node_registry
 from app.schemas.pipeline import PipelineValidationIssue, PipelineValidationResponse
 
@@ -472,9 +473,8 @@ def validate_definition(
         dst_spec = node_specs.get(dst)
         if src_spec and dst_spec:
             output_ports = {port["name"]: port for port in src_spec.get("outputs", [])}
-            input_ports = {port["name"]: port for port in dst_spec.get("inputs", [])}
             output_port = output_ports.get(src_port)
-            input_port = input_ports.get(dst_port)
+            input_port = input_port_by_name(dst_spec, str(dst_port or ""))
             if output_port is None:
                 issues.append(
                     PipelineValidationIssue(
@@ -507,7 +507,7 @@ def validate_definition(
                 continue
         incoming[dst] += 1
         if dst_port:
-            incoming_ports[dst].add(str(dst_port))
+            incoming_ports[dst].add(canonical_input_port_name(dst_spec if dst_spec else None, str(dst_port)))
         outgoing[src].append(dst)
 
     # 找 source 节点（没有任何 required input 的节点 —— 主要是 LoadData）。

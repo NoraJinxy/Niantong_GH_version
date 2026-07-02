@@ -891,7 +891,7 @@ class NodeDispatcher:
         return self._execute_psd_output(context, run_psd, save_descriptor="psd")
 
     def _execute_group_merge(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        """N-to-1: 收集所有上游产物(ERP/PSD/TFR/unit_stack)，沿 unit 轴堆叠成一个 unit_stack artifact。"""
+        """N-to-many: collect ERP/PSD/TFR/unit_stack inputs into condition-aware unit_stack artifacts."""
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
         input_data_infos = self._input_data_infos(context, "input")
@@ -899,7 +899,7 @@ class NodeDispatcher:
         if not input_data_infos:
             issue = self._issue(
                 code="PIPELINE_NODE_INPUT_MISSING",
-                message="Group Merge 节点没有收到上游产物（input 端口为空）。",
+                message="Group Merge node has no upstream artifacts on input.",
                 node_id=node_id,
                 node_type=node_type,
             )
@@ -910,134 +910,144 @@ class NodeDispatcher:
             context.db, context.study, context.execution, context.job
         )
         params = context.params if isinstance(context.params, dict) else {}
-        label = str(params.get("label") or "")
 
         try:
-            result = run_group_merge(input_data_infos, params)
-            summary = summarize_unit_stack(result)
-            base_type = str(result.get("base_type") or "")
-            subjects = list(result.get("unit_subjects") or [])
-
-            # 通道交集覆盖率过低(异质 montage 把多导静默压到极少数共有通道)→ 升 warning(不 block,
-            # 符合厚层放行)。覆盖率明细已随 summary 落盘可审计;这里把"低覆盖率"冒泡成节点告警。
-            group_warnings: list[dict[str, Any]] = []
-            coverage = result.get("coverage") if isinstance(result, dict) else None
-            if isinstance(coverage, dict):
-                n_common = int(coverage.get("n_common") or 0)
-                n_union = int(coverage.get("n_union") or 0)
-                ratio = float(coverage.get("coverage_ratio") or 0.0)
-                if n_union and ratio < 0.5:
-                    group_warnings.append(
-                        self._issue(
-                            code="PIPELINE_GROUP_LOW_CHANNEL_COVERAGE",
-                            message=(
-                                f"组合并按通道交集对齐后仅剩 {n_common}/{n_union} 个共有通道"
-                                f"（覆盖率 {ratio:.0%}）。各输入电极布局不一致（如不同型号设备），"
-                                "后续组平均/统计只在这少数共有通道上进行，空间覆盖与统计功效大幅下降——"
-                                "请确认参与合并的被试导联是否同质。"
-                            ),
-                            node_id=node_id,
-                            node_type=node_type,
-                            severity="warning",
-                        )
-                    )
-
-            safe_label = "".join(
-                c if c.isalnum() or c in {"-", "_"} else "_" for c in label
-            ).strip("_") or "group"
-            filename = f"{safe_label}_unitstack.npz"
-
+            results = run_group_merge(input_data_infos, params)
             upstream_ids = [
                 str(di.get("artifact_id") or di.get("study_output_id") or "")
                 for di in input_data_infos
                 if di.get("artifact_id") or di.get("study_output_id")
             ]
+            output_data_infos: list[dict[str, Any]] = []
+            artifacts: list[dict[str, Any]] = []
+            group_warnings: list[dict[str, Any]] = []
 
-            # 保存设置（keep/cache_eligible/display_name/tags）：与其他节点同源，由拓扑角色驱动。
-            # group 输出非单被试，传 condition=label 让命名模板渲染（"Unit Stack · EO"）。
-            save_meta = self._save_settings_metadata(
-                context,
-                data_info={"condition": label, "task": label},
-                index=0,
-                split_value=label or None,
-            )
+            for index, result in enumerate(results):
+                summary = summarize_unit_stack(result)
+                base_type = str(result.get("base_type") or "")
+                subjects = list(result.get("unit_subjects") or [])
+                condition = str(result.get("condition") or result.get("label") or "")
+                label = str(result.get("label") or condition or "group")
+                group_label = str(result.get("group_label") or "")
 
-            artifact = study_output_store.save_file_from_writer(
-                filename,
-                lambda path, r=result: save_unit_stack_npz(r, path),
-                kind="analysis_result",
-                data_type="unit_stack",
-                metadata={
-                    "node_id": node_id,
-                    "node_type": node_type,
-                    "params": params,
-                    "mne_summary": summary,
-                    "upstream_dataset_ids": upstream_ids,
-                    "upstream_recording_ids": [],
+                coverage = result.get("coverage") if isinstance(result, dict) else None
+                if isinstance(coverage, dict):
+                    n_common = int(coverage.get("n_common") or 0)
+                    n_union = int(coverage.get("n_union") or 0)
+                    ratio = float(coverage.get("coverage_ratio") or 0.0)
+                    if n_union and ratio < 0.5:
+                        group_warnings.append(
+                            self._issue(
+                                code="PIPELINE_GROUP_LOW_CHANNEL_COVERAGE",
+                                message=(
+                                    f"Group Merge condition={condition or label!r} kept only "
+                                    f"{n_common}/{n_union} shared channels after intersection "
+                                    f"(coverage {ratio:.0%}). Check montage consistency."
+                                ),
+                                node_id=node_id,
+                                node_type=node_type,
+                                severity="warning",
+                            )
+                        )
+
+                safe_label = "".join(
+                    c if c.isalnum() or c in {"-", "_"} else "_" for c in label
+                ).strip("_") or "group"
+                filename = f"{safe_label}_unitstack.npz"
+
+                save_meta = self._save_settings_metadata(
+                    context,
+                    data_info={"condition": condition or label, "task": group_label or condition or label},
+                    index=index,
+                    split_value=condition or label or None,
+                )
+
+                artifact = study_output_store.save_file_from_writer(
+                    filename,
+                    lambda path, r=result: save_unit_stack_npz(r, path),
+                    kind="analysis_result",
+                    data_type="unit_stack",
+                    metadata={
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "params": params,
+                        "mne_summary": summary,
+                        "upstream_dataset_ids": upstream_ids,
+                        "upstream_recording_ids": [],
+                        "base_type": base_type,
+                        "n_units": result["n_units"],
+                        "subjects": subjects,
+                        "condition": condition or label,
+                        "group_label": group_label,
+                        "label": label,
+                        **save_meta,
+                    },
+                    preview=summary,
+                    source_dataset_id=None,
+                    node_id=node_id,
+                )
+                artifacts.append(artifact)
+
+                storage_path = str(artifact.get("storage_path") or "")
+                artifact_path = self._artifact_path(context.study, artifact)
+                fif_abs_path = str(artifact_path) if artifact_path else None
+
+                group_data_info: dict[str, Any] = {
+                    "data_type": "unit_stack",
                     "base_type": base_type,
+                    "file_role": "pipeline_artifact",
+                    "artifact_id": artifact.get("artifact_id"),
+                    "study_output_id": artifact.get("study_output_id"),
+                    "study_id": str(getattr(context.study, "id", "")),
+                    "study_root": str(
+                        getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
+                    ),
+                    "storage_path": storage_path,
+                    "storage_uri": artifact.get("storage_uri"),
+                    "logical_path": storage_path,
+                    "artifact_storage_path": storage_path,
+                    "artifact_storage_uri": artifact.get("storage_uri"),
+                    "fif_path": storage_path,
+                    "fif_abs_path": fif_abs_path,
+                    "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
+                    "pipeline_execution_id": str(getattr(context.execution, "id", "")),
+                    "job_id": str(getattr(context.job, "id", "")),
+                    "file_size": artifact.get("file_size"),
+                    "checksum": artifact.get("checksum"),
+                    "sha256": artifact.get("sha256") or artifact.get("checksum"),
+                    "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
+                    "condition": condition,
+                    "group_label": group_label,
+                    "label": label,
                     "n_units": result["n_units"],
                     "subjects": subjects,
-                    "label": label,
-                    **save_meta,
-                },
-                preview=summary,
-                source_dataset_id=None,
-                node_id=node_id,
-            )
-
-            storage_path = str(artifact.get("storage_path") or "")
-            artifact_path = self._artifact_path(context.study, artifact)
-            fif_abs_path = str(artifact_path) if artifact_path else None
-
-            group_data_info: dict[str, Any] = {
-                "data_type": "unit_stack",
-                "base_type": base_type,
-                "file_role": "pipeline_artifact",
-                "artifact_id": artifact.get("artifact_id"),
-                "study_output_id": artifact.get("study_output_id"),
-                "study_id": str(getattr(context.study, "id", "")),
-                "study_root": str(
-                    getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
-                ),
-                "storage_path": storage_path,
-                "storage_uri": artifact.get("storage_uri"),
-                "logical_path": storage_path,
-                "artifact_storage_path": storage_path,
-                "artifact_storage_uri": artifact.get("storage_uri"),
-                "fif_path": storage_path,
-                "fif_abs_path": fif_abs_path,
-                "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
-                "pipeline_execution_id": str(getattr(context.execution, "id", "")),
-                "job_id": str(getattr(context.job, "id", "")),
-                "file_size": artifact.get("file_size"),
-                "checksum": artifact.get("checksum"),
-                "sha256": artifact.get("sha256") or artifact.get("checksum"),
-                "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
-                "label": label,
-                "n_units": result["n_units"],
-                "subjects": subjects,
-                **summary,
-            }
+                    **summary,
+                }
+                output_data_infos.append(group_data_info)
 
             output = NodeOutput(
                 node_id=node_id,
                 node_type=node_type,
-                outputs={"output": [group_data_info]},
-                data_infos=[group_data_info],
-                artifacts=[artifact],
-                metadata={"dataset_count": 1, "n_units": result["n_units"], "base_type": base_type, "label": label},
+                outputs={"output": output_data_infos},
+                data_infos=output_data_infos,
+                artifacts=artifacts,
+                metadata={
+                    "dataset_count": len(output_data_infos),
+                    "conditions": [item.get("condition") for item in output_data_infos],
+                    "base_type": output_data_infos[0].get("base_type") if output_data_infos else "",
+                },
             )
             return NodeDispatchResult(
                 output=output,
                 status="success",
-                dataset_count=1,
+                dataset_count=len(output_data_infos),
                 output_ports=["output"],
                 warnings=group_warnings,
             )
         except Exception as exc:
             error = self._issue(
                 code="PIPELINE_NODE_DATASET_FAILED",
-                message=f"Group Merge 失败：{exc}",
+                message=f"Group Merge failed: {exc}",
                 node_id=node_id,
                 node_type=node_type,
             )

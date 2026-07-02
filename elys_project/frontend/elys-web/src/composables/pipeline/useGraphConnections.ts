@@ -11,6 +11,7 @@ import { computed, ref, type Ref, type ComputedRef } from 'vue'
 import type { LGraphNode } from 'litegraph.js'
 import type { PipelineGraphNode, NodeSpec, PipelineDefinitionPayload } from '@/types'
 import { portTypesCompatible } from './pipelineFormatters'
+import { allowsMultipleInputLinks, canonicalInputPortName } from './dynamicPorts'
 
 let linkIdCounter = 0
 
@@ -57,6 +58,10 @@ export function useGraphConnections(options: GraphConnectionsOptions) {
     if (!selectedNode.value || !selectedNodeSpec.value) return []
     const targetInput = selectedNodeSpec.value.inputs?.[0]
     if (!targetInput) return []
+    const acceptsMany = allowsMultipleInputLinks(selectedNodeSpec.value, targetInput)
+    if (!acceptsMany && selectedNodeInputLinks.value.length > 0) {
+      return []
+    }
     const alreadyConnected = new Set(
       selectedNodeInputLinks.value.map((link) => link.from.node),
     )
@@ -68,11 +73,20 @@ export function useGraphConnections(options: GraphConnectionsOptions) {
     }> = []
     for (const node of definition.value.graph.nodes) {
       if (node.id === selectedNode.value.id) continue
-      if (alreadyConnected.has(node.id)) continue
       const spec = specForNode(node)
       if (!spec || !spec.outputs?.length) continue
       const output = spec.outputs.find((port) => portTypesCompatible(port.type, targetInput.type))
       if (!output) continue
+      if (!acceptsMany && alreadyConnected.has(node.id)) continue
+      if (acceptsMany) {
+        const targetPort = canonicalInputPortName(selectedNodeSpec.value, targetInput.name)
+        const exists = selectedNodeInputLinks.value.some(
+          (link) => link.from.node === node.id
+            && link.from.port === output.name
+            && canonicalInputPortName(selectedNodeSpec.value, link.to.port) === targetPort,
+        )
+        if (exists) continue
+      }
       const label = node.title || spec.title || node.id
       candidates.push({
         node,
@@ -109,19 +123,34 @@ export function useGraphConnections(options: GraphConnectionsOptions) {
       return
     }
 
+    const targetPort = canonicalInputPortName(selectedNodeSpec.value, input.name)
     const exists = definition.value.graph.links.some(
-      (link) => link.from.node === upstream.id && link.to.node === selectedNode.value?.id && link.to.port === input.name,
+      (link) => link.from.node === upstream.id
+        && link.from.port === output.name
+        && link.to.node === selectedNode.value?.id
+        && canonicalInputPortName(selectedNodeSpec.value, link.to.port) === targetPort,
     )
     if (exists) {
       statusMessage.value = '该连接已存在'
       return
     }
 
+    if (!allowsMultipleInputLinks(selectedNodeSpec.value, input)) {
+      const occupied = definition.value.graph.links.some(
+        (link) => link.to.node === selectedNode.value?.id
+          && canonicalInputPortName(selectedNodeSpec.value, link.to.port) === targetPort,
+      )
+      if (occupied) {
+        statusMessage.value = '该输入端口已有连接'
+        return
+      }
+    }
+
     const upstreamGraphNode = findLiteGraphNode(upstream.id)
     const selectedGraphNode = findLiteGraphNode(selectedNode.value.id)
-    if (upstreamGraphNode && selectedGraphNode) {
+    if (upstreamGraphNode && selectedGraphNode && !allowsMultipleInputLinks(selectedNodeSpec.value, input)) {
       const outputSlot = Math.max(0, upstreamGraphNode.findOutputSlot(output.name))
-      const inputSlot = Math.max(0, selectedGraphNode.findInputSlot(input.name))
+      const inputSlot = Math.max(0, selectedGraphNode.findInputSlot(targetPort))
       upstreamGraphNode.connect(outputSlot, selectedGraphNode, inputSlot)
       upstreamNodeId.value = ''
       syncDefinitionFromLiteGraph(true)
@@ -131,7 +160,7 @@ export function useGraphConnections(options: GraphConnectionsOptions) {
     definition.value.graph.links.push({
       id: generateLinkId(),
       from: { node: upstream.id, port: output.name },
-      to: { node: selectedNode.value.id, port: input.name },
+      to: { node: selectedNode.value.id, port: targetPort },
     })
     upstreamNodeId.value = ''
     syncDefinitionToLiteGraph()

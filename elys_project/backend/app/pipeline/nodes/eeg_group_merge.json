@@ -4,8 +4,8 @@
   "title": "Group Merge",
   "category": "group",
   "phase": "phase2",
-  "description": "把多个分析产物沿「unit 轴」堆叠成组级张量 unit_stack（n_units × n_channels × …）。通吃 ERP / PSD / TFR：一个 unit 可以是被试、run 或试次（语义由你定）。要求同形态、通道可取交集、时间/频率轴一致。典型用法：接在 ERP/PSD/TFR 节点后，自动收集同一批次所有被试的结果，供 Grand Average / Compare 使用。",
-  "tags": ["group", "merge", "stack", "grand-average", "erp", "psd", "tfr"],
+  "description": "把多个 ERP / PSD / TFR / unit_stack 结果沿 unit 轴合并成组级 unit_stack。节点始终识别 condition 语义，并按 condition 自动分组输出一个或多个 unit_stack。",
+  "tags": ["group", "merge", "stack", "condition", "grand-average", "erp", "psd", "tfr"],
   "inputs": [
     {
       "name": "input",
@@ -20,31 +20,17 @@
       "name": "output",
       "type": "unit_stack",
       "label": "Unit Stack",
-      "cardinality": "one"
+      "cardinality": "one_or_many"
     }
   ],
   "properties": [
     {
-      "name": "unit_label",
-      "label": "一个 unit 代表",
-      "type": "select",
-      "default": "subject",
-      "required": false,
-      "options": [
-        {"value": "subject", "label": "被试"},
-        {"value": "run", "label": "run / 次"},
-        {"value": "trial", "label": "试次"},
-        {"value": "session", "label": "session"}
-      ],
-      "description": "本次堆叠里「一个 unit」的语义（仅作标注，不影响数学）。跨被试 grand average 选「被试」。"
-    },
-    {
-      "name": "label",
-      "label": "Group 标签",
+      "name": "group_label",
+      "label": "组标签",
       "type": "string",
       "default": "",
       "required": false,
-      "description": "用于区分不同条件的组（如 \"EO\"、\"EC\"）；会写入产物文件名与 preview。"
+      "description": "可选。仅用于结果命名和审计；condition 分组由后端自动完成。"
     }
   ],
   "backend": {
@@ -58,10 +44,11 @@
   "save": {
     "step_label": "unit_stack",
     "name_template_default": "Unit Stack",
+    "always_per_condition": true,
     "auto_tags": ["step:group_merge", "type:unit_stack"],
     "data_type": "unit_stack"
   },
   "compute_cost": "cheap",
   "output_footprint": "medium",
-  "ui": {"color": "#7C3AED", "default_size": [200, 110], "preview_type": "unit_stack"}
+  "ui": {"color": "#7C3AED", "default_size": [220, 112], "preview_type": "unit_stack"}
 }

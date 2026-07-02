@@ -7,6 +7,7 @@ import { LGraph, LGraphNode, LiteGraph } from 'litegraph.js'
 import type { NodeSpec } from '@/types'
 import { LITEGRAPH_NODE_ID_PROP, LOAD_DATA_NODE_TYPE, NODE_CARD_WIDTH, NODE_CARD_MIN_HEIGHT } from './pipelineConstants'
 import { formatJobStatus, nodeStatusColor, normalizedJobStatus } from './pipelineFormatters'
+import { liteGraphInputPorts } from './dynamicPorts'
 
 export type LiteGraphNode = LGraphNode & {
   elysNodeId?: string
@@ -200,7 +201,7 @@ export function graphNodeSize(spec: NodeSpec): [number, number] {
     const height = Number(uiSize[1])
     if (Number.isFinite(width) && Number.isFinite(height)) return [Math.max(NODE_CARD_WIDTH, width), Math.max(NODE_CARD_MIN_HEIGHT, height)]
   }
-  const portRows = Math.max(spec.inputs?.length || 0, spec.outputs?.length || 0)
+  const portRows = Math.max(liteGraphInputPorts(spec).length || 0, spec.outputs?.length || 0)
   return [NODE_CARD_WIDTH, Math.max(NODE_CARD_MIN_HEIGHT, 78 + portRows * 26)]
 }
 

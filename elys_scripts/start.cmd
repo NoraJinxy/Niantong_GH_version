@@ -64,7 +64,16 @@ if not defined PY_CMD (
 )
 echo [setup] Using Python: %PY_CMD%
 
-REM --- 2) Create venv if not exists ---
+REM --- 2) Create venv if not exists, or recreate it if the interpreter moved ---
+if exist "%VENV_PY%" (
+  "%VENV_PY%" -c "import sys" >nul 2>nul
+  if errorlevel 1 (
+    echo.
+    echo [setup] Existing venv is broken - recreating %CD%\%VENV_DIR% ...
+    rmdir /s /q "%VENV_DIR%"
+  )
+)
+
 if not exist "%VENV_PY%" (
   echo.
   echo [setup] First run - creating venv at %CD%\%VENV_DIR% ...

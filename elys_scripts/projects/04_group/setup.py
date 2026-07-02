@@ -67,6 +67,7 @@ def main():
             f"（rest {n_rest} + sensory {n_sensory}）")
 
     _upload_all(c, study_id=study_id, ds_id=ds_id, recs=recs)
+    _verify_uploaded_recordings(c, study_id=study_id, ds_id=ds_id, recs=recs)
 
 
 def _ensure_dataset(c: ElysClient) -> tuple[str, str, str]:
@@ -195,15 +196,58 @@ def _upload_all(c: ElysClient, *, study_id: str, ds_id: str, recs: list[dict]) -
 
     if fail_count == 0 and (ok_count + skip_count) == total:
         ui.passed(f"完成：{ok_count} 新增 / {skip_count} 已存在跳过 / {total} 总计")
-    elif ok_count or skip_count:
-        ui.warn(f"部分完成：{ok_count} 新增 / {skip_count} 跳过 / {fail_count} 失败 / {total} 总计")
     else:
-        ui.died(f"全部失败：0/{total}")
+        ui.died(f"上传不完整：{ok_count} 新增 / {skip_count} 跳过 / {fail_count} 失败 / {total} 总计")
         sys.exit(1)
 
     # 用第一条成功的 recording 读一次元信息，打印通道名 / 事件标签供参考
     if first_recording_id:
         _print_meta(c, study_id=study_id, recording_id=first_recording_id)
+
+
+def _verify_uploaded_recordings(c: ElysClient, *, study_id: str, ds_id: str, recs: list[dict]) -> None:
+    """Fail fast if the remote study does not contain the full 04_group recording set."""
+    expected_total = len(recs)
+    expected_subjects = sorted({f"sub-{r['subject']}" for r in recs})
+    expected_sessions = sorted({f"ses-{r['session']}" for r in recs})
+    expected_tasks = sorted({f"task-{r['task']}" for r in recs})
+
+    try:
+        res = c._session.get(
+            f"{c.base_url}/studies/{study_id}/recordings",
+            params={"limit": max(500, expected_total * 2)},
+            timeout=c.timeout,
+        )
+        res.raise_for_status()
+        rows = res.json().get("recordings", [])
+    except requests.RequestException as e:
+        ui.died(f"上传后完整性复核失败：{e}")
+        sys.exit(1)
+
+    if any(r.get("dataset_asset_id") for r in rows):
+        rows = [r for r in rows if r.get("dataset_asset_id") == ds_id]
+    actual_subjects = sorted({r.get("bids_subject_id") or r.get("subject") or "" for r in rows if r})
+    actual_sessions = sorted({r.get("session") or "" for r in rows if r.get("session")})
+    actual_tasks = sorted({r.get("task") or "" for r in rows if r.get("task")})
+
+    problems = []
+    if len(rows) != expected_total:
+        problems.append(f"recording 数 {len(rows)} != {expected_total}")
+    if actual_subjects != expected_subjects:
+        problems.append(f"被试 {actual_subjects} != {expected_subjects}")
+    if actual_sessions != expected_sessions:
+        problems.append(f"session {actual_sessions} != {expected_sessions}")
+    if actual_tasks != expected_tasks:
+        problems.append(f"task {actual_tasks} != {expected_tasks}")
+
+    if problems:
+        ui.died("上传后完整性复核未通过：" + "；".join(problems))
+        sys.exit(1)
+
+    ui.passed(
+        f"完整性复核通过：{len(rows)} 条 recording / "
+        f"{len(actual_subjects)} 被试 / {len(actual_sessions)} session / {len(actual_tasks)} task"
+    )
 
 
 def _writeback_config(*, ds_id: str, study_id: str, mount_id: str) -> None:

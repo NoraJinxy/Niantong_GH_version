@@ -648,6 +648,37 @@ EOSQL
     sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" >>"${DEPLOY_LOG_FILE}" 2>&1 || true
     sudo -u postgres psql -d "${DB_NAME}" -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${DB_USER};" >>"${DEPLOY_LOG_FILE}" 2>&1 || true
 
+    if [[ -n "${TEST_USER_PASSWORD}" ]]; then
+        log_info "Seeding dev test users from ELYS_TEST_USER_PASSWORD"
+        if sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -v test_password="${TEST_USER_PASSWORD}" >>"${DEPLOY_LOG_FILE}" 2>&1 <<'EOSQL'
+INSERT INTO users (id, username, password_hash, full_name, institution, is_active, is_verified)
+VALUES
+    ('550e8400-e29b-41d4-a716-446655440000', 'admin', crypt(:'test_password', gen_salt('bf', 12)), 'System Admin', 'ELYS', TRUE, TRUE),
+    ('550e8400-e29b-41d4-a716-446655440001', 'user1', crypt(:'test_password', gen_salt('bf', 12)), 'Test User 1', 'ELYS', TRUE, TRUE),
+    ('550e8400-e29b-41d4-a716-446655440002', 'user2', crypt(:'test_password', gen_salt('bf', 12)), 'Test User 2', 'ELYS', TRUE, TRUE)
+ON CONFLICT (username) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    is_active = TRUE,
+    is_verified = TRUE,
+    updated_at = NOW();
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u, roles r
+WHERE (u.username = 'admin' AND r.code = 'admin')
+   OR (u.username IN ('user1', 'user2') AND r.code = 'pi')
+ON CONFLICT DO NOTHING;
+EOSQL
+        then
+            log_success "Dev test users seeded"
+        else
+            log_error "Failed to seed dev test users"
+            tail -n 80 "${DEPLOY_LOG_FILE}" 2>/dev/null || true
+            exit 1
+        fi
+    else
+        log_warn "ELYS_TEST_USER_PASSWORD is empty; dev test users were not seeded"
+    fi
+
     if [[ "${RESET_DB}" == "true" ]]; then
         # 重置后自检:几张关键表应为空。查询的报错(stderr)也导入日志, 避免"出错时日志里查无此错"
         # (历史教训:某张表被改名后, 查询失败的报错只闪在终端、不进日志, 配合 set -e 直接中止)。
@@ -1130,7 +1161,7 @@ self_check_v2() {
         print_kv "Storage root" "${ELYS_STORAGE_ROOT}"
         if [[ -n "${TEST_USER_PASSWORD}" ]]; then
             print_kv "Test users" "admin / user1 / user2"
-            print_kv "Test pass" "${TEST_USER_PASSWORD}"
+            print_kv "Test pass" "configured via ELYS_TEST_USER_PASSWORD"
         fi
     fi
     print_kv "Log file" "${DEPLOY_LOG_FILE}"

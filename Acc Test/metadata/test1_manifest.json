@@ -1,0 +1,423 @@
+﻿{
+    "jobs": [
+        {
+            "job_id": "bb21b62d-b54f-47f9-aacf-89daa4fbfeee",
+            "params": {
+                "dataset_ids": [
+                    "8ef3deab-af2a-4999-a1ed-e0083dd33123"
+                ],
+                "dataset_filter": {
+                    "runs": [
+                        "run-04"
+                    ],
+                    "tasks": "all",
+                    "sessions": [
+                        "ses-a"
+                    ],
+                    "subjects": "all",
+                    "qa_status": "all",
+                    "require_fif": true,
+                    "_ui_exclude_runs": [
+                    ],
+                    "_ui_exclude_tasks": [
+                    ],
+                    "_ui_exclude_sessions": [
+                    ],
+                    "_ui_exclude_subjects": [
+                    ]
+                },
+                "selection_mode": "explicit"
+            },
+            "status": "success",
+            "node_id": "n_mqsx3f05_1",
+            "node_type": "eeg/data/load",
+            "node_title": "LoadData",
+            "topo_index": 0
+        },
+        {
+            "job_id": "011dc20b-7aec-4d52-9524-c15e440dfdcc",
+            "params": {
+                "order": 4,
+                "phase": "zero",
+                "h_freq": 40,
+                "l_freq": 0.1,
+                "method": "fir",
+                "notch_freq": 50,
+                "filter_type": "notch",
+                "notch_method": "spectrum_fit",
+                "notch_harmonics": 3,
+                "trans_bandwidth": ""
+            },
+            "status": "success",
+            "node_id": "n_mqsx3hla_2",
+            "node_type": "eeg/filter/apply",
+            "node_title": "Filter",
+            "topo_index": 1
+        },
+        {
+            "job_id": "2e191329-dc9a-44d7-aca7-473a00bc5510",
+            "params": {
+                "order": 4,
+                "phase": "zero",
+                "h_freq": 40,
+                "l_freq": 0.1,
+                "method": "fir",
+                "notch_freq": 50,
+                "filter_type": "bandpass",
+                "notch_method": "spectrum_fit",
+                "notch_harmonics": 3,
+                "trans_bandwidth": ""
+            },
+            "status": "success",
+            "node_id": "n_mqsx3iwa_3",
+            "node_type": "eeg/filter/apply",
+            "node_title": "Filter",
+            "topo_index": 2
+        },
+        {
+            "job_id": "232fe36f-731a-4529-88d9-7ad4a771522b",
+            "params": {
+                "tmax": 3,
+                "tmin": -1,
+                "split_by": "none",
+                "conditions": [
+                    "Stimulus/S  3",
+                    "Stimulus/S  4",
+                    "Stimulus/S  5"
+                ]
+            },
+            "status": "success",
+            "node_id": "n_mqsx3kfc_4",
+            "node_type": "eeg/epoch/segment",
+            "node_title": "Epoch",
+            "topo_index": 3
+        },
+        {
+            "job_id": "9c8f9ba6-1329-4ac9-8ce6-4dbfa358f229",
+            "params": {
+                "baseline_tmax": 0,
+                "baseline_tmin": ""
+            },
+            "status": "success",
+            "node_id": "n_mqsx3le6_5",
+            "node_type": "eeg/epoch/baseline",
+            "node_title": "Baseline 基线校正",
+            "topo_index": 4
+        },
+        {
+            "job_id": "c57e125e-420f-44a4-89a9-f7218584c354",
+            "params": {
+                "channels": [
+                ],
+                "condition": [
+                    "Stimulus/S  3",
+                    "Stimulus/S  4",
+                    "Stimulus/S  5"
+                ]
+            },
+            "status": "success",
+            "node_id": "n_mqsx3nab_6",
+            "node_type": "eeg/analysis/erp",
+            "node_title": "ERP Average",
+            "topo_index": 5
+        }
+    ],
+    "notes": [
+        "Execution #2 is used because it is completed and contains only sub-007; execution #3/version 4 later completed but also selected sub-008, so it has a different scope."
+    ],
+    "outputs": [
+        {
+            "job_id": "011dc20b-7aec-4d52-9524-c15e440dfdcc",
+            "sha256": "e82a0425df725a2525dcad0cbf934aa05255f146f11888024ac0fc92cabc81f8",
+            "node_id": "n_mqsx3hla_2",
+            "relation": "reused",
+            "condition": null,
+            "data_type": "filtered_raw",
+            "file_size": 72772133,
+            "node_type": "eeg/filter/apply",
+            "storage_uri": "elys://studies/202606000001/outputs/e8/e82a0425df725a2525dcad0cbf934aa05255f146f11888024ac0fc92cabc81f8/sub-007_ses-a_task-sensory_run-04_eeg_notch-raw.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Filter",
+            "logical_path": "outputs/e8/e82a0425df725a2525dcad0cbf934aa05255f146f11888024ac0fc92cabc81f8/sub-007_ses-a_task-sensory_run-04_eeg_notch-raw.fif",
+            "study_output_id": "d66393c4-fda5-4ac1-9ac9-a39fc25a5dbf"
+        },
+        {
+            "job_id": "2e191329-dc9a-44d7-aca7-473a00bc5510",
+            "sha256": "5ca6aaf1d753630ff7b3fff0f70776b6ddae84b6b8a789427a13f84faf42f86f",
+            "node_id": "n_mqsx3iwa_3",
+            "relation": "reused",
+            "condition": null,
+            "data_type": "filtered_raw",
+            "file_size": 72772133,
+            "node_type": "eeg/filter/apply",
+            "storage_uri": "elys://studies/202606000001/outputs/5c/5ca6aaf1d753630ff7b3fff0f70776b6ddae84b6b8a789427a13f84faf42f86f/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt-raw.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Filter (2)",
+            "logical_path": "outputs/5c/5ca6aaf1d753630ff7b3fff0f70776b6ddae84b6b8a789427a13f84faf42f86f/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt-raw.fif",
+            "study_output_id": "fc12d50f-7023-4d3c-944d-d5324ecc1af1"
+        },
+        {
+            "job_id": "232fe36f-731a-4529-88d9-7ad4a771522b",
+            "sha256": "d63c1ca610a4017dbed6ed45f062fda47bfc71b45298f5a2fdc64906728be165",
+            "node_id": "n_mqsx3kfc_4",
+            "relation": "reused",
+            "condition": null,
+            "data_type": "epochs",
+            "file_size": 92197476,
+            "node_type": "eeg/epoch/segment",
+            "storage_uri": "elys://studies/202606000001/outputs/d6/d63c1ca610a4017dbed6ed45f062fda47bfc71b45298f5a2fdc64906728be165/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo-epo.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Epoch",
+            "logical_path": "outputs/d6/d63c1ca610a4017dbed6ed45f062fda47bfc71b45298f5a2fdc64906728be165/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo-epo.fif",
+            "study_output_id": "dcb24de5-9d8c-4604-b363-5dca97c474a0"
+        },
+        {
+            "job_id": "9c8f9ba6-1329-4ac9-8ce6-4dbfa358f229",
+            "sha256": "5d979aeece1a2449b2e5777cef211f6466001243ce8fa5f9cd90851cac633d6b",
+            "node_id": "n_mqsx3le6_5",
+            "relation": "reused",
+            "condition": null,
+            "data_type": "epochs",
+            "file_size": 92197516,
+            "node_type": "eeg/epoch/baseline",
+            "storage_uri": "elys://studies/202606000001/outputs/5d/5d979aeece1a2449b2e5777cef211f6466001243ce8fa5f9cd90851cac633d6b/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl-epo.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Baseline 基线校正",
+            "logical_path": "outputs/5d/5d979aeece1a2449b2e5777cef211f6466001243ce8fa5f9cd90851cac633d6b/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl-epo.fif",
+            "study_output_id": "6563169f-dd33-4032-aea5-17b94cd98194"
+        },
+        {
+            "job_id": "c57e125e-420f-44a4-89a9-f7218584c354",
+            "sha256": "6d5a0095e1e7ffc216da90e2c188e2c1bb3d7927a4abbf3b029284d8a7fc1d4f",
+            "node_id": "n_mqsx3nab_6",
+            "relation": "reused",
+            "condition": "Stimulus/S  3",
+            "data_type": "evoked",
+            "file_size": 1018670,
+            "node_type": "eeg/analysis/erp",
+            "storage_uri": "elys://studies/202606000001/outputs/6d/6d5a0095e1e7ffc216da90e2c188e2c1bb3d7927a4abbf3b029284d8a7fc1d4f/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__3_erp-ave.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Stimulus/S  3_ERP Average",
+            "logical_path": "outputs/6d/6d5a0095e1e7ffc216da90e2c188e2c1bb3d7927a4abbf3b029284d8a7fc1d4f/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__3_erp-ave.fif",
+            "study_output_id": "baf72f5c-e090-445f-9d38-ffbfd12aeb66"
+        },
+        {
+            "job_id": "c57e125e-420f-44a4-89a9-f7218584c354",
+            "sha256": "48bc7f6149db92d972d7c8bbd776b8aa573a34ddcee51ec957d8b369578918db",
+            "node_id": "n_mqsx3nab_6",
+            "relation": "reused",
+            "condition": "Stimulus/S  4",
+            "data_type": "evoked",
+            "file_size": 1018670,
+            "node_type": "eeg/analysis/erp",
+            "storage_uri": "elys://studies/202606000001/outputs/48/48bc7f6149db92d972d7c8bbd776b8aa573a34ddcee51ec957d8b369578918db/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__4_erp-ave.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Stimulus/S  4_ERP Average",
+            "logical_path": "outputs/48/48bc7f6149db92d972d7c8bbd776b8aa573a34ddcee51ec957d8b369578918db/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__4_erp-ave.fif",
+            "study_output_id": "2c77c991-19b2-42f8-8255-4c5869606b53"
+        },
+        {
+            "job_id": "c57e125e-420f-44a4-89a9-f7218584c354",
+            "sha256": "bf917e61f17e5d211107148f17aac09e2dab67d4482c4b70e6222dd9815d846d",
+            "node_id": "n_mqsx3nab_6",
+            "relation": "reused",
+            "condition": "Stimulus/S  5",
+            "data_type": "evoked",
+            "file_size": 1018670,
+            "node_type": "eeg/analysis/erp",
+            "storage_uri": "elys://studies/202606000001/outputs/bf/bf917e61f17e5d211107148f17aac09e2dab67d4482c4b70e6222dd9815d846d/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__5_erp-ave.fif",
+            "display_name": "sub-007_ses-a_task-sensory_run-04_Stimulus/S  5_ERP Average",
+            "logical_path": "outputs/bf/bf917e61f17e5d211107148f17aac09e2dab67d4482c4b70e6222dd9815d846d/sub-007_ses-a_task-sensory_run-04_eeg_notch_firfilt_epo_bl_Stimulus_S__5_erp-ave.fif",
+            "study_output_id": "ed27ed67-8668-4171-ba9b-a33c73645902"
+        }
+    ],
+    "pipeline": {
+        "id": 3,
+        "name": "test1",
+        "version": 4,
+        "study_id": "202606000001"
+    },
+    "execution": {
+        "id": "a60fc287-feb6-4b91-9296-675f2640f64f",
+        "status": "completed",
+        "started_at": "2026-06-25T03:34:35.628105",
+        "finished_at": "2026-06-25T03:35:05.191775",
+        "execution_seq": 2,
+        "pipeline_version": 3
+    },
+    "source_raw": {
+        "run": "run-04",
+        "task": "task-sensory",
+        "mount": {
+            "mount_id": "da16f191-9a1e-48fb-86c8-bb6daadb3658",
+            "mount_name": "primary",
+            "dataset_asset_id": "d38826f7-25d9-411a-b68c-128f81d7c077"
+        },
+        "sfreq": 1000.0,
+        "sha256": "22f2395e5423cbb93d0e6361cf9b8649d5f12ebd3d40fc3b7bb9a329ff27dc5b",
+        "session": "ses-a",
+        "subject": "sub-007",
+        "ch_names": [
+            "Fp1",
+            "Fp2",
+            "F3",
+            "F4",
+            "C3",
+            "C4",
+            "P3",
+            "P4",
+            "O1",
+            "O2",
+            "F7",
+            "F8",
+            "T7",
+            "T8",
+            "P7",
+            "P8",
+            "Fz",
+            "Cz",
+            "Pz",
+            "IO",
+            "FC1",
+            "FC2",
+            "CP1",
+            "CP2",
+            "FC5",
+            "FC6",
+            "CP5",
+            "CP6",
+            "FT9",
+            "FT10",
+            "TP9",
+            "TP10",
+            "F1",
+            "F2",
+            "C1",
+            "C2",
+            "P1",
+            "P2",
+            "AF3",
+            "AF4",
+            "FC3",
+            "FC4",
+            "CP3",
+            "CP4",
+            "PO3",
+            "PO4",
+            "F5",
+            "F6",
+            "C5",
+            "C6",
+            "P5",
+            "P6",
+            "AF7",
+            "AF8",
+            "FT7",
+            "FT8",
+            "TP7",
+            "TP8",
+            "PO7",
+            "PO8",
+            "Fpz",
+            "CPz",
+            "POz",
+            "Oz"
+        ],
+        "checksum": "26b0559357e611bd6c39671adacc421d19bf17c01b9a65c9994269cc9318b085",
+        "fif_path": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+        "mount_id": "da16f191-9a1e-48fb-86c8-bb6daadb3658",
+        "n_events": 91,
+        "study_id": "202606000001",
+        "data_type": "raw",
+        "file_role": "fif",
+        "file_size": 36393463,
+        "qa_status": "converted",
+        "dataset_id": "8ef3deab-af2a-4999-a1ed-e0083dd33123",
+        "fif_exists": true,
+        "mount_name": "primary",
+        "n_channels": 64,
+        "subject_id": "e5a0aa29-596b-4bbd-866e-d3609532ad83",
+        "imported_at": "2026-06-25T02:46:33.656448",
+        "source_path": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/sourcedata/original_uploads/upload-003/sub007a_r04.vhdr",
+        "storage_uri": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+        "content_hash": "3b1b9110584c9e11ae7d86e42b0b1e34a2e8866e766d3a59cdcc5bddb5d1d7db",
+        "dataset_file": {
+            "id": "fff84ed8-ffd1-4e3d-bfbf-4956621a0c8a",
+            "sha256": "22f2395e5423cbb93d0e6361cf9b8649d5f12ebd3d40fc3b7bb9a329ff27dc5b",
+            "file_role": "fif",
+            "storage_uri": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+            "logical_path": "BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+            "relative_path": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif"
+        },
+        "event_counts": {
+            "New Segment/": 1,
+            "Stimulus/S  3": 30,
+            "Stimulus/S  4": 30,
+            "Stimulus/S  5": 30
+        },
+        "event_labels": [
+            "New Segment/",
+            "Stimulus/S  3",
+            "Stimulus/S  4",
+            "Stimulus/S  5"
+        ],
+        "fif_abs_path": "/mnt/elys_data/storage/datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+        "logical_path": "BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+        "file_snapshot": {
+            "sha256": "22f2395e5423cbb93d0e6361cf9b8649d5f12ebd3d40fc3b7bb9a329ff27dc5b",
+            "file_role": "fif",
+            "storage_uri": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+            "logical_path": "BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.fif",
+            "dataset_file_id": "fff84ed8-ffd1-4e3d-bfbf-4956621a0c8a"
+        },
+        "sidecar_paths": {
+            "eeg": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_eeg.json",
+            "events": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_events.tsv",
+            "channels": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_channels.tsv",
+            "provenance": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg/sub-007_ses-a_task-sensory_run-04_provenance.json"
+        },
+        "source_exists": true,
+        "source_format": "BRAINVISION",
+        "input_snapshot": {
+            "id": "3d4fe695-d0f1-44ce-9855-d5d08e141fd0",
+            "node_id": "n_mqsx3f05_1",
+            "frozen_at": "2026-06-25T03:34:35.665933Z",
+            "node_type": "eeg/data/load",
+            "input_kind": "dataset_file",
+            "input_index": 1,
+            "dataset_file_id": "fff84ed8-ffd1-4e3d-bfbf-4956621a0c8a"
+        },
+        "bids_subject_id": "sub-007",
+        "current_fif_dir": "elys://datasets/d38826f7-25d9-411a-b68c-128f81d7c077/BIDSdata/sub-007/ses-a/eeg",
+        "dataset_file_id": "fff84ed8-ffd1-4e3d-bfbf-4956621a0c8a",
+        "condition_groups": [
+            {
+                "mode": "exact",
+                "name": "New Segment/",
+                "count": 1,
+                "sample": "New Segment/",
+                "pattern": "New Segment/"
+            },
+            {
+                "mode": "exact",
+                "name": "Stimulus/S  3",
+                "count": 30,
+                "sample": "Stimulus/S  3",
+                "pattern": "Stimulus/S  3"
+            },
+            {
+                "mode": "exact",
+                "name": "Stimulus/S  4",
+                "count": 30,
+                "sample": "Stimulus/S  4",
+                "pattern": "Stimulus/S  4"
+            },
+            {
+                "mode": "exact",
+                "name": "Stimulus/S  5",
+                "count": 30,
+                "sample": "Stimulus/S  5",
+                "pattern": "Stimulus/S  5"
+            }
+        ],
+        "dataset_asset_id": "d38826f7-25d9-411a-b68c-128f81d7c077",
+        "duration_seconds": 284.2,
+        "current_upload_id": "baac915b-95b9-4d96-9941-27ba6ab16fdf",
+        "current_upload_seq": 3,
+        "dataset_version_id": "36edefac-93b4-4dea-b82f-31912574e844"
+    }
+}

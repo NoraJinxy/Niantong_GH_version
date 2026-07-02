@@ -273,9 +273,9 @@ def _raw_events(raw) -> list[dict[str, Any]]:
     if annotations is None:
         return []
     try:
-        onsets = list(getattr(annotations, "onset", []) or [])
-        durations = list(getattr(annotations, "duration", []) or [])
-        descriptions = list(getattr(annotations, "description", []) or [])
+        onsets = list(getattr(annotations, "onset", []))
+        durations = list(getattr(annotations, "duration", []))
+        descriptions = list(getattr(annotations, "description", []))
     except Exception:
         return []
     events: list[dict[str, Any]] = []

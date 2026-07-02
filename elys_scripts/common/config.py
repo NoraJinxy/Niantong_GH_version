@@ -48,6 +48,23 @@ def _read_env_file(path: Path) -> dict[str, str]:
 
 _profile = _read_env_file(_PROFILE_PATH)
 
+
+def _get_env(name: str, default: str = "") -> str:
+    value = os.environ.get(name)
+    if value:
+        return value
+    if os.name == "nt":
+        try:
+            import winreg
+
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+                value, _ = winreg.QueryValueEx(key, name)
+                if value:
+                    return str(value)
+        except OSError:
+            pass
+    return default
+
 # ACTIVE_SET（部署资源集）：把 ${ACTIVE_SET}_ENTRY_SERVER_IP/COMPUTE_SERVER_IP 解析成扁平名供下方使用。
 # 留空 → 用扁平 ENTRY_SERVER_IP/COMPUTE_SERVER_IP（向后兼容，其它 profile 不受影响）。
 _active_set = (_profile.get("ACTIVE_SET") or "").strip()
@@ -84,5 +101,5 @@ BASE_URL = _resolve_url(os.environ.get("ELYS_BASE_URL"), ENTRY_HOST, label="入�
 DATA_BASE_URL = _resolve_url(os.environ.get("ELYS_DATA_BASE_URL"), COMPUTE_HOST, label="计算服", profile_key="COMPUTE_SERVER_IP", env_key="ELYS_COMPUTE_HOST")
 
 # 浏览器登录页那一对（不是 SSH）
-USERNAME = os.environ.get("ELYS_USERNAME", "admin")
-PASSWORD = os.environ.get("ELYS_PASSWORD", "")
+USERNAME = _get_env("ELYS_USERNAME", "admin")
+PASSWORD = _get_env("ELYS_PASSWORD", "")

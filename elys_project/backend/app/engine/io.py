@@ -422,21 +422,41 @@ def save_unit_stack_npz(result: dict[str, Any], path: str | Path, *, overwrite: 
 
     target = ensure_unit_stack_npz_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    data = np.asarray(result["data"], dtype=float)
+    n_units = int(data.shape[0]) if data.ndim else 0
     times = result.get("times")
     freqs = result.get("freqs")
+
+    def _strings(name: str, default: str = "") -> list[str]:
+        raw = result.get(name)
+        values = [str(item) for item in list(raw)] if raw is not None else []
+        return (values + [default] * n_units)[:n_units]
+
+    def _floats(name: str, default: float = 0.0) -> list[float]:
+        raw = result.get(name)
+        values = [float(item or 0.0) for item in list(raw)] if raw is not None else []
+        return (values + [default] * n_units)[:n_units]
+
     np.savez(
         str(target),
-        data=np.asarray(result["data"], dtype=float),
+        data=data,
         base_type=np.asarray(str(result.get("base_type") or ""), dtype="U16"),
         ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
         ch_types=np.asarray(list(result.get("ch_types") or []), dtype="U16"),
         times=np.asarray(list(times) if times is not None else [], dtype=float),
         freqs=np.asarray(list(freqs) if freqs is not None else [], dtype=float),
         sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
-        unit_labels=np.asarray(list(result.get("unit_labels") or []), dtype="U256"),
-        unit_subjects=np.asarray(list(result.get("unit_subjects") or []), dtype="U256"),
-        unit_n=np.asarray(list(result.get("unit_n") or []), dtype=float),
+        unit_labels=np.asarray(_strings("unit_labels"), dtype="U256"),
+        unit_subjects=np.asarray(_strings("unit_subjects"), dtype="U256"),
+        unit_conditions=np.asarray(_strings("unit_conditions", str(result.get("condition") or "")), dtype="U256"),
+        unit_sessions=np.asarray(_strings("unit_sessions"), dtype="U128"),
+        unit_runs=np.asarray(_strings("unit_runs"), dtype="U128"),
+        unit_tasks=np.asarray(_strings("unit_tasks"), dtype="U128"),
+        unit_n=np.asarray(_floats("unit_n"), dtype=float),
         unit_kind=np.asarray(str(result.get("unit_kind") or "unit"), dtype="U32"),
+        input_level=np.asarray(str(result.get("input_level") or ""), dtype="U64"),
+        condition=np.asarray(str(result.get("condition") or result.get("label") or ""), dtype="U256"),
+        group_label=np.asarray(str(result.get("group_label") or ""), dtype="U256"),
         label=np.asarray(str(result.get("label") or ""), dtype="U256"),
     )
     return target
@@ -447,23 +467,53 @@ def load_unit_stack_npz(path: str | Path) -> dict[str, Any]:
     import numpy as np  # noqa: PLC0415
 
     with np.load(str(Path(path).expanduser()), allow_pickle=False) as data:
+        keys = set(data.files)
         times = np.array(data["times"])
         freqs = np.array(data["freqs"])
         stacked = np.array(data["data"])
+        n_units = int(stacked.shape[0])
+
+        def _scalar(name: str, default: str = "") -> str:
+            if name not in keys:
+                return default
+            value = data[name]
+            return str(value.item() if getattr(value, "shape", ()) == () else value)
+
+        def _strings(name: str, default: str = "") -> list[str]:
+            if name not in keys:
+                return [default] * n_units
+            values = [str(c) for c in data[name]]
+            return (values + [default] * n_units)[:n_units]
+
+        def _floats(name: str, default: float = 0.0) -> list[float]:
+            if name not in keys:
+                return [default] * n_units
+            values = [float(x) for x in data[name]]
+            return (values + [default] * n_units)[:n_units]
+
+        label = _scalar("label", "")
+        condition = _scalar("condition", label)
         return {
             "data": stacked,  # (n_units, n_channels, *feature)
-            "base_type": str(data["base_type"]),
+            "base_type": _scalar("base_type", ""),
             "ch_names": [str(c) for c in data["ch_names"]],
             "ch_types": [str(c) for c in data["ch_types"]],
             "times": times if times.size else None,
             "freqs": freqs if freqs.size else None,
             "sfreq": float(data["sfreq"]),
-            "unit_labels": [str(c) for c in data["unit_labels"]],
-            "unit_subjects": [str(c) for c in data["unit_subjects"]],
-            "unit_n": [float(x) for x in data["unit_n"]],
-            "unit_kind": str(data["unit_kind"]),
-            "label": str(data["label"]),
-            "n_units": int(stacked.shape[0]),
+            "unit_labels": _strings("unit_labels"),
+            "unit_subjects": _strings("unit_subjects"),
+            "unit_conditions": _strings("unit_conditions", condition or "unknown"),
+            "unit_sessions": _strings("unit_sessions"),
+            "unit_runs": _strings("unit_runs"),
+            "unit_tasks": _strings("unit_tasks"),
+            "unit_n": _floats("unit_n"),
+            "unit_kind": _scalar("unit_kind", "unit"),
+            "input_level": _scalar("input_level", ""),
+            "condition": condition,
+            "group_label": _scalar("group_label", ""),
+            "label": label,
+            "n_units": n_units,
         }
 
 
@@ -478,13 +528,23 @@ def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
         "data_type": "unit_stack",
         "base_type": str(result.get("base_type") or ""),
         "unit_kind": str(result.get("unit_kind") or "unit"),
+        "input_level": str(result.get("input_level") or ""),
         "n_units": n_units,
         "n_channels": len(ch_names),
         "ch_names": ch_names,
+        "condition": str(result.get("condition") or ""),
+        "group_label": str(result.get("group_label") or ""),
         "label": str(result.get("label") or ""),
         "unit_labels": list(result.get("unit_labels") or []),
         "subjects": list(result.get("unit_subjects") or []),
+        "unit_conditions": list(result.get("unit_conditions") or []),
+        "unit_sessions": list(result.get("unit_sessions") or []),
+        "unit_runs": list(result.get("unit_runs") or []),
+        "unit_tasks": list(result.get("unit_tasks") or []),
     }
+    collapsed = result.get("collapsed_repeated_units")
+    if isinstance(collapsed, list) and collapsed:
+        summary["collapsed_repeated_units"] = collapsed
     # times / freqs 是 numpy 数组或 None —— 显式判 None + len(),严禁 `if 数组`(真值歧义)。
     if times is not None and len(times) > 0:
         summary["n_times"] = int(len(times))

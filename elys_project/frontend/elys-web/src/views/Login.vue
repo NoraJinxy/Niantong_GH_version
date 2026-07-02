@@ -89,7 +89,7 @@
         <div>
           <div class="alert__title">测试账号</div>
           <div class="alert__body">
-            用户 <code>admin / user1 / user2</code> · 密码由部署环境提供
+            用户 <code>admin / user1 / user2</code> · 密码 <code>qwer123456.</code>
           </div>
         </div>
       </div>
@@ -106,7 +106,7 @@ import { storeToRefs } from 'pinia'
 const auth = useAuthStore()
 const { loading, error } = storeToRefs(auth)
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: 'admin', password: 'qwer123456.' })
 const showPwd = ref(false)
 const remember = ref(true)
 

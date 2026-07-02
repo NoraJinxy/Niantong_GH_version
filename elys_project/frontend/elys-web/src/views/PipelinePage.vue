@@ -1243,6 +1243,7 @@ import { useTagsInputEditor } from '@/composables/pipeline/useTagsInputEditor'
 import { useNodeTopology } from '@/composables/pipeline/useNodeTopology'
 import { useNodeParamEditor } from '@/composables/pipeline/useNodeParamEditor'
 import { useGraphConnections } from '@/composables/pipeline/useGraphConnections'
+import { GROUP_MERGE_NODE_TYPE, allowsMultipleInputLinks, canonicalInputPortName } from '@/composables/pipeline/dynamicPorts'
 import {
   getLiteGraphNodeId,
   setLiteGraphNodeId,
@@ -1262,6 +1263,7 @@ import { useLiteGraphNodeTypes } from '@/composables/pipeline/useLiteGraphNodeTy
 
 // 节点强调色（只读「点击设置」提示用同一种主色，不分类别色）
 const NODE_WIDGET_SLIDER_COLOR = '#3B6FB0'
+const MULTI_INPUT_LINK_PATCH_MARK = '__elysMultiInputLinksPatched__'
 // 只读事实行字体：测量数字 = 全卡唯一的粗体(600/12)；档位词同字号低一档(500/12，秀气不墩)；单位/运算符 500/11 弱化
 const FACT_NUM_FONT = '600 12px "Segoe UI", Arial, sans-serif'
 const FACT_CAT_FONT = '500 12px "Segoe UI", Arial, sans-serif'
@@ -1282,6 +1284,13 @@ type ElysFact =
 
 type LooseLiteGraphCanvas = LGraphCanvas & Record<string, any>
 type LooseLiteGraphTheme = typeof LiteGraph & Record<string, any>
+type MultiLinkInputSlot = {
+  name?: string | null
+  type?: string | number | null
+  cardinality?: string | null
+  link?: string | number | null
+  links?: Array<string | number>
+}
 
 type LiteGraphContextEvent = MouseEvent & {
   canvasX?: number
@@ -2260,7 +2269,451 @@ function configureLiteGraphTheme() {
   theme.WIDGET_SECONDARY_TEXT_COLOR = '#536273'
   theme.NODE_WIDGET_HEIGHT = 24 // 略高于默认 20，和 28px 端口行更协调
   Object.assign(LGraphCanvas.link_type_colors, pipelinePortColors(0.92))
+  patchLiteGraphMultiInputLinks()
   patchLiteGraphLinkHighlight()
+}
+
+function liteGraphInputSlotIndex(node: LGraphNode | null | undefined, slot: number | string | null | undefined): number {
+  if (!node || slot === null || slot === undefined) return -1
+  if (typeof slot === 'string') return node.findInputSlot(slot)
+  if (typeof slot === 'number' && Number.isFinite(slot)) return slot
+  return -1
+}
+
+function liteGraphOutputSlotIndex(node: LGraphNode | null | undefined, slot: number | string | null | undefined): number {
+  if (!node || slot === null || slot === undefined) return -1
+  if (typeof slot === 'string') return node.findOutputSlot(slot)
+  if (typeof slot === 'number' && Number.isFinite(slot)) return slot
+  return -1
+}
+
+function isMultiInputLinkSlot(node: LGraphNode | null | undefined, slot: number | string | null | undefined): boolean {
+  const index = liteGraphInputSlotIndex(node, slot)
+  if (!node || index < 0) return false
+  const input = multiInputSlot(node, index)
+  const isGroupMergeNode =
+    String((node as { type?: unknown }).type || '') === GROUP_MERGE_NODE_TYPE
+    || String((node as { title?: unknown }).title || '') === 'Group Merge'
+  return input?.name === 'input' && (isGroupMergeNode || input.cardinality === 'one_or_many')
+}
+
+function multiInputSlot(node: LGraphNode | null | undefined, slot: number): MultiLinkInputSlot | null {
+  if (!node || slot < 0) return null
+  return (node as unknown as { inputs?: Array<MultiLinkInputSlot | null> }).inputs?.[slot] || null
+}
+
+function graphLinksForTargetSlot(
+  graph: (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+  targetNode: LGraphNode | null | undefined,
+  targetSlot: number,
+): Array<[string, LiteGraphLink]> {
+  if (!graph || !targetNode || targetSlot < 0) return []
+  return Object.entries(graph.links || {}).filter(
+    ([, link]) => link.target_id === targetNode.id && link.target_slot === targetSlot,
+  )
+}
+
+function syncMultiInputLinksFromGraph(
+  graph: (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+  targetNode: LGraphNode,
+  targetSlot: number,
+) {
+  const input = multiInputSlot(targetNode, targetSlot)
+  if (!input) return
+  const ids = graphLinksForTargetSlot(graph, targetNode, targetSlot).map(([linkId]) => linkId)
+  input.links = ids
+  // Keep the native single-link pointer empty so LiteGraph never replaces old
+  // upstreams. The custom links[] mirrors output.links[] for this one input.
+  input.link = null
+}
+
+function clearMultiInputLinks(targetNode: LGraphNode, targetSlot: number) {
+  const input = multiInputSlot(targetNode, targetSlot)
+  if (!input) return
+  input.links = []
+  input.link = null
+}
+
+function multiInputHitZone(
+  node: LGraphNode,
+  slot: number,
+  canvasX: number,
+  canvasY: number,
+): { pos: [number, number] } | null {
+  if (!isMultiInputLinkSlot(node, slot)) return null
+  const pos = node.getConnectionPos(true, slot)
+  const nodePos = (node as unknown as { pos?: [number, number]; size?: [number, number] }).pos || [0, 0]
+  const nodeSize = (node as unknown as { size?: [number, number] }).size || [0, 0]
+  const inBroadInputZone =
+    canvasX >= nodePos[0] - 44
+    && canvasX <= nodePos[0] + Math.min(108, nodeSize[0])
+    && canvasY >= nodePos[1] - 20
+    && canvasY <= nodePos[1] + nodeSize[1] + 20
+  const nearPort =
+    Math.abs(canvasX - Number(pos[0])) <= 54
+    && Math.abs(canvasY - Number(pos[1])) <= 34
+  if (!inBroadInputZone && !nearPort) return null
+  return { pos: [Number(pos[0]), Number(pos[1])] }
+}
+
+function findMultiInputNearPoint(
+  canvas: LooseLiteGraphCanvas,
+  canvasX: number,
+  canvasY: number,
+): { node: LGraphNode; slot: number; input: { type?: string | number | null }; pos: [number, number] } | null {
+  const graphNodes = (
+    (canvas.visible_nodes as LGraphNode[] | undefined)
+    || ((canvas.graph as unknown as { _nodes?: LGraphNode[] } | null | undefined)?._nodes)
+    || []
+  )
+    .slice()
+    .reverse()
+  for (const node of graphNodes) {
+    const inputs = (node as unknown as { inputs?: Array<{ type?: string | number | null } | null> }).inputs || []
+    for (let slot = 0; slot < inputs.length; slot += 1) {
+      const input = inputs[slot]
+      if (!input) continue
+      const hit = multiInputHitZone(node, slot, canvasX, canvasY)
+      if (hit) return { node, slot, input, pos: hit.pos }
+    }
+  }
+  return null
+}
+
+function finiteEventNumber(value: unknown): number | null {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function liteGraphEventCanvasPoint(
+  canvas: LooseLiteGraphCanvas,
+  event: LiteGraphContextEvent,
+): [number, number] | null {
+  const canvasX = finiteEventNumber(event.canvasX)
+  const canvasY = finiteEventNumber(event.canvasY)
+  if (canvasX !== null && canvasY !== null) return [canvasX, canvasY]
+
+  const clientX = finiteEventNumber(event.clientX)
+  const clientY = finiteEventNumber(event.clientY)
+  if (clientX === null || clientY === null) return null
+
+  const canvasEl = (canvas as unknown as { canvas?: HTMLCanvasElement | null }).canvas
+  const rect = canvasEl?.getBoundingClientRect?.()
+  const offsetX = rect ? clientX - rect.left : clientX
+  const offsetY = rect ? clientY - rect.top : clientY
+  const ds = (canvas as unknown as { ds?: { scale?: number; offset?: ArrayLike<number> } }).ds
+  const scale = Number(ds?.scale) > 0 ? Number(ds?.scale) : 1
+  const graphOffsetX = Number(ds?.offset?.[0]) || 0
+  const graphOffsetY = Number(ds?.offset?.[1]) || 0
+  return [offsetX / scale - graphOffsetX, offsetY / scale - graphOffsetY]
+}
+
+function liteGraphConnectionValid(sourceType: unknown, targetType: unknown): boolean {
+  const liteGraph = LiteGraph as unknown as {
+    isValidConnection?: (sourceType: unknown, targetType: unknown) => boolean
+  }
+  if (typeof liteGraph.isValidConnection !== 'function') return true
+  try {
+    // LiteGraph's comma-separated type recursion calls this.isValidConnection,
+    // so the method must keep its LiteGraph receiver.
+    return liteGraph.isValidConnection.call(liteGraph, sourceType, targetType)
+  } catch (error) {
+    console.warn('[pipeline] LiteGraph connection type check failed', sourceType, targetType, error)
+    return false
+  }
+}
+
+function removeSingleLiteGraphLink(
+  graph: (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+  linkId: string | number,
+): boolean {
+  if (!graph?.links) return false
+  const linkKey = String(linkId)
+  const link = graph.links[linkKey]
+  if (!link) return false
+
+  const looseGraph = graph as unknown as LooseLiteGraph & {
+    getNodeById?: (id: number) => LiteGraphNode | null
+    connectionChange?: (node?: unknown, link?: unknown) => void
+    onNodeConnectionChange?: (...args: unknown[]) => void
+  }
+  const originNode = looseGraph.getNodeById?.(link.origin_id) || null
+  const targetNode = looseGraph.getNodeById?.(link.target_id) || null
+  const output = (originNode as unknown as { outputs?: Array<{ links?: Array<string | number> | null } | null> } | null)
+    ?.outputs?.[link.origin_slot] || null
+  const input = (targetNode as unknown as { inputs?: Array<{ link?: string | number | null } | null> } | null)
+    ?.inputs?.[link.target_slot] || null
+
+  if (Array.isArray(output?.links)) {
+    const index = output.links.findIndex((id) => String(id) === linkKey)
+    if (index >= 0) output.links.splice(index, 1)
+  }
+
+  if (input && String(input.link) === linkKey) {
+    input.link = null
+  }
+  if (Array.isArray((input as MultiLinkInputSlot | null)?.links)) {
+    const index = (input as MultiLinkInputSlot).links!.findIndex((id) => String(id) === linkKey)
+    if (index >= 0) (input as MultiLinkInputSlot).links!.splice(index, 1)
+  }
+  delete graph.links[linkKey]
+  if (typeof looseGraph._version === 'number') looseGraph._version += 1
+
+  if (originNode?.onConnectionsChange) {
+    originNode.onConnectionsChange(LiteGraph.OUTPUT, link.origin_slot, false, link as any, output as any)
+  }
+  if (targetNode?.onConnectionsChange) {
+    targetNode.onConnectionsChange(LiteGraph.INPUT, link.target_slot, false, link as any, input as any)
+  }
+  if (looseGraph.onNodeConnectionChange) {
+    looseGraph.onNodeConnectionChange(LiteGraph.OUTPUT, originNode, link.origin_slot)
+    looseGraph.onNodeConnectionChange(LiteGraph.INPUT, targetNode, link.target_slot)
+  }
+
+  if (targetNode && isMultiInputLinkSlot(targetNode, link.target_slot)) {
+    syncMultiInputLinksFromGraph(graph, targetNode, link.target_slot)
+  }
+  targetNode?.setDirtyCanvas(false, true)
+  looseGraph.connectionChange?.(targetNode, link)
+  return true
+}
+
+// LiteGraph output 侧原生用 output.links[] 支持一对多，input 侧却只有 input.link 单值。
+// ELYS 的 one_or_many 输入槽需要“一个视觉输入口、多条上游边”，因此补一份
+// input.links[] 镜像，并让连接/删线/拖线命中都绕开原生单槽替换。
+function patchLiteGraphMultiInputLinks() {
+  const nodeProto = LGraphNode.prototype as Record<string, any>
+  const graphProto = LGraph.prototype as Record<string, any>
+  const canvasProto = LGraphCanvas.prototype as Record<string, any>
+  const origConnect = nodeProto.connect
+  if (typeof origConnect !== 'function') return
+
+  const origDisconnectInput = nodeProto.disconnectInput
+  const origRemoveLink = graphProto.removeLink
+  const origIsOverNodeInput = canvasProto.isOverNodeInput
+  const origProcessMouseMove = canvasProto.processMouseMove
+  const origProcessMouseUp = canvasProto.processMouseUp
+  const origDrawConnections = canvasProto.drawConnections
+
+  if (!(origConnect as any)[MULTI_INPUT_LINK_PATCH_MARK]) {
+    const patchedConnect = function patchedConnect(
+      this: LGraphNode,
+      slot: number | string,
+      targetNode: LGraphNode,
+      targetSlot: number | string,
+      ...rest: unknown[]
+    ) {
+      if (!isMultiInputLinkSlot(targetNode, targetSlot)) {
+        return origConnect.call(this, slot, targetNode, targetSlot, ...rest)
+      }
+
+      const targetSlotIndex = liteGraphInputSlotIndex(targetNode, targetSlot)
+      const originSlotIndex = liteGraphOutputSlotIndex(this, slot)
+      const input = multiInputSlot(targetNode, targetSlotIndex)
+      const duplicate = graphLinksForTargetSlot(
+        this.graph as (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+        targetNode,
+        targetSlotIndex,
+      ).find(([, link]) => link.origin_id === this.id && link.origin_slot === originSlotIndex)
+      if (duplicate) {
+        syncMultiInputLinksFromGraph(
+          this.graph as (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+          targetNode,
+          targetSlotIndex,
+        )
+        return duplicate[1]
+      }
+      if (input) input.link = null
+      const linkInfo = origConnect.call(this, slot, targetNode, targetSlot, ...rest)
+      syncMultiInputLinksFromGraph(
+        this.graph as (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined,
+        targetNode,
+        targetSlotIndex,
+      )
+      return linkInfo
+    }
+
+    const patchedDisconnectInput = function patchedDisconnectInput(
+      this: LGraphNode,
+      slot: number | string,
+      ...rest: unknown[]
+    ) {
+      const slotIndex = liteGraphInputSlotIndex(this, slot)
+      if (!isMultiInputLinkSlot(this, slotIndex)) {
+        return origDisconnectInput.call(this, slot, ...rest)
+      }
+
+      const graph = this.graph as (LGraph & { links?: Record<string, LiteGraphLink> }) | null | undefined
+      const links = graphLinksForTargetSlot(graph, this, slotIndex)
+      if (!links.length) {
+        clearMultiInputLinks(this, slotIndex)
+        this.setDirtyCanvas(false, true)
+        return true
+      }
+      for (const [linkId] of links) {
+        removeSingleLiteGraphLink(graph, linkId)
+      }
+      clearMultiInputLinks(this, slotIndex)
+      this.setDirtyCanvas(false, true)
+      ;(graph as unknown as LooseLiteGraph | null | undefined)?.connectionChange?.(this)
+      return true
+    }
+
+    const patchedRemoveLink = function patchedRemoveLink(this: LGraph, linkId: string | number) {
+      const graph = this as LGraph & { links?: Record<string, LiteGraphLink> }
+      const link = graph.links?.[String(linkId)]
+      const targetNode = link ? (this.getNodeById(link.target_id) as LGraphNode | null) : null
+      if (link && isMultiInputLinkSlot(targetNode, link.target_slot)) {
+        removeSingleLiteGraphLink(graph, linkId)
+        return
+      }
+      return origRemoveLink.call(this, linkId)
+    }
+
+    ;(patchedConnect as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    ;(patchedDisconnectInput as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    ;(patchedRemoveLink as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    nodeProto.connect = patchedConnect
+    nodeProto.disconnectInput = patchedDisconnectInput
+    graphProto.removeLink = patchedRemoveLink
+  }
+
+  if (typeof origIsOverNodeInput === 'function' && !(origIsOverNodeInput as any)[MULTI_INPUT_LINK_PATCH_MARK]) {
+    const patchedIsOverNodeInput = function patchedIsOverNodeInput(
+      this: LGraphCanvas,
+      node: LGraphNode,
+      canvasX: number,
+      canvasY: number,
+      slotPos?: number[] | Float32Array,
+      ...rest: unknown[]
+    ) {
+      const exactSlot = origIsOverNodeInput.call(this, node, canvasX, canvasY, slotPos, ...rest)
+      if (exactSlot !== -1) return exactSlot
+      const hit = multiInputHitZone(node, 0, canvasX, canvasY)
+      if (!hit) return exactSlot
+      if (slotPos) {
+        slotPos[0] = hit.pos[0]
+        slotPos[1] = hit.pos[1]
+      }
+      return 0
+    }
+    ;(patchedIsOverNodeInput as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    canvasProto.isOverNodeInput = patchedIsOverNodeInput
+  }
+
+  if (typeof origProcessMouseMove === 'function' && !(origProcessMouseMove as any)[MULTI_INPUT_LINK_PATCH_MARK]) {
+    const patchedProcessMouseMove = function patchedProcessMouseMove(
+      this: LooseLiteGraphCanvas,
+      event: LiteGraphContextEvent,
+      ...rest: unknown[]
+    ) {
+      const result = origProcessMouseMove.call(this, event, ...rest)
+      if (!this.connecting_node || !this.connecting_output) return result
+      const point = liteGraphEventCanvasPoint(this, event)
+      const hit = point ? findMultiInputNearPoint(this, point[0], point[1]) : null
+      if (!hit) return result
+      if (!liteGraphConnectionValid(this.connecting_output.type, hit.input.type)) return result
+      this._highlight_input = hit.pos
+      this._highlight_input_slot = hit.input
+      this.dirty_canvas = true
+      return result
+    }
+    ;(patchedProcessMouseMove as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    canvasProto.processMouseMove = patchedProcessMouseMove
+  }
+
+  if (typeof origProcessMouseUp === 'function' && !(origProcessMouseUp as any)[MULTI_INPUT_LINK_PATCH_MARK]) {
+    const patchedProcessMouseUp = function patchedProcessMouseUp(
+      this: LooseLiteGraphCanvas,
+      event: LiteGraphContextEvent,
+      ...rest: unknown[]
+    ) {
+      if (this.graph && this.connecting_node && this.connecting_output) {
+        const point = liteGraphEventCanvasPoint(this, event)
+        const hit = point ? findMultiInputNearPoint(this, point[0], point[1]) : null
+        if (hit && liteGraphConnectionValid(this.connecting_output.type, hit.input.type)) {
+          this.dirty_bgcanvas = true
+          this.dirty_canvas = true
+          this.connecting_node.connect(this.connecting_slot, hit.node, hit.slot)
+          this.connecting_node = null
+          this.connecting_pos = null
+          this.connecting_input = null
+          this.connecting_output = null
+          this.connecting_slot = -1
+          this._highlight_input = null
+          this._highlight_input_slot = null
+          this.graph.change()
+          event.stopPropagation?.()
+          event.preventDefault?.()
+          return false
+        }
+      }
+      return origProcessMouseUp.call(this, event, ...rest)
+    }
+    ;(patchedProcessMouseUp as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    canvasProto.processMouseUp = patchedProcessMouseUp
+  }
+
+  if (typeof origDrawConnections === 'function' && !(origDrawConnections as any)[MULTI_INPUT_LINK_PATCH_MARK]) {
+    const patchedDrawConnections = function patchedDrawConnections(
+      this: LooseLiteGraphCanvas,
+      ctx: CanvasRenderingContext2D,
+      ...rest: unknown[]
+    ) {
+      const result = origDrawConnections.call(this, ctx, ...rest)
+      const graph = this.graph as unknown as {
+        links?: Record<string, LiteGraphLink>
+        _nodes?: LiteGraphNode[]
+        getNodeById?: (id: number) => LiteGraphNode | null
+      } | null | undefined
+      const links = graph?.links || {}
+      const nodes = graph?._nodes || []
+      if (!nodes.length) return result
+
+      const previousAlpha = ctx.globalAlpha
+      const previousWidth = ctx.lineWidth
+      ctx.globalAlpha = Number(this.editor_alpha ?? previousAlpha)
+      ctx.lineWidth = Number(this.connections_width || previousWidth || 1)
+
+      const startPos: [number, number] = [0, 0]
+      const endPos: [number, number] = [0, 0]
+      try {
+        for (const node of nodes) {
+          const inputs = (node as unknown as { inputs?: Array<MultiLinkInputSlot | null> }).inputs || []
+          for (let slot = 0; slot < inputs.length; slot += 1) {
+            const input = inputs[slot]
+            if (!input || !Array.isArray(input.links) || input.links.length === 0) continue
+            const nativeLinkId = input.link === null || input.link === undefined ? '' : String(input.link)
+            for (const rawLinkId of input.links) {
+              const linkId = String(rawLinkId)
+              if (!linkId || linkId === nativeLinkId) continue
+              const link = links[linkId]
+              if (!link || link.target_id !== node.id || link.target_slot !== slot) continue
+              const originNode = graph?.getNodeById(link.origin_id) as LiteGraphNode | null | undefined
+              if (!originNode) continue
+              const startSlot = originNode.outputs?.[link.origin_slot] as ({ dir?: number } | null | undefined)
+              const endSlot = node.inputs?.[slot] as ({ dir?: number } | null | undefined)
+              if (!startSlot || !endSlot) continue
+
+              const a = link.origin_slot === -1
+                ? [Number(originNode.pos?.[0] || 0) + 10, Number(originNode.pos?.[1] || 0) + 10]
+                : originNode.getConnectionPos(false, link.origin_slot, startPos)
+              const b = node.getConnectionPos(true, slot, endPos)
+              const startDir = startSlot.dir || (originNode.horizontal ? LiteGraph.DOWN : LiteGraph.RIGHT)
+              const endDir = endSlot.dir || (node.horizontal ? LiteGraph.UP : LiteGraph.LEFT)
+              ;(this as any).renderLink(ctx, a, b, link, false, 0, null, startDir, endDir)
+            }
+          }
+        }
+      } finally {
+        ctx.globalAlpha = previousAlpha
+        ctx.lineWidth = previousWidth
+      }
+      return result
+    }
+    ;(patchedDrawConnections as any)[MULTI_INPUT_LINK_PATCH_MARK] = true
+    canvasProto.drawConnections = patchedDrawConnections
+  }
 }
 
 // LiteGraph 内置在节点被选中 / 拖动时,会把相关连线 push 进 highlighted_links,
@@ -3029,9 +3482,22 @@ function bindHiDpiLiteGraphEvents(canvas: LGraphCanvas, canvasEl: HTMLCanvasElem
     processDrop: (event: DragEvent) => unknown
     bindEvents: () => void
   }
+
+  const liteGraphWhich = (event: MouseEvent): number => {
+    const which = Number(event.which)
+    if (Number.isFinite(which) && which > 0) return which
+    // PointerEvent#which is 0 in some Chromium paths on pointerup. LiteGraph
+    // still gates connection completion on MouseEvent-style which=1/2/3.
+    if (event.button === 0) return 1
+    if (event.button === 1) return 2
+    if (event.button === 2) return 3
+    return which || 0
+  }
+
   const toHiDpiEvent = <T extends MouseEvent>(event: T): T => {
     const ratio = liteGraphPixelRatio || 1
-    if (ratio <= 1) return event
+    const normalizedWhich = liteGraphWhich(event)
+    if (ratio <= 1 && normalizedWhich === Number(event.which)) return event
 
     const rect = canvasEl.getBoundingClientRect()
     const overrides = new Map<PropertyKey, unknown>()
@@ -3041,6 +3507,7 @@ function bindHiDpiLiteGraphEvents(canvas: LGraphCanvas, canvasEl: HTMLCanvasElem
         if (prop === LITEGRAPH_HIDPI_EVENT_PROP) return true
         if (prop === LITEGRAPH_ORIGINAL_CLIENT_X_PROP) return target.clientX
         if (prop === LITEGRAPH_ORIGINAL_CLIENT_Y_PROP) return target.clientY
+        if (prop === 'which') return normalizedWhich
         if (prop === 'clientX') return rect.left + (target.clientX - rect.left) * ratio
         if (prop === 'clientY') return rect.top + (target.clientY - rect.top) * ratio
         if (prop === 'offsetX') return Number(target.offsetX || target.clientX - rect.left) * ratio
@@ -3223,13 +3690,7 @@ function duplicatePipelineNode(nodeId: string) {
 }
 
 function disconnectNodeLinks(nodeId: string) {
-  const graphNode = findLiteGraphNode(nodeId)
-  if (graphNode) {
-    for (let i = (graphNode.inputs?.length || 0) - 1; i >= 0; i -= 1) graphNode.disconnectInput(i)
-    for (let i = (graphNode.outputs?.length || 0) - 1; i >= 0; i -= 1) graphNode.disconnectOutput(i)
-    syncDefinitionFromLiteGraph(true)
-    return
-  }
+  syncDefinitionFromLiteGraph(false)
   definition.value.graph.links = definition.value.graph.links.filter((link) => link.from.node !== nodeId && link.to.node !== nodeId)
   syncDefinitionToLiteGraph()
   markDirty()
@@ -3237,13 +3698,7 @@ function disconnectNodeLinks(nodeId: string) {
 
 function deleteNodeById(nodeId: string) {
   delete loadDataExecutionOverrides[nodeId]
-  const graphNode = findLiteGraphNode(nodeId)
-  if (graphNode && liteGraph) {
-    liteGraph.remove(graphNode)
-    selectedNodeId.value = definition.value.graph.nodes.find((node) => node.id !== nodeId)?.id || ''
-    syncDefinitionFromLiteGraph(true)
-    return
-  }
+  syncDefinitionFromLiteGraph(false)
   definition.value.graph.nodes = definition.value.graph.nodes.filter((node) => node.id !== nodeId)
   definition.value.graph.links = definition.value.graph.links.filter((link) => link.from.node !== nodeId && link.to.node !== nodeId)
   selectedNodeId.value = definition.value.graph.nodes[0]?.id || ''
@@ -3288,28 +3743,38 @@ function syncDefinitionToLiteGraph() {
   liteGraph.clear()
 
   const graphNodes = new Map<string, LiteGraphNode>()
+  const graphNodeSpecs = new Map<string, NodeSpec | null>()
   for (const node of definition.value.graph.nodes.map(normalizeNode)) {
     const graphNode = createLiteGraphNode(node)
     if (!graphNode) continue
     liteGraph.add(graphNode)
     graphNodes.set(node.id, graphNode)
+    graphNodeSpecs.set(node.id, specForNode(node))
   }
 
   for (const link of definition.value.graph.links || []) {
     const from = graphNodes.get(link.from.node)
     const to = graphNodes.get(link.to.node)
     if (!from || !to) continue
+    const toSpec = graphNodeSpecs.get(link.to.node) || null
+    const requestedPort = link.to.port || 'input'
+    const targetPort = canonicalInputPortName(toSpec, requestedPort)
+    const targetSpecInput = toSpec?.inputs?.find((input) => input.name === targetPort) || null
     // 端口名失配时 findXxxSlot 返回 -1：直接跳过这条悬空连线。
     // 不能再用 Math.max(0,-1)→0 强连到 0 号槽 —— 那会塞一条畸形连线进图，
     // LiteGraph 之后遍历它就抛 'value' in null，连带卡死整个画布初始化和右键菜单。
     const outputSlot = from.findOutputSlot(link.from.port)
-    const inputSlot = to.findInputSlot(link.to.port)
+    const inputSlot = to.findInputSlot(targetPort)
     if (outputSlot < 0 || inputSlot < 0) {
       console.warn('[pipeline] 跳过端口失配的悬空连线', link)
       continue
     }
+    const multiInput = allowsMultipleInputLinks(toSpec, targetSpecInput)
+    const liteGraphInput = (to as unknown as { inputs?: Array<{ link?: unknown }> }).inputs?.[inputSlot]
+    if (multiInput && liteGraphInput) liteGraphInput.link = null
     try {
       from.connect(outputSlot, to, inputSlot)
+      if (multiInput && liteGraphInput) liteGraphInput.link = null
     } catch (error) {
       console.error('[pipeline] 连线失败，已跳过', link, error)
     }
@@ -3873,12 +4338,13 @@ function pushGroupAverageSummary(graphNode: LiteGraphNode, params: Record<string
 
 /** Group Merge：有组标签显标签，否则补一行说明（唯一参数是 string、通用渲染会跳过 → 否则空卡）。 */
 function pushGroupMergeSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
-  const label = String(params.label ?? '').trim()
-  if (label) pushReadonlyFact(graphNode, '组标签', label)
-  else pushReadonlyFact(graphNode, '合并', '多被试 PSD')
+  pushReadonlyFact(graphNode, '合并', '按条件分组')
+  pushReadonlyFact(graphNode, 'unit', '被试')
+  const groupLabel = String(params.group_label ?? '').trim()
+  if (groupLabel) pushReadonlyFact(graphNode, '组标签', groupLabel)
 }
 
-/** 数一个「标记字段」里有几项：优先按 JSON 数组(坏段 [{onset,…}])，否则按逗号/空白分隔(坏道名列表)。 */
+/** 数一个「标记字段」里有几项：优先按 JSON 数组，否则按逗号/空白分隔。 */
 function countMarkEntries(raw: unknown): number {
   if (typeof raw !== 'string') return Array.isArray(raw) ? raw.length : 0
   const s = raw.trim()

@@ -28,7 +28,7 @@ export const cacheStats = reactive({
 })
 
 const MEM_MAX = 64
-const CACHE_SCHEMA = 'timeseries-v2-events'
+const CACHE_SCHEMA = 'timeseries-v4-annotation-events'
 const mem = new Map<string, StudyOutputTimeseries>()
 
 function keyOf(studyId: string, dd: string, p: FetchParams): string {

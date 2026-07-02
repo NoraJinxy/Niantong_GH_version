@@ -70,6 +70,8 @@ def run_group_average(data_info: dict[str, Any], params: dict[str, Any]) -> dict
         "n_units": n_units,
         "nave_total": int(unit_n.sum()) if unit_n.size else n_units,
         "label": str(stk.get("label") or ""),
+        "condition": str(stk.get("condition") or stk.get("label") or ""),
+        "group_label": str(stk.get("group_label") or ""),
         "unit_kind": str(stk.get("unit_kind") or "subject"),
         "subjects": subjects,
     }
