@@ -146,19 +146,80 @@ export function useChannelListEditor(options: ChannelListEditorOptions) {
   }
 
   // === channel_list listbox 多选交互（与 LoadDataPanel Include 一致） ===
-  // 单击 = toggle，Shift+点击 = 从上次锚点到当前位置范围加入，Ctrl+A = 全选可见，Delete = 移除已选
+  // 单击 = toggle，按住左键拖过行 = 范围多选，Shift+点击 = 从上次锚点到当前位置范围加入，
+  // Ctrl+A = 全选可见，Delete = 移除已选
   //
   // 注：不用 :ref="callback" 拿 DOM，因为 v-if/v-show 切换时 callback 会反复 mount/unmount，
   // 配合 reactive 数据闪烁可能产生异常。focus 改成 click 时从 event.currentTarget.closest 找。
 
   /** prop key → 上次点击的可见索引（Shift 范围锚点） */
   const channelLastAnchor = reactive<Record<string, number>>({})
+  let channelDragKey = ''
+  let channelDragStart = -1
+  let channelDragBase: Set<string> | null = null
+  let channelDragMoved = false
+  let suppressChannelClick = false
 
-  function handleChannelListClick(e: MouseEvent, prop: NodeProperty, idx: number, ch: string) {
-    // focus 父 listbox（按 keydown 监听就在它上面）—— 用 currentTarget 找最近 .channel-list__box
+  function focusChannelListBox(e: MouseEvent) {
     ;(e.currentTarget as HTMLElement | null)
       ?.closest<HTMLElement>('.channel-list__box')
       ?.focus()
+  }
+
+  function applyChannelDragRange(prop: NodeProperty, idx: number) {
+    const visible = filteredChannelOptions(prop)
+    const start = channelDragStart
+    if (start < 0) return
+    const current = new Set(channelDragBase ?? [])
+    const [lo, hi] = [Math.min(start, idx), Math.max(start, idx)]
+    for (let i = lo; i <= hi; i++) {
+      const item = visible[i]
+      if (item) current.add(item)
+    }
+    setChannelListArray(prop, Array.from(current))
+    channelLastAnchor[channelFilterKey(prop)] = idx
+  }
+
+  function endChannelDrag() {
+    const moved = channelDragMoved
+    channelDragKey = ''
+    channelDragStart = -1
+    channelDragBase = null
+    channelDragMoved = false
+    window.removeEventListener('mouseup', endChannelDrag)
+    if (moved) {
+      window.setTimeout(() => { suppressChannelClick = false }, 0)
+    }
+  }
+
+  function handleChannelListMouseDown(e: MouseEvent, prop: NodeProperty, idx: number) {
+    if (e.button !== 0) return
+    focusChannelListBox(e)
+    channelDragKey = channelFilterKey(prop)
+    channelDragStart = idx
+    channelDragMoved = false
+    suppressChannelClick = false
+    channelDragBase = (e.ctrlKey || e.metaKey) ? new Set(getChannelListArray(prop)) : new Set<string>()
+    channelLastAnchor[channelDragKey] = idx
+    window.addEventListener('mouseup', endChannelDrag)
+    e.preventDefault()
+  }
+
+  function handleChannelListMouseEnter(e: MouseEvent, prop: NodeProperty, idx: number) {
+    const key = channelFilterKey(prop)
+    if (!channelDragKey || channelDragKey !== key || channelDragStart < 0 || e.buttons !== 1) return
+    if (idx !== channelDragStart) channelDragMoved = true
+    suppressChannelClick = channelDragMoved
+    applyChannelDragRange(prop, idx)
+  }
+
+  function handleChannelListClick(e: MouseEvent, prop: NodeProperty, idx: number, ch: string) {
+    if (suppressChannelClick) {
+      suppressChannelClick = false
+      return
+    }
+    // focus 父 listbox（按 keydown 监听就在它上面）—— 用 currentTarget 找最近 .channel-list__box
+    focusChannelListBox(e)
     const key = channelFilterKey(prop)
     const visible = filteredChannelOptions(prop)
     const lastIdx = channelLastAnchor[key]
@@ -206,6 +267,8 @@ export function useChannelListEditor(options: ChannelListEditorOptions) {
     clearChannels,
     invertChannels,
     filteredChannelOptions,
+    handleChannelListMouseDown,
+    handleChannelListMouseEnter,
     handleChannelListClick,
     handleChannelListKeydown,
   }

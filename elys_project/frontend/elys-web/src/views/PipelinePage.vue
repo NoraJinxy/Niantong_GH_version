@@ -882,7 +882,7 @@
               </div>
 
               <!-- channel_list：从上游 LoadData 推断通道，listbox 多选（单选=单通道参考 / 多选=平均参考 / 全选=共同平均参考）
-                   交互：单击 toggle / Shift+点击范围加入 / Ctrl+A 全选可见 / Delete 移除已选 -->
+                   交互：单击 toggle / 按住左键拖过行多选 / Shift+点击范围加入 / Ctrl+A 全选可见 / Delete 移除已选 -->
               <div v-else-if="prop.type === 'channel_list'" class="field channel-list-field" :data-param="prop.name">
                 <div class="channel-list__head">
                   <span>
@@ -917,6 +917,8 @@
                     :key="'chl-' + ch"
                     class="channel-list__item"
                     :class="{ 'is-selected': isChannelSelected(prop, ch) }"
+                    @mousedown="handleChannelListMouseDown($event, prop, idx)"
+                    @mouseenter="handleChannelListMouseEnter($event, prop, idx)"
                     @click="handleChannelListClick($event, prop, idx, ch)"
                   >
                     {{ ch }}
@@ -932,7 +934,7 @@
                   已全选 → 共同平均参考 (common average reference)
                 </div>
                 <small v-if="upstreamChannels.length" class="channel-list__shortcut-hint">
-                  单击切换 · Shift+单击范围选 · Ctrl+A 全选 · Delete 移除已选
+                  单击切换 · 按住左键拖过行多选 · Shift+单击范围选 · Ctrl+A 全选 · Delete 移除已选
                 </small>
                 <small v-if="prop.description || prop.help" class="help-text">{{ prop.description || prop.help }}</small>
               </div>
@@ -1886,6 +1888,8 @@ const {
   clearChannels,
   invertChannels,
   filteredChannelOptions,
+  handleChannelListMouseDown,
+  handleChannelListMouseEnter,
   handleChannelListClick,
   handleChannelListKeydown,
 } = useChannelListEditor({
