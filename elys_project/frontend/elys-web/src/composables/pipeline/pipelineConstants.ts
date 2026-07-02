@@ -86,6 +86,7 @@ export const NODE_STATUS_COLORS: Record<string, string> = {
 export const EXECUTION_POLL_INTERVAL_MS = 1500
 export const EXECUTION_CANCELABLE_STATUSES = ['queued', 'running', 'waiting_user_input']
 export const EXECUTION_RETRYABLE_STATUSES = ['failed', 'canceled']
+export const EXECUTION_DELETABLE_STATUSES = ['queued', 'running', 'waiting_user_input', 'failed', 'canceled']
 export const TASK_CANCELABLE_STATUSES = ['queued', 'pending', 'running', 'waiting', 'waiting_user_input', 'started']
 export const TASK_RETRYABLE_STATUSES = ['failed', 'canceled']
 export const NODE_CARD_WIDTH = 264

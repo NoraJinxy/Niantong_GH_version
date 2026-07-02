@@ -244,16 +244,26 @@
                 运行 #{{ latestPipelineExecution.execution_seq }}（基于旧版本 v{{ latestPipelineExecution.pipeline_version }}）· 工作流已修改，此运行状态已过期，请重新运行
               </span>
               <!-- 过期运行若仍占着运行锁（尤其卡在「等待确认」、而它等的节点已被删，无从推进），
-                   这里给一个直接的取消出口：取消后释放锁，即可重新运行——根治「改图后无法运行」的死锁。 -->
+                   这里给一个直接的暂停出口：暂停后释放锁，即可重新运行——根治「改图后无法运行」的死锁。 -->
               <button
                 v-if="canCancelLatestExecution"
+                class="button button--subtle validation__action"
+                type="button"
+                :disabled="Boolean(executionActionLoading)"
+                title="暂停这个仍占着运行锁的过期运行；暂停后即可重新运行"
+                @click="cancelLatestExecution"
+              >
+                {{ executionActionLoading === 'cancel' ? '暂停中…' : '暂停运行' }}
+              </button>
+              <button
+                v-if="canDeleteLatestExecution"
                 class="button button--danger validation__action"
                 type="button"
                 :disabled="Boolean(executionActionLoading)"
-                title="取消这个仍占着运行锁的过期运行；取消后即可重新运行"
-                @click="cancelLatestExecution"
+                :title="latestExecutionDeleteHint"
+                @click="deleteLatestExecution"
               >
-                {{ executionActionLoading === 'cancel' ? '取消中…' : '取消此运行' }}
+                {{ executionActionLoading === 'delete' ? '删除中…' : '删除运行' }}
               </button>
             </template>
             <template v-else>
@@ -265,6 +275,28 @@
               <span v-if="runArtifacts.length">{{ runArtifacts.length }} 个产物</span>
               <span v-for="issue in latestPipelineExecutionIssues" :key="issue">{{ issue }}</span>
               <span v-for="warn in latestPipelineExecutionWarnings" :key="'w-' + warn" class="warn">⚠ {{ warn }}</span>
+              <div v-if="canCancelLatestExecution || canDeleteLatestExecution" class="validation__actions">
+                <button
+                  v-if="canCancelLatestExecution"
+                  class="button button--subtle validation__action"
+                  type="button"
+                  :disabled="Boolean(executionActionLoading)"
+                  :title="latestExecutionActionHint"
+                  @click="cancelLatestExecution"
+                >
+                  {{ executionActionLoading === 'cancel' ? '暂停中…' : '暂停运行' }}
+                </button>
+                <button
+                  v-if="canDeleteLatestExecution"
+                  class="button button--danger validation__action"
+                  type="button"
+                  :disabled="Boolean(executionActionLoading)"
+                  :title="latestExecutionDeleteHint"
+                  @click="deleteLatestExecution"
+                >
+                  {{ executionActionLoading === 'delete' ? '删除中…' : '删除运行' }}
+                </button>
+              </div>
             </template>
           </div>
           <div v-if="runPollingError" class="validation">
@@ -376,7 +408,16 @@
               :title="latestExecutionActionHint"
               @click="cancelLatestExecution"
             >
-              取消运行
+              暂停运行
+            </button>
+            <button
+              class="button button--danger"
+              type="button"
+              :disabled="!canDeleteLatestExecution || Boolean(executionActionLoading)"
+              :title="latestExecutionDeleteHint"
+              @click="deleteLatestExecution"
+            >
+              删除运行
             </button>
             <button
               class="button button--subtle"
@@ -1735,14 +1776,17 @@ const {
   canOpenRunDialog,
   canSubmitRun,
   canCancelLatestExecution,
+  canDeleteLatestExecution,
   canRetryLatestExecution,
   latestExecutionActionHint,
+  latestExecutionDeleteHint,
   runLockSummary,
   openRunDialog,
   closeRunDialog,
   submitRunDialog,
   runPipeline,
   cancelLatestExecution,
+  deleteLatestExecution,
   retryLatestExecution,
 } = useRunControl({
   selectedStudyId,
@@ -6150,7 +6194,13 @@ function describeError(error: unknown, fallback: string) {
   font-weight: 500;
 }
 
-/* 底栏内嵌的「取消此运行」——压成与状态行齐平的小按钮，不撑高状态栏 */
+/* 底栏内嵌的运行控制按钮——压成与状态行齐平的小按钮，不撑高状态栏 */
+.validation .validation__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .validation .validation__action {
   padding: 2px 10px;
   font-size: 12px;

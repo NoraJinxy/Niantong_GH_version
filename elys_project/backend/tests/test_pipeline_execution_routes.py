@@ -198,6 +198,40 @@ def test_pipeline_execution_cancel_updates_execution_task_lock_audit_and_manifes
     assert 'action="pipeline.execution.canceled"' in source
 
 
+def test_pipeline_execution_delete_route_uses_run_permission_and_standard_path() -> None:
+    tree = load_router_tree()
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    segment = router_function_source("delete_pipeline_execution")
+
+    assert router_method_path(functions["delete_pipeline_execution"], "delete") == "/studies/{study_id}/pipeline-executions/{execution_id}"
+    assert "get_study_for_run(study_id, db, current_user)" in segment
+    assert "execution.status not in RUN_DELETABLE_STATUSES" in segment
+    assert "status.HTTP_409_CONFLICT" in segment
+    assert "pipeline_execution_delete_conflict_detail(execution)" in segment
+
+
+def test_pipeline_execution_delete_cancels_active_run_and_cleans_dependents() -> None:
+    source = load_router_source()
+    segment = router_function_source("delete_pipeline_execution")
+    helper_segment = router_function_source("delete_pipeline_execution_rows")
+
+    assert 'RUN_DELETABLE_STATUSES = RUN_CANCELABLE_STATUSES | {"failed", RUN_CANCELLED_STATUS}' in source
+    assert "best_effort_revoke_pipeline_task(async_task)" in segment
+    assert "reason=\"execution_deleted\"" in segment
+    assert "mark_pipeline_execution_canceled(" in segment
+    assert "delete_pipeline_execution_rows(db, execution=execution, async_tasks=async_tasks)" in segment
+    assert 'action="pipeline.execution.deleted"' in segment
+    assert "db.delete(execution)" in helper_segment
+    assert "ExecutionOutput" in helper_segment
+    assert "PipelineExecutionInput.upstream_execution_id == execution.id" in helper_segment
+    assert "PipelineExecutionDependency.depends_on_execution_id == execution.id" in helper_segment
+    assert "StudyOutput.produced_by_execution_id == execution.id" in helper_segment
+    assert "StudyOutput.produced_by_job_id.in_(job_ids)" in helper_segment
+    assert "DatasetFileDerivation.execution_id == execution.id" in helper_segment
+    assert "TaskEvent.task_id.in_(task_ids)" in helper_segment
+    assert "AsyncTask.id.in_(task_ids)" in helper_segment
+
+
 def test_pipeline_execution_retry_route_uses_run_permission_and_standard_path() -> None:
     tree = load_router_tree()
     functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}

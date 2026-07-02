@@ -7,7 +7,7 @@
 import { computed, ref, type Ref, type ComputedRef } from 'vue'
 import type { Pipeline, PipelineExecution, PipelineExecutionSelectionOverride } from '@/types'
 import { pipelineApi } from '@/api/pipelines'
-import { EXECUTION_CANCELABLE_STATUSES, EXECUTION_RETRYABLE_STATUSES } from './pipelineConstants'
+import { EXECUTION_CANCELABLE_STATUSES, EXECUTION_DELETABLE_STATUSES, EXECUTION_RETRYABLE_STATUSES } from './pipelineConstants'
 import { formatPipelineStatus, shortId, formatDateTime } from './pipelineFormatters'
 
 interface RunControlOptions {
@@ -54,7 +54,7 @@ export function useRunControl(options: RunControlOptions) {
   } = options
 
   const runDialogOpen = ref(false)
-  const executionActionLoading = ref<'cancel' | 'retry' | ''>('')
+  const executionActionLoading = ref<'cancel' | 'delete' | 'retry' | ''>('')
   const runDrawerOpen = ref(false)
 
   const currentPipelineStatus = computed(() => currentPipeline.value?.status || 'draft')
@@ -72,6 +72,9 @@ export function useRunControl(options: RunControlOptions) {
   const canCancelLatestExecution = computed(() =>
     Boolean(latestPipelineExecution.value && EXECUTION_CANCELABLE_STATUSES.includes(String(latestPipelineExecution.value.status))),
   )
+  const canDeleteLatestExecution = computed(() =>
+    Boolean(latestPipelineExecution.value && EXECUTION_DELETABLE_STATUSES.includes(String(latestPipelineExecution.value.status))),
+  )
   const canRetryLatestExecution = computed(() =>
     Boolean(latestPipelineExecution.value && EXECUTION_RETRYABLE_STATUSES.includes(String(latestPipelineExecution.value.status))),
   )
@@ -80,6 +83,11 @@ export function useRunControl(options: RunControlOptions) {
     if (canCancelLatestExecution.value) return '可取消当前排队、运行或等待人工确认的运行；取消会释放运行锁。'
     if (canRetryLatestExecution.value) return '可从失败或已取消的运行创建一个新的运行，旧运行不会被覆盖。'
     return '当前运行状态不支持取消或重试。'
+  })
+  const latestExecutionDeleteHint = computed(() => {
+    if (!latestPipelineExecution.value) return ''
+    if (!canDeleteLatestExecution.value) return '当前运行状态不支持删除；已完成运行请在结果页处理产物。'
+    return '删除当前运行记录；若仍在排队、运行或等待确认，会先暂停运行并释放运行锁。'
   })
   const runLockSummary = computed(() => {
     const result = latestPipelineExecution.value?.result_json || {}
@@ -163,6 +171,27 @@ export function useRunControl(options: RunControlOptions) {
     }
   }
 
+  async function deleteLatestExecution() {
+    const studyId = selectedStudyId.value
+    const execution = latestPipelineExecution.value
+    if (!studyId || !execution || !canDeleteLatestExecution.value || executionActionLoading.value) return
+    const confirmed = window.confirm(`删除运行 #${execution.execution_seq}？若它正在运行，系统会先暂停并释放运行锁。`)
+    if (!confirmed) return
+    executionActionLoading.value = 'delete'
+    stopRunPolling(false)
+    try {
+      await pipelineApi.deleteExecution(studyId, execution.id)
+      resetRunTracking()
+      runDrawerOpen.value = false
+      statusMessage.value = `运行 #${execution.execution_seq} 已删除`
+    } catch (error) {
+      if (!isTerminalRunStatus(execution.status)) startRunPolling(execution.id)
+      statusMessage.value = describeError(error, '运行删除失败')
+    } finally {
+      executionActionLoading.value = ''
+    }
+  }
+
   async function retryLatestExecution() {
     const studyId = selectedStudyId.value
     const execution = latestPipelineExecution.value
@@ -194,14 +223,17 @@ export function useRunControl(options: RunControlOptions) {
     canOpenRunDialog,
     canSubmitRun,
     canCancelLatestExecution,
+    canDeleteLatestExecution,
     canRetryLatestExecution,
     latestExecutionActionHint,
+    latestExecutionDeleteHint,
     runLockSummary,
     openRunDialog,
     closeRunDialog,
     submitRunDialog,
     runPipeline,
     cancelLatestExecution,
+    deleteLatestExecution,
     retryLatestExecution,
   }
 }

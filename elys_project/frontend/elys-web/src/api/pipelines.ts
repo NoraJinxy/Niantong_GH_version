@@ -75,6 +75,8 @@ export const pipelineApi = {
   },
   cancelExecution: (studyId: string, executionId: string) =>
     api.post<PipelineExecution>(`/studies/${studyId}/pipeline-executions/${executionId}/cancel`),
+  deleteExecution: (studyId: string, executionId: string) =>
+    api.delete<void>(`/studies/${studyId}/pipeline-executions/${executionId}`),
   retryExecution: (studyId: string, executionId: string, data: PipelineExecutionRetryRequest = { input_policy: 'reuse_snapshot' }) =>
     api.post<PipelineExecution>(`/studies/${studyId}/pipeline-executions/${executionId}/retry`, data),
   listExecutions: (studyId: string, pipelineId: string | number, limit = 20) =>

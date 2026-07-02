@@ -35,6 +35,8 @@ from app.config import get_settings
 from app.database import SessionLocal, get_db
 from app.models import (
     AsyncTask,
+    DatasetFileDerivation,
+    ExecutionOutput,
     StudyOutput,
     PipelineDefinition,
     PipelineJob,
@@ -109,6 +111,7 @@ router = APIRouter(prefix="/api/v1", tags=["工作流"])
 RUN_CANCELABLE_STATUSES = {"queued", "running", "waiting_user_input"}
 RUN_CANCELLED_STATUS = "canceled"
 RUN_RETRYABLE_STATUSES = {"failed", "canceled"}
+RUN_DELETABLE_STATUSES = RUN_CANCELABLE_STATUSES | {"failed", RUN_CANCELLED_STATUS}
 TASK_CANCELABLE_STATUSES = {"queued", "running", "retrying"}
 TASK_RETRYABLE_STATUSES = {"failed", "canceled"}
 FILE_TASK_TYPES = {"study_output_cleanup", "study_output_gc", "dataset_import", "canonical_fif_rebuild"}
@@ -854,6 +857,16 @@ def pipeline_execution_cancel_conflict_detail(execution: PipelineExecution) -> d
     }
 
 
+def pipeline_execution_delete_conflict_detail(execution: PipelineExecution) -> dict[str, Any]:
+    return {
+        "code": "PIPELINE_EXECUTION_NOT_DELETABLE",
+        "message": "该执行项当前状态不可删除；已完成运行请先在结果页处理产物。",
+        "execution_id": str(execution.id),
+        "status": execution.status,
+        "deletable_statuses": sorted(RUN_DELETABLE_STATUSES),
+    }
+
+
 def best_effort_revoke_pipeline_task(async_task: AsyncTask | None) -> dict[str, Any]:
     if async_task is None or not async_task.celery_task_id:
         return {"attempted": False, "reason": "missing_celery_task_id"}
@@ -892,6 +905,7 @@ def release_pipeline_execution_locks_for_cancel(
     execution: PipelineExecution,
     async_task: AsyncTask | None,
     released_by: UUID | str | None,
+    reason: str = "execution_canceled",
 ) -> list[StudyLock]:
     payload_json = async_task.payload_json if async_task is not None else {}
     lock_id = payload_json.get("lock_id") if isinstance(payload_json, dict) else None
@@ -899,7 +913,7 @@ def release_pipeline_execution_locks_for_cancel(
         db,
         lock_id,
         released_by=released_by,
-        reason="execution_canceled",
+        reason=reason,
     )
     if released_lock is not None:
         return [released_lock]
@@ -910,7 +924,33 @@ def release_pipeline_execution_locks_for_cancel(
         resource_id=execution.pipeline_id,
         lock_type="execution",
         released_by=released_by,
-        reason="execution_canceled",
+        reason=reason,
+    )
+
+
+def latest_pipeline_execution_task(db: Session, *, study_id: str, execution_id: UUID) -> AsyncTask | None:
+    return (
+        db.query(AsyncTask)
+        .filter(
+            AsyncTask.study_id == study_id,
+            AsyncTask.resource_kind == "pipeline_execution",
+            AsyncTask.resource_id == execution_id,
+        )
+        .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+        .first()
+    )
+
+
+def pipeline_execution_tasks(db: Session, *, study_id: str, execution_id: UUID) -> list[AsyncTask]:
+    return (
+        db.query(AsyncTask)
+        .filter(
+            AsyncTask.study_id == study_id,
+            AsyncTask.resource_kind == "pipeline_execution",
+            AsyncTask.resource_id == execution_id,
+        )
+        .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+        .all()
     )
 
 
@@ -997,6 +1037,93 @@ def mark_pipeline_execution_canceled(
                 "celery_revoke": revoke_result,
             },
         )
+
+
+def delete_pipeline_execution_rows(
+    db: Session,
+    *,
+    execution: PipelineExecution,
+    async_tasks: list[AsyncTask],
+) -> dict[str, int]:
+    job_ids = [
+        row[0]
+        for row in db.query(PipelineJob.id)
+        .filter(PipelineJob.study_id == execution.study_id, PipelineJob.execution_id == execution.id)
+        .all()
+    ]
+    task_ids = [task.id for task in async_tasks]
+    counts = {
+        "jobs": len(job_ids),
+        "async_tasks": len(task_ids),
+        "task_events": 0,
+        "execution_outputs": 0,
+        "own_inputs": 0,
+        "upstream_inputs_detached": 0,
+        "own_dependencies": 0,
+        "downstream_dependencies": 0,
+        "study_outputs_detached_by_execution": 0,
+        "study_outputs_detached_by_job": 0,
+        "file_derivations_detached": 0,
+    }
+
+    counts["execution_outputs"] = (
+        db.query(ExecutionOutput)
+        .filter(ExecutionOutput.study_id == execution.study_id, ExecutionOutput.execution_id == execution.id)
+        .delete(synchronize_session=False)
+    )
+    counts["own_inputs"] = (
+        db.query(PipelineExecutionInput)
+        .filter(PipelineExecutionInput.study_id == execution.study_id, PipelineExecutionInput.execution_id == execution.id)
+        .delete(synchronize_session=False)
+    )
+    counts["upstream_inputs_detached"] = (
+        db.query(PipelineExecutionInput)
+        .filter(
+            PipelineExecutionInput.study_id == execution.study_id,
+            PipelineExecutionInput.upstream_execution_id == execution.id,
+        )
+        .update({PipelineExecutionInput.upstream_execution_id: None}, synchronize_session=False)
+    )
+    counts["own_dependencies"] = (
+        db.query(PipelineExecutionDependency)
+        .filter(PipelineExecutionDependency.study_id == execution.study_id, PipelineExecutionDependency.execution_id == execution.id)
+        .delete(synchronize_session=False)
+    )
+    counts["downstream_dependencies"] = (
+        db.query(PipelineExecutionDependency)
+        .filter(
+            PipelineExecutionDependency.study_id == execution.study_id,
+            PipelineExecutionDependency.depends_on_execution_id == execution.id,
+        )
+        .delete(synchronize_session=False)
+    )
+    counts["study_outputs_detached_by_execution"] = (
+        db.query(StudyOutput)
+        .filter(StudyOutput.study_id == execution.study_id, StudyOutput.produced_by_execution_id == execution.id)
+        .update({StudyOutput.produced_by_execution_id: None}, synchronize_session=False)
+    )
+    if job_ids:
+        counts["study_outputs_detached_by_job"] = (
+            db.query(StudyOutput)
+            .filter(StudyOutput.study_id == execution.study_id, StudyOutput.produced_by_job_id.in_(job_ids))
+            .update({StudyOutput.produced_by_job_id: None}, synchronize_session=False)
+        )
+    counts["file_derivations_detached"] = (
+        db.query(DatasetFileDerivation)
+        .filter(DatasetFileDerivation.study_id == execution.study_id, DatasetFileDerivation.execution_id == execution.id)
+        .update({DatasetFileDerivation.execution_id: None}, synchronize_session=False)
+    )
+    if task_ids:
+        counts["task_events"] = (
+            db.query(TaskEvent)
+            .filter(TaskEvent.task_id.in_(task_ids))
+            .delete(synchronize_session=False)
+        )
+        db.query(AsyncTask).filter(AsyncTask.id.in_(task_ids)).delete(synchronize_session=False)
+
+    db.flush()
+    db.delete(execution)
+    return counts
 
 
 def pipeline_execution_retry_conflict_detail(execution: PipelineExecution) -> dict[str, Any]:
@@ -1870,16 +1997,7 @@ def cancel_pipeline_execution(
             detail=pipeline_execution_cancel_conflict_detail(execution),
         )
 
-    async_task = (
-        db.query(AsyncTask)
-        .filter(
-            AsyncTask.study_id == study.id,
-            AsyncTask.resource_kind == "pipeline_execution",
-            AsyncTask.resource_id == execution.id,
-        )
-        .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
-        .first()
-    )
+    async_task = latest_pipeline_execution_task(db, study_id=study.id, execution_id=execution.id)
     pipeline = (
         db.query(PipelineDefinition)
         .filter(PipelineDefinition.id == execution.pipeline_id, PipelineDefinition.study_id == study.id)
@@ -1924,6 +2042,78 @@ def cancel_pipeline_execution(
     db.commit()
     db.refresh(execution)
     return pipeline_execution_to_response(execution)
+
+
+@router.delete("/studies/{study_id}/pipeline-executions/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pipeline_execution(
+    study_id: str,
+    execution_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    study = get_study_for_run(study_id, db, current_user)
+    execution = get_pipeline_execution_or_404(db, study.id, execution_id)
+    if execution.status not in RUN_DELETABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=pipeline_execution_delete_conflict_detail(execution),
+        )
+
+    pipeline = (
+        db.query(PipelineDefinition)
+        .filter(PipelineDefinition.id == execution.pipeline_id, PipelineDefinition.study_id == study.id)
+        .first()
+    )
+    async_tasks = pipeline_execution_tasks(db, study_id=study.id, execution_id=execution.id)
+    async_task = async_tasks[0] if async_tasks else None
+    previous_status = execution.status
+    revoke_result: dict[str, Any] = {"attempted": False, "reason": "execution_not_active"}
+    if execution.status in RUN_CANCELABLE_STATUSES:
+        revoke_result = best_effort_revoke_pipeline_task(async_task)
+        released_locks = release_pipeline_execution_locks_for_cancel(
+            db,
+            execution=execution,
+            async_task=async_task,
+            released_by=current_user.id,
+            reason="execution_deleted",
+        )
+        mark_pipeline_execution_canceled(
+            db,
+            execution=execution,
+            async_task=async_task,
+            current_user=current_user,
+            revoke_result=revoke_result,
+        )
+    else:
+        released_locks = release_pipeline_execution_locks_for_cancel(
+            db,
+            execution=execution,
+            async_task=async_task,
+            released_by=current_user.id,
+            reason="execution_deleted",
+        )
+
+    db.flush()
+    cleanup_counts = delete_pipeline_execution_rows(db, execution=execution, async_tasks=async_tasks)
+    record_audit_event(
+        db,
+        study_id=study.id,
+        action="pipeline.execution.deleted",
+        actor_id=current_user.id,
+        resource_kind="pipeline_execution",
+        resource_id=execution_id,
+        resource_label=getattr(pipeline, "name", None),
+        metadata={
+            "pipeline_id": getattr(execution, "pipeline_id", None),
+            "execution_seq": getattr(execution, "execution_seq", None),
+            "previous_status": previous_status,
+            "celery_revoke": revoke_result,
+            "released_lock_ids": [str(lock.id) for lock in released_locks],
+            "cleanup_counts": cleanup_counts,
+        },
+    )
+    db.commit()
+    return None
 
 
 @router.post("/studies/{study_id}/pipeline-executions/{execution_id}/retry", response_model=PipelineExecutionResponse)
