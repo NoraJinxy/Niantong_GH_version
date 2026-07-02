@@ -12,7 +12,7 @@
           <div class="ov-sub">
             <span class="text-mono">{{ shortId(datasetId) }}</span>
             <span v-if="isMultiOutput" class="ov-dot">·</span>
-            <span v-if="isMultiOutput" class="ov-cond">{{ datasetOptions.length }} 个数据集对比</span>
+            <span v-if="isMultiOutput" class="ov-cond">{{ outputSummaryText }}</span>
           </div>
         </div>
       </div>
@@ -410,7 +410,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { StudyOutputTfr, StudyOutputTfrCube } from '@/types'
+import type { StudyOutput, StudyOutputTfr, StudyOutputTfrCube } from '@/types'
 import HeatmapCanvas from '@/components/observe/HeatmapCanvas.vue'
 import WorkspaceBackButton from '@/components/WorkspaceBackButton.vue'
 // HeatmapCanvas 实例数组（v-for 中按 ci 填入），exportCell 读取以触发高清重绘
@@ -432,6 +432,7 @@ import PerfBadge from '@/components/observe/PerfBadge.vue'
 import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
 import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
 import { api } from '@/api/client'
+import { pipelineApi } from '@/api/pipelines'
 import '@/components/observe/observePage.css'
 
 // ---------- 常量 ----------
@@ -443,6 +444,8 @@ const MAX_TIMES = 160
 const MAX_CELLS = 16 // 软上限：通道×数据集 同时显示的热图数（防一墙小图 + 海量请求）
 const SELECT_RENDER_DEBOUNCE_MS = 80
 const SELECT_LOAD_DEBOUNCE_MS = 120
+const GRAND_AVERAGE_NODE_TYPE = 'eeg/group/average'
+const WHOLE_EVENT_LABELS = new Set(['整体', '全程', '全部', 'overall', 'all'])
 const TIME_WINDOWS = [
   { key: 'all', label: '全部', lo: null as number | null, hi: null as number | null },
   { key: 'post', label: '刺激后', lo: 0, hi: null as number | null },
@@ -490,7 +493,8 @@ const tfrFetch = useTieredFetch<StudyOutputTfr>({
   keyOf: (p) => `${studyId}::${String(p.oid)}::${String(p.channel ?? '')}::${String(p.max_freqs)}::${String(p.max_times)}`,
 })
 const urlOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
-// 数据集列表：URL 带的在前，挂载后自动发现「同研究项下其它 TFR 产物」追加进来（可勾选并排对比，免手动拼 URL）
+// 数据集列表：URL 带的在前；单个结果打开时会补齐同一执行/节点的 TFR 兄弟产物，
+// 再按「数据集」和「事件」两级选择器过滤到具体文件。
 const outputIds = ref<string[]>([...urlOutputIds])
 const datasetId = urlOutputIds[0] || ''
 const nameHint = qstr('name')
@@ -508,6 +512,7 @@ const partialNote = ref('')
 const labelCache = reactive<Record<number, string>>({})
 const outputMetaCache = reactive<Record<number, OutputOptionMeta>>({})
 const compactSegLabels = computed(() => compactDatasetLabels(outputIds.value.map((_, i) => rawDatasetLabel(i))))
+const uniqueDatasetKeyCount = computed(() => new Set(outputIds.value.map((_, i) => datasetKey(i))).size)
 const datasetOptions = computed(() => {
   const seen = new Map<string, { key: string; label: string; title: string; firstSeg: number; segs: number[] }>()
   outputIds.value.forEach((_, i) => {
@@ -518,11 +523,16 @@ const datasetOptions = computed(() => {
       if (!hit.title.includes(rawDatasetLabel(i))) hit.title += `\n${rawDatasetLabel(i)}`
       return
     }
-    seen.set(key, { key, label: segLabel(i), title: rawDatasetLabel(i), firstSeg: i, segs: [i] })
+    seen.set(key, { key, label: datasetDisplayLabel(i), title: rawDatasetLabel(i), firstSeg: i, segs: [i] })
   })
   return [...seen.values()]
 })
 const datasetKeys = computed(() => datasetOptions.value.map((item) => item.key))
+const outputSummaryText = computed(() => {
+  const datasetText = `${datasetOptions.value.length} 个数据集`
+  const events = eventOptions.value
+  return events.length > 1 ? `${datasetText} · ${events.length} 个事件` : `${datasetText}对比`
+})
 
 const showStats = ref(true)
 const showGrid = ref(false)
@@ -588,14 +598,28 @@ function rawDatasetLabel(seg: number): string {
   return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || (isMultiOutput.value ? `数据集 ${seg + 1}` : nameHint || '时频')
 }
 function datasetKey(seg: number): string {
+  return datasetDisplayLabel(seg)
+}
+function datasetDisplayLabel(seg: number): string {
   return compactSegLabels.value[seg] || rawDatasetLabel(seg)
 }
 function segLabel(seg: number): string {
-  return isMultiOutput.value ? compactSegLabels.value[seg] || rawDatasetLabel(seg) : rawDatasetLabel(seg)
+  if (!isMultiOutput.value) return rawDatasetLabel(seg)
+  const dataset = datasetDisplayLabel(seg)
+  const event = eventLabel(seg)
+  if (event && !isWholeEventLabel(event)) {
+    if (uniqueDatasetKeyCount.value <= 1) return event
+    return `${dataset} · ${event}`
+  }
+  return dataset
 }
 function eventLabel(seg: number): string {
   const meta = tfrMap.value.get(`${seg}::${defaultChannel.value}`) || findAnyForSeg(seg)
   return outputMetaCache[seg]?.eventLabel || meta?.condition || '整体'
+}
+function isWholeEventLabel(label: string | null | undefined): boolean {
+  const text = String(label || '').trim()
+  return WHOLE_EVENT_LABELS.has(text) || WHOLE_EVENT_LABELS.has(text.toLowerCase())
 }
 const eventOptions = computed(() =>
   isMultiOutput.value ? [...new Set(outputIds.value.map((_, i) => eventLabel(i)))].filter(Boolean) : [],
@@ -1193,8 +1217,69 @@ function exportCell(e: MouseEvent, title: string, ci?: number) {
 
 // ---------- 取数 ----------
 let loadSeq = 0
+function clearOutputMetaCache() {
+  for (const key of Object.keys(outputMetaCache)) delete outputMetaCache[Number(key)]
+}
+
+function outputSortLabel(output: StudyOutput): string {
+  return [
+    output.display_name || '',
+    output.condition || '',
+    output.created_at || '',
+    output.id,
+  ].join('\u0001')
+}
+
+function sameExecutionNode(first: StudyOutput, other: StudyOutput): boolean {
+  return (
+    other.id !== first.id
+    && String(other.data_type || '').toLowerCase() === 'tfr'
+    && (!first.produced_by_execution_id || other.produced_by_execution_id === first.produced_by_execution_id)
+    && (!first.produced_by_node_id || other.produced_by_node_id === first.produced_by_node_id)
+    && (!first.produced_by_node_type || other.produced_by_node_type === first.produced_by_node_type)
+  )
+}
+
+async function initOutputCatalog() {
+  if (!studyId || !urlOutputIds.length) return
+  await loadOutputOptionMeta(studyId, outputIds.value, outputMetaCache)
+  if (urlOutputIds.length !== 1) return
+
+  try {
+    const { data: first } = await pipelineApi.getStudyOutput(studyId, urlOutputIds[0])
+    const shouldDiscover = String(first.produced_by_node_type || '').toLowerCase() === GRAND_AVERAGE_NODE_TYPE
+    if (!shouldDiscover || !first.produced_by_execution_id) return
+    const { data } = await pipelineApi.listStudyOutputs(studyId, {
+      data_types: ['tfr'],
+      execution_ids: [first.produced_by_execution_id],
+      node_types: first.produced_by_node_type ? [first.produced_by_node_type] : undefined,
+      limit: 500,
+    })
+    const siblings = data.study_outputs
+      .filter((item) => sameExecutionNode(first, item))
+      .sort((a, b) => outputSortLabel(a).localeCompare(outputSortLabel(b), undefined, { numeric: true }))
+    if (!siblings.length) return
+
+    const ordered = [first, ...siblings]
+      .sort((a, b) => outputSortLabel(a).localeCompare(outputSortLabel(b), undefined, { numeric: true }))
+    const seen = new Set<string>()
+    const next: string[] = []
+    for (const item of ordered) {
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      next.push(item.id)
+    }
+    if (next.length <= outputIds.value.length) return
+    outputIds.value = next
+    clearOutputMetaCache()
+    await loadOutputOptionMeta(studyId, outputIds.value, outputMetaCache)
+  } catch {
+    // 元数据发现是增强能力，失败时仍保留 URL 指定的结果可画。
+  }
+}
+
 async function bootstrap() {
-  if (!studyId || !urlOutputIds.length) {
+  if (!studyId || !outputIds.value.length) {
     error.value = '缺少参数：需要 studyId 和 study_output_id（结果 ID）。'
     loading.value = false
     return
@@ -1339,8 +1424,10 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 
 onMounted(() => {
   document.title = '时频分析 — 念析'
-  if (isMultiOutput.value) void loadOutputOptionMeta(studyId, outputIds.value, outputMetaCache)
-  void bootstrap()
+  void (async () => {
+    await initOutputCatalog()
+    void bootstrap()
+  })()
 })
 onUnmounted(() => {
   renderSegsJob.cancel()

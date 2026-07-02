@@ -102,7 +102,6 @@ export function useMultiSelect<K>(keys: () => K[], initial: K[] = []): MultiSele
     dragMoved = false
     suppressClick = false
     anchor.value = index
-    applyRange(index, index, !!dragBase)
     window.addEventListener('mouseup', endDrag)
     e.preventDefault()
   }

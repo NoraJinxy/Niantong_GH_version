@@ -44,13 +44,46 @@ export function compactDatasetLabels(labels: string[]): string[] {
   })
 }
 
+function cleanText(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function previewString(data: StudyOutput, key: string): string {
+  const preview = data.preview_json || {}
+  const value = preview[key]
+  return typeof value === 'string' ? cleanText(value) : ''
+}
+
+function grandAverageConditionFromName(label: string): string {
+  const text = cleanText(label)
+  const match = text.match(/^Grand Average\s*[·:|-]\s*(.+?)\s*$/i)
+  return cleanText(match?.[1]?.replace(/(?:\s*\([^)]*\))+\s*$/, '') || '')
+}
+
+function conditionFromOutput(data: StudyOutput): string {
+  return (
+    cleanText(data.condition)
+    || previewString(data, 'condition')
+    || previewString(data, 'comment')
+    || previewString(data, 'label')
+    || grandAverageConditionFromName(cleanText(data.display_name))
+  )
+}
+
 function stripCondition(label: string, condition: string): string {
   if (!label || !condition) return label
-  const escaped = condition.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = cleanText(condition)
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\s+/g, '\\s+')
   return label
+    // Grand Average · S3 (3 subj) -> Grand Average (3 subj);
+    // duplicated display names may append another suffix, e.g. "(3)".
+    .replace(new RegExp(`\\s*(?:[·|_-]\\s*)?${escaped}\\s*(?=(?:\\s*\\([^)]*\\))*\\s*$)`, 'i'), ' ')
     .replace(new RegExp(`\\s*[·/|_-]\\s*${escaped}\\s*$`, 'i'), '')
     .replace(new RegExp(`\\s*\\(${escaped}\\)\\s*$`, 'i'), '')
     .replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '')
+    .replace(/\s*[·|_-]\s*(?=(?:\s*\([^)]*\))*\s*$)/, ' ')
+    .replace(/\s{2,}/g, ' ')
     .trim()
 }
 
@@ -60,12 +93,12 @@ function formatDatasetLabel(data: StudyOutput): string {
     .map((part) => String(part || '').trim())
     .filter(Boolean)
   const bidsLike = parts.length ? parts.join('_') : ''
-  const display = stripCondition(data.display_name || '', data.condition || '')
+  const display = stripCondition(data.display_name || '', conditionFromOutput(data))
   return display || bidsLike || subject || ''
 }
 
 function metaFromOutput(data: StudyOutput): OutputOptionMeta {
-  const condition = data.condition || ''
+  const condition = conditionFromOutput(data)
   const datasetLabel = formatDatasetLabel(data)
   return {
     datasetLabel,
