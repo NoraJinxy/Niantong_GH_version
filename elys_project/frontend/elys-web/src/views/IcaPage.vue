@@ -107,9 +107,9 @@
           <section class="ica-center">
             <div class="ica-center-head">
               <div class="ica-center-title">
-                整体去除前后对比
-                <span class="muted text-sm">· {{ currentDatasetLabel }}</span>
-                <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }}</span>
+                <span class="ica-chart-title">整体去除前后对比</span>
+                <span class="ica-chart-meta">· {{ currentDatasetLabel }}</span>
+                <span v-if="cmpChannel" class="ica-chart-meta">· 通道 {{ cmpChannel }}</span>
               </div>
               <div class="ica-center-controls">
                 <div class="ica-windowseg" role="group" aria-label="显示时长">
@@ -149,7 +149,8 @@
             <div class="ica-detail-row">
               <section class="ica-detail-panel">
                 <div class="ica-panel-cap">
-                  选中成分时域激活（源）<template v-if="activeComp">· {{ activeComp.label }}</template>
+                  <span class="ica-chart-title">选中成分时域激活（源）</span>
+                  <span v-if="activeComp" class="ica-chart-meta">· {{ activeComp.label }}</span>
                 </div>
                 <div class="ica-panel-host">
                   <TimeCourseCanvas
@@ -171,20 +172,19 @@
                 </div>
               </section>
               <section class="ica-detail-panel">
-                <div class="ica-panel-cap ica-panel-cap--wrap">
+                <div class="ica-panel-cap">
+                  <span class="ica-chart-title">Welch 频谱</span>
                   <template v-if="activeComp">
-                    <span class="ica-spec-title">{{ activeComp.label }}</span>
-                    <span v-if="activeComp.iclabel" class="ica-tag" :class="activeComp.iclabel.category === 'brain' ? 'is-brain' : 'is-artifact'">
-                      {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
+                    <span class="ica-chart-meta">· {{ activeComp.label }}</span>
+                    <span v-if="activeComp.iclabel" class="ica-chart-meta">
+                      · {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
                     </span>
-                    <span v-if="activeComp.explained_variance != null" class="muted text-sm">方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
-                    <span class="muted text-sm">Welch 频谱 · dB / Hz</span>
+                    <span v-if="activeComp.explained_variance != null" class="ica-chart-meta">· 方差 {{ activeComp.explained_variance.toFixed(1) }}%</span>
                   </template>
-                  <span v-else class="muted text-sm">选择成分看 Welch 频谱</span>
+                  <span v-else class="ica-chart-meta">· 选择成分看频谱</span>
                 </div>
-                <div v-if="activeComp" class="muted text-sm ica-insp-chans">主导：{{ activeComp.top_channels.join(' · ') || '—' }}</div>
                 <div class="ica-panel-host">
-                  <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline dense-axes :loading="detailLoading" />
+                  <TimeCourseCanvas v-if="activeComp" :data="specData" :series="specSeries" x-label="Hz" y-label="dB" :show-legend="false" use-spline :loading="detailLoading" />
                   <div v-else class="ica-panel-empty muted text-sm">选择成分看频谱</div>
                 </div>
               </section>
@@ -876,12 +876,6 @@ onMounted(load)
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.ica-spec-title { font-weight: 600; font-size: 13px; color: var(--c-text); }
-.ica-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; }
-.ica-tag.is-artifact { background: rgba(239, 68, 68, .12); color: var(--c-danger); }
-.ica-tag.is-brain { background: rgba(34, 197, 94, .14); color: #15803d; }
-.ica-insp-chans { font-size: 11px; }
-
 /* 数据集 / 通道列表 */
 .ica-picker { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(92px, auto) minmax(0, 1fr); overflow: hidden; }
 .ica-pick-sec { min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--c-border); }
@@ -899,7 +893,9 @@ onMounted(load)
 /* 中：整体对比（主视图，flex 高）+ 底部详情双栏 */
 .ica-center { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .ica-center-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
-.ica-center-title { font-weight: 600; font-size: 14px; color: var(--c-text); }
+.ica-center-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.ica-chart-title { font-size: 12px; font-weight: 600; line-height: 1.45; color: var(--c-text); }
+.ica-chart-meta { font-size: 12px; font-weight: 600; line-height: 1.45; color: var(--c-text-3); }
 .ica-center-controls { display: inline-flex; align-items: center; gap: 12px; font-size: 12px; color: var(--c-text-3); }
 .ica-windowseg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-sm); overflow: hidden; background: var(--c-surface); }
 .ica-windowseg button { border: none; border-left: 1px solid var(--c-border); background: transparent; color: var(--c-text-3); font-size: 12px; line-height: 1.6; padding: 2px 10px; cursor: pointer; }
@@ -928,8 +924,7 @@ onMounted(load)
   padding: 7px 16px 10px;
 }
 .ica-detail-panel + .ica-detail-panel { border-left: 1px solid var(--c-border); }
-.ica-panel-cap { min-height: 22px; display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; color: var(--c-text-2); }
-.ica-panel-cap--wrap { flex-wrap: wrap; align-content: center; row-gap: 4px; }
+.ica-panel-cap { min-height: 22px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding-bottom: 4px; }
 .ica-panel-host { flex: 1; min-height: 0; position: relative; }
 .ica-panel-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 
