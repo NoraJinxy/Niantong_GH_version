@@ -560,10 +560,10 @@ const specSeries = [{ name: '功率', color: COMPARE_CLEAN }]
 const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
 const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectrum.frequencies, detail.value.spectrum.power_db] : [[], []]))
 
-// 中心整体对比：原始（橙） vs 去除后（蓝），同轴叠加；后端给 Volts，×1e6 换 µV。
+// 中心整体对比：原始（蓝） vs 去除后（橙），同轴叠加；后端给 Volts，×1e6 换 µV。
 const cmpSeries = [
-  { name: '原始', color: COMPARE_ORIGINAL },
-  { name: '去除后', color: COMPARE_CLEAN },
+  { name: '原始', color: COMPARE_CLEAN },
+  { name: '去除后', color: COMPARE_ORIGINAL },
 ]
 const previewData = computed<number[][]>(() => {
   const p = preview.value
