@@ -201,6 +201,20 @@
               </div>
             </div>
             <div class="ica-sec-hint">单击看详情 · 双击 / 勾选 = 标记剔除（红 = 已标记）· 更多见「操作提示」</div>
+            <div class="ica-active-topo">
+              <div class="ica-active-topo-head">
+                <span class="ica-chart-title">选中成分地形图</span>
+                <template v-if="activeComp">
+                  <span class="ica-chart-meta">· {{ activeComp.label }}</span>
+                  <span v-if="activeComp.iclabel" class="ica-chart-meta">
+                    · {{ activeComp.iclabel.label_cn }}<template v-if="activeComp.iclabel.probability != null"> {{ Math.round(activeComp.iclabel.probability * 100) }}%</template>
+                  </span>
+                </template>
+                <span v-else class="ica-chart-meta">· 点击下方成分</span>
+              </div>
+              <TopoStrip v-if="activeComp" bare :cells="activeTopoCells" :vmax="1" subtitle="" unit="" lo-label="−" hi-label="+" />
+              <div v-else class="ica-active-topo-empty muted text-sm">点击下方成分查看大图</div>
+            </div>
             <div class="ica-wall-body">
               <TopoStrip
                 layout="grid"
@@ -524,6 +538,19 @@ const componentCells = computed<TopoCell[]>(() =>
     }
   }),
 )
+const activeTopoCells = computed<TopoCell[]>(() => {
+  const c = activeComp.value
+  if (!c) return []
+  const removed = excludedSet.value.has(c.index)
+  return [{
+    seg: c.index,
+    label: c.label,
+    color: removed ? DANGER : PRIMARY,
+    marked: removed,
+    sub: cellSub(c),
+    points: cellPoints(c),
+  }]
+})
 
 // 时域激活 + 频谱底部并列显示（喂 TimeCourseCanvas：data=[x, ...ys]）
 const tcSeries = [{ name: '激活', color: PRIMARY }]
@@ -867,6 +894,18 @@ onMounted(load)
 .ica-sortseg button:hover { color: var(--c-text-2); }
 .ica-sortseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-wall-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
+.ica-active-topo {
+  flex: 0 0 auto;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-surface) 94%, var(--c-bg));
+}
+.ica-active-topo-head { min-height: 22px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.ica-active-topo-empty { height: 168px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--c-border); border-radius: var(--r-sm); background: var(--c-bg); }
+.ica-active-topo :deep(.topo-strip.is-bare) { margin-top: 6px; }
+.ica-active-topo :deep(.topo-cards) { overflow: visible; }
+.ica-active-topo :deep(.topo-card) { padding: 6px 8px 4px; }
+.ica-active-topo :deep(.topo-cv) { height: 156px; }
 
 /* 右·成分缩略图墙：固定三列，宽度约为旧左栏的 1.5 倍 */
 .ica-right {
@@ -904,13 +943,13 @@ onMounted(load)
 .ica-windowseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-live { color: var(--c-primary); font-size: 12px; }
 .ica-vr { color: var(--c-success); font-size: 12px; font-weight: 600; }
-.ica-cmp-body { flex: 1; min-height: 0; padding: 12px 16px 6px; display: flex; }
+.ica-cmp-body { flex: 1 1 0; min-height: 260px; padding: 12px 16px 6px; display: flex; }
 .ica-cmp-host { flex: 1; min-height: 0; position: relative; }
 .ica-zoom-hint { position: absolute; right: 8px; top: 4px; font-size: 10px; color: var(--c-text-3); pointer-events: none; background: color-mix(in srgb, var(--c-surface) 80%, transparent); padding: 1px 5px; border-radius: 4px; }
 .ica-cmp-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--c-text-3); padding: 24px; }
 .ica-detail-row {
-  flex: 0 0 190px;
-  min-height: 180px;
+  flex: 1 1 0;
+  min-height: 260px;
   border-top: 1px solid var(--c-border);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
