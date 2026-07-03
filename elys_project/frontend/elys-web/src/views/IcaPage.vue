@@ -363,7 +363,7 @@ const currentOutputId = computed(() => currentDataset.value?.outputId || outputI
 const currentDatasetLabel = computed(() => currentDataset.value?.label || '当前数据集')
 
 const isLive = computed(() => Boolean(studyId && currentOutputId.value))
-const jobContext = computed(() => Boolean(isLive.value && executionId && jobId && decisionVersion > 0))
+const jobContext = computed(() => Boolean(studyId && executionId && jobId && decisionVersion > 0))
 
 const loading = ref(false)
 const labelsLoading = ref(false) // 阶段二（方差+ICLabel）异步加载中
@@ -664,7 +664,7 @@ async function loadDatasetOptions() {
 
 // 阶段一（快）：当前数据集成分地形图网格——秒出，不等 raw / ICLabel。
 async function load() {
-  if (!studyId || !outputId) return
+  if (!studyId || (!outputId && !jobContext.value)) return
   await loadDatasetOptions()
   await loadCurrentOutput()
 }
