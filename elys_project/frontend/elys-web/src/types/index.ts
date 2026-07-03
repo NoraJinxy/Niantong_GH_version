@@ -1546,6 +1546,7 @@ export interface PipelineIcaComponentPreview {
 
 export interface PipelineInteractionDecision {
   excluded_components: number[]
+  excluded_components_by_dataset?: Record<string, number[]>
   decision_version: number
   submitted_by?: string | null
   submitted_at?: string | null
@@ -1574,6 +1575,7 @@ export interface ArtifactBadSegment {
 export interface PipelineInteractionDecisionRequest {
   // ICA 成分剔除
   excluded_components?: number[]
+  excluded_components_by_dataset?: Record<string, number[]>
   // 手动去伪迹去坏段（artifact_marking 交互）
   bad_segments?: ArtifactBadSegment[]
   bad_channels?: string[]

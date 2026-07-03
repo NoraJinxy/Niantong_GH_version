@@ -9,7 +9,7 @@
           <IconLine name="brain" :size="24" /> ICA 成分审核
         </h1>
         <span v-if="isLive && overview" class="muted text-sm">
-          {{ overview.method || 'ICA' }} · {{ overview.n_components }} 成分 · {{ overview.n_channels }} 通道
+          {{ currentDatasetLabel }} · {{ overview.method || 'ICA' }} · {{ overview.n_components }} 成分 · {{ overview.n_channels }} 通道
           <template v-if="overview.total_variance_explained != null">
             · 解释方差 {{ overview.total_variance_explained.toFixed(1) }}%
           </template>
@@ -23,7 +23,9 @@
         <!-- 应用决策（原底栏移到顶栏，常驻不占画布高度） -->
         <template v-if="isLive">
           <span class="ica-tb-div"></span>
-          <span class="muted text-sm" :class="{ 'ica-rm-count': removeList.length }">待去除 {{ removeList.length }}</span>
+          <span class="muted text-sm" :class="{ 'ica-rm-count': totalRemoveCount }">
+            待去除 {{ removeList.length }}<template v-if="datasetOptions.length > 1"> / 合计 {{ totalRemoveCount }}</template>
+          </span>
           <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
           <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
           <span v-else-if="!jobContext" class="muted text-sm" title="在工作流「ICA Apply」节点处打开才能提交">查看模式</span>
@@ -92,10 +94,15 @@
             <div class="ica-center-head">
               <div class="ica-center-title">
                 整体去除前后对比
+                <span class="muted text-sm">· {{ currentDatasetLabel }}</span>
                 <span v-if="cmpChannel" class="muted text-sm">· 通道 {{ cmpChannel }}</span>
               </div>
               <div class="ica-center-controls">
-                <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">全部时段</button>
+                <div class="ica-windowseg" role="group" aria-label="显示时长">
+                  <button type="button" :class="{ 'is-on': previewWindowMode === 'short' }" @click="setPreviewWindowMode('short')">10s</button>
+                  <button type="button" :class="{ 'is-on': previewWindowMode === 'full' }" @click="setPreviewWindowMode('full')">全部</button>
+                </div>
+                <button v-if="isZoomed" class="btn btn--sm btn--ghost" @click="resetZoom">复位视图</button>
                 <span v-if="previewLoading" class="ica-live">● 刷新中</span>
                 <span v-else-if="preview?.has_comparison && removeList.length && preview.variance_reduction != null" class="ica-vr">
                   方差 ↓ {{ preview.variance_reduction }}%
@@ -173,22 +180,45 @@
               </div>
             </div>
 
-            <div class="ica-chan">
-              <div class="ica-sec-head ica-sec-head--sub">
-                <span>对比通道</span>
-                <span class="muted text-sm">{{ cmpChannel || '—' }}</span>
-              </div>
-              <div class="ica-chan-list">
-                <button
-                  v-for="ch in overview?.ch_names || []"
-                  :key="ch"
-                  class="ica-chan-chip"
-                  :class="{ 'is-on': ch === cmpChannel }"
-                  @click="cmpChannel = ch"
-                >
-                  {{ ch }}
-                </button>
-              </div>
+            <div class="ica-picker">
+              <section class="ica-pick-sec">
+                <div class="ica-sec-head ica-sec-head--sub">
+                  <span>数据集</span>
+                  <span class="muted text-sm">{{ datasetOptions.length ? `${datasetOptions.findIndex((item) => item.key === selectedDatasetKey) + 1}/${datasetOptions.length}` : '—' }}</span>
+                </div>
+                <div class="ica-pick-list">
+                  <button
+                    v-for="item in datasetOptions"
+                    :key="item.key"
+                    class="ica-pick-row"
+                    :class="{ 'is-on': item.key === selectedDatasetKey }"
+                    :title="item.title"
+                    @click="selectDataset(item.key)"
+                  >
+                    <span class="ica-pick-dot"></span>
+                    <span class="ica-pick-name">{{ item.label }}</span>
+                    <span v-if="item.componentCount" class="ica-pick-tag">{{ item.componentCount }} IC</span>
+                  </button>
+                </div>
+              </section>
+              <section class="ica-pick-sec">
+                <div class="ica-sec-head ica-sec-head--sub">
+                  <span>通道</span>
+                  <span class="muted text-sm">{{ cmpChannel || '—' }}</span>
+                </div>
+                <div class="ica-pick-list ica-pick-list--channels">
+                  <button
+                    v-for="ch in overview?.ch_names || []"
+                    :key="ch"
+                    class="ica-pick-row"
+                    :class="{ 'is-on': ch === cmpChannel }"
+                    @click="cmpChannel = ch"
+                  >
+                    <span class="ica-pick-dot"></span>
+                    <span class="ica-pick-name text-mono">{{ ch }}</span>
+                  </button>
+                </div>
+              </section>
             </div>
           </aside>
         </div>
@@ -201,6 +231,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { dataApi } from '@/api/client'
+import { pipelineApi } from '@/api/pipelines'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconLine from '@/components/IconLine.vue'
@@ -213,6 +244,8 @@ import { usePerfProbe } from '@/composables/observe/usePerfProbe'
 import PerfBadge from '@/components/observe/PerfBadge.vue'
 import { useObserveHotkeys, type HotkeyDef } from '@/composables/observe/useObserveHotkeys'
 import HotkeyHelp from '@/components/observe/HotkeyHelp.vue'
+import { compactDatasetLabels } from '@/composables/observe/outputLabels'
+import type { PipelineInteraction, StudyOutput } from '@/types'
 
 // ---- 后端返回结构（对齐 app/pipeline/ica_inspect.py） ----
 interface TopoPoint { name: string; x: number; y: number; weight: number }
@@ -258,6 +291,23 @@ interface IcaDetail {
   timecourse: { times: number[]; values: number[] }
   spectrum: { frequencies: number[]; power_db: number[]; fmax: number }
 }
+interface IcaInteractionDataset {
+  dataset_id?: string | null
+  source_dataset_id?: string | null
+  ica_artifact_id?: string | null
+  data_info?: Record<string, unknown> | null
+  ica_info?: Record<string, unknown> | null
+  components?: IcaComponent[]
+}
+interface IcaDatasetOption {
+  key: string
+  outputId: string
+  label: string
+  title: string
+  datasetId?: string | null
+  sourceDatasetId?: string | null
+  componentCount?: number | null
+}
 
 // TopoStrip 的 cell 形状（与组件内 TopoCell 结构兼容）
 interface TopoCell {
@@ -276,8 +326,9 @@ const PRIMARY = '#3F5E8F' // elys 招牌蓝（画布内硬编码，与观察页�
 const ACCENT = '#7A5AA6' // 频谱用紫
 const GRAY = '#79859A' // 对比图"原始"用灰
 
-// 去除前后对比 / 时域激活载入的时窗（秒）：固定窗，缩放在前端做（拖动 / 滚轮），不再用时窗下拉。
-const WINDOW_SECONDS = 30
+// 去除前后对比 / 时域激活载入的时窗（秒）：默认看 10s；“全部”交给后端按真实长度截断并下采样。
+const SHORT_WINDOW_SECONDS = 10
+const FULL_WINDOW_SECONDS = 86400
 
 const route = useRoute()
 function qstr(key: string, fallback = ''): string {
@@ -287,27 +338,36 @@ function qstr(key: string, fallback = ''): string {
 }
 
 const studyId = qstr('studyId') || qstr('study')
-const outputId = qstr('study_output_id') || qstr('dd')
+const routeOutputIds = (qstr('study_output_id') || qstr('dd')).split(',').map((s) => s.trim()).filter(Boolean)
+const outputId = routeOutputIds[0] || ''
 const probe = usePerfProbe('ica') // 临时性能探针，测完删
 
 // ICA 成分详情(时程+频谱，信号派生、不可变)三级缓存：重点击同一成分秒回。键用 outputId+成分序号。
 // 注：成分网格(components)含可变的 exclude 决策，不进 IDB（避免陈旧命中显示旧决策），且本就小、gzip 够。
 const icaDetailFetch = useTieredFetch<IcaDetail>({
   namespace: 'ica_detail',
-  endpoint: (p) => `/studies/${studyId}/outputs/${outputId}/ica-components/${String(p.index)}`,
-  keyOf: (p) => `${studyId}::${outputId}::${String(p.index)}::${String(p.max_seconds)}`,
+  endpoint: (p) => `/studies/${studyId}/outputs/${String(p.outputId)}/ica-components/${String(p.index)}`,
+  keyOf: (p) => `${studyId}::${String(p.outputId)}::${String(p.index)}::${String(p.max_seconds)}`,
 })
 // 交互上下文（从工作流 waiting_user_input 的 ICA Apply 节点打开时带上），用于提交剔除决策
 const executionId = qstr('executionId') || qstr('execution_id')
 const jobId = qstr('jobId') || qstr('job_id')
 const decisionVersion = Number(qstr('decisionVersion') || qstr('decision_version') || '0')
 
-const isLive = computed(() => Boolean(studyId && outputId))
+const datasetOptions = ref<IcaDatasetOption[]>([])
+const selectedDatasetKey = ref('')
+const excludedByOutput = ref<Record<string, number[]>>({})
+const globalDecisionExcluded = ref<number[] | null>(null)
+const currentDataset = computed(() => datasetOptions.value.find((item) => item.key === selectedDatasetKey.value) || datasetOptions.value[0] || null)
+const currentOutputId = computed(() => currentDataset.value?.outputId || outputId)
+const currentDatasetLabel = computed(() => currentDataset.value?.label || '当前数据集')
+
+const isLive = computed(() => Boolean(studyId && currentOutputId.value))
 const jobContext = computed(() => Boolean(isLive.value && executionId && jobId && decisionVersion > 0))
 
 const loading = ref(false)
 const labelsLoading = ref(false) // 阶段二（方差+ICLabel）异步加载中
-let serverHadExclude = false // 服务端已存人工决策（有则不套用 ICLabel 默认建议）
+let loadSeq = 0
 const error = ref('')
 const overview = ref<IcaComponentsResponse | null>(null)
 const components = ref<IcaComponent[]>([])
@@ -317,60 +377,109 @@ const detail = ref<IcaDetail | null>(null)
 const detailLoading = ref(false)
 let detailSeq = 0
 
-// 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与伪迹审核页共用同一套
-const { applying, applyMsg, applyError, applyDone, submitAndReturn, returnToPipeline } = useReviewerHandoff({
-  studyId, executionId, jobId,
-  decisionVersion: () => decisionVersion,
-  buildBody: () => ({ excluded_components: removeList.value }),
-  summary: () => `剔除 ${removeList.value.length} 个成分`,
-})
-
 // 前端视觉缩放（与三观察页同一套手感）：viewMin/Max=可见时间窗（两图共享，X 同步），*Amp=各自幅度系数。
-// 默认看前半段（约 WINDOW_SECONDS/2 秒）：曲线不挤、且一打开就能拖动平移（满量程视图无处可平移）。
-const viewMin = ref<number | null>(0)
-const viewMax = ref<number | null>(WINDOW_SECONDS / 2)
+const previewWindowMode = ref<'short' | 'full'>('short')
+const requestedSeconds = computed(() => (previewWindowMode.value === 'full' ? FULL_WINDOW_SECONDS : SHORT_WINDOW_SECONDS))
+const defaultViewMin = computed<number | null>(() => (previewWindowMode.value === 'short' ? 0 : null))
+const defaultViewMax = computed<number | null>(() => (previewWindowMode.value === 'short' ? SHORT_WINDOW_SECONDS : null))
+const viewMin = ref<number | null>(defaultViewMin.value)
+const viewMax = ref<number | null>(defaultViewMax.value)
 const cmpAmp = ref(1)
 const tcAmp = ref(1)
-const isZoomed = computed(() => viewMin.value != null || Math.abs(cmpAmp.value - 1) > 1e-3 || Math.abs(tcAmp.value - 1) > 1e-3)
+const isZoomed = computed(() =>
+  viewMin.value !== defaultViewMin.value
+  || viewMax.value !== defaultViewMax.value
+  || Math.abs(cmpAmp.value - 1) > 1e-3
+  || Math.abs(tcAmp.value - 1) > 1e-3,
+)
 function onZoom(v: { min: number; max: number } | null) {
   viewMin.value = v ? v.min : null
   viewMax.value = v ? v.max : null
 }
 function resetZoom() {
-  viewMin.value = null
-  viewMax.value = null
+  viewMin.value = defaultViewMin.value
+  viewMax.value = defaultViewMax.value
   cmpAmp.value = 1
   tcAmp.value = 1
+}
+function setPreviewWindowMode(mode: 'short' | 'full') {
+  if (previewWindowMode.value === mode) return
+  previewWindowMode.value = mode
+  cmpSeconds.value = requestedSeconds.value
+  resetZoom()
+  if (selectedIndex.value != null) void selectComponent(selectedIndex.value)
 }
 
 // 中心「整体去除前后对比」编排：剔除集是唯一事实源，墙/清单/应用都从这里派生。
 const studyIdRef = ref(studyId)
-const outputIdRef = ref(outputId)
+const outputIdRef = ref(currentOutputId.value)
 const {
   excludedSet,
   preview,
   previewLoading,
   channel: cmpChannel,
   maxSeconds: cmpSeconds,
-  toggle: toggleExcluded,
   setExcluded,
+  clearPreview,
 } = useIcaComparison(studyIdRef, outputIdRef, () => isLive.value)
-cmpSeconds.value = WINDOW_SECONDS
+cmpSeconds.value = requestedSeconds.value
 
 const activeComp = computed(() => components.value.find((c) => c.index === selectedIndex.value) || null)
 const removeList = computed(() => [...excludedSet.value].sort((a, b) => a - b))
+const allExcludedByOutput = computed<Record<string, number[]>>(() => {
+  const outputIds = datasetOptions.value.length ? datasetOptions.value.map((item) => item.outputId) : [currentOutputId.value].filter(Boolean)
+  const current = currentOutputId.value
+  const out: Record<string, number[]> = {}
+  for (const id of outputIds) {
+    if (!id) continue
+    out[id] = id === current
+      ? removeList.value
+      : [...(Object.prototype.hasOwnProperty.call(excludedByOutput.value, id) ? excludedByOutput.value[id] : (globalDecisionExcluded.value || []))]
+  }
+  return out
+})
+const totalRemoveCount = computed(() => Object.values(allExcludedByOutput.value).reduce((sum, items) => sum + items.length, 0))
+
+// 「应用并返回」收尾（提交 decision→续跑→router.back 回工作流），与伪迹审核页共用同一套。
+const { applying, applyMsg, applyError, applyDone, submitAndReturn, returnToPipeline } = useReviewerHandoff({
+  studyId, executionId, jobId,
+  decisionVersion: () => decisionVersion,
+  buildBody: () => ({
+    excluded_components: removeList.value,
+    excluded_components_by_dataset: allExcludedByOutput.value,
+  }),
+  summary: () => (datasetOptions.value.length > 1
+    ? `${datasetOptions.value.length} 个数据集共剔除 ${totalRemoveCount.value} 个成分标记`
+    : `剔除 ${removeList.value.length} 个成分`),
+})
 const canApply = computed(() => jobContext.value && !applying.value)
+
+function setCurrentExcluded(next: Set<number>) {
+  const output = currentOutputId.value
+  const list = [...next].sort((a, b) => a - b)
+  if (output) {
+    excludedByOutput.value = { ...excludedByOutput.value, [output]: list }
+  }
+  setExcluded(new Set(list))
+}
+function hasStoredExcluded(output: string): boolean {
+  return Object.prototype.hasOwnProperty.call(excludedByOutput.value, output) || globalDecisionExcluded.value !== null
+}
+function storedExcluded(output: string, fallback: number[] = []): number[] {
+  if (Object.prototype.hasOwnProperty.call(excludedByOutput.value, output)) return [...(excludedByOutput.value[output] || [])]
+  if (globalDecisionExcluded.value !== null) return [...globalDecisionExcluded.value]
+  return [...fallback]
+}
 
 function isRemoved(index: number): boolean {
   return excludedSet.value.has(index)
 }
 function toggleRemove(index: number) {
-  toggleExcluded(index)
+  const next = new Set(excludedSet.value)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  setCurrentExcluded(next)
 }
-function labelOf(idx: number): string {
-  return components.value.find((c) => c.index === idx)?.label || `IC${String(idx).padStart(3, '0')}`
-}
-
 // 单成分权重 → TopoStrip 电极点：除以该成分自身 vmax 归一到 [-1,1]，配合 TopoStrip vmax=1 实现"每成分独立归一"。
 function cellPoints(c: IcaComponent): TopoCell['points'] {
   if (!c.has_positions) return null
@@ -449,40 +558,163 @@ const previewData = computed<number[][]>(() => {
   return [p.times, p.original.map((v) => v * 1e6), p.filtered.map((v) => v * 1e6)]
 })
 
-// 阶段一（快）：成分地形图网格——秒出，不等 raw / ICLabel。
+function normalizeIndexList(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0))].sort((a, b) => a - b)
+}
+function normalizeExcludedMap(value: unknown): Record<string, number[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, number[]> = {}
+  for (const [key, items] of Object.entries(value as Record<string, unknown>)) {
+    const text = String(key || '').trim()
+    if (text) out[text] = normalizeIndexList(items)
+  }
+  return out
+}
+function idTail(value?: string | null): string {
+  const text = String(value || '').trim()
+  return text ? text.slice(0, 8) : ''
+}
+function taskPart(value?: string | null): string {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text.startsWith('task-') ? text : `task-${text}`
+}
+function dataInfoText(info?: Record<string, unknown> | null): string {
+  if (!info) return ''
+  return [
+    info.bids_subject_id || info.subject,
+    info.session,
+    taskPart(info.task as string | undefined),
+    info.run,
+  ].map((item) => String(item || '').trim()).filter(Boolean).join('_')
+}
+function outputText(meta: StudyOutput | null, fallback: IcaInteractionDataset | null, index: number): string {
+  const parts = meta
+    ? [meta.bids_subject_id || meta.subject_id || '', meta.session || '', taskPart(meta.task), meta.run_label || '']
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    : []
+  return parts.join('_')
+    || dataInfoText(fallback?.data_info)
+    || meta?.display_name
+    || `数据集 ${index + 1}${idTail(fallback?.source_dataset_id || fallback?.dataset_id) ? ` · ${idTail(fallback?.source_dataset_id || fallback?.dataset_id)}` : ''}`
+}
+function applyInteractionDecision(interaction: PipelineInteraction) {
+  const decision = interaction.decision
+  if (!decision) return
+  const byDataset = normalizeExcludedMap(decision.excluded_components_by_dataset)
+  if (Object.keys(byDataset).length) excludedByOutput.value = { ...excludedByOutput.value, ...byDataset }
+  const global = normalizeIndexList(decision.excluded_components)
+  globalDecisionExcluded.value = global.length || !Object.keys(byDataset).length ? global : globalDecisionExcluded.value
+}
+function interactionDatasets(interaction: PipelineInteraction): IcaInteractionDataset[] {
+  const preview = interaction.preview_json || {}
+  const raw = Array.isArray(preview.datasets) ? preview.datasets : []
+  return raw.filter((item): item is IcaInteractionDataset => Boolean(item && typeof item === 'object' && (item as IcaInteractionDataset).ica_artifact_id))
+}
+async function loadDatasetOptions() {
+  let raw: IcaInteractionDataset[] = []
+  if (jobContext.value) {
+    try {
+      const res = await pipelineApi.getNodeInteraction(studyId, executionId, jobId)
+      applyInteractionDecision(res.data)
+      raw = interactionDatasets(res.data)
+    } catch {
+      raw = []
+    }
+  }
+  if (!raw.length) {
+    raw = (routeOutputIds.length ? routeOutputIds : [outputId]).filter(Boolean).map((id) => ({ ica_artifact_id: id }))
+  }
+  const seen = new Set<string>()
+  raw = raw.filter((item) => {
+    const id = String(item.ica_artifact_id || '').trim()
+    if (!id || seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+  const metas = await Promise.all(raw.map(async (item) => {
+    try {
+      const { data } = await pipelineApi.getStudyOutput(studyId, String(item.ica_artifact_id))
+      return data
+    } catch {
+      return null
+    }
+  }))
+  const fullLabels = raw.map((item, index) => outputText(metas[index], item, index))
+  const shortLabels = compactDatasetLabels(fullLabels)
+  datasetOptions.value = raw.map((item, index) => {
+    const output = String(item.ica_artifact_id)
+    return {
+      key: output,
+      outputId: output,
+      label: shortLabels[index] || fullLabels[index] || `数据集 ${index + 1}`,
+      title: fullLabels[index] || shortLabels[index] || output,
+      datasetId: item.dataset_id || null,
+      sourceDatasetId: item.source_dataset_id || null,
+      componentCount: Array.isArray(item.components) ? item.components.length : null,
+    }
+  })
+  const keys = datasetOptions.value.map((item) => item.key)
+  selectedDatasetKey.value = keys.includes(selectedDatasetKey.value)
+    ? selectedDatasetKey.value
+    : (keys.includes(outputId) ? outputId : (keys[0] || ''))
+}
+
+// 阶段一（快）：当前数据集成分地形图网格——秒出，不等 raw / ICLabel。
 async function load() {
-  if (!isLive.value) return
+  if (!studyId || !outputId) return
+  await loadDatasetOptions()
+  await loadCurrentOutput()
+}
+
+async function loadCurrentOutput() {
+  const activeOutput = currentOutputId.value
+  if (!studyId || !activeOutput) return
+  const mySeq = ++loadSeq
+  outputIdRef.value = activeOutput
+  clearPreview()
+  detail.value = null
+  labelsLoading.value = false
   loading.value = true
   error.value = ''
   try {
-    const res = await dataApi.get<IcaComponentsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components`)
+    const res = await dataApi.get<IcaComponentsResponse>(`/studies/${studyId}/outputs/${activeOutput}/ica-components`)
+    if (mySeq !== loadSeq) return
     overview.value = res.data
     components.value = res.data.components || []
     probe.done('数据'); probe.paint(); probe.log() // 临时探针
-    if (res.data.ch_names?.length && !cmpChannel.value) cmpChannel.value = res.data.ch_names[0]
-    // 已存人工决策先生效（空则等 /labels 回来用 ICLabel 建议）
-    serverHadExclude = (res.data.exclude || []).length > 0
-    setExcluded(new Set(res.data.exclude || []))
-    document.title = `ICA 审核 · ${res.data.n_components} 成分 — 念析`
+    if (res.data.ch_names?.length && (!cmpChannel.value || !res.data.ch_names.includes(cmpChannel.value))) {
+      cmpChannel.value = res.data.ch_names[0]
+    }
+    const initialExcluded = storedExcluded(activeOutput, res.data.exclude || [])
+    if (initialExcluded.length && !hasStoredExcluded(activeOutput)) {
+      excludedByOutput.value = { ...excludedByOutput.value, [activeOutput]: initialExcluded }
+    }
+    setExcluded(new Set(initialExcluded))
+    document.title = `ICA 审核 · ${currentDatasetLabel.value} · ${res.data.n_components} 成分 — 念析`
     if (components.value.length) {
-      selectComponent(selectedIndex.value ?? components.value[0].index)
+      void selectComponent(selectedIndex.value ?? components.value[0].index)
     }
     // 阶段二（慢，异步）：方差 + ICLabel 标签 + 默认勾选——网格已显示，不挡首屏。
-    if (res.data.labels_pending !== false) loadLabels()
+    if (res.data.labels_pending !== false) void loadLabels(activeOutput, mySeq)
   } catch (err: unknown) {
+    if (mySeq !== loadSeq) return
     error.value = describeError(err)
     components.value = []
     overview.value = null
   } finally {
-    loading.value = false
+    if (mySeq === loadSeq) loading.value = false
   }
 }
 
 // 阶段二：拉方差 + ICLabel，合并进已显示的成分网格；无已存决策则套用 ICLabel 建议作默认勾选。
-async function loadLabels() {
+async function loadLabels(activeOutput = currentOutputId.value, parentSeq = loadSeq) {
   labelsLoading.value = true
   try {
-    const res = await dataApi.get<IcaLabelsResponse>(`/studies/${studyId}/outputs/${outputId}/ica-components/labels`)
+    const res = await dataApi.get<IcaLabelsResponse>(`/studies/${studyId}/outputs/${activeOutput}/ica-components/labels`)
+    if (parentSeq !== loadSeq || activeOutput !== currentOutputId.value) return
     const vmap = res.data.variances || {}
     const lmap = res.data.iclabel || {}
     components.value = components.value.map((c) => ({
@@ -497,24 +729,35 @@ async function loadLabels() {
         total_variance_explained: res.data.total_variance_explained,
       }
     }
-    if (!serverHadExclude && (res.data.suggested_exclude || []).length) {
+    if (!hasStoredExcluded(activeOutput) && (res.data.suggested_exclude || []).length) {
+      excludedByOutput.value = { ...excludedByOutput.value, [activeOutput]: res.data.suggested_exclude }
       setExcluded(new Set(res.data.suggested_exclude))
     }
   } catch {
     /* 标签加载失败：网格照常用，只是没方差 / 标签（best-effort） */
   } finally {
-    labelsLoading.value = false
+    if (parentSeq === loadSeq && activeOutput === currentOutputId.value) labelsLoading.value = false
   }
+}
+
+async function selectDataset(key: string) {
+  if (!key || key === selectedDatasetKey.value) return
+  selectedDatasetKey.value = key
+  selectedIndex.value = null
+  resetZoom()
+  await loadCurrentOutput()
 }
 
 // 单击成分 → 拉详情（时域激活 + 频谱；去除前后对比交给中心视图，这里不再重复算，更快）
 async function selectComponent(index: number) {
+  const activeOutput = currentOutputId.value
+  if (!activeOutput) return
   selectedIndex.value = index
   const myId = ++detailSeq
   detailLoading.value = true
   try {
-    const { data } = await icaDetailFetch.fetch({ index, max_seconds: WINDOW_SECONDS })
-    if (myId !== detailSeq) return
+    const { data } = await icaDetailFetch.fetch({ outputId: activeOutput, index, max_seconds: requestedSeconds.value })
+    if (myId !== detailSeq || activeOutput !== currentOutputId.value) return
     detail.value = data
   } catch {
     if (myId === detailSeq) detail.value = null
@@ -641,7 +884,7 @@ onMounted(load)
 .ica-sortseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-wall-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
 
-/* 右·端详检查器：选中成分地形图 + 频谱 + 主导通道 + 对比通道（替代原左栏拥挤的三合一） */
+/* 右·端详检查器：选中成分地形图 + 频谱 + 主导通道 + 数据集 / 通道切换 */
 .ica-right { width: 320px; min-width: 320px; border-left: 1px solid var(--c-border); background: var(--c-surface); display: flex; flex-direction: column; overflow: hidden; }
 .ica-insp { flex: 1; min-height: 0; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; }
 .ica-spec-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -654,18 +897,30 @@ onMounted(load)
 .ica-insp-chans { font-size: 11px; }
 .ica-insp-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
 
-/* 通道列表：chip 点选（不下拉），可换行滚动 */
-.ica-chan { min-height: 0; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; }
-.ica-chan-list { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
-.ica-chan-chip { font-size: 11px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; line-height: 1.5; }
-.ica-chan-chip:hover { border-color: var(--c-primary); color: var(--c-text); }
-.ica-chan-chip.is-on { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
+/* 数据集 / 通道：观察页同款紧凑列表，放在右下角替代原对比通道 chip 墙。 */
+.ica-picker { min-height: 230px; max-height: 42vh; border-top: 1px solid var(--c-border); display: grid; grid-template-rows: minmax(86px, .75fr) minmax(120px, 1.25fr); overflow: hidden; }
+.ica-pick-sec { min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--c-border); }
+.ica-pick-sec:first-child { border-top: 0; }
+.ica-pick-list { min-height: 0; overflow-y: auto; padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 3px; }
+.ica-pick-list--channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+.ica-pick-row { width: 100%; min-height: 24px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--c-text-2); display: flex; align-items: center; gap: 6px; padding: 2px 7px; cursor: pointer; text-align: left; font-size: 11px; line-height: 1.35; overflow: hidden; }
+.ica-pick-row:hover { border-color: color-mix(in srgb, var(--c-primary) 45%, var(--c-border)); background: color-mix(in srgb, var(--c-primary) 5%, var(--c-surface)); color: var(--c-text); }
+.ica-pick-row.is-on { border-color: color-mix(in srgb, var(--c-primary) 55%, var(--c-border)); background: color-mix(in srgb, var(--c-primary) 12%, var(--c-surface)); color: var(--c-text); font-weight: 600; }
+.ica-pick-dot { width: 6px; height: 6px; border-radius: 50%; background: #cbd2dc; flex: 0 0 auto; }
+.ica-pick-row.is-on .ica-pick-dot { background: var(--c-primary); }
+.ica-pick-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ica-pick-tag { flex: 0 0 auto; font-size: 10px; color: var(--c-text-3); font-weight: 500; }
 
 /* 中：整体对比（主视图，flex 高）+ 选中成分时域激活（窄高） */
 .ica-center { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .ica-center-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
 .ica-center-title { font-weight: 600; font-size: 14px; color: var(--c-text); }
 .ica-center-controls { display: inline-flex; align-items: center; gap: 12px; font-size: 12px; color: var(--c-text-3); }
+.ica-windowseg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-sm); overflow: hidden; background: var(--c-surface); }
+.ica-windowseg button { border: none; border-left: 1px solid var(--c-border); background: transparent; color: var(--c-text-3); font-size: 12px; line-height: 1.6; padding: 2px 10px; cursor: pointer; }
+.ica-windowseg button:first-child { border-left: 0; }
+.ica-windowseg button:hover { color: var(--c-text); }
+.ica-windowseg button.is-on { background: var(--c-primary); color: #fff; }
 .ica-live { color: var(--c-primary); font-size: 12px; }
 .ica-vr { color: var(--c-success); font-size: 12px; font-weight: 600; }
 .ica-cmp-body { flex: 1; min-height: 0; padding: 12px 16px 6px; display: flex; }

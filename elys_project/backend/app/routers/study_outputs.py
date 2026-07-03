@@ -681,7 +681,7 @@ def get_study_output_ica_preview(
     dataset_id: UUID,
     excluded: str | None = Query(default=None, description="逗号分隔的成分序号；要剔除的组合"),
     channel: str | None = Query(default=None, description="对比通道名；缺省取首通道"),
-    max_seconds: float = Query(default=10.0, gt=0, le=60),
+    max_seconds: float = Query(default=10.0, gt=0, le=86400),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -722,7 +722,7 @@ def get_study_output_ica_component_detail(
     dataset_id: UUID,
     index: int,
     excluded: str | None = Query(default=None, description="逗号分隔的成分序号；给出则附去除前后对比"),
-    max_seconds: float = Query(default=10.0, gt=0, le=60),
+    max_seconds: float = Query(default=10.0, gt=0, le=86400),
     fmax: float = Query(default=50.0, gt=0, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

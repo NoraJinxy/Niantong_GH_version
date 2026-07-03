@@ -517,9 +517,10 @@ class NodeDispatcher:
             )
 
         study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
-        params = {
+        base_params = {
             **context.params,
             "excluded_components": decision.get("excluded_components", []),
+            "excluded_components_by_dataset": decision.get("excluded_components_by_dataset", {}),
             "decision_version": decision.get("decision_version", context.params.get("decision_version", 1)),
         }
         output_data_infos: list[dict[str, Any]] = []
@@ -529,6 +530,11 @@ class NodeDispatcher:
         for index, data_info in enumerate(input_data_infos):
             try:
                 ica_info = self._matching_ica_info(data_info, ica_infos, index)
+                excluded_components = self._ica_excluded_for_dataset(decision, data_info, ica_info, index)
+                params = {
+                    **base_params,
+                    "excluded_components": excluded_components,
+                }
                 raw = read_raw_from_data_info(data_info, preload=True)
                 ica = read_ica_from_data_info(ica_info)
                 cleaned = run_apply_ica(raw, ica, params)
@@ -2392,8 +2398,14 @@ class NodeDispatcher:
             "study_id",
             "subject_id",
             "subject",
+            "bids_subject_id",
+            "session",
             "task",
             "run",
+            "sfreq",
+            "n_times",
+            "duration_seconds",
+            "n_channels",
             "storage_path",
             "storage_uri",
             "logical_path",
@@ -2542,21 +2554,67 @@ class NodeDispatcher:
         decision = interaction.get("decision") if isinstance(interaction, dict) else None
         if isinstance(decision, dict):
             excluded = parse_excluded_components(decision.get("excluded_components", []))
+            excluded_by_dataset = NodeDispatcher._normalize_ica_excluded_by_dataset(
+                decision.get("excluded_components_by_dataset")
+            )
             return {
                 **decision,
                 "excluded_components": excluded,
+                "excluded_components_by_dataset": excluded_by_dataset,
                 "decision_version": int(decision.get("decision_version") or context.params.get("decision_version") or 1),
             }
 
         raw_param = context.params.get("excluded_components")
-        if raw_param not in (None, ""):
+        raw_by_dataset = NodeDispatcher._normalize_ica_excluded_by_dataset(
+            context.params.get("excluded_components_by_dataset")
+        )
+        if raw_param not in (None, "") or raw_by_dataset:
             excluded = parse_excluded_components(raw_param)
             return {
                 "excluded_components": excluded,
+                "excluded_components_by_dataset": raw_by_dataset,
                 "decision_version": int(context.params.get("decision_version") or 1),
                 "source": "node_params",
             }
         return None
+
+    @staticmethod
+    def _normalize_ica_excluded_by_dataset(value: Any) -> dict[str, list[int]]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, list[int]] = {}
+        for key, items in value.items():
+            key_text = str(key or "").strip()
+            if not key_text:
+                continue
+            normalized[key_text] = parse_excluded_components(items)
+        return normalized
+
+    @staticmethod
+    def _ica_excluded_for_dataset(
+        decision: dict[str, Any],
+        data_info: dict[str, Any],
+        ica_info: dict[str, Any],
+        index: int,
+    ) -> list[int]:
+        by_dataset = NodeDispatcher._normalize_ica_excluded_by_dataset(
+            decision.get("excluded_components_by_dataset")
+        )
+        if by_dataset:
+            candidate_keys = [
+                ica_info.get("artifact_id"),
+                ica_info.get("analysis_result_id"),
+                data_info.get("artifact_id"),
+                data_info.get("dataset_id"),
+                NodeDispatcher._source_dataset_id(data_info),
+                NodeDispatcher._source_dataset_id(ica_info),
+                index,
+            ]
+            for key in candidate_keys:
+                key_text = str(key or "").strip()
+                if key_text and key_text in by_dataset:
+                    return by_dataset[key_text]
+        return parse_excluded_components(decision.get("excluded_components", []))
 
     @staticmethod
     def _artifact_decision(context: NodeExecutionContext) -> dict[str, Any] | None:
@@ -2737,6 +2795,8 @@ class NodeDispatcher:
                     "dataset_id": data_info.get("dataset_id"),
                     "source_dataset_id": NodeDispatcher._source_dataset_id(data_info),
                     "ica_artifact_id": ica_info.get("artifact_id"),
+                    "data_info": NodeDispatcher._compact_input_data_info(data_info),
+                    "ica_info": NodeDispatcher._compact_input_data_info(ica_info),
                     "components": components,
                 }
             )

@@ -638,13 +638,21 @@ def apply_interaction_decision(
         }
     else:
         excluded_components = sorted({int(item) for item in payload.excluded_components if int(item) >= 0})
+        excluded_by_dataset: dict[str, list[int]] = {}
+        for key, values in (payload.excluded_components_by_dataset or {}).items():
+            if not key:
+                continue
+            excluded_by_dataset[str(key)] = sorted({int(item) for item in (values or []) if int(item) >= 0})
         decision = {
+            "type": interaction_type,
             "excluded_components": excluded_components,
+            "excluded_components_by_dataset": excluded_by_dataset,
             "decision_version": expected_version,
             **submitted,
         }
         params_update = {
             "excluded_components": excluded_components,
+            "excluded_components_by_dataset": excluded_by_dataset,
             "decision_version": expected_version,
         }
     interaction = {

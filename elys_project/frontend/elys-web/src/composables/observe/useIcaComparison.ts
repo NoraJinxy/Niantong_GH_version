@@ -41,6 +41,9 @@ export function useIcaComparison(studyId: Ref<string>, outputId: Ref<string>, is
   function clearExcluded() {
     setExcluded(new Set())
   }
+  function clearPreview() {
+    preview.value = null
+  }
 
   function schedule(delay = 300) {
     if (debounceTimer) clearTimeout(debounceTimer)
@@ -85,6 +88,7 @@ export function useIcaComparison(studyId: Ref<string>, outputId: Ref<string>, is
     toggle,
     setExcluded,
     clearExcluded,
+    clearPreview,
     refresh: () => schedule(0),
   }
 }

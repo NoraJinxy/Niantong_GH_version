@@ -372,6 +372,7 @@ class PipelineInteractionResponse(BaseModel):
 class PipelineInteractionDecisionRequest(BaseModel):
     # ICA 成分剔除用
     excluded_components: list[int] = Field(default_factory=list)
+    excluded_components_by_dataset: dict[str, list[int]] = Field(default_factory=dict)
     # 手动去伪迹去坏段用（artifact_marking 交互）
     bad_segments: list[dict[str, Any]] = Field(default_factory=list)
     bad_channels: list[str] = Field(default_factory=list)
