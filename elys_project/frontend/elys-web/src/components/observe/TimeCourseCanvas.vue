@@ -59,6 +59,8 @@ const props = withDefaults(
     /** 受控视图缩放（滚轮手势，父层广播给所有子图保持 facet 同窗）：x 可见范围（显示单位，null=数据全幅）。 */
     viewMin?: number | null
     viewMax?: number | null
+    /** 指定 x 轴主刻度步长；用于多个联动图保持一致刻度间隔。 */
+    xTickStep?: number | null
     /** 幅度缩放系数（Ctrl+滚轮）：1=基准；overlay 改 y 量程、spread 改泳道波高。 */
     ampScale?: number
     /** 显式 y 量程 [min,max]（PSD dB 等非对称单位用）：非 null 时覆盖 ±yMax 对称量程；仅 overlay 生效。 */
@@ -82,7 +84,7 @@ const props = withDefaults(
     /** 框选时显示原生选区阴影（伪迹审核框选坏段用，给拖动实时视觉反馈）。默认 false：观察页仍自绘 region、隐藏原生选区。 */
     selectShadow?: boolean
   }>(),
-  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, syncCursorX: null, solidCursor: false, viewMin: null, viewMax: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false, selectShadow: false },
+  { xLabel: '时间', yLabel: 'μV', yMax: null, displayMode: 'overlay', showGrid: true, loading: false, region: null, showLegend: true, refLines: false, highlight: '', pickable: false, denseAxes: false, hideXLabels: false, hideYLabels: false, locked: false, lockedX: null, syncCursorX: null, solidCursor: false, viewMin: null, viewMax: null, xTickStep: null, ampScale: 1, yDomain: null, bands: () => [], markers: () => [], logX: false, useSpline: false, badSegments: () => [], markedChannels: () => [], channelPickable: false, panOnDrag: false, selectShadow: false },
 )
 
 const emit = defineEmits<{
@@ -128,6 +130,7 @@ let panning = false; let panStartPx = 0; let panStartMin = 0; let panStartMax = 
 // 画布内是 Canvas 绘制，CSS 变量不生效，必须用具体色值（对齐 elys token）。
 const AXIS = '#51607A' // --c-text-2（原 text-3 #79859A ≈3:1 太淡，刻度数字/轴名拉到 AA 可读）
 const GRID = '#D3DAE6' // --c-border-2（原 border #E4E9F1 ≈隐形，提一档让网格成形而不抢戏）
+const UI_FONT = 'Inter, "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", Arial, sans-serif'
 const REGION_FILL = 'rgba(63, 94, 143, 0.07)' // elys 主蓝低透明
 const BAD_SEG_FILL = 'rgba(226, 75, 74, 0.22)' // 坏段红块：柔和 danger 半透明（受众医生，不用刺眼硬红）
 const BAD_SEG_EDGE = 'rgba(214, 40, 40, 0.85)' // 坏段左右边界线：实色，密集多通道波形上也清晰可辨
@@ -265,14 +268,13 @@ function drawLegend(u: uPlot, forceShow = false) {
   const { left, top, width } = u.bbox
   const dpr = PX_RATIO
   const max = 8
-  const rowH = 22 * dpr
+  const rowH = 18 * dpr
   const ipad = 7 * dpr // 块内边距
   const swatchW = 18 * dpr
   const gap = 7 * dpr
   ctx.save()
-  // 图例字号固定 CSS px（不随子图缩放）。必须用有效 monospace：canvas 不解析 var(--ff-mono)，
-  // 带它会让整条 font 失效→回退默认小字（这正是多图下图例显小的真因）。16px 在 facet 子图里清晰不抢戏。
-  ctx.font = `${16 * dpr}px monospace`
+  // 图例字号固定 CSS px（不随子图缩放），字体与页面文本一致，避免 canvas 默认/monospace 跟界面脱节。
+  ctx.font = `600 ${12 * dpr}px ${UI_FONT}`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   const items = props.series.slice(0, max).map((s) => ({
@@ -531,6 +533,18 @@ function xRange(u: uPlot): [number, number] {
   }
   return ext
 }
+function xAxisSplits(_u: uPlot, _axisIdx: number, scaleMin: number, scaleMax: number): number[] {
+  const step = props.xTickStep
+  if (!step || step <= 0 || !Number.isFinite(step) || scaleMax <= scaleMin) return []
+  const eps = step * 1e-6
+  const start = Math.ceil((scaleMin - eps) / step) * step
+  const out: number[] = []
+  for (let v = start; v <= scaleMax + eps; v += step) {
+    out.push(Math.abs(v) < eps ? 0 : Number(v.toFixed(6)))
+    if (out.length > 1000) break
+  }
+  return out
+}
 // y 量程（仅 overlay）：基准(±yMax 或数据峰值) ÷ 幅度系数；spread 用固定泳道量程、幅度折进数据。
 function yRange(u: uPlot): [number, number] {
   // 显式非对称量程（PSD dB 等）：直接用，不做 ±对称归一
@@ -607,7 +621,7 @@ function buildOpts(w: number, h: number, exportMode = false): uPlot.Options {
       y: spread ? { range: [-1, n] } : { range: yRange }, // spread 留 ±1 余量：曲线超出泳道交叠时首/末道不被裁掉
     },
     axes: [
-      { label: dense ? undefined : props.xLabel, size: dense ? 30 : 44, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !hideX, stroke: GRID }, font: axisFont, values: hideX ? blank : undefined },
+      { label: dense ? undefined : props.xLabel, size: dense ? 30 : 44, stroke: AXIS, grid: { show: grid, stroke: GRID }, ticks: { show: !hideX, stroke: GRID }, font: axisFont, splits: props.xTickStep ? xAxisSplits : undefined, values: hideX ? blank : undefined },
       yAxis,
     ],
     series: [
@@ -926,7 +940,7 @@ onUnmounted(() => {
 // 数据/序列/Y档/显示模式/网格 = 结构性变化 → 重建（最稳）。
 // highlight / locked 已移出：分别走「就地改线宽」与「CSS 隐藏十字线」，不再为悬停高亮 / 双击锁定整图重建。
 watch(
-  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.denseAxes, props.hideXLabels, props.hideYLabels, props.logX],
+  () => [props.data, props.series, props.yMax, props.displayMode, props.showGrid, props.denseAxes, props.hideXLabels, props.hideYLabels, props.logX, props.xTickStep],
   () => rebuild(),
   { deep: false },
 )

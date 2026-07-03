@@ -134,6 +134,7 @@
                   pan-on-drag
                   :view-min="viewMin"
                   :view-max="viewMax"
+                  :x-tick-step="timeAxisStep"
                   :amp-scale="cmpAmp"
                   @zoom="onZoom"
                   @amp="cmpAmp = $event"
@@ -163,6 +164,7 @@
                     pan-on-drag
                     :view-min="viewMin"
                     :view-max="viewMax"
+                    :x-tick-step="timeAxisStep"
                     :amp-scale="tcAmp"
                     :loading="detailLoading"
                     @zoom="onZoom"
@@ -337,7 +339,8 @@ const NEUTRAL = '#C4CCD8'
 const DANGER = '#EF4444'
 const PRIMARY = '#3F5E8F' // elys 招牌蓝（画布内硬编码，与观察页一致）
 const ACCENT = '#7A5AA6' // 频谱用紫
-const GRAY = '#79859A' // 对比图"原始"用灰
+const COMPARE_ORIGINAL = '#D55E00' // 原始：暖橙，与去除后蓝形成强对比
+const COMPARE_CLEAN = '#0072B2' // 去除后：色盲友好深蓝
 
 // 去除前后对比 / 时域激活载入的时窗（秒）：默认看 10s；“全部”交给后端按真实长度截断并下采样。
 const SHORT_WINDOW_SECONDS = 10
@@ -558,15 +561,36 @@ const specSeries = [{ name: '功率', color: ACCENT }]
 const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
 const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectrum.frequencies, detail.value.spectrum.power_db] : [[], []]))
 
-// 中心整体对比：原始（灰） vs 去除后（蓝），同轴叠加；后端给 Volts，×1e6 换 µV。
+// 中心整体对比：原始（橙） vs 去除后（蓝），同轴叠加；后端给 Volts，×1e6 换 µV。
 const cmpSeries = [
-  { name: '原始', color: GRAY },
-  { name: '去除后', color: PRIMARY },
+  { name: '原始', color: COMPARE_ORIGINAL },
+  { name: '去除后', color: COMPARE_CLEAN },
 ]
 const previewData = computed<number[][]>(() => {
   const p = preview.value
   if (!p || !p.has_comparison || !p.times || !p.original || !p.filtered) return [[], []]
   return [p.times, p.original.map((v) => v * 1e6), p.filtered.map((v) => v * 1e6)]
+})
+
+function niceTimeAxisStep(duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 1
+  const raw = duration / 5
+  if (raw <= 1) return 1
+  let step = Math.round(raw)
+  if (step > 50) return Math.max(10, Math.round(step / 10) * 10)
+  if (step > 10) return Math.max(5, Math.round(step / 5) * 5)
+  if (step > 2 && step % 2 === 1) step += 1
+  return Math.max(1, step)
+}
+const timeAxisStep = computed(() => {
+  if (viewMin.value != null && viewMax.value != null && viewMax.value > viewMin.value) {
+    return niceTimeAxisStep(viewMax.value - viewMin.value)
+  }
+  const xs = previewData.value[0]?.length ? previewData.value[0] : tcData.value[0]
+  if (xs && xs.length >= 2) {
+    return niceTimeAxisStep(Math.max(0, xs[xs.length - 1] - xs[0]))
+  }
+  return niceTimeAxisStep(requestedSeconds.value === FULL_WINDOW_SECONDS ? SHORT_WINDOW_SECONDS : requestedSeconds.value)
 })
 
 function normalizeIndexList(value: unknown): number[] {
