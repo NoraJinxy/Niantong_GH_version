@@ -338,7 +338,6 @@ interface TopoCell {
 const NEUTRAL = '#C4CCD8'
 const DANGER = '#EF4444'
 const PRIMARY = '#3F5E8F' // elys 招牌蓝（画布内硬编码，与观察页一致）
-const ACCENT = '#7A5AA6' // 频谱用紫
 const COMPARE_ORIGINAL = '#D55E00' // 原始：暖橙，与去除后蓝形成强对比
 const COMPARE_CLEAN = '#0072B2' // 去除后：色盲友好深蓝
 
@@ -556,8 +555,8 @@ const activeTopoCells = computed<TopoCell[]>(() => {
 })
 
 // 时域激活 + 频谱底部并列显示（喂 TimeCourseCanvas：data=[x, ...ys]）
-const tcSeries = [{ name: '激活', color: PRIMARY }]
-const specSeries = [{ name: '功率', color: ACCENT }]
+const tcSeries = [{ name: '激活', color: COMPARE_CLEAN }]
+const specSeries = [{ name: '功率', color: COMPARE_CLEAN }]
 const tcData = computed<number[][]>(() => (detail.value ? [detail.value.timecourse.times, detail.value.timecourse.values] : [[], []]))
 const specData = computed<number[][]>(() => (detail.value ? [detail.value.spectrum.frequencies, detail.value.spectrum.power_db] : [[], []]))
 
