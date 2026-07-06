@@ -21,7 +21,7 @@
       "default": "",
       "required": false,
       "advanced": true,
-      "description": "逗号分隔的成分编号（如 0,3,5）。交互审核流程下由「ICA 成分审核」页自动填入，无需手动输入；留空表示不剔除任何成分。"
+      "description": "仅用于显示历史审核摘要；正式运行必须通过「ICA 成分审核」页提交本次运行的决策，避免 ICA 矩阵变化后复用旧编号。"
     },
     {"name": "decision_version", "label": "决策版本", "type": "integer", "default": 1, "advanced": true}
   ],

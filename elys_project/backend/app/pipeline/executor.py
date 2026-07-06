@@ -725,9 +725,11 @@ class PipelineExecutor:
         decision = interaction.get("decision") if isinstance(interaction, dict) else None
         if isinstance(decision, dict):
             params["excluded_components"] = decision.get("excluded_components", [])
+            params["excluded_components_by_dataset"] = decision.get("excluded_components_by_dataset", {})
             params["decision_version"] = decision.get("decision_version", params.get("decision_version", 1))
             params["interaction_decision"] = {
                 "excluded_components": params["excluded_components"],
+                "excluded_components_by_dataset": params["excluded_components_by_dataset"],
                 "decision_version": params["decision_version"],
             }
         return params

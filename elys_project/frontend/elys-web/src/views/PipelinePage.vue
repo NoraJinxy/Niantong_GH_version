@@ -4363,9 +4363,9 @@ function icaDecisionFromJob(job: PipelineJob | null): Record<string, unknown> | 
   return null
 }
 
-function summarizeIcaExcluded(decision: Record<string, unknown> | null, params: Record<string, unknown>) {
-  const globalExcluded = parseIcaExcludedComponents(decision?.excluded_components ?? params.excluded_components)
-  const byDatasetRaw = decision?.excluded_components_by_dataset ?? params.excluded_components_by_dataset
+function summarizeIcaExcluded(decision: Record<string, unknown> | null) {
+  const globalExcluded = parseIcaExcludedComponents(decision?.excluded_components)
+  const byDatasetRaw = decision?.excluded_components_by_dataset
   const byDataset = byDatasetRaw && typeof byDatasetRaw === 'object' && !Array.isArray(byDatasetRaw)
     ? (byDatasetRaw as Record<string, unknown>)
     : {}
@@ -4382,7 +4382,7 @@ function summarizeIcaExcluded(decision: Record<string, unknown> | null, params: 
 /** ICA Apply：卡上提示**跟随真实运行状态**（与 artifact_mark 同理，唯「等待确认」可双击进富审核台）。
  *  等待确认显蓝色「待审阅（双击打开）」；已剔除成分显「已剔除」摘要；已完成无剔除显「已确认 · 无剔除」；未运行显「运行后双击审阅」。
  *  实时刷新同样由 refreshStatusDependentFacts 在运行态变化时触发。 */
-function pushIcaApplySummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+function pushIcaApplySummary(graphNode: LiteGraphNode) {
   const job = latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode))
   const status = job?.status || ''
   const waiting = status === 'waiting_user_input'
@@ -4391,7 +4391,7 @@ function pushIcaApplySummary(graphNode: LiteGraphNode, params: Record<string, un
     pushReadonlyLine(graphNode, '待审阅（双击打开）', { accent: true })
     return
   }
-  const excluded = summarizeIcaExcluded(icaDecisionFromJob(job), params)
+  const excluded = summarizeIcaExcluded(icaDecisionFromJob(job))
   if (excluded.total > 0) {
     const display = excluded.datasetCount > 1
       ? `${excluded.total} 个 · ${excluded.datasetCount} 数据集`
@@ -4596,7 +4596,7 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       pushIcaComputeSummary(graphNode, params)
       break
     case ICA_APPLY_NODE_TYPE:
-      pushIcaApplySummary(graphNode, params)
+      pushIcaApplySummary(graphNode)
       break
     case 'eeg/analysis/tfr':
       pushTfrSummary(graphNode, params)

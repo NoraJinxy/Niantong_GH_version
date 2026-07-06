@@ -2570,6 +2570,9 @@ class NodeDispatcher:
 
     @staticmethod
     def _ica_decision(context: NodeExecutionContext) -> dict[str, Any] | None:
+        # ICA component indexes belong to the current ICA matrix. Static node
+        # params may be stale after Compute ICA changes, so only the decision
+        # submitted for this waiting job may resume Apply ICA.
         output_json = getattr(context.job, "output_json", None) or {}
         interaction = NodeDispatcher._interaction_from_output(output_json)
         decision = interaction.get("decision") if isinstance(interaction, dict) else None
@@ -2583,19 +2586,6 @@ class NodeDispatcher:
                 "excluded_components": excluded,
                 "excluded_components_by_dataset": excluded_by_dataset,
                 "decision_version": int(decision.get("decision_version") or context.params.get("decision_version") or 1),
-            }
-
-        raw_param = context.params.get("excluded_components")
-        raw_by_dataset = NodeDispatcher._normalize_ica_excluded_by_dataset(
-            context.params.get("excluded_components_by_dataset")
-        )
-        if raw_param not in (None, "") or raw_by_dataset:
-            excluded = parse_excluded_components(raw_param)
-            return {
-                "excluded_components": excluded,
-                "excluded_components_by_dataset": raw_by_dataset,
-                "decision_version": int(context.params.get("decision_version") or 1),
-                "source": "node_params",
             }
         return None
 
