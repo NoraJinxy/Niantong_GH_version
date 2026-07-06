@@ -31,10 +31,11 @@
               :key="t.label"
               class="ev-type"
               :class="{ 'is-sel': selectedType === t.label, 'is-hidden': !visibleTypes.has(t.label) }"
+              @click="selectType(t.label)"
             >
               <input type="checkbox" class="ev-check" :checked="checkedTypes.has(t.label)" @change="toggleCheck(t.label)" @click.stop />
               <span class="ev-type-dot" :style="{ background: visibleTypes.has(t.label) ? t.color : GRAY }"></span>
-              <span class="ev-type-name" @click="selectType(t.label)">{{ t.label }}</span>
+              <span class="ev-type-name">{{ t.label }}</span>
               <span class="ev-type-cnt">{{ t.count }}</span>
               <button class="ev-eye" :title="visibleTypes.has(t.label) ? '隐藏' : '显示'" @click.stop="toggleVisible(t.label)">
                 <AppIcon :name="visibleTypes.has(t.label) ? 'eye' : 'eye-off'" :size="14" />
@@ -445,7 +446,11 @@ function operationsSummary(): string[] {
 }
 
 // —— 类型选择 / 可见 / 勾选 ——
-function selectType(label: string) { selectedType.value = label; selectedEventId.value = null }
+function selectType(label: string) {
+  selectedType.value = label
+  selectedEventId.value = null
+  checkedTypes.value = new Set([label])
+}
 function toggleVisible(label: string) { const s = new Set(visibleTypes.value); if (s.has(label)) s.delete(label); else s.add(label); visibleTypes.value = s }
 function toggleCheck(label: string) { const s = new Set(checkedTypes.value); if (s.has(label)) s.delete(label); else s.add(label); checkedTypes.value = s }
 function selectEvent(e: EventItem) { selectedEventId.value = e.id }
