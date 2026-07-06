@@ -12,7 +12,7 @@
         <span class="ev-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实数据' : '查看模式' }}</span>
         <label v-if="datasets.length > 1" class="ev-dssel">
           数据集
-          <select v-model.number="activeDsIndex">
+          <select :value="activeDsIndex" @change="onDatasetSelect">
             <option v-for="(d, i) in datasets" :key="i" :value="i">{{ d.label }}</option>
           </select>
         </label>
@@ -176,7 +176,8 @@
 
       <!-- 右栏：明细表 + 检查器 + 暂存 + 应用 -->
       <aside class="ev-right" v-if="isLive">
-        <div class="ev-card">
+        <div class="ev-right-top">
+          <div class="ev-card">
           <div class="ev-card-h">
             <span>{{ selectedType ? selectedType + ' · 明细' : '明细（选左侧类型）' }}</span>
             <span v-if="selectedType" class="ev-card-cnt">{{ occurrences.length }}</span>
@@ -232,7 +233,28 @@
           <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
         </button>
         <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Event Manager」节点（等待人工）处打开本页才能提交。</p>
-        <p v-if="applyMsg" class="ev-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
+          <p v-if="applyMsg" class="ev-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
+        </div>
+
+        <div class="ev-card ev-dataset-card" v-if="datasets.length">
+          <div class="ev-card-h">
+            <span>数据集</span>
+            <span class="ev-card-cnt">{{ activeDsIndex + 1 }}/{{ datasets.length }}</span>
+          </div>
+          <ul class="ev-dataset-list">
+            <li
+              v-for="(d, i) in datasets"
+              :key="d.output_id || d.label || i"
+              class="ev-dataset"
+              :class="{ 'is-active': i === activeDsIndex }"
+              @click="selectDataset(i)"
+            >
+              <span class="ev-dataset-dot"></span>
+              <span class="ev-dataset-name" :title="d.label">{{ d.label }}</span>
+              <span class="ev-dataset-count">{{ datasetEventCount(d, i) }} 事件</span>
+            </li>
+          </ul>
+        </div>
       </aside>
     </div>
   </WorkbenchShell>
@@ -326,13 +348,20 @@ const showBad = ref(true)
 const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline, describeError } = useReviewerHandoff({
   studyId, executionId, jobId,
   decisionVersion: () => decisionVersion.value,
-  buildBody: () => ({
-    type: 'event_editing',
-    events: events.value.map((e) => ({ onset: e.onset, duration: e.duration, description: e.description })),
-    group_operations: promoteRules.value ? groupOps.value : [],
-    operations: operationsSummary(),
-  }),
-  summary: () => `${events.value.length} 事件 / ${distinctLabels.value.length} 类`,
+  buildBody: () => {
+    snapshotCurrentDatasetEvents()
+    return {
+      type: 'event_editing',
+      events: events.value.map((e) => ({ onset: e.onset, duration: e.duration, description: e.description })),
+      group_operations: promoteRules.value ? groupOps.value : [],
+      operations: operationsSummary(),
+    }
+  },
+  summary: () => {
+    snapshotCurrentDatasetEvents()
+    const totals = eventManagerTotals()
+    return `${totals.events} 事件 / ${totals.labels} 类 / ${datasets.value.length || 1} 个数据集`
+  },
 })
 
 const sfreq = computed(() => (ts.value?.sfreq ?? overview.value?.sfreq ?? 0))
@@ -537,16 +566,62 @@ function ovPointerMove(e: PointerEvent) { if (ovDragStart.value == null) return;
 function ovPointerUp() { if (ovDragStart.value == null) return; setWinStart(ovDragStart.value); ovDragStart.value = null }
 
 // —— 数据加载（交互 payload + 三级取数窗口，与 ArtifactMarkPage 同款）——
-function loadActiveDataset() {
+function loadActiveDataset(resetGroupOps = true) {
   const d = datasets.value[activeDsIndex.value]
   const evs = (d?.events || []).map((e) => ({ id: uid++, onset: Number(e.onset) || 0, duration: Number(e.duration) || 0, description: String(e.description || '') })).filter((e) => e.description)
   events.value = evs
   originalEvents.value = evs.map((e) => ({ ...e }))
   badSegments.value = (d?.bad_segments || []).map((s) => ({ onset: Number(s.onset) || 0, duration: Number(s.duration) || 0 })).filter((s) => s.duration > 0)
   visibleTypes.value = new Set(evs.map((e) => e.description))
-  checkedTypes.value = new Set(); groupOps.value = []
+  checkedTypes.value = new Set()
+  if (resetGroupOps) groupOps.value = []
   selectedEventId.value = null
   selectedType.value = [...new Set(evs.map((e) => e.description))].sort((a, b) => a.localeCompare(b))[0] || null
+}
+function snapshotCurrentDatasetEvents() {
+  const index = activeDsIndex.value
+  const d = datasets.value[index]
+  if (!d) return
+  const next = [...datasets.value]
+  next[index] = {
+    ...d,
+    events: events.value.map((e) => ({ ...e })),
+  }
+  datasets.value = next
+}
+function eventManagerTotals() {
+  const source = datasets.value.length ? datasets.value : [{ label: '数据集 1', events: events.value, bad_segments: badSegments.value }]
+  const labels = new Set<string>()
+  let count = 0
+  source.forEach((d, index) => {
+    const evs = index === activeDsIndex.value ? events.value : d.events
+    count += evs.length
+    evs.forEach((e) => labels.add(e.description))
+  })
+  return { events: count, labels: labels.size }
+}
+function datasetEventCount(d: DatasetMeta, index: number): number {
+  return index === activeDsIndex.value ? events.value.length : d.events.length
+}
+function resetViewForDatasetSwitch() {
+  overview.value = null
+  ts.value = null
+  winStart.value = 0
+  viewMin.value = null
+  viewMax.value = null
+  cursorX.value = null
+  cursorLockedX.value = null
+  chanStart.value = 0
+  ovDragStart.value = null
+}
+function selectDataset(index: number) {
+  if (!Number.isInteger(index) || index < 0 || index >= datasets.value.length || index === activeDsIndex.value) return
+  snapshotCurrentDatasetEvents()
+  activeDsIndex.value = index
+}
+function onDatasetSelect(event: Event) {
+  const value = Number((event.target as HTMLSelectElement | null)?.value)
+  selectDataset(value)
 }
 async function loadInteraction(): Promise<void> {
   const res = await api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`)
@@ -648,8 +723,8 @@ watch([winStart, winLen, filterEnabled, lFreq, hFreq, notch, overview], async ()
   try { await loadWindow() } catch { /* 保留旧窗 */ }
 })
 watch(activeDsIndex, async () => {
-  loadActiveDataset()
-  overview.value = null
+  loadActiveDataset(false)
+  resetViewForDatasetSwitch()
   try { await loadWindow() } catch { /* 保留旧窗 */ }
   void loadOverview().catch(() => {})
 })
@@ -755,7 +830,8 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .ev-ov-axis { position: relative; height: 12px; margin-top: 1px; }
 .ev-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.ev-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-right-top { flex: 0 0 66%; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
 .ev-occlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
 .ev-occ { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; padding: 3px 5px; border-radius: 5px; }
 .ev-occ:hover { background: var(--c-bg-soft, #eef1f5); }
@@ -775,6 +851,15 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .ev-chip--del { background: rgba(226, 75, 74, .14); color: #A32D2D; }
 .ev-chip--chg { background: rgba(63, 127, 191, .14); color: #185FA5; }
 .ev-promote { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; color: var(--c-text-2); margin-top: 8px; line-height: 1.4; cursor: pointer; }
+.ev-dataset-card { flex: 1 1 34%; min-height: 0; display: flex; flex-direction: column; }
+.ev-dataset-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
+.ev-dataset { display: flex; align-items: center; gap: 6px; padding: 4px 5px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+.ev-dataset:hover { background: var(--c-bg-soft, #eef1f5); }
+.ev-dataset.is-active { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
+.ev-dataset-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #C2CBD8; }
+.ev-dataset.is-active .ev-dataset-dot { background: var(--c-primary); }
+.ev-dataset-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-dataset-count { color: var(--c-text-3); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ev-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
 .ev-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
 .ev-empty.is-error .ev-empty-title { color: var(--c-danger); }
