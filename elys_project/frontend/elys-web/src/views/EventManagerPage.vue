@@ -276,7 +276,7 @@ import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
 import type { PipelineInteraction, StudyOutputTimeseries } from '@/types'
 
 interface EventItem { id: number; onset: number; duration: number; description: string }
-interface GroupOp { op: 'rename' | 'merge' | 'delete'; sources: string[]; target?: string }
+interface GroupOp { op: 'rename' | 'merge' | 'delete'; sources: string[]; target?: string; scope?: 'all_shared' }
 interface DatasetMeta { label: string; output_id?: string; events: EventItem[]; bad_segments: { onset: number; duration: number }[] }
 
 const GRAY = '#79859A'
@@ -354,7 +354,7 @@ const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline, descr
     return {
       type: 'event_editing',
       events: events.value.map((e) => ({ onset: e.onset, duration: e.duration, description: e.description })),
-      group_operations: promoteRules.value ? groupOps.value : [],
+      group_operations: submittedGroupOps(),
       operations: operationsSummary(),
     }
   },
@@ -444,6 +444,10 @@ function operationsSummary(): string[] {
   if (d.changed) out.push(`改动 ${d.changed}`)
   return out
 }
+function submittedGroupOps(): GroupOp[] {
+  if (promoteRules.value) return groupOps.value
+  return groupOps.value.filter((g) => g.scope === 'all_shared')
+}
 
 // —— 类型选择 / 可见 / 勾选 ——
 function selectType(label: string) {
@@ -469,12 +473,42 @@ function setDuration(id: number, duration: number) { events.value = events.value
 function relabelEvent(id: number, label: string) { events.value = events.value.map((e) => e.id === id ? { ...e, description: label } : e); ensureVisible(label) }
 
 // —— 类型级批量（改 events 落 literal 清单，记 groupOps 套全部 / 溯源）——
+function datasetEventsAt(index: number): EventItem[] {
+  return index === activeDsIndex.value ? events.value : (datasets.value[index]?.events || [])
+}
+function sourceNamesExistInEveryDataset(sources: string[]): boolean {
+  if (datasets.value.length <= 1 || !sources.length) return false
+  return datasets.value.every((_, index) => {
+    const names = new Set(datasetEventsAt(index).map((e) => e.description))
+    return sources.every((source) => names.has(source))
+  })
+}
+function renameEventList(evs: EventItem[], sources: string[], target: string): EventItem[] {
+  return evs.map((e) => sources.includes(e.description) ? { ...e, description: target } : e)
+}
+function renameAllDatasetDrafts(sources: string[], target: string) {
+  if (!datasets.value.length) {
+    events.value = renameEventList(events.value, sources, target)
+    return
+  }
+  const next = datasets.value.map((d, index) => ({
+    ...d,
+    events: renameEventList(datasetEventsAt(index), sources, target),
+  }))
+  datasets.value = next
+  events.value = next[activeDsIndex.value]?.events.map((e) => ({ ...e })) || []
+}
 function applyBulkRename() {
   const target = bulkTarget.value.trim()
   if (!target || !checkedTypes.value.size) return
   const sources = [...checkedTypes.value]
-  events.value = events.value.map((e) => sources.includes(e.description) ? { ...e, description: target } : e)
-  groupOps.value = [...groupOps.value, { op: sources.length > 1 ? 'merge' : 'rename', sources, target }]
+  const applyAllDatasets = sourceNamesExistInEveryDataset(sources)
+  if (applyAllDatasets) renameAllDatasetDrafts(sources, target)
+  else events.value = renameEventList(events.value, sources, target)
+  const op: GroupOp = { op: sources.length > 1 ? 'merge' : 'rename', sources, target }
+  if (applyAllDatasets) op.scope = 'all_shared'
+  groupOps.value = [...groupOps.value, op]
+  if (applyAllDatasets) promoteRules.value = true
   ensureVisible(target); selectedType.value = target; checkedTypes.value = new Set(); bulkTarget.value = ''
 }
 function applyBulkDelete() {
