@@ -4277,23 +4277,71 @@ function pushIcaComputeSummary(graphNode: LiteGraphNode, params: Record<string, 
   pushReadonlyFact(graphNode, 'ICA', `${METHOD_LABELS[method] ?? method} · ${nText}`)
 }
 
+function parseIcaExcludedComponents(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => Number(item))
+      .filter((item) => Number.isInteger(item) && item >= 0)
+  }
+  const text = String(value ?? '').trim()
+  if (!text) return []
+  return text
+    .split(/[,\s]+/)
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item >= 0)
+}
+
+function icaDecisionFromJob(job: PipelineJob | null): Record<string, unknown> | null {
+  const outputJson = (job?.output_json || {}) as Record<string, unknown>
+  const metadata = (outputJson.metadata || {}) as Record<string, unknown>
+  const metadataDecision = metadata.decision
+  if (metadataDecision && typeof metadataDecision === 'object') return metadataDecision as Record<string, unknown>
+  const interaction = outputJson.interaction || metadata.interaction
+  if (interaction && typeof interaction === 'object') {
+    const decision = (interaction as Record<string, unknown>).decision
+    if (decision && typeof decision === 'object') return decision as Record<string, unknown>
+  }
+  return null
+}
+
+function summarizeIcaExcluded(decision: Record<string, unknown> | null, params: Record<string, unknown>) {
+  const globalExcluded = parseIcaExcludedComponents(decision?.excluded_components ?? params.excluded_components)
+  const byDatasetRaw = decision?.excluded_components_by_dataset ?? params.excluded_components_by_dataset
+  const byDataset = byDatasetRaw && typeof byDatasetRaw === 'object' && !Array.isArray(byDatasetRaw)
+    ? (byDatasetRaw as Record<string, unknown>)
+    : {}
+  const perDatasetLists = Object.values(byDataset).map(parseIcaExcludedComponents)
+  const perDatasetCount = perDatasetLists.reduce((sum, items) => sum + items.length, 0)
+  const datasetCount = perDatasetLists.filter((items) => items.length > 0).length
+  return {
+    total: perDatasetCount || globalExcluded.length,
+    datasetCount,
+    globalExcluded,
+  }
+}
+
 /** ICA Apply：卡上提示**跟随真实运行状态**（与 artifact_mark 同理，唯「等待确认」可双击进富审核台）。
- *  等待确认显蓝色「待审阅（双击打开）」；已剔除成分显索引；已完成无剔除显「已确认」；未运行显「运行后双击审阅」。
+ *  等待确认显蓝色「待审阅（双击打开）」；已剔除成分显「已剔除」摘要；已完成无剔除显「已确认 · 无剔除」；未运行显「运行后双击审阅」。
  *  实时刷新同样由 refreshStatusDependentFacts 在运行态变化时触发。 */
 function pushIcaApplySummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
-  const raw = String(params.excluded_components ?? '').trim()
-  const status = (latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode)))?.status || ''
+  const job = latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode))
+  const status = job?.status || ''
   const waiting = status === 'waiting_user_input'
   const done = status === 'success' || status === 'completed' || status === 'cached'
   if (waiting) {
     pushReadonlyLine(graphNode, '待审阅（双击打开）', { accent: true })
     return
   }
-  if (raw) {
-    const parts = raw.split(/[,\s]+/).filter(Boolean)
-    const display =
-      parts.length <= 5 ? parts.join(', ') : `${parts.slice(0, 4).join(', ')} +${parts.length - 4}`
-    pushReadonlyFact(graphNode, '排除', display)
+  const excluded = summarizeIcaExcluded(icaDecisionFromJob(job), params)
+  if (excluded.total > 0) {
+    const display = excluded.datasetCount > 1
+      ? `${excluded.total} 个 · ${excluded.datasetCount} 数据集`
+      : (excluded.globalExcluded.length > 0
+          ? (excluded.globalExcluded.length <= 5
+              ? excluded.globalExcluded.join(', ')
+              : `${excluded.globalExcluded.slice(0, 4).join(', ')} +${excluded.globalExcluded.length - 4}`)
+          : `${excluded.total} 个成分`)
+    pushReadonlyFact(graphNode, '已剔除', display)
     return
   }
   pushReadonlyLine(graphNode, done ? '已确认 · 无剔除' : '运行后双击审阅', { muted: true })
