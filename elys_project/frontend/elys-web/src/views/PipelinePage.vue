@@ -2040,6 +2040,7 @@ watch(selectedNodeId, (id) => {
 watch([executionJobs, runArtifacts], () => {
   applyLiteGraphRunState()
   void loadSelectedIcaInteraction()
+  maybeAutoOpenWaitingInteractionJob()
 })
 
 // 数据集列表异步加载完（或变化）时，重画 LoadData 节点卡：建节点那一刻 studyDatasets 可能还没回来，
@@ -2887,6 +2888,76 @@ function artifactCountForJob(jobId: string) {
   return runArtifactsByJobId.value.get(jobId)?.length || 0
 }
 
+const WAITING_INTERACTION_NODE_TYPES = new Set(['eeg/preproc/artifact_mark', 'eeg/preproc/event_manager'])
+const AUTO_INTERACTION_OPEN_STORAGE_KEY = 'elys:auto-interaction-opened'
+const AUTO_INTERACTION_OPEN_TTL_MS = 30 * 60 * 1000
+
+function waitingInteractionRouteForJob(job: PipelineJob) {
+  const studyId = selectedStudyId.value
+  const executionId = String(activeExecutionId.value || job.execution_id || '')
+  if (!studyId || !executionId || !job.id) return null
+  if (job.node_type === 'eeg/preproc/artifact_mark') {
+    return { path: '/artifact', query: { studyId, executionId, jobId: job.id } }
+  }
+  if (job.node_type === 'eeg/preproc/event_manager') {
+    return { path: '/events', query: { studyId, executionId, jobId: job.id } }
+  }
+  return null
+}
+
+function autoInteractionJobKey(job: PipelineJob) {
+  return `${job.execution_id || activeExecutionId.value || ''}:${job.id}`
+}
+
+function readAutoInteractionOpenedJobs() {
+  const now = Date.now()
+  const opened: Record<string, number> = {}
+  try {
+    const raw = sessionStorage.getItem(AUTO_INTERACTION_OPEN_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return opened
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const at = typeof value === 'number' ? value : Number(value)
+      if (key && Number.isFinite(at) && now - at < AUTO_INTERACTION_OPEN_TTL_MS) opened[key] = at
+    }
+  } catch {
+    // Private browsing or disabled storage should not block review navigation.
+  }
+  return opened
+}
+
+function hasAutoOpenedInteractionJob(job: PipelineJob) {
+  return Boolean(readAutoInteractionOpenedJobs()[autoInteractionJobKey(job)])
+}
+
+function markAutoOpenedInteractionJob(job: PipelineJob) {
+  try {
+    const opened = readAutoInteractionOpenedJobs()
+    opened[autoInteractionJobKey(job)] = Date.now()
+    sessionStorage.setItem(AUTO_INTERACTION_OPEN_STORAGE_KEY, JSON.stringify(opened))
+  } catch {
+    // Navigation still works when sessionStorage is unavailable.
+  }
+}
+
+function openWaitingInteractionForJob(job: PipelineJob, options: { auto?: boolean } = {}) {
+  const target = waitingInteractionRouteForJob(job)
+  if (!target) return false
+  if (options.auto) markAutoOpenedInteractionJob(job)
+  void router.push(target)
+  return true
+}
+
+function maybeAutoOpenWaitingInteractionJob() {
+  if (latestExecutionStale.value) return
+  const job = executionPanelJobRows.value.find((item) =>
+    item.status === 'waiting_user_input' &&
+    WAITING_INTERACTION_NODE_TYPES.has(item.node_type) &&
+    !hasAutoOpenedInteractionJob(item),
+  )
+  if (job) openWaitingInteractionForJob(job, { auto: true })
+}
+
 // 产物预览函数（open / reset）见 composables/pipeline/useArtifactPreview
 
 // 双击画布节点：若该节点本次运行产出了已保存的结果，则在弹出窗口查看其时域图
@@ -2911,20 +2982,8 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     void openIcaReviewerForJob(job)
     return
   }
-  // 手动去伪迹去坏段：交互节点在 waiting_user_input 时双击 → 同标签打开审核台（标坏段/坏道 → 应用后 router.back 回本页续跑）
-  if (job.node_type === 'eeg/preproc/artifact_mark' && job.status === 'waiting_user_input') {
-    void router.push({
-      path: '/artifact',
-      query: { studyId, executionId: String(activeExecutionId.value || job.execution_id || ''), jobId: job.id },
-    })
-    return
-  }
-  // 事件管理器：交互节点在 waiting_user_input 时双击 → 同标签打开事件编辑台（梳理 marker → 应用后 router.back 回本页续跑）
-  if (job.node_type === 'eeg/preproc/event_manager' && job.status === 'waiting_user_input') {
-    void router.push({
-      path: '/events',
-      query: { studyId, executionId: String(activeExecutionId.value || job.execution_id || ''), jobId: job.id },
-    })
+  // 手动去伪迹 / 事件管理器：交互节点在 waiting_user_input 时打开对应审核页，应用后 router.back 回本页续跑。
+  if (job.status === 'waiting_user_input' && openWaitingInteractionForJob(job)) {
     return
   }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
