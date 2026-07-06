@@ -569,6 +569,7 @@ async function selectDataset(index: number) {
   loadActiveDatasetMarks()
   overview.value = null
   ts.value = null
+  winStart.value = 0
   topoValues.value = {}
   cursorX.value = null
   cursorLockedX.value = null
