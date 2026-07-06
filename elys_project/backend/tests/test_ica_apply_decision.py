@@ -36,6 +36,7 @@ def clear_lightweight_app_stubs() -> None:
 clear_lightweight_app_stubs()
 
 from app.pipeline.dispatcher import NodeDispatcher  # noqa: E402
+from app.routers.pipelines import can_submit_interaction_decision  # noqa: E402
 
 
 def _context(*, params: dict | None = None, output_json: dict | None = None) -> SimpleNamespace:
@@ -77,3 +78,26 @@ def test_ica_apply_uses_current_job_interaction_decision():
     assert decision["excluded_components"] == [0, 2]
     assert decision["excluded_components_by_dataset"] == {"dataset-a": [1, 3]}
     assert decision["decision_version"] == 4
+
+
+def test_interaction_decision_can_be_reopened_after_completed_execution():
+    assert can_submit_interaction_decision(
+        SimpleNamespace(status="running"),
+        SimpleNamespace(status="waiting_user_input"),
+    )
+    assert can_submit_interaction_decision(
+        SimpleNamespace(status="completed"),
+        SimpleNamespace(status="success"),
+    )
+    assert can_submit_interaction_decision(
+        SimpleNamespace(status="completed"),
+        SimpleNamespace(status="cached"),
+    )
+    assert not can_submit_interaction_decision(
+        SimpleNamespace(status="running"),
+        SimpleNamespace(status="success"),
+    )
+    assert not can_submit_interaction_decision(
+        SimpleNamespace(status="completed"),
+        SimpleNamespace(status="failed"),
+    )

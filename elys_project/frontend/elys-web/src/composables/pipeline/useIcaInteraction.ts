@@ -163,12 +163,12 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
     }
   }
 
-  // 双击暂停的 Apply ICA 节点用：拉交互拿 ica_artifact_id，在新标签开富审核台（带 job 上下文，可就地提交剔除 + 续跑）。
-  // 与 artifact_mark 的「暂停双击 → 新标签开审核台」范式一致。selectedJob 可能还没加载好交互，故这里独立 fetch 一遍。
+  // Apply ICA 节点入口：拉交互拿 ica_artifact_id，带 job 上下文打开富审核台。
+  // selectedJob 可能还没加载好交互，故这里独立 fetch 一遍。
   async function openIcaReviewerForJob(job: PipelineJob) {
     const studyId = selectedStudyId.value
     const executionId = activeExecutionId.value || job.execution_id || ''
-    if (!studyId || !executionId || !job) return
+    if (!studyId || !executionId || !job) return false
     try {
       const res = await pipelineApi.getNodeInteraction(studyId, executionId, job.id)
       const interaction = res.data
@@ -176,7 +176,7 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
       const outputId = Array.isArray(datasets) ? datasets.find((d) => d && d.ica_artifact_id)?.ica_artifact_id || '' : ''
       if (!outputId) {
         statusMessage.value = 'ICA 结果不可用，无法打开审核台'
-        return
+        return false
       }
       const query = new URLSearchParams({
         studyId,
@@ -187,8 +187,10 @@ export function useIcaInteraction(options: IcaInteractionOptions) {
       })
       // 同标签打开富审核台（路线 B）：应用后 router.back 回工作流页续跑，与 artifact_mark 一致
       void router.push(`/ica?${query.toString()}`)
+      return true
     } catch (error) {
       statusMessage.value = describeError(error, 'ICA 审核台打开失败')
+      return false
     }
   }
 

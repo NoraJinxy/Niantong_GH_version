@@ -28,7 +28,7 @@
           </span>
           <span v-if="applyMsg" class="ica-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</span>
           <button v-if="applyDone" class="btn btn--sm" @click="returnToPipeline">返回工作流</button>
-          <span v-else-if="!jobContext" class="muted text-sm" title="在工作流「ICA Apply」节点处打开才能提交">查看模式</span>
+          <span v-else-if="!jobContext" class="muted text-sm" title="从工作流「Apply ICA」节点设置或等待审核入口打开后才能提交">查看模式</span>
           <template v-else>
             <button class="btn btn--sm" :disabled="applying" @click="returnToPipeline">取消</button>
             <button class="btn btn--primary btn--sm" :disabled="!canApply" @click="submitAndReturn" title="应用剔除并续跑工作流（Ctrl+Enter）">

@@ -1,12 +1,13 @@
-// 交互审核台（伪迹 ArtifactMark / ICA Apply）共用的「应用并返回」收尾。
+// 交互审核台（伪迹 ArtifactMark / ICA Apply / Event Manager）共用的「应用并返回」收尾。
 //
 // 路线 B（同页导航）：审核台由 PipelinePage 用 router.push 同标签打开，本 composable 负责
-//   提交 decision → 续跑(resume) → router.back() 回到工作流页；以及「取消/返回（不提交）」。
+//   提交 decision → 从该节点续跑(resume) → router.back() 回到工作流页；以及「取消/返回（不提交）」。
 // decision body 因节点而异（ICA: excluded_components；Artifact: bad_segments/bad_channels/channel_action），
 //   用 buildBody 回调注入，其余链路（提交+续跑+返回+状态+错误格式化）两页完全一致。
 //
 // 注：resume 当前是同步端点（后端 inline 跑完续跑才返回），故 await 之以保证返回工作流时执行态已推进、
 //   PipelinePage onActivated 一刷即见最终态、不踩「刚 fire 还没翻 waiting」的竞态。后续可改异步 resume 提速。
+//   waiting_user_input 与已完成运行的重新编辑都走同一条链路。
 
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -77,7 +78,7 @@ export function useReviewerHandoff(ctx: ReviewerHandoffCtx) {
         return
       }
       applyDone.value = true
-      applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，正在返回工作流…`
+      applyMsg.value = `已提交${ctx.summary ? '（' + ctx.summary() + '）' : ''}，已更新下游，正在返回工作流…`
       // 3) 旗标通知工作流页：返回后强制按 id 重载该执行的运行态——覆盖「keep-alive 陈旧态」与
       //    「跳顶级路由后工作区重挂、activeExecutionId 丢失」两种情况，确保看到续跑后的新状态。
       try {

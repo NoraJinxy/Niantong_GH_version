@@ -691,6 +691,22 @@
             <div v-if="cacheHitDebug" class="node-run-summary__debug">{{ cacheHitDebug }}</div>
           </div>
 
+          <div v-if="selectedInteractionMeta" class="interaction-entry-panel">
+            <div class="interaction-entry-panel__head">
+              <strong>{{ selectedInteractionMeta.title }}</strong>
+              <small>{{ selectedInteractionStateText }}</small>
+            </div>
+            <button
+              class="button button--primary interaction-entry-panel__button"
+              type="button"
+              :disabled="!canOpenSelectedInteraction || interactionEntryOpening"
+              @click="openSelectedInteraction"
+            >
+              <span>{{ interactionEntryOpening ? '打开中...' : selectedInteractionActionText }}</span>
+            </button>
+            <p v-if="selectedInteractionHint" class="state-text">{{ selectedInteractionHint }}</p>
+          </div>
+
           <div v-if="selectedNodeArtifacts.length" class="artifact-list">
             <button
               v-if="selectedNodeArtifacts.length > 1"
@@ -2888,18 +2904,20 @@ function artifactCountForJob(jobId: string) {
   return runArtifactsByJobId.value.get(jobId)?.length || 0
 }
 
-const WAITING_INTERACTION_NODE_TYPES = new Set(['eeg/preproc/artifact_mark', 'eeg/preproc/event_manager'])
+const ARTIFACT_MARK_NODE_TYPE = 'eeg/preproc/artifact_mark'
+const EVENT_MANAGER_NODE_TYPE = 'eeg/preproc/event_manager'
+const INTERACTION_NODE_TYPES = new Set([ICA_APPLY_NODE_TYPE, ARTIFACT_MARK_NODE_TYPE, EVENT_MANAGER_NODE_TYPE])
 const AUTO_INTERACTION_OPEN_STORAGE_KEY = 'elys:auto-interaction-opened'
 const AUTO_INTERACTION_OPEN_TTL_MS = 30 * 60 * 1000
 
-function waitingInteractionRouteForJob(job: PipelineJob) {
+function interactionRouteForJob(job: PipelineJob) {
   const studyId = selectedStudyId.value
   const executionId = String(activeExecutionId.value || job.execution_id || '')
   if (!studyId || !executionId || !job.id) return null
-  if (job.node_type === 'eeg/preproc/artifact_mark') {
+  if (job.node_type === ARTIFACT_MARK_NODE_TYPE) {
     return { path: '/artifact', query: { studyId, executionId, jobId: job.id } }
   }
-  if (job.node_type === 'eeg/preproc/event_manager') {
+  if (job.node_type === EVENT_MANAGER_NODE_TYPE) {
     return { path: '/events', query: { studyId, executionId, jobId: job.id } }
   }
   return null
@@ -2940,10 +2958,12 @@ function markAutoOpenedInteractionJob(job: PipelineJob) {
   }
 }
 
-function openWaitingInteractionForJob(job: PipelineJob, options: { auto?: boolean } = {}) {
-  const target = waitingInteractionRouteForJob(job)
-  if (!target) return false
+async function openInteractionForJob(job: PipelineJob, options: { auto?: boolean } = {}) {
+  if (!INTERACTION_NODE_TYPES.has(job.node_type)) return false
   if (options.auto) markAutoOpenedInteractionJob(job)
+  if (job.node_type === ICA_APPLY_NODE_TYPE) return openIcaReviewerForJob(job)
+  const target = interactionRouteForJob(job)
+  if (!target) return false
   void router.push(target)
   return true
 }
@@ -2952,10 +2972,10 @@ function maybeAutoOpenWaitingInteractionJob() {
   if (latestExecutionStale.value) return
   const job = executionPanelJobRows.value.find((item) =>
     item.status === 'waiting_user_input' &&
-    WAITING_INTERACTION_NODE_TYPES.has(item.node_type) &&
+    INTERACTION_NODE_TYPES.has(item.node_type) &&
     !hasAutoOpenedInteractionJob(item),
   )
-  if (job) openWaitingInteractionForJob(job, { auto: true })
+  if (job) void openInteractionForJob(job, { auto: true })
 }
 
 // 产物预览函数（open / reset）见 composables/pipeline/useArtifactPreview
@@ -2977,13 +2997,9 @@ function openNodeWaveform(node: LiteGraphNode | LGraphNode | null) {
     statusMessage.value = '工作流已修改，这次「等待确认」的运行已过期——请重新运行，不要在旧运行上继续（数据快照已冻结）。'
     return
   }
-  // ICA 成分剔除：Apply ICA 节点在 waiting_user_input 时双击 → 打开富审核台（地形图墙 + 整体去除前后对比 → 提交剔除 → 续跑）
-  if (job.node_type === ICA_APPLY_NODE_TYPE && job.status === 'waiting_user_input') {
-    void openIcaReviewerForJob(job)
-    return
-  }
-  // 手动去伪迹 / 事件管理器：交互节点在 waiting_user_input 时打开对应审核页，应用后 router.back 回本页续跑。
-  if (job.status === 'waiting_user_input' && openWaitingInteractionForJob(job)) {
+  // 交互节点等待人工输入时，双击仍保留为手动入口；运行中会自动打开同一审核页。
+  if (job.status === 'waiting_user_input' && INTERACTION_NODE_TYPES.has(job.node_type)) {
+    void openInteractionForJob(job)
     return
   }
   const artifacts = runArtifactsByJobId.value.get(job.id) || []
@@ -3106,6 +3122,57 @@ const cacheHitDebug = computed(() => {
   return job.log_tail || '缓存命中'
 })
 
+const interactionEntryOpening = ref(false)
+const selectedInteractionMeta = computed(() => {
+  const type = selectedNode.value?.type || ''
+  if (type === ICA_APPLY_NODE_TYPE) return { title: 'ICA 成分审核', action: '打开审核页' }
+  if (type === ARTIFACT_MARK_NODE_TYPE) return { title: '伪迹审核', action: '打开审核页' }
+  if (type === EVENT_MANAGER_NODE_TYPE) return { title: '事件标记梳理', action: '打开梳理页' }
+  return null
+})
+const selectedInteractionCanReopen = computed(() => {
+  const job = selectedJob.value
+  if (!job) return false
+  if (job.status === 'waiting_user_input') return true
+  return latestPipelineExecution.value?.status === 'completed' && ['success', 'cached'].includes(String(job.status))
+})
+const canOpenSelectedInteraction = computed(() =>
+  Boolean(selectedInteractionMeta.value && selectedJob.value && !latestExecutionStale.value && selectedInteractionCanReopen.value),
+)
+const selectedInteractionStateText = computed(() => {
+  const job = selectedJob.value
+  if (!job) return '未运行'
+  if (latestExecutionStale.value) return '运行已过期'
+  if (job.status === 'waiting_user_input') return '等待确认'
+  if (selectedInteractionCanReopen.value) return '可重新编辑'
+  return formatJobStatus(job.status)
+})
+const selectedInteractionActionText = computed(() => {
+  if (!selectedInteractionMeta.value) return '打开'
+  const job = selectedJob.value
+  if (job?.status === 'waiting_user_input') return selectedInteractionMeta.value.action
+  return selectedInteractionMeta.value.action.replace('打开', '重新打开')
+})
+const selectedInteractionHint = computed(() => {
+  if (!selectedInteractionMeta.value) return ''
+  if (!selectedJob.value) return '运行到该节点后可进入交互页。'
+  if (latestExecutionStale.value) return '当前画布已修改，请先重新运行。'
+  if (!selectedInteractionCanReopen.value) return '仅等待确认或已完成运行支持进入交互页。'
+  return ''
+})
+
+async function openSelectedInteraction() {
+  const job = selectedJob.value
+  if (!job || !canOpenSelectedInteraction.value || interactionEntryOpening.value) return
+  interactionEntryOpening.value = true
+  try {
+    const opened = await openInteractionForJob(job)
+    if (!opened) statusMessage.value = '当前节点暂无可打开的交互页'
+  } finally {
+    interactionEntryOpening.value = false
+  }
+}
+
 // 产物列表：多产物默认折叠成一行汇总，点开才看明细，避免对用户铺一长串技术文件名。
 const artifactListExpanded = ref(false)
 watch(selectedJob, () => {
@@ -3163,7 +3230,7 @@ function applyLiteGraphNodeRunState(graphNode: LiteGraphNode, nodeId: string, sp
 // 交互节点（artifact_mark / ICA apply）卡上提示随状态变（待审核/已确认/运行后审核），但事实文本是重建时的
 // 快照、轮询更新只刷颜色不刷文本。这里在运行态每次刷新时比对状态，变了才重建该卡，让文本跟上（同时避免每帧
 // 无谓重建抖动）。
-const STATUS_DEPENDENT_FACT_NODE_TYPES = new Set(['eeg/preproc/artifact_mark', ICA_APPLY_NODE_TYPE])
+const STATUS_DEPENDENT_FACT_NODE_TYPES = new Set([ARTIFACT_MARK_NODE_TYPE, EVENT_MANAGER_NODE_TYPE, ICA_APPLY_NODE_TYPE])
 function refreshStatusDependentFacts(graphNode: LiteGraphNode, status: string) {
   if (!STATUS_DEPENDENT_FACT_NODE_TYPES.has(String((graphNode as { type?: unknown }).type || ''))) return
   const g = graphNode as { __elysFactStatus?: string }
@@ -4379,8 +4446,8 @@ function summarizeIcaExcluded(decision: Record<string, unknown> | null) {
   }
 }
 
-/** ICA Apply：卡上提示**跟随真实运行状态**（与 artifact_mark 同理，唯「等待确认」可双击进富审核台）。
- *  等待确认显蓝色「待审阅（双击打开）」；已剔除成分显「已剔除」摘要；已完成无剔除显「已确认 · 无剔除」；未运行显「运行后双击审阅」。
+/** ICA Apply：卡上提示**跟随真实运行状态**（与 artifact_mark 同理，等待确认会自动进富审核台，检查器保留手动入口）。
+ *  等待确认显蓝色「待审阅」；已剔除成分显「已剔除」摘要；已完成无剔除显「已确认 · 无剔除」；未运行显「运行后可审阅」。
  *  实时刷新同样由 refreshStatusDependentFacts 在运行态变化时触发。 */
 function pushIcaApplySummary(graphNode: LiteGraphNode) {
   const job = latestExecutionStale.value ? null : jobForNodeId(getLiteGraphNodeId(graphNode))
@@ -4388,7 +4455,7 @@ function pushIcaApplySummary(graphNode: LiteGraphNode) {
   const waiting = status === 'waiting_user_input'
   const done = status === 'success' || status === 'completed' || status === 'cached'
   if (waiting) {
-    pushReadonlyLine(graphNode, '待审阅（双击打开）', { accent: true })
+    pushReadonlyLine(graphNode, '待审阅（自动打开）', { accent: true })
     return
   }
   const excluded = summarizeIcaExcluded(icaDecisionFromJob(job))
@@ -4403,7 +4470,7 @@ function pushIcaApplySummary(graphNode: LiteGraphNode) {
     pushReadonlyFact(graphNode, '已剔除', display)
     return
   }
-  pushReadonlyLine(graphNode, done ? '已确认 · 无剔除' : '运行后双击审阅', { muted: true })
+  pushReadonlyLine(graphNode, done ? '已确认 · 无剔除' : '运行后可审阅', { muted: true })
 }
 
 /** TFR：条件名 + 频率范围 + 基线模式。 */
@@ -4513,9 +4580,9 @@ function countMarkEntries(raw: unknown): number {
   return s.split(/[,\s]+/).filter(Boolean).length
 }
 
-/** Artifact Mark：卡上提示**跟随真实运行状态**，不再无脑喊「双击打开」（节点早跑完了还喊会误导）。
- *  唯一能双击进审核台的状态是「等待确认」(waiting_user_input)，故只有它显蓝色行动提示；
- *  已完成显标记摘要 / 「已确认」，未运行显「运行后双击审核」。状态变化的实时刷新由 applyLiteGraphNodeRunState 触发。 */
+/** Artifact Mark：卡上提示**跟随真实运行状态**。
+ *  等待确认会自动进审核台，检查器保留手动入口；已完成显标记摘要 / 「已确认」，未运行显「运行后可审核」。
+ *  状态变化的实时刷新由 applyLiteGraphNodeRunState 触发。 */
 function pushArtifactMarkSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
   const segCount = countMarkEntries(params.bad_segments)
   const chanCount = countMarkEntries(params.bad_channels)
@@ -4523,15 +4590,13 @@ function pushArtifactMarkSummary(graphNode: LiteGraphNode, params: Record<string
   const waiting = status === 'waiting_user_input'
   const done = status === 'success' || status === 'completed' || status === 'cached'
   if (waiting) {
-    // 唯一真正可双击进审核台的状态 —— 蓝色行动提示
-    pushReadonlyLine(graphNode, '待审核（双击打开）', { accent: true })
+    pushReadonlyLine(graphNode, '待审核（自动打开）', { accent: true })
   } else if (segCount > 0 || chanCount > 0) {
     pushReadonlyFact(graphNode, '标记', `坏段 ${segCount} · 坏道 ${chanCount}`)
   } else if (done) {
     pushReadonlyLine(graphNode, '已确认 · 无标记', { muted: true })
   } else {
-    // 未运行 / 失败：双击此时打不开审核台，别喊「双击打开」
-    pushReadonlyLine(graphNode, '运行后双击审核', { muted: true })
+    pushReadonlyLine(graphNode, '运行后可审核', { muted: true })
   }
   const action = String(params.channel_action ?? 'mark')
   pushReadonlyFact(graphNode, '坏道', action === 'interpolate' ? '插值修复' : '仅标记')
@@ -4543,11 +4608,11 @@ function pushEventManagerSummary(graphNode: LiteGraphNode, params: Record<string
   const waiting = status === 'waiting_user_input'
   const done = status === 'success' || status === 'completed' || status === 'cached'
   if (waiting) {
-    pushReadonlyLine(graphNode, '待梳理（双击打开）', { accent: true })
+    pushReadonlyLine(graphNode, '待梳理（自动打开）', { accent: true })
   } else if (done) {
     pushReadonlyLine(graphNode, '已梳理事件', { muted: true })
   } else {
-    pushReadonlyLine(graphNode, '运行后双击编辑', { muted: true })
+    pushReadonlyLine(graphNode, '运行后可编辑', { muted: true })
   }
   pushReadonlyFact(graphNode, '分组规则', ruleCount ? `${ruleCount} 条 · 套全部` : '逐事件梳理')
 }
@@ -6816,6 +6881,35 @@ function describeError(error: unknown, fallback: string) {
   font-size: 11px;
   color: var(--c-text-3);
   word-break: break-all;
+}
+
+.interaction-entry-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #cfd9ea;
+  border-radius: 6px;
+  background: #f8fbff;
+  padding: 8px;
+}
+
+.interaction-entry-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.interaction-entry-panel__head strong {
+  font-size: 13px;
+}
+
+.interaction-entry-panel__head small {
+  color: var(--c-text-3);
+}
+
+.interaction-entry-panel__button {
+  width: 100%;
+  justify-content: center;
 }
 
 .artifact-list {

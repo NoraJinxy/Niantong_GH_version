@@ -570,6 +570,47 @@ def interaction_to_response(job: PipelineJob) -> PipelineInteractionResponse:
     )
 
 
+def can_submit_interaction_decision(execution: PipelineExecution, job: PipelineJob) -> bool:
+    if job.status == "waiting_user_input":
+        return True
+    return execution.status == "completed" and job.status in {"success", "cached"}
+
+
+def invalidate_execution_outputs_from_job(db: Session, *, execution: PipelineExecution, job: PipelineJob) -> None:
+    downstream_jobs = (
+        db.query(PipelineJob)
+        .filter(
+            PipelineJob.study_id == execution.study_id,
+            PipelineJob.execution_id == execution.id,
+            PipelineJob.topo_index >= job.topo_index,
+        )
+        .all()
+    )
+    job_ids = [item.id for item in downstream_jobs]
+    if not job_ids:
+        return
+    now = datetime.utcnow()
+    (
+        db.query(StudyOutput)
+        .filter(
+            StudyOutput.study_id == execution.study_id,
+            StudyOutput.produced_by_execution_id == execution.id,
+            StudyOutput.produced_by_job_id.in_(job_ids),
+            StudyOutput.deleted_at.is_(None),
+        )
+        .update({StudyOutput.deleted_at: now, StudyOutput.updated_at: now}, synchronize_session=False)
+    )
+    (
+        db.query(ExecutionOutput)
+        .filter(
+            ExecutionOutput.study_id == execution.study_id,
+            ExecutionOutput.execution_id == execution.id,
+            ExecutionOutput.job_id.in_(job_ids),
+        )
+        .delete(synchronize_session=False)
+    )
+
+
 def apply_interaction_decision(
     job: PipelineJob,
     payload: PipelineInteractionDecisionRequest,
@@ -2554,10 +2595,13 @@ def submit_pipeline_node_decision(
     study = get_study_for_write(study_id, db, current_user)
     execution = get_pipeline_execution_or_404(db, study.id, execution_id)
     job = get_pipeline_job_or_404(db, study.id, execution.id, job_id)
-    if job.status != "waiting_user_input":
+    if not can_submit_interaction_decision(execution, job):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "PIPELINE_NODE_NOT_WAITING", "message": "Pipeline node is not waiting for user input."},
+            detail={
+                "code": "PIPELINE_NODE_NOT_EDITABLE",
+                "message": "Pipeline node decision can only be submitted while waiting for input, or reopened from a completed execution.",
+            },
         )
     apply_interaction_decision(job, payload, current_user=current_user)
     db.commit()
@@ -2585,6 +2629,7 @@ def resume_pipeline_node(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "PIPELINE_DECISION_REQUIRED", "message": "Submit the node decision before resuming the execution."},
         )
+    invalidate_execution_outputs_from_job(db, execution=execution, job=job)
     run_pipeline_execution_sync(db, execution.id, commit_progress=False, start_topo_index=job.topo_index)
     db.commit()
     db.refresh(execution)

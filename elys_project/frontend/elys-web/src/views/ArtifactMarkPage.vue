@@ -67,7 +67,7 @@
         <div v-if="!isLive" class="am-empty">
           <AppIcon name="activity" :size="40" />
           <p class="am-empty-title">在工作流的「Artifact Mark」节点处打开本页</p>
-          <p class="muted text-sm">在流水线里双击处于「等待人工」状态的去伪迹节点，即可框选坏段、点选坏道，确认后流水线自动继续。</p>
+          <p class="muted text-sm">流水线运行到该节点会自动进入本页；也可从节点设置进入，确认后从该节点继续更新下游。</p>
         </div>
         <div v-else-if="error" class="am-empty is-error">
           <AppIcon name="warning" :size="32" />
@@ -201,7 +201,7 @@
           <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
             <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
           </button>
-          <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Artifact Mark」节点（等待人工）处打开本页才能提交。</p>
+          <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：从工作流的「Artifact Mark」节点设置或等待审核入口打开后才能提交。</p>
           <p v-if="applyMsg" class="am-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
         </div>
         <div class="am-card am-dataset-card" v-if="datasets.length">

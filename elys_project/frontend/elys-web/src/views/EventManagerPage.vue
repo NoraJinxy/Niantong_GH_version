@@ -84,7 +84,7 @@
         <div v-if="!isLive" class="ev-empty">
           <AppIcon name="bookmark" :size="40" />
           <p class="ev-empty-title">在工作流的「Event Manager」节点处打开本页</p>
-          <p class="muted text-sm">在流水线里双击处于「等待人工」状态的事件管理节点，即可全局梳理 marker、添删改，确认后流水线自动继续。</p>
+          <p class="muted text-sm">流水线运行到该节点会自动进入本页；也可从节点设置进入，确认后从该节点继续更新下游。</p>
         </div>
         <div v-else-if="error" class="ev-empty is-error">
           <AppIcon name="warning" :size="32" />
@@ -233,7 +233,7 @@
         <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
           <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
         </button>
-        <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Event Manager」节点（等待人工）处打开本页才能提交。</p>
+        <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：从工作流的「Event Manager」节点设置或等待梳理入口打开后才能提交。</p>
           <p v-if="applyMsg" class="ev-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
         </div>
 
