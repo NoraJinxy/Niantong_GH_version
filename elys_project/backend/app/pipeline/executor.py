@@ -525,6 +525,7 @@ class PipelineExecutor:
             input_digest=input_digest,
             node_spec=node_spec,
         )
+        previous_interaction = self._interaction_from_output_json(job.output_json or {})
         job.status = "running"
         job.started_at = started_at
         job.input_json = self._node_input_runtime_json(job.input_json or {}, inputs)
@@ -545,6 +546,9 @@ class PipelineExecutor:
         )
         if cache_result is not None:
             output_json = cache_result.output.to_output_json()
+            interaction = self._interaction_from_output_json(output_json) or previous_interaction
+            if interaction:
+                output_json = self._attach_interaction(output_json, interaction)
             self._finish_job(
                 job,
                 status="cached",
@@ -629,10 +633,11 @@ class PipelineExecutor:
             }
 
         output_json = dispatch_result.output.to_output_json()
-        if dispatch_result.status == "waiting_user_input":
-            interaction = output_json.get("metadata", {}).get("interaction") if isinstance(output_json.get("metadata"), dict) else None
-            if isinstance(interaction, dict):
-                output_json["interaction"] = interaction
+        interaction = self._interaction_from_output_json(output_json)
+        if interaction is None and dispatch_result.status == "success":
+            interaction = previous_interaction
+        if interaction:
+            output_json = self._attach_interaction(output_json, interaction)
         self._finish_job(
             job,
             status=dispatch_result.status,
@@ -710,18 +715,34 @@ class PipelineExecutor:
         )
 
     @staticmethod
+    def _interaction_from_output_json(output_json: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(output_json, dict):
+            return None
+        interaction = output_json.get("interaction")
+        if isinstance(interaction, dict):
+            return interaction
+        metadata = output_json.get("metadata")
+        if isinstance(metadata, dict) and isinstance(metadata.get("interaction"), dict):
+            return metadata["interaction"]
+        return None
+
+    @staticmethod
+    def _attach_interaction(output_json: dict[str, Any], interaction: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(output_json)
+        metadata = dict(merged.get("metadata") or {})
+        metadata["interaction"] = interaction
+        merged["metadata"] = metadata
+        merged["interaction"] = interaction
+        return merged
+
+    @staticmethod
     def _params_for_job(node: dict[str, Any], job: PipelineJob) -> dict[str, Any]:
         params = dict(node.get("params") if isinstance(node.get("params"), dict) else {})
         if str(node.get("type") or "") != "eeg/ica/apply":
             return params
 
         output_json = job.output_json or {}
-        interaction = {}
-        if isinstance(output_json, dict):
-            if isinstance(output_json.get("interaction"), dict):
-                interaction = output_json["interaction"]
-            elif isinstance(output_json.get("metadata"), dict) and isinstance(output_json["metadata"].get("interaction"), dict):
-                interaction = output_json["metadata"]["interaction"]
+        interaction = PipelineExecutor._interaction_from_output_json(output_json) or {}
         decision = interaction.get("decision") if isinstance(interaction, dict) else None
         if isinstance(decision, dict):
             params["excluded_components"] = decision.get("excluded_components", [])

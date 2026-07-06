@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover - lightweight test stubs do not provide fa
             self.content = content
             self.kwargs = kwargs
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import get_settings
 from app.database import SessionLocal, get_db
@@ -107,6 +107,10 @@ from app.routers._pipeline_shared import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["工作流"])
+
+ICA_APPLY_NODE_TYPE = "eeg/ica/apply"
+ICA_COMPUTE_NODE_TYPE = "eeg/ica/compute"
+ICA_MATRIX_PORT = "ica_matrix"
 
 RUN_CANCELABLE_STATUSES = {"queued", "running", "waiting_user_input"}
 RUN_CANCELLED_STATUS = "canceled"
@@ -531,14 +535,282 @@ def next_pipeline_execution_seq(db: Session, study_id: str, pipeline_id: int) ->
     return int(current or 0) + 1
 
 
-def job_interaction(job: PipelineJob) -> dict[str, Any]:
-    output_json = job.output_json or {}
-    if isinstance(output_json, dict) and isinstance(output_json.get("interaction"), dict):
-        return output_json["interaction"]
+def _source_dataset_id(data_info: dict[str, Any]) -> Any:
+    return data_info.get("source_dataset_id") or data_info.get("dataset_id")
+
+
+def _study_output_id(data_info: dict[str, Any]) -> str:
+    return str(data_info.get("artifact_id") or data_info.get("study_output_id") or data_info.get("analysis_result_id") or "").strip()
+
+
+def _data_info_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
+def _job_output_port(job: PipelineJob, port: str) -> list[dict[str, Any]]:
+    output_json = job.output_json if isinstance(job.output_json, dict) else {}
+    outputs = output_json.get("outputs") if isinstance(output_json, dict) else {}
+    if isinstance(outputs, dict):
+        items = _data_info_list(outputs.get(port))
+        if items:
+            return items
+    if port == "output":
+        return _data_info_list(output_json.get("data_infos"))
+    return []
+
+
+def _compact_interaction_data_info(data_info: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "dataset_id",
+        "source_dataset_id",
+        "study_id",
+        "subject_id",
+        "subject",
+        "bids_subject_id",
+        "session",
+        "task",
+        "run",
+        "sfreq",
+        "n_times",
+        "duration_seconds",
+        "n_channels",
+        "storage_path",
+        "storage_uri",
+        "logical_path",
+        "fif_path",
+        "dataset_file_id",
+        "source_dataset_file_id",
+        "file_role",
+        "sha256",
+        "artifact_id",
+        "study_output_id",
+        "artifact_storage_uri",
+        "artifact_storage_path",
+        "analysis_result_id",
+        "content_hash",
+        "data_type",
+        "ica_path",
+    )
+    return {key: data_info.get(key) for key in keys if key in data_info}
+
+
+def _component_preview_from_ica_info(ica_info: dict[str, Any]) -> list[dict[str, Any]]:
+    components = ica_info.get("component_preview")
+    if isinstance(components, list):
+        return [item for item in components if isinstance(item, dict)]
+    preview = ica_info.get("preview_json")
+    if isinstance(preview, dict) and isinstance(preview.get("components"), list):
+        return [item for item in preview["components"] if isinstance(item, dict)]
+    if isinstance(ica_info.get("components"), list):
+        return [item for item in ica_info["components"] if isinstance(item, dict)]
+    return []
+
+
+def _matching_ica_info(data_info: dict[str, Any], ica_infos: list[dict[str, Any]], index: int) -> dict[str, Any] | None:
+    source_id = _source_dataset_id(data_info)
+    if source_id is not None:
+        for ica_info in ica_infos:
+            if _source_dataset_id(ica_info) == source_id:
+                return ica_info
+    if index < len(ica_infos):
+        return ica_infos[index]
+    if len(ica_infos) == 1:
+        return ica_infos[0]
+    return None
+
+
+def _execution_for_job(job: PipelineJob) -> PipelineExecution | None:
+    execution = getattr(job, "execution", None)
+    if execution is not None:
+        return execution
+    session = object_session(job)
+    if session is None:
+        return None
+    return session.get(PipelineExecution, job.execution_id)
+
+
+def _execution_jobs(job: PipelineJob) -> list[PipelineJob]:
+    execution = _execution_for_job(job)
+    jobs = list(getattr(execution, "jobs", []) or []) if execution is not None else []
+    if jobs:
+        return jobs
+    session = object_session(job)
+    if session is None:
+        return []
+    return (
+        session.query(PipelineJob)
+        .filter(PipelineJob.study_id == job.study_id, PipelineJob.execution_id == job.execution_id)
+        .order_by(PipelineJob.topo_index.asc(), PipelineJob.node_id.asc())
+        .all()
+    )
+
+
+def _incoming_sources(definition_json: dict[str, Any], node_id: str, target_port: str) -> list[tuple[str, str]]:
+    graph = definition_json.get("graph") if isinstance(definition_json, dict) else {}
+    links = graph.get("links") if isinstance(graph, dict) else []
+    sources: list[tuple[str, str]] = []
+    if not isinstance(links, list):
+        return sources
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        target = link.get("to") if isinstance(link.get("to"), dict) else {}
+        if str(target.get("node") or "") != node_id:
+            continue
+        if str(target.get("port") or "input") != target_port:
+            continue
+        source = link.get("from") if isinstance(link.get("from"), dict) else {}
+        source_node = str(source.get("node") or "").strip()
+        if source_node:
+            sources.append((source_node, str(source.get("port") or "output")))
+    return sources
+
+
+def _output_infos_from_sources(jobs_by_node: dict[str, PipelineJob], sources: list[tuple[str, str]], default_port: str) -> list[dict[str, Any]]:
+    infos: list[dict[str, Any]] = []
+    for source_node_id, source_port in sources:
+        source_job = jobs_by_node.get(source_node_id)
+        if source_job is None:
+            continue
+        items = _job_output_port(source_job, source_port) or _job_output_port(source_job, default_port)
+        infos.extend(items)
+    return infos
+
+
+def _normalize_int_list(value: Any) -> list[int]:
+    raw_items: list[Any]
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.replace(";", ",").split(",")]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = []
+    normalized: set[int] = set()
+    for item in raw_items:
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed >= 0:
+            normalized.add(parsed)
+    return sorted(normalized)
+
+
+def _normalize_excluded_by_dataset(value: Any) -> dict[str, list[int]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, list[int]] = {}
+    for key, items in value.items():
+        key_text = str(key or "").strip()
+        if key_text:
+            normalized[key_text] = _normalize_int_list(items)
+    return normalized
+
+
+def _ica_decision_from_completed_job(job: PipelineJob) -> dict[str, Any] | None:
+    output_json = job.output_json if isinstance(job.output_json, dict) else {}
     metadata = output_json.get("metadata") if isinstance(output_json, dict) else {}
-    if isinstance(metadata, dict) and isinstance(metadata.get("interaction"), dict):
-        return metadata["interaction"]
-    return {}
+    decision = metadata.get("decision") if isinstance(metadata, dict) else None
+    if not isinstance(decision, dict):
+        params = job.params_json if isinstance(job.params_json, dict) else {}
+        decision = params.get("interaction_decision") if isinstance(params.get("interaction_decision"), dict) else params
+    excluded = _normalize_int_list(decision.get("excluded_components") if isinstance(decision, dict) else [])
+    excluded_by_dataset = _normalize_excluded_by_dataset(
+        decision.get("excluded_components_by_dataset") if isinstance(decision, dict) else {}
+    )
+    if not excluded and not excluded_by_dataset and not isinstance(decision, dict):
+        return None
+    version = int(decision.get("decision_version") or 1) if isinstance(decision, dict) else 1
+    return {
+        **(decision if isinstance(decision, dict) else {}),
+        "type": "ica_component_selection",
+        "excluded_components": excluded,
+        "excluded_components_by_dataset": excluded_by_dataset,
+        "decision_version": version,
+    }
+
+
+def _rebuild_ica_apply_interaction(job: PipelineJob) -> dict[str, Any]:
+    if job.node_type != ICA_APPLY_NODE_TYPE:
+        return {}
+    execution = _execution_for_job(job)
+    definition_json = execution.definition_snapshot if execution is not None and isinstance(execution.definition_snapshot, dict) else {}
+    jobs = _execution_jobs(job)
+    jobs_by_node = {item.node_id: item for item in jobs}
+
+    input_infos = _output_infos_from_sources(jobs_by_node, _incoming_sources(definition_json, job.node_id, "input"), "output")
+    ica_infos = _output_infos_from_sources(
+        jobs_by_node,
+        _incoming_sources(definition_json, job.node_id, ICA_MATRIX_PORT),
+        ICA_MATRIX_PORT,
+    )
+    if not ica_infos:
+        upstream_ica_jobs = [
+            item for item in jobs if item.node_type == ICA_COMPUTE_NODE_TYPE and item.topo_index < job.topo_index
+        ]
+        for item in sorted(upstream_ica_jobs, key=lambda candidate: candidate.topo_index, reverse=True):
+            ica_infos = _job_output_port(item, ICA_MATRIX_PORT)
+            if ica_infos:
+                input_infos = input_infos or _job_output_port(item, "output")
+                break
+    if not input_infos:
+        input_infos = [
+            source_ref
+            for source_ref in (item.get("source_ref") for item in ica_infos)
+            if isinstance(source_ref, dict)
+        ]
+    if not input_infos or not ica_infos:
+        return {}
+
+    datasets: list[dict[str, Any]] = []
+    components_by_key: dict[str, dict[str, Any]] = {}
+    for index, data_info in enumerate(input_infos):
+        ica_info = _matching_ica_info(data_info, ica_infos, index)
+        if not ica_info:
+            continue
+        ica_artifact_id = _study_output_id(ica_info)
+        if not ica_artifact_id:
+            continue
+        components = _component_preview_from_ica_info(ica_info)
+        datasets.append(
+            {
+                "dataset_id": data_info.get("dataset_id"),
+                "source_dataset_id": _source_dataset_id(data_info),
+                "ica_artifact_id": ica_artifact_id,
+                "data_info": _compact_interaction_data_info(data_info),
+                "ica_info": _compact_interaction_data_info(ica_info),
+                "components": components,
+            }
+        )
+        for component in components:
+            components_by_key.setdefault(str(component.get("index")), component)
+    if not datasets:
+        return {}
+
+    decision = _ica_decision_from_completed_job(job)
+    decision_version = int(decision.get("decision_version") or 1) + 1 if decision else 1
+    interaction: dict[str, Any] = {
+        "type": "ica_component_selection",
+        "status": "decision_submitted" if decision else "waiting_user_input",
+        "decision_version": decision_version,
+        "components": list(components_by_key.values()),
+        "preview_json": {"datasets": datasets},
+    }
+    if decision:
+        interaction["decision"] = decision
+    return interaction
+
+
+def job_interaction(job: PipelineJob) -> dict[str, Any]:
+    interaction = PipelineExecutor._interaction_from_output_json(job.output_json or {})
+    if interaction:
+        return interaction
+    return _rebuild_ica_apply_interaction(job)
+
 
 
 def set_job_interaction(job: PipelineJob, interaction: dict[str, Any]) -> None:
