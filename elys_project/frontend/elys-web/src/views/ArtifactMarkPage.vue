@@ -160,46 +160,50 @@
 
       <!-- 右栏：检测工具 / 坏段 / 坏道 / 处理方式 / 应用 -->
       <aside class="am-right" v-if="isLive">
-        <div class="am-detect-group">
-          <button class="am-detect" :disabled="autoRunning || !jobContext" @click="autoDetect" title="自动检测坏段 / 坏道（快捷键 Shift+D）">
-            <AppIcon name="sparkles" :size="18" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
-          </button>
-          <button class="am-clear" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
-            <AppIcon name="eraser" :size="14" /> 清空标记
-          </button>
-          <p v-if="autoMsg" class="am-automsg">{{ autoMsg }}</p>
-        </div>
-        <div class="am-card">
-          <div class="am-card-h">坏段 · {{ badSegments.length }} 段（{{ totalBadSeconds.toFixed(2) }} s）</div>
-          <ul class="am-marklist">
-            <li v-if="!badSegments.length" class="muted text-sm">拖拽波形框选标记坏段</li>
-            <li v-for="(seg, i) in badSegments" :key="i" @click="seekToSegment(seg)">
-              <span class="dot dot--danger"></span>
-              {{ seg.onset.toFixed(2) }}–{{ (seg.onset + seg.duration).toFixed(2) }} s
-              <button class="am-x" title="删除" @click.stop="removeSegment(i)"><AppIcon name="x" :size="13" /></button>
-            </li>
-          </ul>
-        </div>
-        <div class="am-card">
-          <div class="am-card-h">坏道 · {{ badChannelList.length }}</div>
-          <div class="am-chips">
-            <span v-if="!badChannelList.length" class="muted text-sm">点波形或左栏通道名标坏道</span>
-            <span v-for="name in badChannelList" :key="name" class="am-chip">{{ name }}<button class="am-x" @click="toggleChannel(name)"><AppIcon name="x" :size="12" /></button></span>
+        <div class="am-right-top">
+          <div class="am-detect-group">
+            <button class="am-detect" :disabled="autoRunning || !jobContext" @click="autoDetect" title="自动检测坏段 / 坏道（快捷键 Shift+D）">
+              <AppIcon name="sparkles" :size="18" /> {{ autoRunning ? '自动检测中…' : '自动检测异常' }}
+            </button>
+            <button class="am-clear" :disabled="!badSegments.length && !badChannels.size" @click="clearAll">
+              <AppIcon name="eraser" :size="14" /> 清空标记
+            </button>
+            <p v-if="autoMsg" class="am-automsg">{{ autoMsg }}</p>
           </div>
+          <div class="am-card">
+            <div class="am-card-h">坏段 · {{ badSegments.length }} 段（{{ totalBadSeconds.toFixed(2) }} s）</div>
+            <ul class="am-marklist">
+              <li v-if="!badSegments.length" class="muted text-sm">拖拽波形框选标记坏段</li>
+              <li v-for="(seg, i) in badSegments" :key="i" @click="seekToSegment(seg)">
+                <span class="dot dot--danger"></span>
+                {{ seg.onset.toFixed(2) }}–{{ (seg.onset + seg.duration).toFixed(2) }} s
+                <button class="am-x" title="删除" @click.stop="removeSegment(i)"><AppIcon name="x" :size="13" /></button>
+              </li>
+            </ul>
+          </div>
+          <div class="am-card">
+            <div class="am-card-h">坏道 · {{ badChannelList.length }}</div>
+            <div class="am-chips">
+              <span v-if="!badChannelList.length" class="muted text-sm">点波形或左栏通道名标坏道</span>
+              <span v-for="name in badChannelList" :key="name" class="am-chip">{{ name }}<button class="am-x" @click="toggleChannel(name)"><AppIcon name="x" :size="12" /></button></span>
+            </div>
+          </div>
+          <div class="am-card">
+            <div class="am-card-h">坏道处理方式</div>
+            <select v-model="channelAction" class="am-select">
+              <option value="mark">仅标记（默认，不改数据）</option>
+              <option value="interpolate">修复（改数据，需坐标）</option>
+            </select>
+          </div>
+          <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn" title="确认标记并续跑工作流（快捷键 Ctrl+Enter）">
+            <AppIcon name="check" :size="16" /> {{ applying ? '提交中…' : applyLabel }}
+          </button>
+          <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
+            <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
+          </button>
+          <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Artifact Mark」节点（等待人工）处打开本页才能提交。</p>
+          <p v-if="applyMsg" class="am-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
         </div>
-        <div class="am-card">
-          <div class="am-card-h">坏道处理方式</div>
-          <select v-model="channelAction" class="am-select">
-            <option value="mark">仅标记（默认，不改数据）</option>
-            <option value="interpolate">修复（改数据，需坐标）</option>
-          </select>
-        </div>
-        <button class="btn btn--block btn--primary" :disabled="!canApply || applying" @click="submitAndReturn" title="确认标记并续跑工作流（快捷键 Ctrl+Enter）">
-          <AppIcon name="check" :size="16" /> {{ applying ? '提交中…' : applyLabel }}
-        </button>
-        <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
-          <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
-        </button>
         <div class="am-card am-dataset-card" v-if="datasets.length">
           <div class="am-card-h">
             <span>数据集</span>
@@ -219,8 +223,6 @@
             </li>
           </ul>
         </div>
-        <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Artifact Mark」节点（等待人工）处打开本页才能提交。</p>
-        <p v-if="applyMsg" class="am-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
       </aside>
     </div>
   </WorkbenchShell>
@@ -1050,7 +1052,8 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .am-ov-axis { position: relative; height: 12px; margin-top: 1px; }
 .am-ov-axis span { position: absolute; top: 0; font-size: 9px; color: var(--c-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.am-right { grid-column: 3; border-left: 1px solid var(--c-border); background: var(--c-surface); padding: var(--s-3); overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.am-right-top { flex: 0 0 66%; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
 .am-marklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
 .am-marklist li { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
 .am-marklist li:hover { background: var(--c-bg-soft, #eef1f5); }
@@ -1060,8 +1063,8 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .am-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .am-chip { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; padding: 2px 6px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); }
 .am-select { width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
-.am-dataset-card { margin-top: auto; }
-.am-dataset-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.am-dataset-card { flex: 1 1 34%; min-height: 0; display: flex; flex-direction: column; }
+.am-dataset-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
 .am-dataset { display: flex; align-items: center; gap: 6px; padding: 4px 5px; border-radius: 5px; font-size: 12px; cursor: pointer; }
 .am-dataset:hover { background: var(--c-bg-soft, #eef1f5); }
 .am-dataset.is-active { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
