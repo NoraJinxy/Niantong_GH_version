@@ -1579,6 +1579,8 @@ export interface PipelineInteractionDecisionRequest {
   // 手动去伪迹去坏段（artifact_marking 交互）
   bad_segments?: ArtifactBadSegment[]
   bad_channels?: string[]
+  bad_segments_by_dataset?: Record<string, ArtifactBadSegment[]>
+  bad_channels_by_dataset?: Record<string, string[]>
   channel_action?: 'mark' | 'interpolate'
   decision_version: number
 }

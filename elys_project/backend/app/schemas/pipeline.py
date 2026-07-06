@@ -376,6 +376,8 @@ class PipelineInteractionDecisionRequest(BaseModel):
     # 手动去伪迹去坏段用（artifact_marking 交互）
     bad_segments: list[dict[str, Any]] = Field(default_factory=list)
     bad_channels: list[str] = Field(default_factory=list)
+    bad_segments_by_dataset: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    bad_channels_by_dataset: dict[str, list[str]] = Field(default_factory=dict)
     channel_action: Optional[str] = None
     # 事件管理器梳理用（event_editing 交互）：
     #   events           = 最终非 BAD 事件清单（literal，数据集级，单数据集时落盘）

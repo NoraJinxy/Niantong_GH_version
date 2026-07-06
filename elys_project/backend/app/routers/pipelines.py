@@ -600,10 +600,22 @@ def apply_interaction_decision(
         # 手动去伪迹去坏段：坏段(list[{onset,duration,source}]) / 坏道(通道名) / 处理方式 原样存，
         # 由执行器 run_artifact_mark 归一化（parse_bad_segments / parse_bad_channels）。
         channel_action = payload.channel_action if payload.channel_action in ("mark", "interpolate") else "mark"
+        bad_segments_by_dataset = {
+            str(key): list(values or [])
+            for key, values in (payload.bad_segments_by_dataset or {}).items()
+            if str(key).strip()
+        }
+        bad_channels_by_dataset = {
+            str(key): [str(item).strip() for item in (values or []) if str(item).strip()]
+            for key, values in (payload.bad_channels_by_dataset or {}).items()
+            if str(key).strip()
+        }
         decision = {
             "type": interaction_type,
             "bad_segments": payload.bad_segments,
             "bad_channels": payload.bad_channels,
+            "bad_segments_by_dataset": bad_segments_by_dataset,
+            "bad_channels_by_dataset": bad_channels_by_dataset,
             "channel_action": channel_action,
             "decision_version": expected_version,
             **submitted,
@@ -611,6 +623,8 @@ def apply_interaction_decision(
         params_update = {
             "bad_segments": payload.bad_segments,
             "bad_channels": payload.bad_channels,
+            "bad_segments_by_dataset": bad_segments_by_dataset,
+            "bad_channels_by_dataset": bad_channels_by_dataset,
             "channel_action": channel_action,
             "decision_version": expected_version,
         }

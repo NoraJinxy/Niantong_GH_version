@@ -41,7 +41,7 @@ from app.engine.io import (
 from app.engine.ica.apply import parse_excluded_components, run_apply_ica
 from app.engine.ica.compute import run_compute_ica, summarize_ica
 from app.engine.ica.iclabel import run_iclabel
-from app.engine.preprocess.artifact_mark import run_artifact_mark
+from app.engine.preprocess.artifact_mark import parse_bad_channels, parse_bad_segments, run_artifact_mark
 from app.engine.preprocess.bad_channels import run_bad_channels
 from app.engine.preprocess.channel_location import run_channel_location
 from app.engine.preprocess.event_manager import run_event_manager
@@ -325,17 +325,36 @@ class NodeDispatcher:
                 output_ports=["output"],
             )
 
-        channel_action = str(decision.get("channel_action") or context.params.get("channel_action") or "mark").strip().lower()
+        base_params = context.params if isinstance(context.params, dict) else {}
+        channel_action = str(decision.get("channel_action") or base_params.get("channel_action") or "mark").strip().lower()
         params = {
-            **context.params,
+            **base_params,
             "bad_segments": decision.get("bad_segments", []),
             "bad_channels": decision.get("bad_channels", []),
+            "bad_segments_by_dataset": decision.get("bad_segments_by_dataset", {}),
+            "bad_channels_by_dataset": decision.get("bad_channels_by_dataset", {}),
             "channel_action": channel_action,
-            "decision_version": decision.get("decision_version", context.params.get("decision_version", 1)),
+            "decision_version": decision.get("decision_version", base_params.get("decision_version", 1)),
         }
+        def params_for_input(data_info: dict[str, Any], index: int) -> dict[str, Any]:
+            dataset_segments, dataset_channels = NodeDispatcher._artifact_marks_for_dataset(
+                decision,
+                data_info,
+                index,
+            )
+            return {
+                **params,
+                "bad_segments": dataset_segments,
+                "bad_channels": dataset_channels,
+            }
+
         save_descriptor = "interp" if channel_action == "interpolate" else "artifact"
         return self._execute_raw_preprocess(
-            context, run_artifact_mark, save_descriptor=save_descriptor, params_override=params
+            context,
+            run_artifact_mark,
+            save_descriptor=save_descriptor,
+            params_override=params,
+            params_for_input=params_for_input,
         )
 
     def _execute_event_manager(self, context: NodeExecutionContext) -> NodeDispatchResult:
@@ -1314,6 +1333,7 @@ class NodeDispatcher:
         *,
         save_descriptor: str,
         params_override: dict[str, Any] | None = None,
+        params_for_input: Callable[[dict[str, Any], int], dict[str, Any]] | None = None,
     ) -> NodeDispatchResult:
         # 交互节点（如 artifact_mark）把人工 decision 合进 params 后用 params_override 传入；
         # 普通预处理节点不传，沿用 context.params——老调用行为零变化。
@@ -1340,8 +1360,9 @@ class NodeDispatcher:
             raw = None
             processed = None
             try:
+                dataset_params = params_for_input(data_info, index) if params_for_input is not None else params
                 raw = read_raw_from_data_info(data_info, preload=True)
-                processed = processor(raw, params)
+                processed = processor(raw, dataset_params)
                 # 预处理引擎可返回 (raw, extra_meta)：extra_meta 记录如坏道检测明细之类的溯源信息
                 processor_meta: dict[str, Any] = {}
                 if isinstance(processed, tuple):
@@ -1363,7 +1384,7 @@ class NodeDispatcher:
                     metadata={
                         "node_id": node_id,
                         "node_type": node_type,
-                        "params": params,
+                        "params": dataset_params,
                         "input_data_info": self._compact_input_data_info(data_info),
                         "mne_summary": summary,
                         "upstream_dataset_ids": upstream_dataset_ids,
@@ -2617,30 +2638,130 @@ class NodeDispatcher:
         return parse_excluded_components(decision.get("excluded_components", []))
 
     @staticmethod
+    def _normalize_artifact_segments_by_dataset(value: Any) -> dict[str, list[dict[str, Any]]]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, list[dict[str, Any]]] = {}
+        for key, items in value.items():
+            if key is None:
+                continue
+            key_text = str(key).strip()
+            if key_text:
+                normalized[key_text] = parse_bad_segments(items)
+        return normalized
+
+    @staticmethod
+    def _normalize_artifact_channels_by_dataset(value: Any) -> dict[str, list[str]]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, list[str]] = {}
+        for key, items in value.items():
+            if key is None:
+                continue
+            key_text = str(key).strip()
+            if key_text:
+                normalized[key_text] = parse_bad_channels(items)
+        return normalized
+
+    @staticmethod
+    def _artifact_dataset_key(data_info: dict[str, Any], index: int) -> str:
+        for key in (
+            data_info.get("artifact_id"),
+            data_info.get("analysis_result_id"),
+            data_info.get("dataset_id"),
+            NodeDispatcher._source_dataset_id(data_info),
+        ):
+            if key is not None and str(key).strip():
+                return str(key).strip()
+        return str(index)
+
+    @staticmethod
+    def _artifact_marks_for_dataset(
+        decision: dict[str, Any],
+        data_info: dict[str, Any],
+        index: int,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        segments_by_dataset = NodeDispatcher._normalize_artifact_segments_by_dataset(
+            decision.get("bad_segments_by_dataset")
+        )
+        channels_by_dataset = NodeDispatcher._normalize_artifact_channels_by_dataset(
+            decision.get("bad_channels_by_dataset")
+        )
+        candidate_keys = [
+            data_info.get("artifact_id"),
+            data_info.get("analysis_result_id"),
+            data_info.get("dataset_id"),
+            NodeDispatcher._source_dataset_id(data_info),
+            index,
+        ]
+
+        segments: list[dict[str, Any]] | None = None
+        channels: list[str] | None = None
+        for key in candidate_keys:
+            if key is None:
+                continue
+            key_text = str(key).strip()
+            if not key_text:
+                continue
+            if segments is None and key_text in segments_by_dataset:
+                segments = segments_by_dataset[key_text]
+            if channels is None and key_text in channels_by_dataset:
+                channels = channels_by_dataset[key_text]
+        if segments is None:
+            segments = parse_bad_segments(decision.get("bad_segments", []))
+        if channels is None:
+            channels = parse_bad_channels(decision.get("bad_channels", []))
+        return segments, channels
+
+    @staticmethod
     def _artifact_decision(context: NodeExecutionContext) -> dict[str, Any] | None:
         """读人工去伪迹决策：优先取 job interaction 里已提交的 decision，
         否则回退节点 params（允许完全在图上写死坏段/坏道直接跑，与 ICA 同口径）。无标记则返回 None → 等待。"""
+        params = context.params if isinstance(context.params, dict) else {}
         output_json = getattr(context.job, "output_json", None) or {}
         interaction = NodeDispatcher._interaction_from_output(output_json)
         decision = interaction.get("decision") if isinstance(interaction, dict) else None
         if isinstance(decision, dict) and (
-            decision.get("type") == "artifact_marking" or "bad_segments" in decision or "bad_channels" in decision
+            decision.get("type") == "artifact_marking"
+            or "bad_segments" in decision
+            or "bad_channels" in decision
+            or "bad_segments_by_dataset" in decision
+            or "bad_channels_by_dataset" in decision
         ):
             return {
-                "bad_segments": decision.get("bad_segments") or [],
-                "bad_channels": decision.get("bad_channels") or [],
-                "channel_action": decision.get("channel_action") or context.params.get("channel_action") or "mark",
-                "decision_version": int(decision.get("decision_version") or context.params.get("decision_version") or 1),
+                "bad_segments": parse_bad_segments(decision.get("bad_segments", [])),
+                "bad_channels": parse_bad_channels(decision.get("bad_channels", [])),
+                "bad_segments_by_dataset": NodeDispatcher._normalize_artifact_segments_by_dataset(
+                    decision.get("bad_segments_by_dataset")
+                ),
+                "bad_channels_by_dataset": NodeDispatcher._normalize_artifact_channels_by_dataset(
+                    decision.get("bad_channels_by_dataset")
+                ),
+                "channel_action": decision.get("channel_action") or params.get("channel_action") or "mark",
+                "decision_version": int(decision.get("decision_version") or params.get("decision_version") or 1),
             }
 
-        raw_segments = context.params.get("bad_segments")
-        raw_channels = context.params.get("bad_channels")
-        if raw_segments not in (None, "", []) or raw_channels not in (None, "", []):
+        raw_segments = params.get("bad_segments")
+        raw_channels = params.get("bad_channels")
+        raw_segments_by_dataset = NodeDispatcher._normalize_artifact_segments_by_dataset(
+            params.get("bad_segments_by_dataset")
+        )
+        raw_channels_by_dataset = NodeDispatcher._normalize_artifact_channels_by_dataset(
+            params.get("bad_channels_by_dataset")
+        )
+        if (
+            raw_segments not in (None, "", [])
+            or raw_channels not in (None, "", [])
+            or raw_segments_by_dataset
+            or raw_channels_by_dataset
+        ):
             return {
-                "bad_segments": raw_segments or [],
-                "bad_channels": raw_channels or [],
-                "channel_action": context.params.get("channel_action") or "mark",
-                "decision_version": int(context.params.get("decision_version") or 1),
+                "bad_segments": parse_bad_segments(raw_segments or []),
+                "bad_channels": parse_bad_channels(raw_channels or []),
+                "bad_segments_by_dataset": raw_segments_by_dataset,
+                "bad_channels_by_dataset": raw_channels_by_dataset,
+                "channel_action": params.get("channel_action") or "mark",
+                "decision_version": int(params.get("decision_version") or 1),
                 "source": "node_params",
             }
         return None
@@ -2652,27 +2773,55 @@ class NodeDispatcher:
     ) -> dict[str, Any]:
         """伪迹审核 waiting payload：把节点 raw 输入的标识喂给前端（页面据此调观察窗端点画波形），
         并回填节点上已有的草稿标记作初始态。具体波形不进 payload——按需走窗口端点取。"""
-        datasets = [
-            {
-                "dataset_id": data_info.get("dataset_id"),
-                "source_dataset_id": NodeDispatcher._source_dataset_id(data_info),
-                # 上游 raw 的 StudyOutput id：前端据此调 /outputs/{id}/timeseries 画波形让用户框选
-                "output_id": data_info.get("artifact_id"),
-                "data_info": NodeDispatcher._compact_input_data_info(data_info),
-            }
-            for data_info in input_data_infos
-        ]
+        params = context.params if isinstance(context.params, dict) else {}
+        segments_by_dataset = NodeDispatcher._normalize_artifact_segments_by_dataset(
+            params.get("bad_segments_by_dataset")
+        )
+        channels_by_dataset = NodeDispatcher._normalize_artifact_channels_by_dataset(
+            params.get("bad_channels_by_dataset")
+        )
+        has_dataset_initial = bool(segments_by_dataset or channels_by_dataset)
+        global_segments = parse_bad_segments(params.get("bad_segments") or [])
+        global_channels = parse_bad_channels(params.get("bad_channels") or [])
+        datasets: list[dict[str, Any]] = []
+        initial_by_dataset: dict[str, dict[str, Any]] = {}
+        for index, data_info in enumerate(input_data_infos):
+            key = NodeDispatcher._artifact_dataset_key(data_info, index)
+            segments, channels = NodeDispatcher._artifact_marks_for_dataset(
+                {
+                    "bad_segments": [] if has_dataset_initial else global_segments,
+                    "bad_channels": [] if has_dataset_initial else global_channels,
+                    "bad_segments_by_dataset": segments_by_dataset,
+                    "bad_channels_by_dataset": channels_by_dataset,
+                },
+                data_info,
+                index,
+            )
+            initial = {"bad_segments": segments, "bad_channels": channels}
+            initial_by_dataset[key] = initial
+            datasets.append(
+                {
+                    "key": key,
+                    "dataset_id": data_info.get("dataset_id"),
+                    "source_dataset_id": NodeDispatcher._source_dataset_id(data_info),
+                    # 上游 raw 的 StudyOutput id：前端据此调 input-timeseries 画波形让用户框选
+                    "output_id": data_info.get("artifact_id"),
+                    "data_info": NodeDispatcher._compact_input_data_info(data_info),
+                    "initial": initial,
+                }
+            )
         return {
             "type": "artifact_marking",
             "status": "waiting_user_input",
-            "decision_version": int(context.params.get("decision_version") or 1),
+            "decision_version": int(params.get("decision_version") or 1),
             "preview_json": {
                 "datasets": datasets,
-                "channel_action": context.params.get("channel_action") or "mark",
+                "channel_action": params.get("channel_action") or "mark",
                 "initial": {
-                    "bad_segments": context.params.get("bad_segments") or "",
-                    "bad_channels": context.params.get("bad_channels") or "",
+                    "bad_segments": global_segments,
+                    "bad_channels": global_channels,
                 },
+                "initial_by_dataset": initial_by_dataset,
             },
         }
 

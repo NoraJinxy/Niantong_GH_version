@@ -8,7 +8,7 @@
           <AppIcon name="pulse" :size="22" /> 伪迹审核 · 标坏段 / 坏道
         </h1>
         <span v-if="isLive && ts" class="muted text-sm">
-          {{ chNames.length }} 通道 · {{ totalDuration.toFixed(1) }} s · {{ sfreq }} Hz
+          {{ activeDatasetLabel }} · {{ chNames.length }} 通道 · {{ totalDuration.toFixed(1) }} s · {{ sfreq }} Hz
         </span>
         <span class="am-source" :class="isLive ? 'is-real' : 'is-demo'">{{ isLive ? '真实数据' : '查看模式' }}</span>
         <div style="flex: 1"></div>
@@ -200,6 +200,25 @@
         <button v-if="jobContext" class="btn btn--block mt-2" :disabled="applying" @click="returnToPipeline">
           <AppIcon name="chevron-left" :size="15" /> 取消 · 返回工作流
         </button>
+        <div class="am-card am-dataset-card" v-if="datasets.length">
+          <div class="am-card-h">
+            <span>数据集</span>
+            <span class="am-card-cnt">{{ activeDsIndex + 1 }}/{{ datasets.length }}</span>
+          </div>
+          <ul class="am-dataset-list">
+            <li
+              v-for="(d, i) in datasets"
+              :key="d.key"
+              class="am-dataset"
+              :class="{ 'is-active': i === activeDsIndex }"
+              @click="selectDataset(i)"
+            >
+              <span class="dot" :style="{ background: i === activeDsIndex ? PRIMARY : '#C2CBD8' }"></span>
+              <span class="am-dataset-name" :title="d.label">{{ d.label }}</span>
+              <span class="am-dataset-count">{{ datasetSegmentCount(d, i) }} 段 · {{ datasetChannelCount(d, i) }} 道</span>
+            </li>
+          </ul>
+        </div>
         <p v-if="!jobContext" class="muted text-sm mt-2">查看模式：在工作流的「Artifact Mark」节点（等待人工）处打开本页才能提交。</p>
         <p v-if="applyMsg" class="am-applymsg" :class="{ 'is-error': applyError }">{{ applyMsg }}</p>
       </aside>
@@ -225,6 +244,15 @@ import { useReviewerHandoff } from '@/composables/pipeline/useReviewerHandoff'
 import type { PipelineInteraction, StudyOutputTimeseries } from '@/types'
 
 interface ArtifactBadSegment { onset: number; duration: number; source?: string }
+interface ArtifactDatasetMeta {
+  key: string
+  label: string
+  dataset_id?: string
+  source_dataset_id?: string
+  output_id?: string
+  bad_segments: ArtifactBadSegment[]
+  bad_channels: string[]
+}
 interface TopoCell { seg: number; label: string; color: string; points: { name: string; x: number; y: number; value: number }[] | null }
 
 const GRAY = '#79859A'
@@ -282,6 +310,8 @@ const badSegments = ref<ArtifactBadSegment[]>([])
 const badChannels = ref<Set<string>>(new Set())
 const channelAction = ref<'mark' | 'interpolate'>('mark')
 const topoValues = ref<Record<string, number>>({})
+const datasets = ref<ArtifactDatasetMeta[]>([])
+const activeDsIndex = ref(0)
 
 const autoRunning = ref(false)
 const autoMsg = ref('')
@@ -292,8 +322,22 @@ const reviewSegIdx = ref(-1)
 const { applying, applyMsg, applyError, submitAndReturn, returnToPipeline } = useReviewerHandoff({
   studyId, executionId, jobId,
   decisionVersion: () => decisionVersion.value,
-  buildBody: () => ({ bad_segments: badSegments.value, bad_channels: [...badChannels.value], channel_action: channelAction.value }),
-  summary: () => `${badSegments.value.length} 段坏段 / ${badChannels.value.size} 个坏道`,
+  buildBody: () => {
+    snapshotCurrentDatasetMarks()
+    const { bad_segments_by_dataset, bad_channels_by_dataset } = artifactMarksByDataset()
+    return {
+      bad_segments: badSegments.value,
+      bad_channels: [...badChannels.value],
+      bad_segments_by_dataset,
+      bad_channels_by_dataset,
+      channel_action: channelAction.value,
+    }
+  },
+  summary: () => {
+    snapshotCurrentDatasetMarks()
+    const totals = artifactMarkTotals()
+    return `${totals.segments} 段坏段 / ${totals.channels} 个坏道 / ${datasets.value.length || 1} 个数据集`
+  },
 })
 
 const sfreq = computed(() => (ts.value?.sfreq ?? overview.value?.sfreq ?? 0))
@@ -314,6 +358,7 @@ const visibleAmp = computed<number>({
 const chNames = computed<string[]>(() => (ts.value ? ts.value.channels.map((c) => c.name) : []))
 const badChannelList = computed(() => [...badChannels.value])
 const totalBadSeconds = computed(() => badSegments.value.reduce((s, g) => s + g.duration, 0))
+const activeDatasetLabel = computed(() => datasets.value[activeDsIndex.value]?.label || '数据集')
 
 function colorOf(name: string): string {
   const i = chNames.value.indexOf(name)
@@ -416,8 +461,7 @@ const ovTicks = computed(() => {
 
 const canApply = computed(() => jobContext.value && !applying.value)
 const applyLabel = computed(() => {
-  const ns = badSegments.value.length
-  const nc = badChannelList.value.length
+  const { segments: ns, channels: nc } = artifactMarkTotals()
   // 0 段 0 道 = 「看过了、这段干净」→ 合法的「确认放行」，文案讲清，避免看着像不能点
   if (ns === 0 && nc === 0) return '确认无伪迹 · 继续'
   return `应用（${ns} 段 / ${nc} 道）并继续`
@@ -437,6 +481,106 @@ function removeSegmentAt(x: number | null) {
   if (idx >= 0) badSegments.value = badSegments.value.filter((_, i) => i !== idx)
 }
 function clearAll() { badSegments.value = []; badChannels.value = new Set() }
+
+function cleanText(value: unknown): string | undefined {
+  const text = String(value ?? '').trim()
+  return text || undefined
+}
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+function datasetKey(raw: Record<string, unknown>, index: number): string {
+  const info = asRecord(raw.data_info) || {}
+  return cleanText(raw.key)
+    || cleanText(raw.source_dataset_id)
+    || cleanText(raw.dataset_id)
+    || cleanText(raw.output_id)
+    || cleanText(info.source_dataset_id)
+    || cleanText(info.dataset_id)
+    || cleanText(info.artifact_id)
+    || String(index)
+}
+function datasetLabel(raw: Record<string, unknown>, index: number): string {
+  const info = asRecord(raw.data_info) || {}
+  return cleanText(info.display_name)
+    || cleanText(info.subject)
+    || cleanText(info.bids_subject_id)
+    || cleanText(raw.source_dataset_id)
+    || cleanText(raw.dataset_id)
+    || `数据集 ${index + 1}`
+}
+function cloneSegments(items: ArtifactBadSegment[]): ArtifactBadSegment[] {
+  return items.map((s) => ({ onset: s.onset, duration: s.duration, source: s.source }))
+}
+function parseDatasetInitial(value: unknown): { bad_segments: ArtifactBadSegment[]; bad_channels: string[] } | null {
+  const rec = asRecord(value)
+  if (!rec) return null
+  return {
+    bad_segments: parseInitSegments(rec.bad_segments),
+    bad_channels: parseInitChannels(rec.bad_channels),
+  }
+}
+function snapshotCurrentDatasetMarks() {
+  const d = datasets.value[activeDsIndex.value]
+  if (!d) return
+  d.bad_segments = cloneSegments(badSegments.value)
+  d.bad_channels = [...badChannels.value]
+}
+function loadActiveDatasetMarks() {
+  const d = datasets.value[activeDsIndex.value]
+  badSegments.value = d ? cloneSegments(d.bad_segments) : []
+  badChannels.value = new Set(d?.bad_channels || [])
+  reviewSegIdx.value = -1
+  autoMsg.value = ''
+}
+function artifactMarksByDataset() {
+  const bad_segments_by_dataset: Record<string, ArtifactBadSegment[]> = {}
+  const bad_channels_by_dataset: Record<string, string[]> = {}
+  const source = datasets.value.length
+    ? datasets.value
+    : [{ key: '0', label: '数据集 1', bad_segments: badSegments.value, bad_channels: [...badChannels.value] }]
+  for (const d of source) {
+    bad_segments_by_dataset[d.key] = cloneSegments(d.bad_segments)
+    bad_channels_by_dataset[d.key] = [...d.bad_channels]
+  }
+  return { bad_segments_by_dataset, bad_channels_by_dataset }
+}
+function artifactMarkTotals() {
+  const source = datasets.value.length
+    ? datasets.value
+    : [{ key: '0', label: '数据集 1', bad_segments: badSegments.value, bad_channels: [...badChannels.value] }]
+  return source.reduce(
+    (acc, d, index) => ({ segments: acc.segments + datasetSegmentCount(d, index), channels: acc.channels + datasetChannelCount(d, index) }),
+    { segments: 0, channels: 0 },
+  )
+}
+function datasetSegmentCount(d: ArtifactDatasetMeta, index: number): number {
+  return index === activeDsIndex.value ? badSegments.value.length : d.bad_segments.length
+}
+function datasetChannelCount(d: ArtifactDatasetMeta, index: number): number {
+  return index === activeDsIndex.value ? badChannels.value.size : d.bad_channels.length
+}
+async function selectDataset(index: number) {
+  if (index < 0 || index >= datasets.value.length || index === activeDsIndex.value) return
+  snapshotCurrentDatasetMarks()
+  activeDsIndex.value = index
+  loadActiveDatasetMarks()
+  overview.value = null
+  ts.value = null
+  topoValues.value = {}
+  cursorX.value = null
+  cursorLockedX.value = null
+  viewMin.value = null
+  viewMax.value = null
+  chanStart.value = 0
+  ovDragStart.value = null
+  try {
+    await loadWindow()
+    void loadOverview().catch(() => { /* 全程概览较重，后台加载，失败不影响主图 */ })
+  } catch (err: unknown) {
+    error.value = describeError(err)
+  }
+}
 
 function onSelect(region: { x0: number; x1: number } | null) {
   if (!region) return
@@ -593,10 +737,46 @@ async function loadInteraction(): Promise<void> {
   const res = await api.get<PipelineInteraction>(`/studies/${studyId}/pipeline-executions/${executionId}/jobs/${jobId}/interaction`)
   const it = res.data
   decisionVersion.value = Number(it.decision_version || 0)
-  const preview = (it.preview_json || {}) as { channel_action?: string; initial?: { bad_segments?: unknown; bad_channels?: unknown } }
+  const preview = (it.preview_json || {}) as {
+    channel_action?: string
+    datasets?: unknown[]
+    initial?: { bad_segments?: unknown; bad_channels?: unknown }
+    initial_by_dataset?: Record<string, unknown>
+  }
   if (preview.channel_action === 'interpolate' || preview.channel_action === 'mark') channelAction.value = preview.channel_action
-  badSegments.value = parseInitSegments(preview.initial?.bad_segments)
-  badChannels.value = new Set(parseInitChannels(preview.initial?.bad_channels))
+  const globalSegments = parseInitSegments(preview.initial?.bad_segments)
+  const globalChannels = parseInitChannels(preview.initial?.bad_channels)
+  const rawDatasets = Array.isArray(preview.datasets) ? preview.datasets : []
+  const nextDatasets: ArtifactDatasetMeta[] = rawDatasets
+    .map((item, index) => ({ raw: asRecord(item) || {}, index }))
+    .map(({ raw, index }) => {
+      const key = datasetKey(raw, index)
+      const initialFromDataset = parseDatasetInitial(raw.initial)
+      const initialFromMap = parseDatasetInitial(preview.initial_by_dataset?.[key])
+      const initial = initialFromDataset || initialFromMap || (rawDatasets.length <= 1
+        ? { bad_segments: globalSegments, bad_channels: globalChannels }
+        : { bad_segments: [], bad_channels: [] })
+      return {
+        key,
+        label: datasetLabel(raw, index),
+        dataset_id: cleanText(raw.dataset_id),
+        source_dataset_id: cleanText(raw.source_dataset_id),
+        output_id: cleanText(raw.output_id),
+        bad_segments: cloneSegments(initial.bad_segments),
+        bad_channels: [...initial.bad_channels],
+      }
+    })
+  if (!nextDatasets.length) {
+    nextDatasets.push({
+      key: '0',
+      label: '数据集 1',
+      bad_segments: globalSegments,
+      bad_channels: globalChannels,
+    })
+  }
+  datasets.value = nextDatasets
+  if (activeDsIndex.value >= datasets.value.length) activeDsIndex.value = 0
+  loadActiveDatasetMarks()
 }
 
 const TS_CACHE_MAX = 64
@@ -614,7 +794,7 @@ function tsCacheSet(key: string, v: StudyOutputTimeseries) {
 // IndexedDB / 内存 共用的全局唯一键：含 study/execution/job（execution 是不可变快照 → 天然版本指纹，
 // 上游重跑=新 execution=新键，杜绝陈旧命中）+ 取数参数（窗口/采样/滤波）。
 function inputTsKey(params: Record<string, number | undefined>): string {
-  return `artifact::${studyId}::${executionId}::${jobId}::${JSON.stringify(params)}`
+  return `artifact::${studyId}::${executionId}::${jobId}::${activeDsIndex.value}::${JSON.stringify(params)}`
 }
 // 仅回源（二进制优先 / JSON 回退），供三级缓存未命中时调用
 async function fetchInputNetwork(params: Record<string, number | undefined>): Promise<StudyOutputTimeseries> {
@@ -656,7 +836,9 @@ async function loadOverview() {
   // max_channels 取全通道（不再只前 16 路偏额区），后枕 / 颞区伪迹也能进概览。
   const span = totalDuration.value
   if (!(span > 0)) return // 还没拿到时长（reload 已先 loadWindow，极少触发），跳过避免 tmax=0 退化成 10s 默认窗
-  overview.value = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1 })
+  const index = activeDsIndex.value
+  const data = await fetchInputTs({ tmin: 0, tmax: span, max_points: 1500, max_channels: 256, l_freq: 1, index })
+  if (index === activeDsIndex.value) overview.value = data
 }
 let winSeq = 0 // 窗口取数竞态序号：每次取数前自增，await 回来比对，过期请求不写回 state
 async function loadWindow() {
@@ -665,7 +847,7 @@ async function loadWindow() {
   viewMax.value = null
   const params: Record<string, number | undefined> = {
     // 10s 窗在屏宽下 3000 点已超像素、视觉无损；比 5000 省约 4 成 JSON 体积（提速）
-    tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 3000, max_channels: 256,
+    tmin: winStart.value, tmax: winStart.value + winLen.value, max_points: 3000, max_channels: 256, index: activeDsIndex.value,
   }
   if (filterEnabled.value) {
     if (lFreq.value > 0) params.l_freq = lFreq.value
@@ -717,7 +899,7 @@ async function autoDetect() {
   autoMsg.value = ''
   try {
     const res = await dataApi.post<{ bad_channels: string[]; bad_segments: ArtifactBadSegment[]; n_bad_channels?: number; n_bad_segments?: number; segments_suppressed?: boolean }>(
-      autoArtifactsUrl, {},
+      autoArtifactsUrl, {}, { params: { index: activeDsIndex.value } },
     )
     const sugCh = Array.isArray(res.data.bad_channels) ? res.data.bad_channels : []
     const sugSeg = Array.isArray(res.data.bad_segments) ? res.data.bad_segments : []
@@ -817,6 +999,7 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 /* 通道卡吃掉左栏剩余高度，让「整列滚动条」消失——只在通道列表内部滚 */
 .am-card--grow { flex: 1 1 auto; min-height: 90px; display: flex; flex-direction: column; }
 .am-card-h { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text-2); margin-bottom: 5px; }
+.am-card-cnt { margin-left: auto; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .am-tag-soft { font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); color: var(--c-text-3); }
 .am-switch { margin-left: auto; font-size: 11px; color: var(--c-text-2); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
 .am-chanlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; flex: 1; min-height: 0; overflow-y: auto; }
@@ -877,6 +1060,13 @@ const { helpOpen, helpGroups } = useObserveHotkeys(buildHotkeys, {
 .am-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .am-chip { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; padding: 2px 6px; border-radius: 999px; background: var(--c-bg-soft, #eef1f5); }
 .am-select { width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
+.am-dataset-card { margin-top: auto; }
+.am-dataset-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.am-dataset { display: flex; align-items: center; gap: 6px; padding: 4px 5px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+.am-dataset:hover { background: var(--c-bg-soft, #eef1f5); }
+.am-dataset.is-active { background: rgba(46, 107, 255, .12); color: var(--c-primary); }
+.am-dataset-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-dataset-count { color: var(--c-text-3); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .am-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 64px 24px; color: var(--c-text-3); }
 .am-empty-title { font-size: 15px; font-weight: 600; color: var(--c-text-2); margin: 4px 0 0; }
 .am-empty.is-error .am-empty-title { color: var(--c-danger); }
