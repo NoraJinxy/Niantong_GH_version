@@ -1,8 +1,8 @@
 // 工作流编辑器 · 事件标签选择器（检查器里 Epoch / ERP / TFR / PSD 节点的 event_select 属性）
 //
 // 方案 B：候选「沿链路在后端解析」——选中 event_select 节点时，把（可能未保存的）实时图 + 节点 id
-// POST 给 /pipeline/resolve-conditions，后端按上游链路算出可用 condition（Epoch=看上游 LoadData 链路；
-// ERP/TFR/PSD=看上游 Epoch 实际切出的 condition），前端只渲染。取代旧的「前端各自扫 LoadData + BFS」，
+// POST 给 /pipeline/resolve-conditions，后端按上游链路算出可用 condition（Epoch=看上游 annotation 词表，
+// 因而支持 Epochs 内二次切分；ERP/TFR/PSD=看上游 Epoch 实际切出的 condition），前端只渲染。取代旧的「前端各自扫 LoadData + BFS」，
 // 与运行时切分共用一套服务端口径，且天然支持将来的事件变换节点（方案 C）。
 //
 // 依赖承重墙 selectedNode / definition + selectedStudyId（取数）+ 画布 updateLiteGraphNode + 保存 markDirty。
@@ -20,7 +20,7 @@ interface EventSelectEditorOptions {
   markDirty: () => void
 }
 
-// 这些节点的条件候选都沿链路在后端解析：Epoch（看上游 LoadData）、ERP/TFR/PSD（看上游 Epoch 切出的）、
+// 这些节点的条件候选都沿链路在后端解析：Epoch（看上游可切分 annotation）、ERP/TFR/PSD（看上游 Epoch 切出的）、
 // Event Remap（看上游原始事件，作为重映射规则的「源」池）。
 const EVENT_SELECT_TYPES = new Set<string>([
   EPOCH_NODE_TYPE,

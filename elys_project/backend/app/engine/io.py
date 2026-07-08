@@ -562,8 +562,10 @@ def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
 
 
 # ========== 通用 stat_map(两组 unit_stack 的统计比较结果,通吃 evoked/psd/tfr) ==========
-# compare 保留 unit 轴在其上做检验:逐点 t(全通道×feature)+ none/FDR 校正,可选 ROI cluster permutation。
-# 形状:tmap/pmap/sig/mean_a/mean_b 均 (n_ch, *feature);cluster_masks (n_clusters, *continuous)。
+# compare 保留 unit 轴在其上做检验:逐点 t(全通道×feature)+ none/FDR 校正,
+# 可选 ROI / single-sensor / multi-sensor cluster permutation。
+# 形状:tmap/pmap/sig/mean_a/mean_b 均 (n_ch, *feature);
+# cluster_masks 依 cluster_mask_dims 可为 (n_clusters, *feature) 或 (n_clusters, n_ch, *feature)。
 
 def ensure_stat_map_npz_path(path: str | Path) -> Path:
     target = Path(path).expanduser()
@@ -604,11 +606,16 @@ def save_stat_map_npz(result: dict[str, Any], path: str | Path, *, overwrite: bo
         tail=np.asarray(str(result.get("tail") or "two-sided"), dtype="U16"),
         correction=np.asarray(str(result.get("correction") or "none"), dtype="U16"),
         alpha=np.asarray(float(result.get("alpha") or 0.05), dtype=float),
+        condition=np.asarray(str(result.get("condition") or ""), dtype="U256"),
         contrast_label=np.asarray(str(result.get("contrast_label") or ""), dtype="U256"),
         n_a=np.asarray(int(result.get("n_a") or 0), dtype=int),
         n_b=np.asarray(int(result.get("n_b") or 0), dtype=int),
         roi_channels=np.asarray(list(result.get("roi_channels") or []), dtype="U64"),
         roi_axis=np.asarray(str(result.get("roi_axis") or ""), dtype="U16"),
+        cluster_mode=np.asarray(str(result.get("cluster_mode") or ""), dtype="U32"),
+        cluster_stat=np.asarray(str(result.get("cluster_stat") or ""), dtype="U32"),
+        cluster_mask_dims=np.asarray(list(result.get("cluster_mask_dims") or []), dtype="U32"),
+        cluster_adjacency=np.asarray(str(result.get("cluster_adjacency") or ""), dtype="U64"),
         cluster_masks=cmasks_arr,
         cluster_pvals=np.asarray(list(result.get("cluster_pvals") or []), dtype=float),
     )
@@ -620,9 +627,22 @@ def load_stat_map_npz(path: str | Path) -> dict[str, Any]:
     import numpy as np  # noqa: PLC0415
 
     with np.load(str(Path(path).expanduser()), allow_pickle=False) as data:
+        keys = set(data.files)
         times = np.array(data["times"])
         freqs = np.array(data["freqs"])
         cmasks = np.array(data["cluster_masks"])
+
+        def _scalar(name: str, default: str = "") -> str:
+            if name not in keys:
+                return default
+            value = data[name]
+            return str(value.item() if getattr(value, "shape", ()) == () else value)
+
+        def _strings(name: str) -> list[str]:
+            if name not in keys:
+                return []
+            return [str(c) for c in data[name]]
+
         return {
             "base_type": str(data["base_type"]),
             "ch_names": [str(c) for c in data["ch_names"]],
@@ -640,11 +660,16 @@ def load_stat_map_npz(path: str | Path) -> dict[str, Any]:
             "tail": str(data["tail"]),
             "correction": str(data["correction"]),
             "alpha": float(data["alpha"]),
+            "condition": _scalar("condition", ""),
             "contrast_label": str(data["contrast_label"]),
             "n_a": int(data["n_a"]),
             "n_b": int(data["n_b"]),
             "roi_channels": [str(c) for c in data["roi_channels"]],
             "roi_axis": str(data["roi_axis"]),
+            "cluster_mode": _scalar("cluster_mode", "roi" if cmasks.size else ""),
+            "cluster_stat": _scalar("cluster_stat", ""),
+            "cluster_mask_dims": _strings("cluster_mask_dims"),
+            "cluster_adjacency": _scalar("cluster_adjacency", ""),
             "cluster_masks": cmasks.astype(bool) if cmasks.size else None,
             "cluster_pvals": [float(x) for x in data["cluster_pvals"]],
         }
@@ -669,6 +694,7 @@ def summarize_stat_map(result: dict[str, Any]) -> dict[str, Any]:
         "tail": str(result.get("tail") or "two-sided"),
         "correction": str(result.get("correction") or "none"),
         "alpha": float(result.get("alpha") or 0.05),
+        "condition": str(result.get("condition") or ""),
         "contrast_label": str(result.get("contrast_label") or ""),
         "n_channels": len(ch_names),
         "ch_names": ch_names,
@@ -679,6 +705,10 @@ def summarize_stat_map(result: dict[str, Any]) -> dict[str, Any]:
         "sig_fraction": round(n_sig / n_total, 4) if n_total else 0.0,
         "roi_channels": list(result.get("roi_channels") or []),
         "roi_axis": str(result.get("roi_axis") or ""),
+        "cluster_mode": str(result.get("cluster_mode") or ""),
+        "cluster_stat": str(result.get("cluster_stat") or ""),
+        "cluster_mask_dims": list(result.get("cluster_mask_dims") or []),
+        "cluster_adjacency": str(result.get("cluster_adjacency") or ""),
         "clusters": list(result.get("cluster_summary") or []),
     }
     if times is not None and len(times) > 0:

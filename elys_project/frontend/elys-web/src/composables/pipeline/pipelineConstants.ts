@@ -49,6 +49,7 @@ export const PORT_COLORS: Record<string, string> = {
   eeg_data: '#2F5F8F',
   dataset_collection: '#2F5F8F',
   raw: '#386B9A',
+  epoch_source: '#4C7A5B',
   epochs: '#4C7A5B',
   evoked: '#9A6A28',
   analysis_result: '#6B5F95',

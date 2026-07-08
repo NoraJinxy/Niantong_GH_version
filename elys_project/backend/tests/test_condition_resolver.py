@@ -74,6 +74,41 @@ def test_erp_inherits_epoch_realized_conditions(monkeypatch):
     assert res.conditions[0].count == 10
 
 
+def test_epoch_after_epoch_uses_annotation_vocab_not_parent_epoch_labels(monkeypatch):
+    """Epoch → Epoch：第二个 Epoch 的候选看父 Epochs 内 annotations，而不是第一个 Epoch 的 event_id。"""
+    monkeypatch.setattr(
+        cr,
+        "resolve_load_data_selection",
+        _fake_resolve(
+            {
+                "ld1": [
+                    {"name": "block", "count": 2},
+                    {"name": "Stimulus/S 3", "count": 20},
+                    {"name": "Stimulus/S 4", "count": 20},
+                ]
+            }
+        ),
+    )
+    graph = {
+        "nodes": [
+            {"id": "ld1", "type": "eeg/data/load", "params": {}},
+            {"id": "block_ep", "type": "eeg/epoch/segment", "params": {"conditions": ["block"]}},
+            {"id": "stim_ep", "type": "eeg/epoch/segment", "params": {}},
+            {"id": "erp", "type": "eeg/analysis/erp", "params": {}},
+        ],
+        "links": [
+            {"from": {"node": "ld1"}, "to": {"node": "block_ep"}},
+            {"from": {"node": "block_ep"}, "to": {"node": "stim_ep"}},
+            {"from": {"node": "block_ep"}, "to": {"node": "erp"}},
+        ],
+    }
+    nested = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="stim_ep")
+    assert {c.name for c in nested.conditions} == {"block", "Stimulus/S 3", "Stimulus/S 4"}
+
+    erp = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="erp")
+    assert [c.name for c in erp.conditions] == ["block"]
+
+
 def test_multi_branch_no_crosstalk(monkeypatch):
     """两条独立分支：各 Epoch 只看到自己上游 LoadData 的事件，不串台。"""
     monkeypatch.setattr(

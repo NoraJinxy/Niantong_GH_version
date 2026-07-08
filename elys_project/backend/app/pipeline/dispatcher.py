@@ -1203,7 +1203,7 @@ class NodeDispatcher:
         )
 
     def _execute_group_compare(self, context: NodeExecutionContext) -> NodeDispatchResult:
-        """N-to-1(双口): 收 A/B 两组 unit_stack，沿 unit 轴做统计比较，输出一个 stat_map artifact。"""
+        """N-to-N(双口): 收 A/B 两组 unit_stack，按 condition 配对统计，输出 stat_map artifact。"""
         node_id = str(context.node.get("id") or "")
         node_type = str(context.node.get("type") or "")
         a_infos = self._input_data_infos(context, "a")
@@ -1226,94 +1226,110 @@ class NodeDispatcher:
         params = context.params if isinstance(context.params, dict) else {}
 
         try:
-            result = run_group_compare(a_infos, b_infos, params)
-            summary = summarize_stat_map(result)
-            contrast = str(result.get("contrast_label") or "")
-            base_type = str(result.get("base_type") or "")
+            raw_results = run_group_compare(a_infos, b_infos, params)
+            results = raw_results if isinstance(raw_results, list) else [raw_results]
 
-            safe_label = "".join(
-                c if c.isalnum() or c in {"-", "_"} else "_" for c in contrast
-            ).strip("_") or "compare"
-            filename = f"{safe_label}_statmap.npz"
+            output_data_infos: list[dict[str, Any]] = []
+            artifacts: list[dict[str, Any]] = []
+            base_type = ""
+            contrasts: list[str] = []
+            for index, result in enumerate(results):
+                summary = summarize_stat_map(result)
+                contrast = str(result.get("contrast_label") or "")
+                condition = str(result.get("condition") or "")
+                base_type = str(result.get("base_type") or base_type or "")
+                contrasts.append(contrast)
 
-            upstream_ids = [
-                str(di.get("artifact_id") or di.get("study_output_id") or "")
-                for di in (a_infos + b_infos)
-                if di.get("artifact_id") or di.get("study_output_id")
-            ]
+                label_for_file = condition or contrast or f"compare_{index + 1}"
+                safe_label = "".join(
+                    c if c.isalnum() or c in {"-", "_"} else "_" for c in label_for_file
+                ).strip("_") or f"compare_{index + 1}"
+                filename = f"{safe_label}_statmap.npz"
 
-            save_meta = self._save_settings_metadata(
-                context,
-                data_info={"condition": contrast, "task": contrast},
-                index=0,
-                split_value=contrast or None,
-            )
+                upstream_ids = [
+                    str(di.get("artifact_id") or di.get("study_output_id") or "")
+                    for di in (a_infos + b_infos)
+                    if di.get("artifact_id") or di.get("study_output_id")
+                ]
 
-            artifact = study_output_store.save_file_from_writer(
-                filename,
-                lambda path, r=result: save_stat_map_npz(r, path),
-                kind="analysis_result",
-                data_type="stat_map",
-                metadata={
-                    "node_id": node_id,
-                    "node_type": node_type,
-                    "params": params,
-                    "mne_summary": summary,
-                    "upstream_dataset_ids": upstream_ids,
-                    "upstream_recording_ids": [],
+                display_name = f"Group Compare · {condition or contrast}" if (condition or contrast) else None
+                save_meta = self._save_settings_metadata(
+                    context,
+                    data_info={"condition": condition or contrast, "task": contrast},
+                    index=index,
+                    split_value=condition or contrast or None,
+                    display_name_override=display_name,
+                )
+
+                artifact = study_output_store.save_file_from_writer(
+                    filename,
+                    lambda path, r=result: save_stat_map_npz(r, path),
+                    kind="analysis_result",
+                    data_type="stat_map",
+                    metadata={
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "params": params,
+                        "mne_summary": summary,
+                        "upstream_dataset_ids": upstream_ids,
+                        "upstream_recording_ids": [],
+                        "base_type": base_type,
+                        "condition": condition,
+                        "contrast_label": contrast,
+                        **save_meta,
+                    },
+                    preview=summary,
+                    source_dataset_id=None,
+                    node_id=node_id,
+                )
+                artifacts.append(artifact)
+
+                storage_path = str(artifact.get("storage_path") or "")
+                artifact_path = self._artifact_path(context.study, artifact)
+                fif_abs_path = str(artifact_path) if artifact_path else None
+
+                stat_data_info: dict[str, Any] = {
+                    "data_type": "stat_map",
                     "base_type": base_type,
+                    "file_role": "pipeline_artifact",
+                    "artifact_id": artifact.get("artifact_id"),
+                    "study_output_id": artifact.get("study_output_id"),
+                    "study_id": str(getattr(context.study, "id", "")),
+                    "study_root": str(
+                        getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
+                    ),
+                    "storage_path": storage_path,
+                    "storage_uri": artifact.get("storage_uri"),
+                    "logical_path": storage_path,
+                    "artifact_storage_path": storage_path,
+                    "artifact_storage_uri": artifact.get("storage_uri"),
+                    "fif_path": storage_path,
+                    "fif_abs_path": fif_abs_path,
+                    "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
+                    "pipeline_execution_id": str(getattr(context.execution, "id", "")),
+                    "job_id": str(getattr(context.job, "id", "")),
+                    "file_size": artifact.get("file_size"),
+                    "checksum": artifact.get("checksum"),
+                    "sha256": artifact.get("sha256") or artifact.get("checksum"),
+                    "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
+                    "condition": condition,
                     "contrast_label": contrast,
-                    **save_meta,
-                },
-                preview=summary,
-                source_dataset_id=None,
-                node_id=node_id,
-            )
-
-            storage_path = str(artifact.get("storage_path") or "")
-            artifact_path = self._artifact_path(context.study, artifact)
-            fif_abs_path = str(artifact_path) if artifact_path else None
-
-            stat_data_info: dict[str, Any] = {
-                "data_type": "stat_map",
-                "base_type": base_type,
-                "file_role": "pipeline_artifact",
-                "artifact_id": artifact.get("artifact_id"),
-                "study_output_id": artifact.get("study_output_id"),
-                "study_id": str(getattr(context.study, "id", "")),
-                "study_root": str(
-                    getattr(context.study, "data_dir", getattr(context.study, "data_root", ""))
-                ),
-                "storage_path": storage_path,
-                "storage_uri": artifact.get("storage_uri"),
-                "logical_path": storage_path,
-                "artifact_storage_path": storage_path,
-                "artifact_storage_uri": artifact.get("storage_uri"),
-                "fif_path": storage_path,
-                "fif_abs_path": fif_abs_path,
-                "fif_exists": bool(fif_abs_path and Path(fif_abs_path).exists()),
-                "pipeline_execution_id": str(getattr(context.execution, "id", "")),
-                "job_id": str(getattr(context.job, "id", "")),
-                "file_size": artifact.get("file_size"),
-                "checksum": artifact.get("checksum"),
-                "sha256": artifact.get("sha256") or artifact.get("checksum"),
-                "content_hash": artifact.get("content_hash") or artifact.get("checksum"),
-                "contrast_label": contrast,
-                **summary,
-            }
+                    **summary,
+                }
+                output_data_infos.append(stat_data_info)
 
             output = NodeOutput(
                 node_id=node_id,
                 node_type=node_type,
-                outputs={"output": [stat_data_info]},
-                data_infos=[stat_data_info],
-                artifacts=[artifact],
-                metadata={"dataset_count": 1, "base_type": base_type, "contrast": contrast},
+                outputs={"output": output_data_infos},
+                data_infos=output_data_infos,
+                artifacts=artifacts,
+                metadata={"dataset_count": len(output_data_infos), "base_type": base_type, "contrasts": contrasts},
             )
             return NodeDispatchResult(
                 output=output,
                 status="success",
-                dataset_count=1,
+                dataset_count=len(output_data_infos),
                 output_ports=["output"],
             )
         except Exception as exc:
@@ -1482,14 +1498,19 @@ class NodeDispatcher:
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         skipped_by_condition: dict[str, int] = {}  # condition 名 → 在几个数据集里切不出（循环后聚合成一条警告，避免多数据集刷屏）
+        dropped_outside_parent_count = 0
 
         # split_by 决定输出 cardinality：none → 一进一出；condition → 一进 N 出
         split_mode = str(context.params.get("split_by") or "none").strip().lower()
 
         for index, data_info in enumerate(input_data_infos):
             try:
-                raw = read_raw_from_data_info(data_info, preload=True)
-                epochs, diagnostics = processor(raw, context.params)
+                source = (
+                    read_epochs_from_data_info(data_info, preload=True)
+                    if self._data_info_is_epochs(data_info)
+                    else read_raw_from_data_info(data_info, preload=True)
+                )
+                epochs, diagnostics = processor(source, context.params)
 
                 # 勾了但这份数据切不出的 condition → 累积，循环后按条件聚合成「一个节点一条」警告
                 skipped = (
@@ -1499,6 +1520,12 @@ class NodeDispatcher:
                 )
                 for _name in skipped:
                     skipped_by_condition[_name] = skipped_by_condition.get(_name, 0) + 1
+
+                if isinstance(diagnostics, dict):
+                    try:
+                        dropped_outside_parent_count += int(diagnostics.get("dropped_outside_parent") or 0)
+                    except (TypeError, ValueError):
+                        pass
 
                 if split_mode == "condition":
                     # 按 condition 拆分 —— 每个 event label 一组 sub-epochs，单独保存
@@ -1556,6 +1583,20 @@ class NodeDispatcher:
                 self._issue(
                     code="PIPELINE_EPOCH_CONDITIONS_SKIPPED",
                     message=f"勾选的部分条件在数据中无匹配、已跳过（其余正常切分）：{summary}",
+                    node_id=node_id,
+                    node_type=node_type,
+                    severity="warning",
+                )
+            )
+
+        if dropped_outside_parent_count:
+            warnings.append(
+                self._issue(
+                    code="PIPELINE_EPOCH_CHILD_WINDOW_OUTSIDE_PARENT",
+                    message=(
+                        f"有 {dropped_outside_parent_count} 个子事件因 tmin/tmax 窗口超出上游 Epoch 边界被跳过；"
+                        "如需保留这些事件，请放宽上游 Epoch 窗口，或缩短当前 Epoch 的时间窗。"
+                    ),
                     node_id=node_id,
                     node_type=node_type,
                     severity="warning",

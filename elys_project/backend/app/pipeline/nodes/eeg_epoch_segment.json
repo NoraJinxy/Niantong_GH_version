@@ -4,10 +4,10 @@
   "title": "Epoch",
   "category": "epoch",
   "phase": "phase1",
-  "description": "按事件切分 Epochs。",
+  "description": "按事件切分 Epochs；也可接上游 Epochs，在 block / 长窗内按内部事件再次切分。",
   "tags": ["epoch", "events", "erp"],
   "inputs": [
-    {"name": "input", "type": "eeg_data", "label": "EEG", "required": true, "cardinality": "one_or_many"}
+    {"name": "input", "type": "epoch_source", "label": "EEG / Epochs", "required": true, "cardinality": "one_or_many"}
   ],
   "outputs": [
     {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "same_as_input"}

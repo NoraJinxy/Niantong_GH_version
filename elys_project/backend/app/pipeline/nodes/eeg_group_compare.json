@@ -4,7 +4,7 @@
   "title": "Group Compare",
   "category": "group",
   "phase": "phase2",
-  "description": "对两组 unit_stack（A / B）沿 unit 轴做统计比较 → 统计图（stat_map）。通吃 ERP / PSD / TFR：统计只对 unit 轴动手、与形态无关。逐点 t（全通道×feature，none/FDR 校正）给完整 t 图；可选 cluster permutation（选定通道 ROI 上沿连续轴聚类，publication 级、可复现）。典型：睁眼 vs 闭眼（配对）、患者 vs 对照（独立）。",
+  "description": "对两组 unit_stack（A / B）沿 unit 轴做统计比较 → 统计图（stat_map）。通吃 ERP / PSD / TFR：统计只对 unit 轴动手、与形态无关。A/B 任一端口收到多份 condition stack 时会按 condition 自动配对，逐条件输出多张统计图；也可在条件参数中指定只比较某一个条件。逐点 t（全通道×feature，none/FDR 校正）给完整 t 图；cluster permutation 支持 ROI 平均、单通道、空间-时间三种模式，均用 t 统计并输出 cluster-corrected 显著簇。典型：睁眼 vs 闭眼（配对）、患者 vs 对照（独立）。",
   "tags": ["group", "compare", "statistics", "t-test", "cluster", "permutation"],
   "inputs": [
     {
@@ -27,10 +27,17 @@
       "name": "output",
       "type": "stat_map",
       "label": "Stat Map",
-      "cardinality": "one"
+      "cardinality": "one_or_many"
     }
   ],
   "properties": [
+    {
+      "name": "condition",
+      "label": "条件",
+      "type": "string",
+      "default": "",
+      "description": "留空时按 A/B 两侧共有 condition 自动逐条件输出；填写后只比较指定条件（如 \"Stimulus/S  3\"）。"
+    },
     {
       "name": "design",
       "label": "设计",
@@ -51,9 +58,9 @@
       "required": true,
       "options": [
         {"value": "pointwise", "label": "逐点 t（全通道，FDR 校正）"},
-        {"value": "cluster", "label": "Cluster permutation（ROI，置换检验）"}
+        {"value": "cluster", "label": "Cluster permutation（置换聚类）"}
       ],
-      "description": "逐点 t 给完整 t 图；cluster 在选定通道 ROI 上做置换聚类检验、控制多重比较，给显著时窗 / 频窗 + p 值。"
+      "description": "逐点 t 给完整 t 图；cluster 用 MNE 置换聚类检验控制多重比较，给显著时窗 / 频窗 / 空间-时间簇 + p 值。"
     },
     {
       "name": "tail",
@@ -65,7 +72,7 @@
         {"value": "greater", "label": "单侧 A>B"},
         {"value": "less", "label": "单侧 A<B"}
       ],
-      "description": "独立设计的 cluster 用 F 统计（恒双侧含义），tail 仅作用于逐点 t 与配对 cluster。"
+      "description": "逐点 t 与 cluster 均按方向解释；独立设计的 cluster 使用 Welch t 统计。"
     },
     {
       "name": "alpha",
@@ -87,12 +94,25 @@
       "description": "逐点 t 的全图多重比较校正。"
     },
     {
+      "name": "cluster_mode",
+      "label": "成簇模式",
+      "type": "select",
+      "default": "roi",
+      "visible_when": {"method": ["cluster"]},
+      "options": [
+        {"value": "roi", "label": "ROI 平均（轻量，通道先平均）"},
+        {"value": "single_sensor", "label": "单通道（每通道独立成簇）"},
+        {"value": "multi_sensor", "label": "空间-时间（通道邻接联合成簇）"}
+      ],
+      "description": "ROI 平均与旧版一致但会正确解析通道列表；单通道类似 Letswave single-sensor；空间-时间保留通道维并用标准 10-05 电极邻接。"
+    },
+    {
       "name": "cluster_channels",
       "label": "ROI 通道",
       "type": "string",
       "default": "",
-      "visible_when": {"method": ["cluster"]},
-      "description": "cluster 检验的 ROI（逗号分隔通道名，如 \"Pz,POz,Oz\"）；留空=全通道平均。"
+      "visible_when": {"method": ["cluster"], "cluster_mode": ["roi"]},
+      "description": "ROI 平均模式的通道列表（逗号分隔通道名，如 \"Pz,POz,Oz\"）；留空=全通道平均。"
     },
     {
       "name": "n_permutations",
@@ -110,7 +130,7 @@
       "default": "",
       "advanced": true,
       "visible_when": {"method": ["cluster"]},
-      "description": "形成 cluster 的逐点统计阈值（留空=按 α 自动算 t/F 阈值）。"
+      "description": "形成 cluster 的逐点 t 阈值（留空=按 α 和方向自动计算 t 阈值）。"
     },
     {
       "name": "label_a",

@@ -1327,10 +1327,50 @@ export interface StudyOutputStatCluster {
   p: number
   significant: boolean
   n_points: number
+  n_channels?: number
+  channels?: string[]
   tmin?: number
   tmax?: number
   fmin?: number
   fmax?: number
+}
+
+export interface StudyOutputStatSibling {
+  study_output_id: string
+  display_name?: string | null
+  condition?: string
+  contrast_label?: string
+  n_significant: number
+  n_total: number
+  n_significant_clusters?: number
+  has_significant: boolean
+  current?: boolean
+}
+
+export interface StudyOutputStatOverview {
+  has_significant: boolean
+  conclusion: string
+  n_significant: number
+  n_total: number
+  n_significant_channels: number
+  significant_channels: string[]
+  significant_channels_total: number
+  n_clusters: number
+  n_significant_clusters: number
+  strongest: {
+    channel: string
+    t: number
+    abs_t: number
+    direction: string
+    direction_label: string
+    mean_a?: number | null
+    mean_b?: number | null
+    axis_kind?: string
+    axis_value?: number
+    axis_label?: string
+    freq?: number
+    time?: number
+  }
 }
 
 export interface StudyOutputStat {
@@ -1338,6 +1378,7 @@ export interface StudyOutputStat {
   base_type: string
   study_output_id: string
   display_name: string | null
+  condition?: string
   contrast_label: string
   design: string
   method: string
@@ -1353,7 +1394,14 @@ export interface StudyOutputStat {
   channel: string
   tmax_abs: number
   roi_channels: string[]
+  cluster_mode?: string
+  cluster_stat?: string
+  cluster_mask_dims?: string[]
+  cluster_adjacency?: string
+  probability_kind?: 'fdr_q' | 'raw_p' | string
   clusters: StudyOutputStatCluster[]
+  overview?: StudyOutputStatOverview
+  related_outputs?: StudyOutputStatSibling[]
   ch_pos: Record<string, number[]> | null
   axis: { kind: string; values?: number[]; freqs?: number[]; times?: number[] }
   // 1D（evoked / psd）
@@ -1363,6 +1411,9 @@ export interface StudyOutputStat {
   mean_b?: number[]
   // 2D（tfr）
   t_grid?: number[][]
+  p_grid?: number[][]
+  q_grid?: number[][]
+  delta_grid?: number[][]
   sig_grid?: boolean[][]
 }
 

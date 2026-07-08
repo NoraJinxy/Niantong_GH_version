@@ -74,6 +74,52 @@ def get_study_output_or_404(db: Session, study_id: str, dataset_id: UUID) -> Stu
     return dataset
 
 
+def stat_map_sibling_outputs(db: Session, dataset: StudyOutput) -> list[dict[str, Any]]:
+    """同一次 Group Compare job 可能产出多张 condition stat_map，观察页用它做切换。"""
+    query = db.query(StudyOutput).filter(
+        StudyOutput.study_id == dataset.study_id,
+        StudyOutput.data_type == "stat_map",
+        StudyOutput.deleted_at.is_(None),
+    )
+    if dataset.produced_by_job_id is not None:
+        query = query.filter(StudyOutput.produced_by_job_id == dataset.produced_by_job_id)
+    elif dataset.produced_by_execution_id is not None and dataset.produced_by_node_id:
+        query = query.filter(
+            StudyOutput.produced_by_execution_id == dataset.produced_by_execution_id,
+            StudyOutput.produced_by_node_id == dataset.produced_by_node_id,
+        )
+    else:
+        query = query.filter(StudyOutput.id == dataset.id)
+
+    rows = query.order_by(StudyOutput.condition.asc(), StudyOutput.display_name.asc(), StudyOutput.created_at.asc()).all()
+    if not rows:
+        rows = [dataset]
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        preview = row.preview_json if isinstance(row.preview_json, dict) else {}
+        n_significant = int(preview.get("n_significant") or 0)
+        n_total = int(preview.get("n_total") or 0)
+        clusters = preview.get("clusters") if isinstance(preview.get("clusters"), list) else []
+        n_significant_clusters = sum(1 for item in clusters if isinstance(item, dict) and bool(item.get("significant")))
+        condition = str(row.condition or preview.get("condition") or "")
+        contrast_label = str(preview.get("contrast_label") or row.display_name or condition or "")
+        out.append(
+            {
+                "study_output_id": str(row.id),
+                "display_name": row.display_name,
+                "condition": condition,
+                "contrast_label": contrast_label,
+                "n_significant": n_significant,
+                "n_total": n_total,
+                "n_significant_clusters": n_significant_clusters,
+                "has_significant": bool(n_significant > 0 or n_significant_clusters > 0),
+                "current": str(row.id) == str(dataset.id),
+            }
+        )
+    return out
+
+
 def record_study_output_action_audit(
     db: Session,
     *,
@@ -983,7 +1029,9 @@ def get_study_output_stat(
             detail={"code": "DERIVED_DATASET_NOT_STAT", "message": "该结果不是统计比较(stat_map)类型。"},
         )
     try:
-        return build_stat_view(study, dataset, channel=channel, max_points=max_points)
+        view = build_stat_view(study, dataset, channel=channel, max_points=max_points)
+        view["related_outputs"] = stat_map_sibling_outputs(db, dataset)
+        return view
     except StudyOutputPreviewError as exc:
         raise HTTPException(
             status_code=exc.status_code,

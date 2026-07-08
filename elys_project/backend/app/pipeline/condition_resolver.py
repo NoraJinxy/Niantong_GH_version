@@ -53,6 +53,7 @@ def resolve_node_conditions(
     候选 = 本节点全部直接上游「输出 condition 词表」的并集。各节点类型如何产出输出词表:
     - LoadData → 解析其数据集、并集 condition_groups;
     - Epoch    → 输入词表 ∩ 本节点已勾 conditions(= 它实际切出的 condition,喂给 ERP/TFR/PSD);
+      但当下游本身也是 Epoch 时,候选取父 Epochs 内仍保留的 annotations 词表,支持 block 内二次切分;
     - 透传类(预处理/ICA/分析) → = 输入词表;
     - 其余/未知类型 → = 输入词表。
     memo 防菱形图重复解析,visiting 防环(图本应无环)。
@@ -75,7 +76,9 @@ def resolve_node_conditions(
 
     warnings: list[PipelineValidationIssue] = []
     memo: dict[str, dict[str, dict[str, int]]] = {}
+    annotation_memo: dict[str, dict[str, dict[str, int]]] = {}
     visiting: set[str] = set()
+    annotation_visiting: set[str] = set()
 
     def input_vocab(nid: str) -> dict[str, dict[str, int]]:
         merged: dict[str, dict[str, int]] = {}
@@ -143,7 +146,49 @@ def resolve_node_conditions(
         visiting.discard(nid)
         return result
 
-    candidates = input_vocab(node_id)
+    def annotation_input_vocab(nid: str) -> dict[str, dict[str, int]]:
+        merged: dict[str, dict[str, int]] = {}
+        for parent in incoming.get(nid, []):
+            _merge(merged, annotation_output_vocab(parent))
+        return merged
+
+    def annotation_output_vocab(nid: str) -> dict[str, dict[str, int]]:
+        """节点输出里仍可供后续 Epoch 继续切分的 annotation 词表。
+
+        Epoch 输出的 event_id 是“这次切出来的条件”,给 ERP/TFR/PSD 用；但 Epochs 文件本身还保留
+        父窗内 annotations,所以下一个 Epoch 的候选应继续看 annotation 词表。
+        """
+        if nid in annotation_memo:
+            return annotation_memo[nid]
+        if nid in annotation_visiting:
+            return {}
+        annotation_visiting.add(nid)
+        node = nodes.get(nid) or {}
+        ntype = str(node.get("type") or "")
+
+        if ntype == LOAD_DATA_NODE_TYPE:
+            result = output_vocab(nid)
+        elif ntype == EPOCH_NODE_TYPE:
+            result = annotation_input_vocab(nid)
+        elif ntype == EVENT_REMAP_NODE_TYPE:
+            node_params = node.get("params") if isinstance(node.get("params"), dict) else {}
+            result = _remap_vocab(annotation_input_vocab(nid), node_params.get("rules"))
+        elif ntype == EVENT_MANAGER_NODE_TYPE:
+            node_params = node.get("params") if isinstance(node.get("params"), dict) else {}
+            result = _remap_vocab(
+                annotation_input_vocab(nid),
+                _event_manager_rename_rules(node_params.get("group_operations")),
+            )
+        else:
+            result = annotation_input_vocab(nid)
+
+        annotation_memo[nid] = result
+        annotation_visiting.discard(nid)
+        return result
+
+    target_node = nodes.get(node_id) or {}
+    target_type = str(target_node.get("type") or "")
+    candidates = annotation_input_vocab(node_id) if target_type == EPOCH_NODE_TYPE else input_vocab(node_id)
     options = [
         ConditionOption(
             name=name,

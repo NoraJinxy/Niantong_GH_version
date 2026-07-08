@@ -278,6 +278,8 @@ export function portTypesCompatible(sourceType?: string, targetType?: string) {
   const compatibleTargets: Record<string, string[]> = {
     analysis_result: ['analysis_result', 'evoked', 'epochs', 'psd', 'tfr', 'connectivity', 'microstate', 'source_estimate'],
     eeg_data: ['eeg_data', 'raw', 'dataset_collection'],
+    // Epoch 节点既可从连续 EEG 切分，也可从上游 Epochs 内按内部事件再次切分。
+    epoch_source: ['epoch_source', 'eeg_data', 'raw', 'dataset_collection', 'epochs'],
     // 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs。
     spectral_source: ['spectral_source', 'eeg_data', 'raw', 'dataset_collection', 'epochs'],
     // group 合并入口:沿 unit 轴可堆叠的产物(evoked/psd/tfr/已堆叠块/grand average 回吐)。
@@ -295,6 +297,7 @@ export function isWildcardPortType(type?: string): boolean {
 // 所以这里把这类端口的 litegraph slot 类型展开成它实际接受的具体类型列表，
 // 让画布拖线与后端 port_types_compatible 判定一致。
 const MULTI_ACCEPT_LITEGRAPH_TYPES: Record<string, string> = {
+  epoch_source: 'eeg_data,epochs',
   spectral_source: 'epochs,eeg_data',
   // group 合并入口接受多种可堆叠产物——展开成逗号列表让画布原生连线放行。
   stackable: 'evoked,psd,tfr,unit_stack,analysis_result',

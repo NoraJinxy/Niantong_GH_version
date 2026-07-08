@@ -24,6 +24,8 @@ def port_types_compatible(source_type: str | None, target_type: str | None) -> b
     compatible_targets = {
         "analysis_result": {"analysis_result", "evoked", "epochs", "psd", "tfr", "connectivity", "microstate", "source_estimate"},
         "eeg_data": {"eeg_data", "raw", "dataset_collection"},
+        # Epoch 节点既能从连续 EEG 切分，也能从父 Epochs 内按内部事件再次切分。
+        "epoch_source": {"epoch_source", "eeg_data", "raw", "dataset_collection", "epochs"},
         # 频谱类输入(PSD/将来 TFR)同时接受连续数据与 Epochs,故既收 eeg_data 也收 epochs。
         "spectral_source": {"spectral_source", "eeg_data", "raw", "dataset_collection", "epochs"},
         # group 合并入口:沿 unit 轴可堆叠的产物(同形态才有意义,跨形态由引擎运行期拦)。
