@@ -58,7 +58,7 @@
           <section v-if="isMultiOutput && eventOptions.length" class="ov-sec">
             <div class="ov-sec-head" @click="toggleSec('event')">
               事件
-              <span class="ov-sec-cnt">{{ selectedEvents.size || eventOptions.length }}/{{ eventOptions.length }}</span>
+              <span class="ov-sec-cnt">{{ selectedEvents.size }}/{{ eventOptions.length }}</span>
               <span class="ov-sec-arr" :class="{ 'is-collapsed': collapsed.event }">▾</span>
             </div>
             <div v-show="!collapsed.event" class="ov-sec-body">
@@ -67,22 +67,22 @@
                   v-for="(label, i) in eventOptions"
                   :key="label"
                   class="ov-li"
-                  :class="{ 'is-sel': selectedEvents.size === 0 || selectedEvents.has(label) }"
+                  :class="{ 'is-sel': selectedEvents.has(label) }"
                   @click="eventSel.onClick(i, $event)"
                   @mousedown="eventSel.onPointerDown(i, $event)"
                   @mouseenter="eventSel.onPointerEnter(i, $event)"
                 >
-                  <span class="ov-li-dot" :style="{ background: selectedEvents.size === 0 || selectedEvents.has(label) ? typeColor : INACTIVE_DOT }"></span>
+                  <span class="ov-li-dot" :style="{ background: selectedEvents.has(label) ? typeColor : INACTIVE_DOT }"></span>
                   <span class="ov-li-name">{{ label }}</span>
                 </div>
               </div>
             </div>
           </section>
 
-          <!-- 段(Epoch) 与 通道：两个 listbox 并排，各自限高滚动；单击单选 · Ctrl 加选 · Shift 连选 -->
-          <div class="ov-sec-row">
+          <!-- 段(Epoch) 与 通道：纵向堆叠，各自限高滚动；单击单选 · Ctrl 加选 · Shift 连选 -->
+          <div class="ov-sec-stack" :class="{ 'ov-sec-stack--epoch': !isMultiOutput && segCount > 1 }">
             <!-- 条件 / 段（单产物多段时） -->
-            <section v-if="!isMultiOutput && segCount > 1" class="ov-sec ov-sec--half">
+            <section v-if="!isMultiOutput && segCount > 1" class="ov-sec ov-sec--full">
               <div class="ov-sec-head" @click="toggleSec('segment')">
                 {{ segKindLabel }}
                 <span class="ov-sec-cnt">{{ selectedSegs.size }}/{{ segCount }}</span>
@@ -115,7 +115,7 @@
             </section>
 
             <!-- 通道 -->
-            <section class="ov-sec ov-sec--half">
+            <section class="ov-sec ov-sec--full">
               <div class="ov-sec-head" @click="toggleSec('channel')">
                 通道
                 <span class="ov-sec-cnt">{{ selectedChans.size }}/{{ allChanNames.length }}</span>
@@ -604,6 +604,8 @@ const DATA_TYPE_LABELS: Record<string, string> = {
 const SELECT_RENDER_DEBOUNCE_MS = 80
 const SELECT_LOAD_DEBOUNCE_MS = 120
 const LOCAL_TS_CACHE_MAX = 96
+const VIRTUAL_EPOCH_SEG_OFFSET = 1_000_000
+const VIRTUAL_EPOCH_SEG_STRIDE = 100_000
 const OVERVIEW_POINTS = 1500
 const OVERVIEW_CHANNELS = 256
 const OV_W = 470
@@ -801,16 +803,52 @@ const segRank = computed(() => {
   segOrderRaw.value.forEach((seg, rank) => m.set(seg, rank))
   return m
 })
-const sortedSegs = computed(() =>
-  (isMultiOutput ? outputIds.map((_, i) => i) : [...selectedSegs.value])
+function makeEpochPlotSeg(outputSeg: number, epochIndex: number): number {
+  return VIRTUAL_EPOCH_SEG_OFFSET + outputSeg * VIRTUAL_EPOCH_SEG_STRIDE + epochIndex
+}
+function isEpochPlotSeg(seg: number): boolean {
+  return isMultiOutputEpochs.value && seg >= VIRTUAL_EPOCH_SEG_OFFSET
+}
+function plotSegParts(seg: number): { outputSeg: number; epochIndex: number | null } {
+  if (!isEpochPlotSeg(seg)) return { outputSeg: seg, epochIndex: null }
+  const raw = seg - VIRTUAL_EPOCH_SEG_OFFSET
+  return {
+    outputSeg: Math.floor(raw / VIRTUAL_EPOCH_SEG_STRIDE),
+    epochIndex: raw % VIRTUAL_EPOCH_SEG_STRIDE,
+  }
+}
+function selectedEpochIndices(): number[] {
+  const labels = eventOptions.value
+  if (!labels.length) return [0]
+  const picked = [...selectedEvents.value]
+    .map((label) => labels.indexOf(label))
+    .filter((i) => i >= 0)
+  return picked.length ? picked : [0]
+}
+function selectedDatasetOutputSegs(): number[] {
+  return outputIds
+    .map((_, i) => i)
+    .filter((seg) => !selectedDatasetKeys.value.size || selectedDatasetKeys.value.has(datasetKey(seg)))
+    .sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b))
+}
+const sortedSegs = computed(() => {
+  if (isMultiOutputEpochs.value) {
+    const out: number[] = []
+    const epochIndices = selectedEpochIndices()
+    for (const outputSeg of selectedDatasetOutputSegs()) {
+      for (const epochIndex of epochIndices) out.push(makeEpochPlotSeg(outputSeg, epochIndex))
+    }
+    return out
+  }
+  return (isMultiOutput ? outputIds.map((_, i) => i) : [...selectedSegs.value])
     .filter((seg) => {
       if (!isMultiOutput) return true
       const datasetSelected = !selectedDatasetKeys.value.size || selectedDatasetKeys.value.has(datasetKey(seg))
-      const eventSelected = isMultiOutputEpochs.value || selectedEvents.value.size === 0 || selectedEvents.value.has(eventLabel(seg))
+      const eventSelected = selectedEvents.value.has(eventLabel(seg))
       return datasetSelected && eventSelected
     })
-    .sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b)),
-)
+    .sort((a, b) => (segRank.value.get(a) ?? a) - (segRank.value.get(b) ?? b))
+})
 const renderSegs = ref<number[]>([])
 const renderSegsJob = useDebouncedJob(() => {
   renderSegs.value = [...sortedSegs.value]
@@ -820,6 +858,7 @@ const primarySeg = computed(() => (sortedSegs.value.length ? sortedSegs.value[0]
 const ts = computed<StudyOutputTimeseries | null>(
   () => tsMap.value.get(primarySeg.value) ?? tsMap.value.values().next().value ?? null,
 )
+const activeSegCount = computed(() => (isMultiOutputEpochs.value ? plotSegs.value.length : segCount.value))
 
 // ---------- 类型 / 单位 ----------
 const dataType = computed(() => String(ts.value?.data_type ?? typeHint ?? '').toLowerCase())
@@ -869,18 +908,10 @@ const eventOptions = computed(() => {
   if (isMultiOutputEpochs.value) return ts.value?.segment_options ?? []
   return [...new Set(outputIds.map((_, i) => eventLabel(i)))].filter(Boolean)
 })
-const selectedEpochIndex = computed(() => {
-  if (!isMultiOutputEpochs.value) return null
-  const labels = eventOptions.value
-  if (!labels.length) return 0
-  const selected = [...selectedEvents.value]
-  const hit = selected.map((label) => labels.indexOf(label)).find((i) => i >= 0)
-  return hit ?? 0
-})
 watch(eventOptions, (labels) => {
   if (!isMultiOutput || !labels.length) return
-  const current = isMultiOutputEpochs.value ? [] : [...selectedEvents.value].filter((label) => labels.includes(label))
-  selectedEvents.value = new Set(current.length ? current : labels)
+  const current = [...selectedEvents.value].filter((label) => labels.includes(label))
+  selectedEvents.value = new Set(current.length ? current : [labels[0]])
 }, { immediate: true })
 watch(datasetKeys, (keys) => {
   if (!isMultiOutput || !keys.length) return
@@ -912,11 +943,11 @@ function moveSeg(seg: number, dir: -1 | 1) {
 // 叠加维度可选项（label 随段类型变化）：seg 只 1 个值时不列出
 const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() => {
   const opts: { v: 'seg' | 'chan' | 'none'; l: string }[] = []
-  if (segCount.value > 1) opts.push({ v: 'seg', l: segKindLabel.value })
+  if (activeSegCount.value > 1) opts.push({ v: 'seg', l: segKindLabel.value })
   opts.push({ v: 'chan', l: '通道' })
   // 「不叠加」：选中维度也不叠、把通道（及段）全拆成子图。
   // 多段 × 多通道 → 行列矩阵；单段多通道 → 每通道一窗并排（连续 raw 想把几路通道分窗对照走这条）。
-  if (orderedChans.value.length > 1) opts.push({ v: 'none', l: segCount.value > 1 ? '矩阵' : '每通道分窗' })
+  if (orderedChans.value.length > 1) opts.push({ v: 'none', l: activeSegCount.value > 1 ? '矩阵' : '每通道分窗' })
   return opts
 })
 
@@ -924,17 +955,36 @@ const overlayOptions = computed<{ v: 'seg' | 'chan' | 'none'; l: string }[]>(() 
 function fmtX(v: number) {
   return Number(v.toFixed(xPrec.value))
 }
+function loadedTsForOutputSeg(outputSeg: number, preferredSeg?: number): StudyOutputTimeseries | undefined {
+  const direct = preferredSeg != null ? tsMap.value.get(preferredSeg) : undefined
+  if (direct) return direct
+  const base = tsMap.value.get(outputSeg)
+  if (base) return base
+  if (!isMultiOutputEpochs.value) return undefined
+  for (const [seg, t] of tsMap.value.entries()) {
+    if (plotSegParts(seg).outputSeg === outputSeg) return t
+  }
+  return undefined
+}
 function rawDatasetLabel(seg: number) {
-  const t = tsMap.value.get(seg)
+  const baseSeg = plotSegParts(seg).outputSeg
+  const t = loadedTsForOutputSeg(baseSeg, seg)
   const fromLoaded = fmtSubject(t?.subject) || t?.display_name || ''
-  return outputMetaCache[seg]?.datasetLabel || labelCache[seg] || fromLoaded || `数据集 ${seg + 1}`
+  return outputMetaCache[baseSeg]?.datasetLabel || labelCache[baseSeg] || fromLoaded || `数据集 ${baseSeg + 1}`
 }
 function datasetKey(seg: number) {
-  return compactSegLabels.value[seg] || rawDatasetLabel(seg)
+  const baseSeg = plotSegParts(seg).outputSeg
+  return compactSegLabels.value[baseSeg] || rawDatasetLabel(baseSeg)
 }
 function segLabel(seg: number) {
   // epochs：用序号 #N 标识（同条件的多 epoch 才分得清；图例 / 卡片 / 表 / 地形图统一）
   if (!isMultiOutput && ts.value?.segment_kind === 'epoch') return `#${seg + 1}`
+  if (isEpochPlotSeg(seg)) {
+    const { outputSeg } = plotSegParts(seg)
+    const ds = compactSegLabels.value[outputSeg] || rawDatasetLabel(outputSeg)
+    const ev = eventLabel(seg)
+    return datasetOptions.value.length > 1 ? `${ds} · ${ev}` : ev
+  }
   const t = tsMap.value.get(seg)
   if (isMultiOutput) {
     // 数据集名统一优先用 StudyOutput 元数据缓存（loadOutputLabels：被试·条件 || display_name）——
@@ -947,6 +997,10 @@ function segLabel(seg: number) {
   return ts.value?.segment_options?.[seg] ?? `#${seg + 1}`
 }
 function eventLabel(seg: number) {
+  if (isEpochPlotSeg(seg)) {
+    const { epochIndex } = plotSegParts(seg)
+    return eventOptions.value[epochIndex ?? 0] || tsMap.value.get(seg)?.segment_label || `Epoch-${(epochIndex ?? 0) + 1}`
+  }
   if (!isMultiOutput) return ts.value?.segment_options?.[seg] || tsMap.value.get(seg)?.segment_label || '整体'
   const t = tsMap.value.get(seg)
   if (isMultiOutputEpochs.value) return t?.segment_label || ts.value?.segment_options?.[0] || 'Epoch-1'
@@ -968,7 +1022,11 @@ const currentEventIsWhole = computed(() => {
 })
 function segColor(seg: number) {
   // 按段的稳定身份（绝对序号）着色，避免勾选增删时已显示曲线/图例变色；连续色板按段数铺满渐变
-  return colorAt(seg, Math.max(1, segCount.value))
+  const { outputSeg, epochIndex } = plotSegParts(seg)
+  const colorIndex = isEpochPlotSeg(seg)
+    ? outputSeg * Math.max(1, eventOptions.value.length || 1) + (epochIndex ?? 0)
+    : seg
+  return colorAt(colorIndex, Math.max(1, activeSegCount.value))
 }
 
 // ---------- 单位缩放（V → µV，逐产物判定）----------
@@ -1255,7 +1313,7 @@ function xsFor(t: StudyOutputTimeseries) {
 const { effectiveOverlay, facetDims, rowFactor, colFactor, cells, facetStyle, legendCellIndex, denseAxes, cellHideX, cellHideY } = useFacetGrid({
   segs: () => plotSegs.value,
   chans: () => orderedChans.value,
-  segCount: () => segCount.value,
+  segCount: () => activeSegCount.value,
   overlayDim,
   swapAxes,
   segLabel,
@@ -1601,9 +1659,10 @@ function rememberTs(key: string, data: StudyOutputTimeseries) {
 
 async function fetchWaveformSeg(seg: number): Promise<readonly [number, StudyOutputTimeseries]> {
   if (isMultiOutput) {
-    const oid = outputIds[seg] ?? outputIds[0]
+    const { outputSeg, epochIndex } = plotSegParts(seg)
+    const oid = outputIds[outputSeg] ?? outputIds[0]
     const params: FetchParams = {
-      index: selectedEpochIndex.value ?? undefined,
+      index: isMultiOutputEpochs.value ? (epochIndex ?? 0) : undefined,
       tmin: reqTmin.value,
       tmax: reqTmax.value,
       maxPoints: MAX_POINTS,
@@ -1758,6 +1817,7 @@ watch(filterOn, applyFilter) // 开关切换立即生效；改输入框走「应
 watch(() => facetDims.value.join(','), () => maybeAddSecondSeg())
 // 把段推成分面且只选了 1 段时，自动补第 2 段方便直接看对比
 function maybeAddSecondSeg() {
+  if (isMultiOutput) return
   const segUsed = rowFactor.value === 'seg' || colFactor.value === 'seg'
   if (segUsed && selectedSegs.value.size < 2 && segCount.value >= 2) {
     selectedSegs.value = new Set([primarySeg.value, primarySeg.value === 0 ? 1 : 0])

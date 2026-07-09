@@ -18,6 +18,8 @@ from pathlib import Path
 import sys
 import types
 
+import numpy as np
+
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -30,6 +32,8 @@ class _FakeColumn:
     def __init__(self, name): self.name = name
     def is_(self, *a, **kw): return self
     def like(self, *a, **kw): return self
+    def in_(self, *a, **kw): return self
+    def asc(self, *a, **kw): return self
     def __eq__(self, other): return self
     def __ne__(self, other): return self
     def __hash__(self): return id(self)
@@ -44,13 +48,34 @@ class _StudyOutput:
     deleted_at = _FakeColumn("deleted_at")
 
 
+class _PipelineExecutionInput:
+    execution_id = _FakeColumn("execution_id")
+    node_id = _FakeColumn("node_id")
+    input_kind = _FakeColumn("input_kind")
+    input_index = _FakeColumn("input_index")
+    created_at = _FakeColumn("created_at")
+    id = _FakeColumn("id")
+
+
 _fake_models.StudyOutput = _StudyOutput
+_fake_models.PipelineExecutionInput = _PipelineExecutionInput
+for _name in ("DatasetFile", "Recording", "Study", "StudyDatasetMount", "StudySettings"):
+    setattr(_fake_models, _name, type(_name, (), {}))
 sys.modules.setdefault("app.models", _fake_models)
 
 if "sqlalchemy" not in sys.modules:
     _fake_sa = types.ModuleType("sqlalchemy")
     _fake_sa.or_ = lambda *a, **kw: None
+    _fake_sa.and_ = lambda *a, **kw: None
+    _fake_sa.func = types.SimpleNamespace()
     sys.modules["sqlalchemy"] = _fake_sa
+    _fake_sa_exc = types.ModuleType("sqlalchemy.exc")
+    _fake_sa_exc.IntegrityError = type("IntegrityError", (Exception,), {})
+    sys.modules["sqlalchemy.exc"] = _fake_sa_exc
+    _fake_sa_orm = types.ModuleType("sqlalchemy.orm")
+    _fake_sa_orm.Session = object
+    _fake_sa_orm.joinedload = lambda *a, **kw: None
+    sys.modules["sqlalchemy.orm"] = _fake_sa_orm
 
 
 from app.pipeline.dispatcher import NodeDispatcher  # noqa: E402
@@ -135,7 +160,7 @@ class FakeStudyOutputStore:
         return {
             "artifact_id": f"ds-{len(self.calls)}",
             "storage_path": f"outputs/ab/cd/{filename}",
-            "storage_uri": f"elys://studies/study-1/outputs/ab/cd/{filename}",
+            "storage_uri": None,
             "file_size": 100,
             "checksum": "abcdef",
             "sha256": "abcdef",
@@ -383,6 +408,318 @@ def test_execute_epochs_output_split_skips_empty_subepochs(monkeypatch):
     assert store.calls[0]["metadata"]["condition"] == "go"
 
 
+def test_execute_epoch_merge_groups_parent_conditions_by_source(monkeypatch):
+    """Epoch Merge：同一 recording 下拆开的父 condition epochs 合成一份多条件 epochs。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(disp_mod, "read_epochs_from_data_info", lambda data_info, **kw: FakeEpochs({data_info["condition"]: 1}, count=5))
+    monkeypatch.setattr(disp_mod, "_concatenate_epochs", lambda items: FakeEpochs({"block/A": 1, "block/B": 2}, count=sum(len(item) for item in items)))
+
+    store = FakeStudyOutputStore()
+    infos = [
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-01_blockA_epo-epo.fif",
+            "source_dataset_id": "rec-01",
+            "artifact_id": "block-a",
+            "condition": "block/A",
+        },
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-01_blockB_epo-epo.fif",
+            "source_dataset_id": "rec-01",
+            "artifact_id": "block-b",
+            "condition": "block/B",
+        },
+    ]
+    ctx = _make_context(
+        params={"merge_scope": "source_recording"},
+        node={"id": "merge-1", "type": "eeg/epoch/merge", "title": "Epoch Merge"},
+    )
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=infos)}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epoch_merge(ctx)
+
+    assert result.status == "success"
+    assert result.dataset_count == 1
+    assert len(store.calls) == 1
+    call = store.calls[0]
+    assert call["metadata"]["condition"] is None
+    assert call["metadata"]["upstream_dataset_ids"] == ["block-a", "block-b"]
+    assert call["metadata"]["mne_summary"]["merge_scope"] == "source_recording"
+    assert call["metadata"]["mne_summary"]["merged_conditions"] == ["block/A", "block/B"]
+    assert result.output.data_infos[0]["merged_conditions"] == ["block/A", "block/B"]
+
+
+def test_execute_epoch_merge_all_inputs_uses_neutral_display_name(monkeypatch):
+    """Epoch Merge 全部输入合并是跨数据集产物，展示名不能沿用第一个被试。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(
+        disp_mod,
+        "read_epochs_from_data_info",
+        lambda data_info, **kw: FakeEpochs({data_info["condition"]: 1}, count=5),
+    )
+    monkeypatch.setattr(
+        disp_mod,
+        "_concatenate_epochs",
+        lambda items: FakeEpochs({"block/A": 1, "block/B": 2}, count=sum(len(item) for item in items)),
+    )
+
+    store = FakeStudyOutputStore()
+    infos = [
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-05_blockA_epo-epo.fif",
+            "source_dataset_id": "rec-05",
+            "artifact_id": "block-a",
+            "bids_subject_id": "sub-05",
+            "task": "rest",
+            "condition": "block/A",
+        },
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-04_blockB_epo-epo.fif",
+            "source_dataset_id": "rec-04",
+            "artifact_id": "block-b",
+            "bids_subject_id": "sub-04",
+            "task": "rest",
+            "condition": "block/B",
+        },
+    ]
+    ctx = _make_context(
+        params={"merge_scope": "all_inputs"},
+        node={"id": "merge-1", "type": "eeg/epoch/merge", "title": "Epoch Merge"},
+    )
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=infos)}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epoch_merge(ctx)
+
+    assert result.status == "success"
+    assert result.dataset_count == 1
+    call = store.calls[0]
+    assert call["metadata"]["display_name"] == "Epoch Merge · 全部输入合并"
+    assert call["metadata"]["mne_summary"]["merge_scope"] == "all_inputs"
+    assert call["metadata"]["upstream_dataset_ids"] == ["block-a", "block-b"]
+
+
+def test_execute_epoch_merge_condition_scope_stays_within_subject(monkeypatch):
+    """Epoch Merge condition mode groups matching conditions within each subject."""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(
+        disp_mod,
+        "read_epochs_from_data_info",
+        lambda data_info, **kw: FakeEpochs(dict(data_info["event_ids"]), count=data_info.get("count", 10)),
+    )
+    monkeypatch.setattr(
+        disp_mod,
+        "_concatenate_epochs",
+        lambda items: FakeEpochs(items[0].event_id, count=sum(len(item) for item in items)),
+    )
+
+    store = FakeStudyOutputStore()
+    infos = [
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-03_run-01_epo-epo.fif",
+            "source_dataset_id": "rec-03-a",
+            "artifact_id": "ep-03-a",
+            "bids_subject_id": "sub-03",
+            "event_ids": {"Stimulus/S 61": 1, "Stimulus/S 62": 2},
+            "count": 8,
+        },
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-03_run-02_epo-epo.fif",
+            "source_dataset_id": "rec-03-b",
+            "artifact_id": "ep-03-b",
+            "bids_subject_id": "sub-03",
+            "event_ids": {"Stimulus/S 61": 1, "Stimulus/S 62": 2},
+            "count": 6,
+        },
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-04_run-01_epo-epo.fif",
+            "source_dataset_id": "rec-04-a",
+            "artifact_id": "ep-04-a",
+            "bids_subject_id": "sub-04",
+            "event_ids": {"Stimulus/S 61": 1, "Stimulus/S 62": 2},
+            "count": 4,
+        },
+    ]
+    ctx = _make_context(
+        params={"merge_scope": "condition"},
+        node={"id": "merge-1", "type": "eeg/epoch/merge", "title": "Epoch Merge"},
+    )
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=infos)}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epoch_merge(ctx)
+
+    assert result.status == "success"
+    assert result.dataset_count == 4
+    pairs = {
+        (call["metadata"]["mne_summary"]["merge_subject"], call["metadata"]["condition"])
+        for call in store.calls
+    }
+    assert pairs == {
+        ("sub-03", "Stimulus/S 61"),
+        ("sub-03", "Stimulus/S 62"),
+        ("sub-04", "Stimulus/S 61"),
+        ("sub-04", "Stimulus/S 62"),
+    }
+
+    sub03_s61 = next(
+        call
+        for call in store.calls
+        if call["metadata"]["mne_summary"]["merge_subject"] == "sub-03"
+        and call["metadata"]["condition"] == "Stimulus/S 61"
+    )
+    assert sub03_s61["metadata"]["upstream_dataset_ids"] == ["ep-03-a", "ep-03-b"]
+    assert sub03_s61["metadata"]["mne_summary"]["merged_input_count"] == 2
+
+    sub04_s61 = next(
+        call
+        for call in store.calls
+        if call["metadata"]["mne_summary"]["merge_subject"] == "sub-04"
+        and call["metadata"]["condition"] == "Stimulus/S 61"
+    )
+    assert sub04_s61["metadata"]["upstream_dataset_ids"] == ["ep-04-a"]
+    assert sub04_s61["metadata"]["mne_summary"]["merged_input_count"] == 1
+
+
+def test_concatenate_epochs_preserves_annotations_for_nested_epoching(tmp_path):
+    """合并父 condition Epochs 后，保存再读取也能继续按父/子路径切下一层 Epoch。"""
+    import mne
+    from app.engine.analysis.epoching import run_epoch_segment
+    from app.engine.io import save_epochs_fif
+    import app.pipeline.dispatcher as disp_mod
+
+    sfreq = 100.0
+    info = mne.create_info(["Cz"], sfreq, ["eeg"])
+    raw = mne.io.RawArray(np.zeros((1, int(10 * sfreq))), info, verbose="ERROR")
+    raw.set_annotations(
+        mne.Annotations(
+            onset=[1.0, 1.5, 5.0, 5.5],
+            duration=[0, 0, 0, 0],
+            description=["block/A", "sound/low", "block/B", "sound/low"],
+        )
+    )
+    parent, _ = run_epoch_segment(raw, {"conditions": ["block/A", "block/B"], "tmin": 0.0, "tmax": 1.0})
+
+    merged = disp_mod._concatenate_epochs([parent["block/A"], parent["block/B"]])
+    merged, summary = NodeDispatcher()._rewrite_epoch_annotations_with_parent_context(merged, {})
+    path = tmp_path / "merged-epo.fif"
+    save_epochs_fif(merged, path)
+    merged = mne.read_epochs(path, preload=True, verbose="ERROR")
+    child, diag = run_epoch_segment(merged, {"conditions": ["sound/low"], "tmin": -0.1, "tmax": 0.2})
+
+    assert summary["context_annotation_count"] == 2
+    assert len(child) == 2
+    assert child.event_id == {"block/A / sound/low": 1, "block/B / sound/low": 2}
+    assert diag["skipped_conditions"] == []
+    rows = getattr(child, "_elys_condition_metadata")
+    assert [row["parent_condition"] for row in rows] == ["block/A", "block/B"]
+    assert [row["child_condition"] for row in rows] == ["sound/low", "sound/low"]
+    assert [row["condition_path"] for row in rows] == ["block/A / sound/low", "block/B / sound/low"]
+
+
+def test_execute_epochs_output_child_condition_preserves_parent_paths(monkeypatch):
+    """split_by='child_condition'：同一 recording 下不同父 condition 的同名子 condition 按完整路径分开。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_epochs", lambda epochs: {"n_epochs": len(epochs)})
+    monkeypatch.setattr(disp_mod, "save_epochs_fif", lambda epochs, path: None)
+    monkeypatch.setattr(disp_mod, "read_epochs_from_data_info", lambda data_info, **kw: object())
+    monkeypatch.setattr(
+        disp_mod,
+        "_concatenate_epochs",
+        lambda items: FakeEpochs(items[0].event_id, count=sum(len(item) for item in items)),
+    )
+
+    def fake_processor(source, params):
+        return FakeEpochs({"sound/low": 1, "sound/high": 2}, count=20), {"skipped_conditions": []}
+
+    store = FakeStudyOutputStore()
+    infos = [
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-01_blockA_epo-epo.fif",
+            "bids_subject_id": "sub-01",
+            "task": "stim",
+            "source_dataset_id": "rec-01",
+            "artifact_id": "block-a",
+            "condition": "block/A",
+        },
+        {
+            "data_type": "epochs",
+            "fif_path": "sub-01_blockB_epo-epo.fif",
+            "bids_subject_id": "sub-01",
+            "task": "stim",
+            "source_dataset_id": "rec-01",
+            "artifact_id": "block-b",
+            "condition": "block/B",
+        },
+    ]
+    ctx = _make_context(params={"split_by": "child_condition", "conditions": ["sound/low", "sound/high"]})
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=infos)}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_epochs_output(ctx, fake_processor, save_descriptor="epo")
+
+    assert result.status == "success"
+    assert result.dataset_count == 4
+    assert len(store.calls) == 4
+    by_condition = {call["metadata"]["condition"]: call for call in store.calls}
+    assert set(by_condition) == {
+        "block/A / sound/low",
+        "block/A / sound/high",
+        "block/B / sound/low",
+        "block/B / sound/high",
+    }
+    assert by_condition["block/A / sound/low"]["metadata"]["parent_conditions"] == ["block/A"]
+    assert by_condition["block/A / sound/low"]["metadata"]["child_condition"] == "sound/low"
+    assert by_condition["block/A / sound/low"]["metadata"]["condition_path"] == "block/A / sound/low"
+    assert by_condition["block/A / sound/low"]["metadata"]["condition_model"] == "hierarchical"
+    assert by_condition["block/A / sound/low"]["metadata"]["upstream_dataset_ids"] == ["block-a"]
+    output_by_condition = {info["condition"]: info for info in result.output.data_infos}
+    assert output_by_condition["block/B / sound/high"]["parent_conditions"] == ["block/B"]
+    assert output_by_condition["block/B / sound/high"]["child_condition"] == "sound/high"
+    assert result.output.metadata.get("split_mode") == "child_condition"
+
+
+def test_condition_metadata_subset_fallback_without_pandas():
+    """无 pandas 时，MNE metadata 的 ELYS 兜底行也能随 condition 子集转移。"""
+    source = FakeEpochs({"sound/low": 1, "sound/high": 2}, count=20)
+    source._elys_condition_metadata = [
+        {"parent_condition": "block/A", "child_condition": "sound/low"},
+        {"parent_condition": "block/B", "child_condition": "sound/low"},
+        {"parent_condition": "block/C", "child_condition": "sound/high"},
+    ]
+    target = FakeEpochs({"sound/low": 1}, count=10)
+
+    NodeDispatcher._attach_condition_metadata_subset(source, target, "sound/low")
+
+    assert NodeDispatcher._parent_conditions_for_epochs(target, {}) == ["block/A", "block/B"]
+
+
 def test_execute_epochs_output_emits_warning_for_skipped_conditions(monkeypatch):
     """processor 回吐 skipped_conditions → 结果带 severity=warning 的 issue，但仍 success。"""
     import app.pipeline.dispatcher as disp_mod
@@ -509,8 +846,64 @@ def test_execute_evoked_uses_input_condition_when_params_empty(monkeypatch):
     assert "go" in store.calls[0]["metadata"]["display_name"]
 
 
-def test_execute_evoked_params_condition_takes_priority(monkeypatch):
-    """params.condition='nogo' + input.condition='go' → ERP 用 params 优先。"""
+def test_execute_evoked_hierarchical_condition_selects_child_and_saves_path(monkeypatch):
+    """层级 Epoch 输出：ERP 实际选择 child_condition，但保存和下游分组使用完整 condition_path。"""
+    import app.pipeline.dispatcher as disp_mod
+    from app.pipeline.contracts import NodeInput
+
+    monkeypatch.setattr(disp_mod, "summarize_evoked", lambda ev: {"nave": ev.nave})
+    monkeypatch.setattr(disp_mod, "save_evoked_fif", lambda ev, path: None)
+    monkeypatch.setattr(disp_mod, "read_epochs_from_data_info", lambda data_info, **kw: object())
+
+    received_params = {}
+
+    def fake_processor(epochs, params):
+        received_params.update(params)
+        return FakeEvoked()
+
+    store = FakeStudyOutputStore()
+    input_data_info = {
+        "fif_path": "sub-01_blockA_sound_low_epo-epo.fif",
+        "bids_subject_id": "sub-01",
+        "task": "stim",
+        "condition": "block/A / sound/low",
+        "condition_model": "hierarchical",
+        "parent_conditions": ["block/A"],
+        "child_condition": "sound/low",
+        "condition_path": "block/A / sound/low",
+    }
+    ctx = _make_context(
+        params={},
+        node={"id": "erp-1", "type": "eeg/analysis/erp", "title": "ERP"},
+        topology={"erp-1": "leaf"},
+    )
+    ctx.node_spec = {
+        "save": {
+            "step_label": "erp-average",
+            "auto_tags": ["step:erp-average", "type:evoked"],
+            "dynamic_tags_always": ["cond:{condition}"],
+            "name_template_default": "{subject}_{task}_{condition}_{node_title}",
+            "always_per_condition": True,
+            "data_type": "evoked",
+        }
+    }
+    ctx.inputs = {"input": NodeInput(port="input", data_infos=[input_data_info])}
+    ctx.study_output_store = store
+
+    dispatcher = NodeDispatcher()
+    result = dispatcher._execute_evoked_output(ctx, fake_processor, save_descriptor="erp")
+
+    assert result.status == "success"
+    assert received_params.get("condition") == "sound/low"
+    assert store.calls[0]["metadata"]["condition"] == "block/A / sound/low"
+    assert store.calls[0]["metadata"]["analysis_condition"] == "sound/low"
+    assert store.calls[0]["metadata"]["condition_path"] == "block/A / sound/low"
+    assert result.output.data_infos[0]["condition"] == "block/A / sound/low"
+    assert result.output.data_infos[0]["analysis_condition"] == "sound/low"
+
+
+def test_execute_evoked_input_condition_takes_priority_over_params(monkeypatch):
+    """params.condition='nogo' + input.condition='go' → 上游 split 后仍以 input.condition 为准。"""
     import app.pipeline.dispatcher as disp_mod
     from app.pipeline.contracts import NodeInput
 
@@ -553,10 +946,10 @@ def test_execute_evoked_params_condition_takes_priority(monkeypatch):
     result = dispatcher._execute_evoked_output(ctx, fake_processor, save_descriptor="erp")
 
     assert result.status == "success"
-    # params 优先
-    assert received_params.get("condition") == "nogo"
-    assert "_nogo_erp-ave.fif" in store.calls[0]["filename"]
-    assert store.calls[0]["metadata"]["condition"] == "nogo"
+    # 上游已经是单 condition，静态 params 可能过期，必须以 input.condition 为准。
+    assert received_params.get("condition") == "go"
+    assert "_go_erp-ave.fif" in store.calls[0]["filename"]
+    assert store.calls[0]["metadata"]["condition"] == "go"
 
 
 if __name__ == "__main__":

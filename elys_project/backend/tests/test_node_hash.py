@@ -3,7 +3,7 @@ Purpose: 单元测试 app/pipeline/hash.py 的 node_hash 算法稳定性。
 
 核心断言：
 - spec metadata 字段（schema_version / save / ui / cache / backend 装饰字段）变化 → node_hash 不变
-- 算法相关字段（node_type / backend.module / backend.function）变化 → node_hash 改变
+- 算法相关字段（node_type / backend.module / backend.function / backend.algorithm_version）变化 → node_hash 改变
 - params / input 变化 → node_hash 改变
 
 这能保证 spec 升级（schema_version 升、加 save 子对象、改 ui.color 等）
@@ -166,6 +166,14 @@ def test_backend_function_change_changes_hash():
     spec_a = base_spec()
     spec_b = base_spec()
     spec_b["backend"]["function"] = "run_filter_v2"
+    assert hash_of(spec_a) != hash_of(spec_b)
+
+
+def test_backend_algorithm_version_change_changes_hash():
+    """算法语义版本改变时，即使函数名没变，也要让旧缓存失效。"""
+    spec_a = base_spec()
+    spec_b = base_spec()
+    spec_b["backend"]["algorithm_version"] = "context-path-v2"
     assert hash_of(spec_a) != hash_of(spec_b)
 
 

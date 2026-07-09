@@ -94,7 +94,7 @@ def node_hash(
 
     参与 hash 的字段:
       - node_type: 节点类型标识
-      - backend.module + backend.function: 实际调用的 Python 函数（算法版本）
+      - backend.module + backend.function + backend.algorithm_version: 实际调用的 Python 函数与算法语义版本
       - params_digest: 用户参数（过滤了 hash=false 的 cosmetic 字段）
       - input_digest: 上游 data_info 的内容签名
 
@@ -111,6 +111,7 @@ def node_hash(
         "node_type": node_type,
         "backend_module": (backend or {}).get("module"),
         "backend_function": (backend or {}).get("function"),
+        "backend_algorithm_version": (backend or {}).get("algorithm_version"),
         "params_hash": params_digest,
         "input_hash": input_digest,
     }

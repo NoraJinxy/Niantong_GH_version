@@ -1,0 +1,51 @@
+{
+  "schema_version": "2.0",
+  "type": "eeg/epoch/merge",
+  "title": "Epoch Merge",
+  "category": "epoch",
+  "phase": "phase2",
+  "description": "把多个父 Epochs 合并成可再次切分的 Epochs，并把父窗口内部子事件改写为“父 condition / 子事件”完整路径，供下游 Epoch 按子事件选择、按完整路径输出。",
+  "tags": ["epoch", "merge", "condition", "block", "annotations"],
+  "inputs": [
+    {"name": "input", "type": "epochs", "label": "Epochs", "required": true, "cardinality": "one_or_many"}
+  ],
+  "outputs": [
+    {"name": "output", "type": "epochs", "label": "Epochs", "cardinality": "one_or_many"}
+  ],
+  "properties": [
+    {
+      "name": "merge_scope",
+      "label": "合并范围",
+      "type": "select",
+      "default": "source_recording",
+      "required": true,
+      "description": "默认按原始记录合并，不跨被试 / recording 混合 trial，并在合并时生成父/子完整路径事件。按同名 condition 合并时限定在同一被试内，输出为被试 × condition 的独立 Epochs 数据集；需要特殊整理时也可选择全部输入。",
+      "options": [
+        {"value": "source_recording", "label": "按原始记录合并"},
+        {"value": "condition", "label": "按被试内同名 condition 合并"},
+        {"value": "all_inputs", "label": "全部输入合并"}
+      ]
+    }
+  ],
+  "backend": {
+    "module": "app.pipeline.dispatcher",
+    "function": "_execute_epoch_merge",
+    "algorithm_version": "context-path-v2",
+    "save_descriptor": "epmerge",
+    "output_kind": "fif",
+    "supports_batch": false,
+    "interactive": false
+  },
+  "save": {
+    "step_label": "epoch_merge",
+    "name_template_default": "{subject}_{task}_epoch_merge",
+    "name_template_default_split": "{subject}_{task}_{condition}_epoch_merge",
+    "split_supported": true,
+    "auto_tags": ["step:epoch_merge", "type:epochs"],
+    "dynamic_tags_when_split": ["cond:{condition}"],
+    "data_type": "epochs"
+  },
+  "compute_cost": "cheap",
+  "output_footprint": "medium",
+  "ui": {"color": "#4C7A5B", "default_size": [205, 98], "preview_type": "epochs"}
+}

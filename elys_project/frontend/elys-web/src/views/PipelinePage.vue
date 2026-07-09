@@ -4550,6 +4550,17 @@ function pushBaselineSummary(graphNode: LiteGraphNode, params: Record<string, un
   pushReadonlyFact(graphNode, '基线窗', `起点 → ${trimNumberText(tmax)} s`)
 }
 
+function pushEpochMergeSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
+  const scope = String(params.merge_scope ?? 'source_recording')
+  const label = scope === 'condition'
+    ? '同名条件'
+    : scope === 'all_inputs'
+      ? '全部输入'
+      : '原始记录'
+  pushReadonlyFact(graphNode, '合并', label)
+  pushReadonlyFact(graphNode, '输出', scope === 'condition' ? '按条件多份' : 'Epochs')
+}
+
 /** Grand Average：沿 unit 轴求均值 + 标准误（通吃 ERP/PSD/TFR）。误差带单列一行，
  *  让「不只是平均、还带 ±标准误」一眼可见；纯中文，不在卡上混 SEM 英文缩写。 */
 function pushGroupAverageSummary(graphNode: LiteGraphNode, params: Record<string, unknown>) {
@@ -4653,6 +4664,9 @@ function applyNodeWidgets(graphNode: LiteGraphNode) {
       break
     case EPOCH_NODE_TYPE:
       pushEpochSummary(graphNode, params, spec)
+      break
+    case 'eeg/epoch/merge':
+      pushEpochMergeSummary(graphNode, params)
       break
     case ERP_NODE_TYPE:
       pushErpSummary(graphNode, params)

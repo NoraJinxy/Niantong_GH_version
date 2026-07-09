@@ -135,7 +135,12 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
     if not descriptions:
         raise ValueError("No events found in source Epochs annotations.")
 
-    rules, unknown_conditions = rules_for_selection(params.get("conditions"), descriptions)
+    # Epoch Merge can rewrite inner annotations to "parent / child" paths. The
+    # downstream Epoch node still stores the user-selected child labels, so build
+    # the vocabulary from both full paths and their leaf labels.
+    rule_vocab = list(descriptions)
+    rule_vocab.extend(_condition_leaf(desc) for desc in descriptions)
+    rules, unknown_conditions = rules_for_selection(params.get("conditions"), rule_vocab)
     if not rules and not unknown_conditions:
         raise ValueError("Epoch.conditions is required.")
     if not rules:
@@ -145,7 +150,18 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
             f"{summary['hint']}"
         )
 
-    events_list, event_id_map, report = match_conditions(samples, descriptions, rules)
+    matched_events: list[tuple[int, str, str]] = []
+    created_counts: dict[str, int] = {r.name: 0 for r in rules}
+    event_id_map: dict[str, int] = {}
+    for sample, desc in zip(samples, descriptions):
+        hit_name = _match_context_condition(desc, rules)
+        if hit_name is None:
+            continue
+        output_condition = desc if _condition_parent(desc) else hit_name
+        if output_condition not in event_id_map:
+            event_id_map[output_condition] = len(event_id_map) + 1
+        matched_events.append((int(sample), hit_name, output_condition))
+
     if not event_id_map:
         summary = summarize_event_vocabulary(descriptions)
         raise ValueError(
@@ -161,24 +177,24 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
     parent_data = _epochs_data(parent_epochs)
     n_child_times = int(round((tmax - tmin) * sfreq)) + 1
     start_offset = int(round(tmin * sfreq))
-    code_to_name = {int(code): name for name, code in event_id_map.items()}
+    parent_code_to_name = {int(code): name for name, code in getattr(parent_epochs, "event_id", {}).items()}
     child_blocks: list[Any] = []
     child_events: list[list[int]] = []
-    created_counts: dict[str, int] = {r.name: 0 for r in rules}
     dropped_outside_parent = 0
+    metadata_rows: list[dict[str, Any]] = []
 
     annotation_onsets: list[float] = []
     annotation_durations: list[float] = []
     annotation_descriptions: list[str] = []
     event_stride = max(n_child_times + 1, int(round((tmax - tmin + 2.0) * sfreq)))
 
-    for matched in sorted(events_list, key=lambda row: (lookup[int(row[0])][0], lookup[int(row[0])][1], int(row[0]))):
-        sample_key = int(matched[0])
-        event_code = int(matched[2])
+    for sample_key, selected_name, condition_name in sorted(
+        matched_events,
+        key=lambda row: (lookup[int(row[0])][0], lookup[int(row[0])][1], int(row[0])),
+    ):
         parent_index, center, onset = lookup[sample_key]
         start = center + start_offset
         stop = start + n_child_times
-        condition_name = code_to_name.get(event_code, "")
         if start < 0 or stop > parent_n_times:
             dropped_outside_parent += 1
             continue
@@ -186,9 +202,21 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
         child_index = len(child_blocks)
         child_sample = (child_index + 1) * event_stride
         child_blocks.append(parent_data[parent_index, :, start:stop])
+        event_code = int(event_id_map[condition_name])
         child_events.append([child_sample, 0, event_code])
-        if condition_name:
-            created_counts[condition_name] = created_counts.get(condition_name, 0) + 1
+        created_counts[selected_name] = created_counts.get(selected_name, 0) + 1
+        parent_event_code = int(parent_epochs.events[parent_index, 2]) if hasattr(parent_epochs, "events") else 0
+        event_parent = _condition_parent(condition_name)
+        parent_condition = event_parent or parent_code_to_name.get(parent_event_code, "")
+        child_condition = _condition_leaf(condition_name)
+        metadata_rows.append(
+            {
+                "parent_condition": parent_condition,
+                "child_condition": child_condition,
+                "condition_path": condition_name,
+                "parent_epoch_index": parent_index,
+            }
+        )
 
         # Preserve annotations that fall inside this new child epoch so a later Epoch node can still chain.
         for ann in per_parent[parent_index]:
@@ -217,6 +245,14 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
         baseline=None,
         verbose="ERROR",
     )
+    if metadata_rows:
+        child_epochs._elys_condition_metadata = metadata_rows  # type: ignore[attr-defined]
+        try:
+            import pandas as pd  # noqa: PLC0415
+
+            child_epochs.metadata = pd.DataFrame(metadata_rows)
+        except Exception:
+            pass
     if annotation_onsets:
         child_epochs.set_annotations(
             mne.Annotations(
@@ -246,6 +282,31 @@ def _epochs_data(epochs: Any) -> Any:
         return epochs.get_data(copy=False)
     except TypeError:
         return epochs.get_data()
+
+
+def _condition_leaf(label: Any) -> str:
+    text = str(label or "").strip()
+    if " / " not in text:
+        return text
+    return text.split(" / ")[-1].strip()
+
+
+def _condition_parent(label: Any) -> str:
+    text = str(label or "").strip()
+    if " / " not in text:
+        return ""
+    return " / ".join(part.strip() for part in text.split(" / ")[:-1] if part.strip())
+
+
+def _match_context_condition(description: str, rules: Any) -> str | None:
+    candidates = [str(description or "").strip()]
+    leaf = _condition_leaf(description)
+    if leaf and leaf not in candidates:
+        candidates.append(leaf)
+    for rule in rules:
+        if any(rule.matches(candidate) for candidate in candidates):
+            return rule.name
+    return None
 
 
 def _mne():

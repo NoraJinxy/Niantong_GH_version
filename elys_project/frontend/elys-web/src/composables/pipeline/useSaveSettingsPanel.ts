@@ -32,19 +32,29 @@ export function useSaveSettingsPanel(options: SaveSettingsPanelOptions) {
     return raw as Record<string, unknown>
   })
 
-  /** Epoch 节点 split_by=condition 时，模板使用 _split 变体；否则用 default 模板。 */
+  /** Epoch 节点按条件拆分时，模板使用 _split 变体；否则用 default 模板。 */
   const splitMode = computed<string>(() => {
     const node = selectedNode.value
     if (!node) return 'none'
     const raw = node.params?.split_by
     return typeof raw === 'string' ? raw.trim().toLowerCase() : 'none'
   })
+  const mergeScope = computed<string>(() => {
+    const node = selectedNode.value
+    if (!node) return ''
+    const raw = node.params?.merge_scope
+    return typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  })
+  const splitsByCondition = computed(() =>
+    ['condition', 'child_condition'].includes(splitMode.value)
+    || (selectedNode.value?.type === 'eeg/epoch/merge' && mergeScope.value === 'condition'),
+  )
 
   /** 选择当前生效的 spec 模板（split 影响模板选择）。 */
   const effectiveNameTemplate = computed<string>(() => {
     const spec = saveSpec.value
     if (!spec) return '{subject}_{task}_{node_title}'
-    if (splitMode.value === 'condition') {
+    if (splitsByCondition.value) {
       return String(spec.name_template_default_split || spec.name_template_default || '{subject}_{task}_{node_title}')
     }
     return String(spec.name_template_default || '{subject}_{task}_{node_title}')
@@ -80,9 +90,9 @@ export function useSaveSettingsPanel(options: SaveSettingsPanelOptions) {
       (exampleRaw.subject_id as string | undefined) ||
       'sub-XX'
     const exampleTask = (exampleRaw.task as string | undefined) || 'task'
-    // condition 预览：split=condition 时用 'go'；ERP 节点用 params.condition 第一个
+    // condition 预览：按条件拆分时用 'go'；ERP 节点用 params.condition 第一个
     let exampleCondition: string | undefined
-    if (splitMode.value === 'condition') {
+    if (splitsByCondition.value) {
       exampleCondition = 'go'
     } else {
       const condRaw = node.params?.condition
@@ -110,11 +120,11 @@ export function useSaveSettingsPanel(options: SaveSettingsPanelOptions) {
     const seen = new Set<string>()
     const node = selectedNode.value
     const ctx: Record<string, unknown> = {
-      condition: splitMode.value === 'condition' ? '{condition}' : (node?.params?.condition || (spec.always_per_condition ? '{condition}' : '')),
+      condition: splitsByCondition.value ? '{condition}' : (node?.params?.condition || (spec.always_per_condition ? '{condition}' : '')),
     }
     const sources: unknown[] = [spec.auto_tags]
     if (spec.always_per_condition) sources.push(spec.dynamic_tags_always)
-    else if (splitMode.value === 'condition') sources.push(spec.dynamic_tags_when_split)
+    else if (splitsByCondition.value) sources.push(spec.dynamic_tags_when_split)
     for (const source of sources) {
       if (!Array.isArray(source)) continue
       for (const raw of source) {

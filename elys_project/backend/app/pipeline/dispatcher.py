@@ -84,6 +84,70 @@ class NodeExecutorNotImplemented(Exception):
         ).model_dump(mode="json")
 
 
+def _concatenate_epochs(items: list[Any]) -> Any:
+    if not items:
+        raise ValueError("No epochs to concatenate.")
+    import mne  # noqa: PLC0415
+
+    normalized, per_epoch_annotations = _normalise_epochs_for_concatenation(items)
+    merged = normalized[0] if len(normalized) == 1 else mne.concatenate_epochs(normalized, add_offset=True, verbose="ERROR")
+    _restore_epoch_annotations(merged, per_epoch_annotations)
+    return merged
+
+
+def _normalise_epochs_for_concatenation(items: list[Any]) -> tuple[list[Any], list[list[tuple[Any, Any, Any]]]]:
+    names: list[str] = []
+    for epochs in items:
+        for name in dict(getattr(epochs, "event_id", {}) or {}).keys():
+            text = str(name or "").strip()
+            if text and text not in names:
+                names.append(text)
+    if not names:
+        raise ValueError("Epoch Merge input has no event_id labels.")
+
+    unified_event_id = {name: index + 1 for index, name in enumerate(names)}
+    normalized: list[Any] = []
+    annotations: list[list[tuple[Any, Any, Any]]] = []
+    for epochs in items:
+        per_epoch = epochs.get_annotations_per_epoch() if callable(getattr(epochs, "get_annotations_per_epoch", None)) else []
+        annotations.extend([list(row) for row in per_epoch])
+        copy = epochs.copy()
+        old_inverse = {int(code): str(name) for name, code in dict(getattr(copy, "event_id", {}) or {}).items()}
+        if hasattr(copy, "events"):
+            for row in copy.events:
+                label = old_inverse.get(int(row[2]))
+                if label in unified_event_id:
+                    row[2] = unified_event_id[label]
+        copy.event_id = dict(unified_event_id)
+        elys_metadata = getattr(epochs, "_elys_condition_metadata", None)
+        if isinstance(elys_metadata, list):
+            copy._elys_condition_metadata = list(elys_metadata)  # type: ignore[attr-defined]
+        normalized.append(copy)
+    return normalized, annotations
+
+
+def _restore_epoch_annotations(epochs: Any, per_epoch_annotations: list[list[tuple[Any, Any, Any]]]) -> None:
+    if not per_epoch_annotations or not hasattr(epochs, "events"):
+        return
+    try:
+        sfreq = float(epochs.info["sfreq"])
+        import mne  # noqa: PLC0415
+
+        onsets: list[float] = []
+        durations: list[float] = []
+        descriptions: list[str] = []
+        for event, annotations in zip(epochs.events, per_epoch_annotations, strict=False):
+            event_onset = float(event[0]) / sfreq
+            for onset, duration, description in annotations:
+                onsets.append(event_onset + float(onset))
+                durations.append(float(duration))
+                descriptions.append(str(description))
+        if onsets:
+            epochs.set_annotations(mne.Annotations(onset=onsets, duration=durations, description=descriptions))
+    except Exception:
+        return
+
+
 class NodeDispatcher:
     def __init__(self):
         self._handlers: dict[str, Callable[[NodeExecutionContext], NodeDispatchResult]] = {
@@ -100,6 +164,7 @@ class NodeDispatcher:
             "eeg/ica/apply": self._execute_ica_apply,
             "eeg/ica/iclabel": self._execute_ica_iclabel,
             "eeg/epoch/segment": self._execute_epoch_segment,
+            "eeg/epoch/merge": self._execute_epoch_merge,
             "eeg/epoch/baseline": self._execute_baseline,
             "eeg/epoch/reject": self._execute_reject_trials,
             "eeg/analysis/erp": self._execute_erp_average,
@@ -739,6 +804,175 @@ class NodeDispatcher:
 
     def _execute_epoch_segment(self, context: NodeExecutionContext) -> NodeDispatchResult:
         return self._execute_epochs_output(context, run_epoch_segment, save_descriptor="epo")
+
+    def _execute_epoch_merge(self, context: NodeExecutionContext) -> NodeDispatchResult:
+        """Merge multiple epochs artifacts back into epochs, preserving per-epoch annotations."""
+        node_id = str(context.node.get("id") or "")
+        node_type = str(context.node.get("type") or "")
+        input_data_infos = self._input_data_infos(context, "input")
+        if not input_data_infos:
+            issue = self._issue(
+                code="PIPELINE_NODE_INPUT_MISSING",
+                message="Epoch Merge node has no upstream epochs data_infos on input port.",
+                node_id=node_id,
+                node_type=node_type,
+            )
+            output = NodeOutput(node_id=node_id, node_type=node_type, outputs={"output": []}, data_infos=[])
+            return NodeDispatchResult(output=output, status="failed", errors=[issue], output_ports=["output"])
+
+        params = context.params if isinstance(context.params, dict) else {}
+        merge_scope = str(params.get("merge_scope") or "source_recording").strip().lower()
+        if merge_scope not in {"source_recording", "condition", "all_inputs"}:
+            merge_scope = "source_recording"
+
+        study_output_store = context.study_output_store or StudyOutputStore(context.db, context.study, context.execution, context.job)
+        groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        group_order: list[tuple[str, str, str]] = []
+        errors: list[dict[str, Any]] = []
+        output_data_infos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+
+        def ensure_group(
+            key: tuple[str, str, str],
+            *,
+            label: str,
+            condition: str | None,
+            subject_key: str | None = None,
+        ) -> dict[str, Any]:
+            if key not in groups:
+                groups[key] = {
+                    "label": label,
+                    "condition": condition,
+                    "subject_key": subject_key,
+                    "epochs": [],
+                    "data_infos": [],
+                    "conditions": [],
+                    "context_annotation_count": 0,
+                    "context_parent_conditions": [],
+                }
+                group_order.append(key)
+            return groups[key]
+
+        for index, data_info in enumerate(input_data_infos):
+            try:
+                epochs = read_epochs_from_data_info(data_info, preload=True)
+                epochs, context_summary = self._rewrite_epoch_annotations_with_parent_context(epochs, data_info)
+                if merge_scope == "condition":
+                    event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+                    labels = self._epochs_condition_names(epochs, data_info) or sorted(event_id_map.keys()) or ["unknown"]
+                    subject_key = self._condition_merge_subject_key(data_info, index)
+                    for label in labels:
+                        selector = label if label in event_id_map else str(data_info.get("child_condition") or "")
+                        sub_epochs = epochs[selector] if selector in event_id_map else epochs
+                        self._attach_condition_metadata_subset(epochs, sub_epochs, selector or label)
+                        key = ("condition", subject_key, label)
+                        group = ensure_group(key, label=label, condition=label, subject_key=subject_key)
+                        group["epochs"].append(sub_epochs)
+                        group["data_infos"].append(data_info)
+                        group["conditions"].append(label)
+                        group["context_annotation_count"] += int(context_summary.get("context_annotation_count") or 0)
+                        group["context_parent_conditions"].extend(context_summary.get("context_parent_conditions") or [])
+                else:
+                    if merge_scope == "all_inputs":
+                        key = ("all_inputs", "all", "all")
+                        label = "all"
+                    else:
+                        label = self._condition_group_source_key(data_info, index)
+                        key = ("source_recording", label, "")
+                    group = ensure_group(key, label=label, condition=None)
+                    group["epochs"].append(epochs)
+                    group["data_infos"].append(data_info)
+                    group["conditions"].extend(self._epochs_condition_names(epochs, data_info))
+                    group["context_annotation_count"] += int(context_summary.get("context_annotation_count") or 0)
+                    group["context_parent_conditions"].extend(context_summary.get("context_parent_conditions") or [])
+            except Exception as exc:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: {exc}",
+                        node_id=node_id,
+                        node_type=node_type,
+                    )
+                )
+                break
+
+        if not errors:
+            for key in group_order:
+                group = groups[key]
+                data_infos = [item for item in group.get("data_infos") or [] if isinstance(item, dict)]
+                representative = data_infos[0] if data_infos else {}
+                condition = group.get("condition") if isinstance(group.get("condition"), str) else None
+                conditions = self._unique_texts(group.get("conditions") or [])
+                context_parent_conditions = self._unique_texts(group.get("context_parent_conditions") or [])
+                merge_subject_key = str(group.get("subject_key") or "")
+                merged = _concatenate_epochs(group["epochs"])
+                merged, post_context_summary = self._rewrite_epoch_annotations_with_parent_context(merged, representative)
+                context_annotation_count = int(group.get("context_annotation_count") or 0) + int(
+                    post_context_summary.get("context_annotation_count") or 0
+                )
+                context_parent_conditions = self._unique_texts(
+                    [
+                        *context_parent_conditions,
+                        *(post_context_summary.get("context_parent_conditions") or []),
+                    ]
+                )
+                display_name_override = None
+                if merge_scope == "all_inputs":
+                    node_title = str(context.node.get("title") or "Epoch Merge").strip() or "Epoch Merge"
+                    display_name_override = f"{node_title} · 全部输入合并"
+                info = self._save_epochs_dataset(
+                    context=context,
+                    data_info=representative,
+                    lineage_data_infos=data_infos,
+                    epochs=merged,
+                    study_output_store=study_output_store,
+                    artifacts=artifacts,
+                    save_descriptor="epmerge",
+                    index=len(output_data_infos),
+                    condition=condition,
+                    node_id=node_id,
+                    node_type=node_type,
+                    display_name_override=display_name_override,
+                    extra_summary={
+                        "merge_scope": merge_scope,
+                        "merge_group": str(group.get("label") or ""),
+                        "merge_subject": merge_subject_key,
+                        "merged_input_count": len(data_infos),
+                        "merged_conditions": conditions,
+                        "context_annotations": True,
+                        "context_annotation_count": context_annotation_count,
+                        "context_parent_conditions": context_parent_conditions,
+                    },
+                )
+                info["merge_scope"] = merge_scope
+                info["merge_group"] = str(group.get("label") or "")
+                if merge_subject_key:
+                    info["merge_subject"] = merge_subject_key
+                info["merged_input_count"] = len(data_infos)
+                info["merged_conditions"] = conditions
+                output_data_infos.append(info)
+
+        emitted_data_infos = [] if errors else output_data_infos
+        output = NodeOutput(
+            node_id=node_id,
+            node_type=node_type,
+            outputs={"output": emitted_data_infos},
+            data_infos=emitted_data_infos,
+            artifacts=artifacts,
+            metadata={
+                "dataset_count": len(output_data_infos),
+                "input_dataset_count": len(input_data_infos),
+                "merge_scope": merge_scope,
+                "save_descriptor": "epmerge",
+            },
+        )
+        return NodeDispatchResult(
+            output=output,
+            status="failed" if errors else "success",
+            dataset_count=len(emitted_data_infos),
+            output_ports=["output"],
+            errors=errors,
+        )
 
     def _execute_baseline(self, context: NodeExecutionContext) -> NodeDispatchResult:
         """Baseline 基线校正:epochs → epochs(逐输入 apply_baseline,复用 epochs 保存路径)。"""
@@ -1502,12 +1736,15 @@ class NodeDispatcher:
 
         # split_by 决定输出 cardinality：none → 一进一出；condition → 一进 N 出
         split_mode = str(context.params.get("split_by") or "none").strip().lower()
+        condition_split_groups: dict[tuple[str, str], dict[str, Any]] = {}
+        condition_split_order: list[tuple[str, str]] = []
 
         for index, data_info in enumerate(input_data_infos):
             try:
+                source_is_epochs = self._data_info_is_epochs(data_info)
                 source = (
                     read_epochs_from_data_info(data_info, preload=True)
-                    if self._data_info_is_epochs(data_info)
+                    if source_is_epochs
                     else read_raw_from_data_info(data_info, preload=True)
                 )
                 epochs, diagnostics = processor(source, context.params)
@@ -1527,26 +1764,56 @@ class NodeDispatcher:
                     except (TypeError, ValueError):
                         pass
 
-                if split_mode == "condition":
-                    # 按 condition 拆分 —— 每个 event label 一组 sub-epochs，单独保存
+                if split_mode in {"condition", "child_condition"}:
                     event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+                    source_key = self._condition_group_source_key(data_info, index)
                     for condition_label in sorted(event_id_map.keys()):
                         sub_epochs = epochs[condition_label]
+                        self._attach_condition_metadata_subset(epochs, sub_epochs, condition_label)
                         if len(sub_epochs) == 0:
                             continue
-                        info = self._save_epochs_dataset(
-                            context=context,
-                            data_info=data_info,
-                            epochs=sub_epochs,
-                            study_output_store=study_output_store,
-                            artifacts=artifacts,
-                            save_descriptor=save_descriptor,
-                            index=index,
-                            condition=condition_label,
-                            node_id=node_id,
-                            node_type=node_type,
+                        split_items = self._split_epochs_by_condition_context(
+                            sub_epochs,
+                            data_info,
+                            condition_label,
+                            source_is_epochs=source_is_epochs,
                         )
-                        output_data_infos.append(info)
+                        for item in split_items:
+                            item_epochs = item["epochs"]
+                            if len(item_epochs) == 0:
+                                continue
+                            if split_mode == "child_condition" and source_is_epochs:
+                                group_condition = str(item.get("condition") or condition_label)
+                                group_key = (source_key, group_condition)
+                                if group_key not in condition_split_groups:
+                                    condition_split_groups[group_key] = {
+                                        "condition": group_condition,
+                                        "child_condition": item.get("child_condition"),
+                                        "epochs": [],
+                                        "data_infos": [],
+                                        "parent_conditions": [],
+                                    }
+                                    condition_split_order.append(group_key)
+                                group = condition_split_groups[group_key]
+                                group["epochs"].append(item_epochs)
+                                group["data_infos"].append(data_info)
+                                group["parent_conditions"].extend(item.get("parent_conditions") or [])
+                            else:
+                                info = self._save_epochs_dataset(
+                                    context=context,
+                                    data_info=data_info,
+                                    epochs=item_epochs,
+                                    study_output_store=study_output_store,
+                                    artifacts=artifacts,
+                                    save_descriptor=save_descriptor,
+                                    index=len(output_data_infos),
+                                    condition=str(item.get("condition") or condition_label),
+                                    node_id=node_id,
+                                    node_type=node_type,
+                                    parent_conditions=item.get("parent_conditions") or [],
+                                    child_condition=item.get("child_condition"),
+                                )
+                                output_data_infos.append(info)
                 else:
                     info = self._save_epochs_dataset(
                         context=context,
@@ -1571,6 +1838,31 @@ class NodeDispatcher:
                     )
                 )
                 break
+
+        if not errors and condition_split_groups:
+            for group_key in condition_split_order:
+                group = condition_split_groups[group_key]
+                grouped_epochs = _concatenate_epochs(group["epochs"])
+                parent_conditions = self._unique_texts(group.get("parent_conditions") or [])
+                data_infos = [item for item in group.get("data_infos") or [] if isinstance(item, dict)]
+                representative = data_infos[0] if data_infos else {}
+                condition_label = str(group.get("condition") or "")
+                info = self._save_epochs_dataset(
+                    context=context,
+                    data_info=representative,
+                    lineage_data_infos=data_infos,
+                    epochs=grouped_epochs,
+                    study_output_store=study_output_store,
+                    artifacts=artifacts,
+                    save_descriptor=save_descriptor,
+                    index=len(output_data_infos),
+                    condition=condition_label,
+                    node_id=node_id,
+                    node_type=node_type,
+                    parent_conditions=parent_conditions,
+                    child_condition=group.get("child_condition"),
+                )
+                output_data_infos.append(info)
 
         # 按条件聚合跳过情况，每个节点最多一条警告（其余条件正常切分；只 warning 不 block）
         if skipped_by_condition:
@@ -1626,11 +1918,237 @@ class NodeDispatcher:
             warnings=warnings,
         )
 
+    @staticmethod
+    def _clean_condition_text(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @staticmethod
+    def _condition_leaf(value: Any) -> str | None:
+        text = NodeDispatcher._clean_condition_text(value)
+        if not text:
+            return None
+        if " / " not in text:
+            return text
+        return text.split(" / ")[-1].strip() or None
+
+    @staticmethod
+    def _condition_parent(value: Any) -> str | None:
+        text = NodeDispatcher._clean_condition_text(value)
+        if not text or " / " not in text:
+            return None
+        parent = " / ".join(part.strip() for part in text.split(" / ")[:-1] if part.strip())
+        return parent or None
+
+    @staticmethod
+    def _contextual_annotation_label(parent_condition: Any, child_label: Any, parent_labels: set[str]) -> str:
+        parent = NodeDispatcher._clean_condition_text(parent_condition)
+        child = NodeDispatcher._clean_condition_text(child_label)
+        if not parent or not child:
+            return child or ""
+        if " / " in child or child == parent or child in parent_labels:
+            return child
+        upper = child.upper()
+        if upper.startswith("BAD_") or upper.startswith("EDGE"):
+            return child
+        return f"{parent} / {child}"
+
+    def _rewrite_epoch_annotations_with_parent_context(
+        self, epochs: Any, data_info: dict[str, Any]
+    ) -> tuple[Any, dict[str, Any]]:
+        """Prefix inner annotations with the parent epoch condition.
+
+        Epoch Merge does not create child epochs. It only makes the next Epoch
+        node see context-aware events such as "block/A / sound/low" while the
+        saved node params can still contain the leaf label "sound/low".
+        """
+        if not (callable(getattr(epochs, "get_annotations_per_epoch", None)) and hasattr(epochs, "events")):
+            return epochs, {"context_annotation_count": 0, "context_parent_conditions": []}
+        try:
+            per_epoch = epochs.get_annotations_per_epoch()
+        except Exception:
+            return epochs, {"context_annotation_count": 0, "context_parent_conditions": []}
+        if not per_epoch:
+            return epochs, {"context_annotation_count": 0, "context_parent_conditions": []}
+
+        event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+        parent_by_code = {int(code): str(name) for name, code in event_id_map.items()}
+        parent_labels = {str(name).strip() for name in event_id_map.keys() if str(name).strip()}
+        fallback_parent = self._clean_condition_text(data_info.get("condition_path") or data_info.get("condition"))
+        if fallback_parent:
+            parent_labels.add(fallback_parent)
+
+        try:
+            rewritten_epochs = epochs.copy()
+            import mne  # noqa: PLC0415
+
+            sfreq = float(rewritten_epochs.info["sfreq"])
+            onsets: list[float] = []
+            durations: list[float] = []
+            descriptions: list[str] = []
+            rewritten_count = 0
+            used_parents: list[str] = []
+            for event, annotations in zip(rewritten_epochs.events, per_epoch, strict=False):
+                parent = parent_by_code.get(int(event[2])) or fallback_parent or ""
+                if parent:
+                    used_parents.append(parent)
+                event_onset = float(event[0]) / sfreq
+                for onset, duration, description in annotations:
+                    old_desc = str(description)
+                    new_desc = self._contextual_annotation_label(parent, old_desc, parent_labels)
+                    if new_desc != old_desc:
+                        rewritten_count += 1
+                    onsets.append(event_onset + float(onset))
+                    durations.append(float(duration))
+                    descriptions.append(new_desc)
+            if onsets:
+                rewritten_epochs.set_annotations(
+                    mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+                )
+            return rewritten_epochs, {
+                "context_annotation_count": rewritten_count,
+                "context_parent_conditions": self._unique_texts(used_parents),
+            }
+        except Exception:
+            return epochs, {"context_annotation_count": 0, "context_parent_conditions": []}
+
+    @staticmethod
+    def _condition_path_from_parts(parent_conditions: list[str], child_condition: str | None) -> str | None:
+        parents = NodeDispatcher._unique_texts(parent_conditions)
+        child = NodeDispatcher._clean_condition_text(child_condition)
+        if parents and child:
+            return f"{' + '.join(parents)} / {child}"
+        if child:
+            return child
+        if parents:
+            return " + ".join(parents)
+        return None
+
+    @staticmethod
+    def _condition_metadata_rows(epochs: Any) -> list[dict[str, Any]]:
+        metadata = getattr(epochs, "metadata", None)
+        if metadata is not None:
+            try:
+                rows = metadata.to_dict("records")
+                if isinstance(rows, list):
+                    return [dict(row) for row in rows if isinstance(row, dict)]
+            except Exception:
+                pass
+        rows = getattr(epochs, "_elys_condition_metadata", None)
+        if isinstance(rows, list):
+            return [dict(row) for row in rows if isinstance(row, dict)]
+        return []
+
+    @staticmethod
+    def _set_condition_metadata_rows(epochs: Any, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        epochs._elys_condition_metadata = list(rows)  # type: ignore[attr-defined]
+        try:
+            import pandas as pd  # noqa: PLC0415
+
+            epochs.metadata = pd.DataFrame(rows)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _take_epochs_by_indices(epochs: Any, indices: list[int], rows: list[dict[str, Any]]) -> Any | None:
+        if not indices:
+            return None
+        try:
+            if len(indices) == len(epochs) and indices == list(range(len(epochs))):
+                subset = epochs
+            else:
+                subset = epochs[indices]
+        except Exception:
+            try:
+                import numpy as np  # noqa: PLC0415
+
+                subset = epochs[np.asarray(indices, dtype=int)]
+            except Exception:
+                return None
+        NodeDispatcher._set_condition_metadata_rows(subset, rows)
+        return subset
+
+    def _split_epochs_by_condition_context(
+        self,
+        epochs: Any,
+        data_info: dict[str, Any],
+        condition_label: str,
+        *,
+        source_is_epochs: bool,
+    ) -> list[dict[str, Any]]:
+        """Return save groups for one event label, preserving parent/child condition paths."""
+        condition_label = str(condition_label or "").strip()
+        parent_conditions = self._parent_conditions_for_epochs(epochs, data_info) if source_is_epochs else []
+
+        if source_is_epochs:
+            rows = self._condition_metadata_rows(epochs)
+            if rows and len(rows) == len(epochs):
+                grouped: dict[str, dict[str, Any]] = {}
+                for index, row in enumerate(rows):
+                    child = self._clean_condition_text(row.get("child_condition")) or condition_label
+                    parent = self._clean_condition_text(row.get("parent_condition"))
+                    row_path = (
+                        self._clean_condition_text(row.get("condition_path"))
+                        or self._condition_path_from_parts([parent] if parent else [], child)
+                        or child
+                    )
+                    slot = grouped.setdefault(
+                        row_path,
+                        {
+                            "indices": [],
+                            "rows": [],
+                            "parent_conditions": [],
+                            "child_condition": child,
+                        },
+                    )
+                    slot["indices"].append(index)
+                    slot["rows"].append(row)
+                    if parent:
+                        slot["parent_conditions"].append(parent)
+                split_items: list[dict[str, Any]] = []
+                for path, slot in grouped.items():
+                    subset = self._take_epochs_by_indices(epochs, slot["indices"], slot["rows"])
+                    if subset is None:
+                        continue
+                    parents = self._unique_texts(slot.get("parent_conditions") or parent_conditions)
+                    child = self._clean_condition_text(slot.get("child_condition")) or condition_label
+                    split_items.append(
+                        {
+                            "condition": path,
+                            "epochs": subset,
+                            "parent_conditions": parents,
+                            "child_condition": child,
+                        }
+                    )
+                if split_items:
+                    return split_items
+
+        if parent_conditions:
+            return [
+                {
+                    "condition": self._condition_path_from_parts(parent_conditions, condition_label) or condition_label,
+                    "epochs": epochs,
+                    "parent_conditions": parent_conditions,
+                    "child_condition": condition_label,
+                }
+            ]
+        return [
+            {
+                "condition": condition_label,
+                "epochs": epochs,
+                "parent_conditions": [],
+                "child_condition": None,
+            }
+        ]
+
     def _save_epochs_dataset(
         self,
         *,
         context: NodeExecutionContext,
         data_info: dict[str, Any],
+        lineage_data_infos: list[dict[str, Any]] | None = None,
         epochs: Any,
         study_output_store: StudyOutputStore,
         artifacts: list[dict[str, Any]],
@@ -1639,23 +2157,48 @@ class NodeDispatcher:
         condition: str | None,
         node_id: str,
         node_type: str,
+        parent_conditions: list[str] | None = None,
+        child_condition: str | None = None,
         extra_summary: dict[str, Any] | None = None,
+        display_name_override: str | None = None,
     ) -> dict[str, Any]:
         """把一份 (子)epochs 写入磁盘 + 登记 study_output，返回 data_info。
 
         condition 非空时：文件名加 condition 后缀；apply_save_settings 用 split_value
         触发 dynamic_tags_when_split + name_template_default_split；输出 data_info 带 condition 字段。
+        parent_conditions / child_condition 用于 Epochs→Epochs 的层级条件模型：主 condition 写完整
+        condition_path，child_condition 只保留下游分析实际选择 MNE event_id 时使用的叶子事件名。
         extra_summary 非空时并进 summary（如 Reject Trials 的剔除溯源），同时进 preview 与 mne_summary。
         """
         summary = summarize_epochs(epochs)
+        parent_conditions = self._unique_texts(parent_conditions or [])
+        condition = str(condition or "").strip() or None
+        child_condition = str(child_condition or "").strip() or None
+        effective_condition = condition
+        condition_hierarchy: dict[str, Any] = {}
+        if parent_conditions and child_condition:
+            condition_path = condition or self._condition_path_from_parts(parent_conditions, child_condition)
+            effective_condition = condition_path
+            condition_hierarchy = {
+                "condition_model": "hierarchical",
+                "parent_conditions": parent_conditions,
+                "child_condition": child_condition,
+                "condition_path": condition_path,
+            }
+            summary = {**summary, **condition_hierarchy}
         if extra_summary:
             summary = {**summary, **extra_summary}
         filename = self._derived_fif_filename(
-            data_info, save_descriptor, index, kind="epochs", condition=condition
+            data_info, save_descriptor, index, kind="epochs", condition=effective_condition
         )
-        upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
+        lineage_inputs = lineage_data_infos if lineage_data_infos else [data_info]
+        upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(*lineage_inputs)
         save_meta = self._save_settings_metadata(
-            context, data_info=data_info, index=index, split_value=condition
+            context,
+            data_info=data_info,
+            index=index,
+            split_value=effective_condition,
+            display_name_override=display_name_override,
         )
         artifact = study_output_store.save_file_from_writer(
             filename,
@@ -1670,7 +2213,8 @@ class NodeDispatcher:
                 "mne_summary": summary,
                 "upstream_dataset_ids": upstream_dataset_ids,
                 "upstream_recording_ids": upstream_recording_ids,
-                "condition": condition,  # 让 _register_artifact 写入 derived.condition 列
+                "condition": effective_condition,  # 让 _register_artifact 写入 derived.condition 列
+                **condition_hierarchy,
                 **save_meta,
             },
             preview=summary,
@@ -1684,9 +2228,70 @@ class NodeDispatcher:
             artifact=artifact,
             summary=summary,
         )
-        if condition:
-            info["condition"] = condition
+        if effective_condition:
+            info["condition"] = effective_condition
+        info.update(condition_hierarchy)
         return info
+
+    def _analysis_condition_plan(
+        self,
+        data_info: dict[str, Any],
+        params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        input_condition = self._clean_condition_text(data_info.get("condition"))
+        if input_condition:
+            select_condition = self._clean_condition_text(data_info.get("child_condition")) or input_condition
+            hierarchy = self._condition_hierarchy_from_data_info(
+                data_info,
+                output_condition=input_condition,
+                select_condition=select_condition,
+            )
+            return [
+                {
+                    "select_condition": select_condition,
+                    "output_condition": input_condition,
+                    "hierarchy": hierarchy,
+                }
+            ]
+        return [
+            {"select_condition": cond, "output_condition": cond, "hierarchy": {}}
+            for cond in _normalize_event_labels(params.get("condition"))
+        ]
+
+    def _condition_hierarchy_from_data_info(
+        self,
+        data_info: dict[str, Any],
+        *,
+        output_condition: str,
+        select_condition: str,
+    ) -> dict[str, Any]:
+        parent_conditions: list[str] = []
+        raw_parents = data_info.get("parent_conditions")
+        if isinstance(raw_parents, (list, tuple, set)):
+            parent_conditions = self._unique_texts(raw_parents)
+        raw_parent = self._clean_condition_text(data_info.get("parent_condition"))
+        if raw_parent:
+            parent_conditions = self._unique_texts([*parent_conditions, raw_parent])
+        child_condition = self._clean_condition_text(data_info.get("child_condition"))
+        condition_path = self._clean_condition_text(data_info.get("condition_path"))
+        if not parent_conditions and condition_path and child_condition:
+            suffix = f" / {child_condition}"
+            if condition_path.endswith(suffix):
+                parent = condition_path[: -len(suffix)].strip()
+                if parent:
+                    parent_conditions = [parent]
+
+        if not (parent_conditions or child_condition or condition_path):
+            return {}
+        child_condition = child_condition or select_condition
+        condition_path = condition_path or output_condition
+        return {
+            "condition_model": data_info.get("condition_model") or "hierarchical",
+            "parent_conditions": parent_conditions,
+            "child_condition": child_condition,
+            "condition_path": condition_path,
+            "analysis_condition": select_condition,
+        }
 
     def _execute_evoked_output(
         self,
@@ -1729,27 +2334,18 @@ class NodeDispatcher:
             if outer_break:
                 break
 
-            # 决定本次 input data_info 要展开哪些 condition
-            input_condition_raw = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
-            input_condition = input_condition_raw.strip() if input_condition_raw else None
-
-            if input_condition:
-                # 上游 split 后已是单 condition → 直接用
-                conditions_to_run = [input_condition]
-            else:
-                # 上游合并模式 → 用 params.condition 展开
-                conditions_to_run = _normalize_event_labels(context.params.get("condition"))
-                if not conditions_to_run:
-                    errors.append(
-                        self._issue(
-                            code="PIPELINE_NODE_DATASET_FAILED",
-                            message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
-                                    "ERP.condition is required (上游 epochs 含多 condition，请在 ERP 节点选至少一个).",
-                            node_id=node_id,
-                            node_type=node_type,
-                        )
+            condition_plan = self._analysis_condition_plan(data_info, context.params)
+            if not condition_plan:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
+                                "ERP.condition is required (上游 epochs 含多 condition，请在 ERP 节点选至少一个).",
+                        node_id=node_id,
+                        node_type=node_type,
                     )
-                    break
+                )
+                break
 
             # 一次 read_epochs，多个 condition 复用
             try:
@@ -1767,26 +2363,33 @@ class NodeDispatcher:
                 break
 
             artifact_index_in_data_info = 0
-            for cond in conditions_to_run:
+            for item in condition_plan:
+                select_condition = str(item.get("select_condition") or "")
+                output_condition = str(item.get("output_condition") or select_condition)
+                condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
                 evoked = None
                 try:
-                    erp_params: dict[str, Any] = {**context.params, "condition": cond}
+                    erp_params: dict[str, Any] = {**context.params, "condition": select_condition}
                     evoked = processor(epochs, erp_params)
-                    summary = summarize_evoked(evoked)
+                    summary = {
+                        **summarize_evoked(evoked),
+                        "condition": output_condition,
+                        **condition_hierarchy,
+                    }
                     # 为避免多 condition 同名，artifact filename 用 condition 区分
                     filename = self._derived_fif_filename(
                         data_info,
                         save_descriptor,
                         index * 1000 + artifact_index_in_data_info,
                         kind="evoked",
-                        condition=cond,
+                        condition=output_condition,
                     )
                     upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                     save_meta = self._save_settings_metadata(
                         context,
                         data_info=data_info,
                         index=index,
-                        split_value=cond,
+                        split_value=output_condition,
                     )
                     artifact = study_output_store.save_file_from_writer(
                         filename,
@@ -1801,7 +2404,9 @@ class NodeDispatcher:
                             "mne_summary": summary,
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
-                            "condition": cond,
+                            "condition": output_condition,
+                            "analysis_condition": select_condition,
+                            **condition_hierarchy,
                             **save_meta,
                         },
                         preview=summary,
@@ -1809,21 +2414,23 @@ class NodeDispatcher:
                         node_id=node_id,
                     )
                     artifacts.append(artifact)
-                    output_data_infos.append(
-                        self._derived_data_info(
-                            context=context,
-                            input_data_info=data_info,
-                            artifact=artifact,
-                            summary=summary,
-                        )
+                    info = self._derived_data_info(
+                        context=context,
+                        input_data_info=data_info,
+                        artifact=artifact,
+                        summary=summary,
                     )
+                    info["condition"] = output_condition
+                    info["analysis_condition"] = select_condition
+                    info.update(condition_hierarchy)
+                    output_data_infos.append(info)
                     artifact_index_in_data_info += 1
                 except Exception as exc:
                     errors.append(
                         self._issue(
                             code="PIPELINE_NODE_DATASET_FAILED",
                             message=f"Recording {self._source_dataset_id(data_info) or index} "
-                                    f"condition={cond!r} failed in {node_type}: {exc}",
+                                    f"condition={output_condition!r} failed in {node_type}: {exc}",
                             node_id=node_id,
                             node_type=node_type,
                         )
@@ -1894,23 +2501,18 @@ class NodeDispatcher:
             if outer_break:
                 break
 
-            input_condition_raw = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
-            input_condition = input_condition_raw.strip() if input_condition_raw else None
-            if input_condition:
-                conditions_to_run = [input_condition]
-            else:
-                conditions_to_run = _normalize_event_labels(context.params.get("condition"))
-                if not conditions_to_run:
-                    errors.append(
-                        self._issue(
-                            code="PIPELINE_NODE_DATASET_FAILED",
-                            message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
-                                    "TFR.condition is required (上游 epochs 含多 condition,请在 TFR 节点选至少一个).",
-                            node_id=node_id,
-                            node_type=node_type,
-                        )
+            condition_plan = self._analysis_condition_plan(data_info, context.params)
+            if not condition_plan:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
+                                "TFR.condition is required (上游 epochs 含多 condition,请在 TFR 节点选至少一个).",
+                        node_id=node_id,
+                        node_type=node_type,
                     )
-                    break
+                )
+                break
 
             try:
                 epochs = read_epochs_from_data_info(data_info, preload=True)
@@ -1927,26 +2529,33 @@ class NodeDispatcher:
                 break
 
             artifact_index_in_data_info = 0
-            for cond in conditions_to_run:
+            for item in condition_plan:
+                select_condition = str(item.get("select_condition") or "")
+                output_condition = str(item.get("output_condition") or select_condition)
+                condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
                 power = None
                 try:
-                    tfr_params: dict[str, Any] = {**context.params, "condition": cond}
+                    tfr_params: dict[str, Any] = {**context.params, "condition": select_condition}
                     power = processor(epochs, tfr_params)
-                    summary = summarize_tfr(power)
+                    summary = {
+                        **summarize_tfr(power),
+                        "condition": output_condition,
+                        **condition_hierarchy,
+                    }
                     # 把基线模式记进 preview,前端据此决定展示单位(dB / % / z)
                     summary["baseline_mode"] = str(tfr_params.get("baseline_mode", "logratio") or "logratio")
                     filename = self._derived_tfr_filename(
                         data_info,
                         save_descriptor,
                         index * 1000 + artifact_index_in_data_info,
-                        condition=cond,
+                        condition=output_condition,
                     )
                     upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                     save_meta = self._save_settings_metadata(
                         context,
                         data_info=data_info,
                         index=index,
-                        split_value=cond,
+                        split_value=output_condition,
                     )
                     artifact = study_output_store.save_file_from_writer(
                         filename,
@@ -1961,7 +2570,9 @@ class NodeDispatcher:
                             "mne_summary": summary,
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
-                            "condition": cond,
+                            "condition": output_condition,
+                            "analysis_condition": select_condition,
+                            **condition_hierarchy,
                             **save_meta,
                         },
                         preview=summary,
@@ -1969,21 +2580,23 @@ class NodeDispatcher:
                         node_id=node_id,
                     )
                     artifacts.append(artifact)
-                    output_data_infos.append(
-                        self._derived_data_info(
-                            context=context,
-                            input_data_info=data_info,
-                            artifact=artifact,
-                            summary=summary,
-                        )
+                    info = self._derived_data_info(
+                        context=context,
+                        input_data_info=data_info,
+                        artifact=artifact,
+                        summary=summary,
                     )
+                    info["condition"] = output_condition
+                    info["analysis_condition"] = select_condition
+                    info.update(condition_hierarchy)
+                    output_data_infos.append(info)
                     artifact_index_in_data_info += 1
                 except Exception as exc:
                     errors.append(
                         self._issue(
                             code="PIPELINE_NODE_DATASET_FAILED",
                             message=f"Recording {self._source_dataset_id(data_info) or index} "
-                                    f"condition={cond!r} failed in {node_type}: {exc}",
+                                    f"condition={output_condition!r} failed in {node_type}: {exc}",
                             node_id=node_id,
                             node_type=node_type,
                         )
@@ -2109,23 +2722,18 @@ class NodeDispatcher:
                     gc.collect()
                 continue
 
-            input_condition_raw = data_info.get("condition") if isinstance(data_info.get("condition"), str) else None
-            input_condition = input_condition_raw.strip() if input_condition_raw else None
-            if input_condition:
-                conditions_to_run = [input_condition]
-            else:
-                conditions_to_run = _normalize_event_labels(context.params.get("condition"))
-                if not conditions_to_run:
-                    errors.append(
-                        self._issue(
-                            code="PIPELINE_NODE_DATASET_FAILED",
-                            message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
-                                    "PSD.condition is required (上游 epochs 含多 condition,请在 PSD 节点选至少一个).",
-                            node_id=node_id,
-                            node_type=node_type,
-                        )
+            condition_plan = self._analysis_condition_plan(data_info, context.params)
+            if not condition_plan:
+                errors.append(
+                    self._issue(
+                        code="PIPELINE_NODE_DATASET_FAILED",
+                        message=f"Recording {self._source_dataset_id(data_info) or index} failed in {node_type}: "
+                                "PSD.condition is required (上游 epochs 含多 condition,请在 PSD 节点选至少一个).",
+                        node_id=node_id,
+                        node_type=node_type,
                     )
-                    break
+                )
+                break
 
             try:
                 epochs = read_epochs_from_data_info(data_info, preload=True)
@@ -2142,24 +2750,31 @@ class NodeDispatcher:
                 break
 
             artifact_index_in_data_info = 0
-            for cond in conditions_to_run:
+            for item in condition_plan:
+                select_condition = str(item.get("select_condition") or "")
+                output_condition = str(item.get("output_condition") or select_condition)
+                condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
                 spectrum = None
                 try:
-                    psd_params: dict[str, Any] = {**context.params, "condition": cond}
+                    psd_params: dict[str, Any] = {**context.params, "condition": select_condition}
                     spectrum = processor(epochs, psd_params)
-                    summary = summarize_psd(spectrum)
+                    summary = {
+                        **summarize_psd(spectrum),
+                        "condition": output_condition,
+                        **condition_hierarchy,
+                    }
                     filename = self._derived_psd_filename(
                         data_info,
                         save_descriptor,
                         index * 1000 + artifact_index_in_data_info,
-                        condition=cond,
+                        condition=output_condition,
                     )
                     upstream_dataset_ids, upstream_recording_ids = self._lineage_for_input(data_info)
                     save_meta = self._save_settings_metadata(
                         context,
                         data_info=data_info,
                         index=index,
-                        split_value=cond,
+                        split_value=output_condition,
                     )
                     artifact = study_output_store.save_file_from_writer(
                         filename,
@@ -2174,7 +2789,9 @@ class NodeDispatcher:
                             "mne_summary": summary,
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
-                            "condition": cond,
+                            "condition": output_condition,
+                            "analysis_condition": select_condition,
+                            **condition_hierarchy,
                             **save_meta,
                         },
                         preview=summary,
@@ -2182,21 +2799,23 @@ class NodeDispatcher:
                         node_id=node_id,
                     )
                     artifacts.append(artifact)
-                    output_data_infos.append(
-                        self._derived_data_info(
-                            context=context,
-                            input_data_info=data_info,
-                            artifact=artifact,
-                            summary=summary,
-                        )
+                    info = self._derived_data_info(
+                        context=context,
+                        input_data_info=data_info,
+                        artifact=artifact,
+                        summary=summary,
                     )
+                    info["condition"] = output_condition
+                    info["analysis_condition"] = select_condition
+                    info.update(condition_hierarchy)
+                    output_data_infos.append(info)
                     artifact_index_in_data_info += 1
                 except Exception as exc:
                     errors.append(
                         self._issue(
                             code="PIPELINE_NODE_DATASET_FAILED",
                             message=f"Recording {self._source_dataset_id(data_info) or index} "
-                                    f"condition={cond!r} failed in {node_type}: {exc}",
+                                    f"condition={output_condition!r} failed in {node_type}: {exc}",
                             node_id=node_id,
                             node_type=node_type,
                         )
@@ -2255,6 +2874,118 @@ class NodeDispatcher:
             if value and str(value).lower().endswith(("-epo.fif", "-epo.fif.gz")):
                 return True
         return False
+
+    @staticmethod
+    def _unique_texts(values: Any) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in values or []:
+            text = str(value or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+    @staticmethod
+    def _metadata_column_values(epochs: Any, column: str) -> list[str]:
+        metadata = getattr(epochs, "metadata", None)
+        if metadata is not None:
+            try:
+                if column in metadata:
+                    values = metadata[column].dropna().tolist()
+                    return NodeDispatcher._unique_texts(values)
+            except Exception:
+                pass
+        elys_metadata = getattr(epochs, "_elys_condition_metadata", None)
+        if isinstance(elys_metadata, list):
+            return NodeDispatcher._unique_texts(
+                row.get(column) for row in elys_metadata if isinstance(row, dict)
+            )
+        return []
+
+    @staticmethod
+    def _attach_condition_metadata_subset(source_epochs: Any, target_epochs: Any, condition_label: str) -> None:
+        rows = getattr(source_epochs, "_elys_condition_metadata", None)
+        if not isinstance(rows, list):
+            return
+        label = str(condition_label or "").strip()
+        leaf = NodeDispatcher._condition_leaf(label)
+        subset = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and (
+                str(row.get("condition_path") or "").strip() == label
+                or str(row.get("child_condition") or "").strip() == label
+                or (leaf and str(row.get("child_condition") or "").strip() == leaf)
+            )
+        ]
+        if subset:
+            target_epochs._elys_condition_metadata = subset  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _parent_conditions_for_epochs(epochs: Any, data_info: dict[str, Any]) -> list[str]:
+        from_metadata = NodeDispatcher._metadata_column_values(epochs, "parent_condition")
+        if from_metadata:
+            return from_metadata
+        raw_list = data_info.get("parent_conditions")
+        if isinstance(raw_list, (list, tuple, set)):
+            return NodeDispatcher._unique_texts(raw_list)
+        raw = data_info.get("parent_condition")
+        if isinstance(raw, str) and raw.strip():
+            return [raw.strip()]
+        raw_path = data_info.get("condition_path") or data_info.get("condition")
+        child = data_info.get("child_condition")
+        if isinstance(raw_path, str) and isinstance(child, str):
+            suffix = f" / {child.strip()}"
+            if raw_path.strip().endswith(suffix):
+                parent = raw_path.strip()[: -len(suffix)].strip()
+                if parent:
+                    return [parent]
+        raw = data_info.get("condition")
+        if isinstance(raw, str) and raw.strip():
+            return [raw.strip()]
+        return []
+
+    @staticmethod
+    def _epochs_condition_names(epochs: Any, data_info: dict[str, Any]) -> list[str]:
+        raw = data_info.get("condition_path") or data_info.get("condition")
+        if isinstance(raw, str) and raw.strip():
+            return [raw.strip()]
+        raw_list = data_info.get("conditions") or data_info.get("merged_conditions")
+        if isinstance(raw_list, (list, tuple, set)):
+            return NodeDispatcher._unique_texts(raw_list)
+        event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+        return NodeDispatcher._unique_texts(event_id_map.keys())
+
+    @staticmethod
+    def _condition_group_source_key(data_info: dict[str, Any], index: int) -> str:
+        for key in (
+            NodeDispatcher._source_dataset_id(data_info),
+            data_info.get("source_dataset_file_id"),
+            data_info.get("bids_subject_id"),
+            data_info.get("subject"),
+            data_info.get("subject_id"),
+            data_info.get("dataset_id"),
+        ):
+            text = str(key or "").strip()
+            if text:
+                return text
+        return f"input-{index}"
+
+    @staticmethod
+    def _condition_merge_subject_key(data_info: dict[str, Any], index: int) -> str:
+        """Group condition-merge outputs within a subject, not across subjects."""
+        for key in (
+            data_info.get("bids_subject_id"),
+            data_info.get("subject"),
+            data_info.get("subject_id"),
+        ):
+            text = str(key or "").strip()
+            if text:
+                return text
+        return NodeDispatcher._condition_group_source_key(data_info, index)
 
     @staticmethod
     def _lineage_for_input(*data_infos: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -2483,6 +3214,13 @@ class NodeDispatcher:
             "content_hash",
             "data_type",
             "ica_path",
+            "condition",
+            "condition_model",
+            "parent_condition",
+            "parent_conditions",
+            "child_condition",
+            "condition_path",
+            "analysis_condition",
             # 不收 *_abs_path / study_root 等服务器绝对路径：紧凑表示会进交互 payload、preview_json.source_ref、
             # 产物 metadata 等会回前端的位置（泄漏服务器路径）。回溯载入源 raw（ica_inspect._load_source_raw）
             # 走 storage_uri/fif_path 即可，从不需要绝对路径；引擎读 ICA 用的是 _ica_data_info 的独立 data_info。

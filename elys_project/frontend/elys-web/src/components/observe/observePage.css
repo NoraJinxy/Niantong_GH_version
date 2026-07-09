@@ -71,9 +71,15 @@
 .ov-ord-btn:disabled { opacity: .35; cursor: default; }
 .ov-chanlist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .ov-seglist { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-.ov-sec-row { display: flex; align-items: flex-start; }
-.ov-sec--half { flex: 1 1 0; min-width: 0; }
-.ov-sec--half + .ov-sec--half { border-left: 1px solid var(--c-border); }
+.ov-sec-stack { display: flex; flex-direction: column; }
+.ov-sec--full { width: 100%; box-sizing: border-box; flex: 0 0 auto; }
+.ov-sec--full + .ov-sec--full { border-top: 1px solid var(--c-border); }
+.ov-sec-stack--epoch .ov-seglist { max-height: 122px; }
+.ov-sec-stack--epoch .ov-chanlist { max-height: 154px; }
+@media (max-height: 820px) {
+  .ov-sec-stack--epoch .ov-seglist { max-height: 108px; }
+  .ov-sec-stack--epoch .ov-chanlist { max-height: 138px; }
+}
 /* 叠加维度单选：选中维度在子图内叠加，其余自动分面 */
 .ov-ovpick { display: flex; gap: 4px; }
 .ov-ovbtn { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 12px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text-2); cursor: pointer; white-space: nowrap; }

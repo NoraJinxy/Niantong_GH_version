@@ -22,8 +22,15 @@ from app.schemas.pipeline import (
 
 LOAD_DATA_NODE_TYPE = "eeg/data/load"
 EPOCH_NODE_TYPE = "eeg/epoch/segment"
+EPOCH_MERGE_NODE_TYPE = "eeg/epoch/merge"
 EVENT_REMAP_NODE_TYPE = "eeg/preproc/event_remap"
 EVENT_MANAGER_NODE_TYPE = "eeg/preproc/event_manager"
+EPOCH_OUTPUT_NODE_TYPES = {
+    EPOCH_NODE_TYPE,
+    EPOCH_MERGE_NODE_TYPE,
+    "eeg/epoch/baseline",
+    "eeg/epoch/reject",
+}
 
 # 这些节点不改事件描述 → condition 词表原样透传给下游：
 # 预处理(滤波/重采样/重参考/通道定位/坏道/手动标记)、ICA 三件套、分析(ERP/TFR/PSD)。
@@ -54,7 +61,7 @@ def resolve_node_conditions(
     - LoadData → 解析其数据集、并集 condition_groups;
     - Epoch    → 输入词表 ∩ 本节点已勾 conditions(= 它实际切出的 condition,喂给 ERP/TFR/PSD);
       但当下游本身也是 Epoch 时,候选取父 Epochs 内仍保留的 annotations 词表,支持 block 内二次切分;
-    - 透传类(预处理/ICA/分析) → = 输入词表;
+    - Epoch Merge / 透传类(预处理/ICA/分析) → = 输入词表;
     - 其余/未知类型 → = 输入词表。
     memo 防菱形图重复解析,visiting 防环(图本应无环)。
     """
@@ -85,6 +92,13 @@ def resolve_node_conditions(
         for parent in incoming.get(nid, []):
             _merge(merged, output_vocab(parent))
         return merged
+
+    def has_epoch_merge_input(nid: str) -> bool:
+        for parent in incoming.get(nid, []):
+            parent_type = str((nodes.get(parent) or {}).get("type") or "")
+            if parent_type == EPOCH_MERGE_NODE_TYPE:
+                return True
+        return False
 
     def output_vocab(nid: str) -> dict[str, dict[str, int]]:
         if nid in memo:
@@ -124,11 +138,16 @@ def resolve_node_conditions(
                     )
                 )
         elif ntype == EPOCH_NODE_TYPE:
-            inp = input_vocab(nid)
+            inp = annotation_input_vocab(nid)
             params = node.get("params") if isinstance(node.get("params"), dict) else {}
             selected = _selected_condition_names(params.get("conditions"))
             # Epoch 实际切出的 = 已勾且在输入词表里真实存在的(ghost 名不下传给 ERP/TFR/PSD)
-            result = {name: inp[name] for name in selected if name in inp}
+            selected_vocab = {name: inp[name] for name in selected if name in inp}
+            result = selected_vocab
+            if has_epoch_merge_input(nid):
+                parent_vocab = input_vocab(nid)
+                if parent_vocab and selected_vocab:
+                    result = _condition_path_vocab(parent_vocab, selected_vocab)
         elif ntype == EVENT_REMAP_NODE_TYPE:
             # 事件重映射:按规则把输入词表重命名/合并/丢弃 → 输出词表(方案 C)
             node_params = node.get("params") if isinstance(node.get("params"), dict) else {}
@@ -220,6 +239,30 @@ def _merge(target: dict[str, dict[str, int]], other: dict[str, dict[str, int]]) 
         slot = target.setdefault(name, {"count": 0, "datasets": 0})
         slot["count"] += int(info.get("count") or 0)
         slot["datasets"] += int(info.get("datasets") or 0)
+
+
+def _condition_path_vocab(
+    parent_vocab: dict[str, dict[str, int]],
+    child_vocab: dict[str, dict[str, int]],
+) -> dict[str, dict[str, int]]:
+    result: dict[str, dict[str, int]] = {}
+    for parent, parent_info in parent_vocab.items():
+        parent_name = str(parent or "").strip()
+        if not parent_name:
+            continue
+        for child, child_info in child_vocab.items():
+            child_name = str(child or "").strip()
+            if not child_name:
+                continue
+            name = f"{parent_name} / {child_name}"
+            result[name] = {
+                "count": int(child_info.get("count") or 0),
+                "datasets": max(
+                    int(parent_info.get("datasets") or 0),
+                    int(child_info.get("datasets") or 0),
+                ),
+            }
+    return result
 
 
 def _event_manager_rename_rules(group_ops: Any) -> list[dict[str, Any]]:

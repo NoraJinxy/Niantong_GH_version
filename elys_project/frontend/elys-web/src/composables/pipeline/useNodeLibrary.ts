@@ -24,7 +24,7 @@ const NODE_ORDER = [
   'eeg/preproc/channel_location', 'eeg/preproc/bad_channels',
   'eeg/preproc/artifact_mark', 'eeg/preproc/event_remap',
   'eeg/ica/compute', 'eeg/ica/apply', 'eeg/ica/iclabel',
-  'eeg/epoch/segment', 'eeg/epoch/baseline', 'eeg/epoch/reject',
+  'eeg/epoch/segment', 'eeg/epoch/merge', 'eeg/epoch/baseline', 'eeg/epoch/reject',
   'eeg/analysis/erp', 'eeg/analysis/tfr', 'eeg/analysis/psd',
   'eeg/group/merge', 'eeg/group/average', 'eeg/group/compare',
 ]

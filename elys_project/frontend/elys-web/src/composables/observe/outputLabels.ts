@@ -38,10 +38,15 @@ export function compactDatasetLabels(labels: string[]): string[] {
   const keys = parsed.some((parts) => parts.sub) ? ['sub', ...diffKeys.filter((key) => key !== 'sub')] : diffKeys
   const fallbackKeys = keys.length ? keys : BIDS_KEYS.filter((key) => parsed.some((parts) => parts[key])).slice(0, 1)
 
-  return labels.map((label, i) => {
+  const compacted = labels.map((label, i) => {
     const parts = fallbackKeys.map((key) => parsed[i][key]).filter(Boolean)
     return parts.length ? parts.join('_') : label
   })
+  const compactedUnique = new Set(compacted).size
+  // Do not let BIDS compaction collapse distinct subject-condition epoch outputs
+  // into a single subject label.
+  if (compactedUnique < compacted.length && new Set(labels).size > compactedUnique) return labels
+  return compacted
 }
 
 function cleanText(value: unknown): string {
@@ -75,7 +80,11 @@ function stripCondition(label: string, condition: string): string {
   const escaped = cleanText(condition)
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     .replace(/\s+/g, '\\s+')
+  const sep = String.raw`[\s_·路|:-]+`
   return label
+    // ERP/TFR/PSD per-condition display names can place condition in the
+    // middle: sub-05_task-rest_Stimulus/S 1_ERP Average.
+    .replace(new RegExp(`${sep}${escaped}(?=${sep})`, 'i'), '_')
     // Grand Average · S3 (3 subj) -> Grand Average (3 subj);
     // duplicated display names may append another suffix, e.g. "(3)".
     .replace(new RegExp(`\\s*(?:[·|_-]\\s*)?${escaped}\\s*(?=(?:\\s*\\([^)]*\\))*\\s*$)`, 'i'), ' ')
@@ -83,6 +92,8 @@ function stripCondition(label: string, condition: string): string {
     .replace(new RegExp(`\\s*\\(${escaped}\\)\\s*$`, 'i'), '')
     .replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '')
     .replace(/\s*[·|_-]\s*(?=(?:\s*\([^)]*\))*\s*$)/, ' ')
+    .replace(/_{2,}/g, '_')
+    .replace(/^\s*[_·路|:-]\s*|\s*[_·路|:-]\s*$/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }
@@ -93,7 +104,13 @@ function formatDatasetLabel(data: StudyOutput): string {
     .map((part) => String(part || '').trim())
     .filter(Boolean)
   const bidsLike = parts.length ? parts.join('_') : ''
-  const display = stripCondition(data.display_name || '', conditionFromOutput(data))
+  const condition = conditionFromOutput(data)
+  const dataType = cleanText(data.data_type).toLowerCase()
+  if (dataType === 'epochs' && condition) {
+    const display = cleanText(data.display_name)
+    return display || [bidsLike || subject, condition].filter(Boolean).join(' · ')
+  }
+  const display = stripCondition(data.display_name || '', condition)
   return display || bidsLike || subject || ''
 }
 

@@ -67,7 +67,8 @@ def _subject_of(data_info: dict[str, Any]) -> str:
 
 def _condition_of(data_info: dict[str, Any]) -> str:
     return _clean_text(
-        data_info.get("condition")
+        data_info.get("condition_path")
+        or data_info.get("condition")
         or data_info.get("event_label")
         or data_info.get("comment")
         or data_info.get("label"),
@@ -194,7 +195,7 @@ def extract_block(data_info: dict[str, Any]) -> dict[str, Any]:
     if dt == "evoked":
         ev = read_evoked_from_data_info(data_info)
         data = np.asarray(ev.data, dtype=float)
-        condition = _clean_text(data_info.get("condition") or getattr(ev, "comment", None), _UNKNOWN)
+        condition = _clean_text(data_info.get("condition_path") or data_info.get("condition") or getattr(ev, "comment", None), _UNKNOWN)
         label = _clean_text(data_info.get("label") or getattr(ev, "comment", None), subject or condition)
         block = {
             "base_type": "evoked",
@@ -213,7 +214,7 @@ def extract_block(data_info: dict[str, Any]) -> dict[str, Any]:
     if dt == "tfr":
         tf = read_tfr_from_data_info(data_info)
         data = np.asarray(tf.data, dtype=float)
-        condition = _clean_text(data_info.get("condition") or getattr(tf, "comment", None), _UNKNOWN)
+        condition = _clean_text(data_info.get("condition_path") or data_info.get("condition") or getattr(tf, "comment", None), _UNKNOWN)
         label = _clean_text(data_info.get("label") or getattr(tf, "comment", None), subject or condition)
         block = {
             "base_type": "tfr",

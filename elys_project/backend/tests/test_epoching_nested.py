@@ -33,6 +33,19 @@ def test_epoch_can_segment_inside_parent_epochs():
     assert child_diag["skipped_conditions"] == []
     assert child_diag["source"] == "epochs"
     assert child_diag["dropped_outside_parent"] == 0
+    condition_metadata = child.metadata
+    if condition_metadata is None:
+        condition_metadata = getattr(child, "_elys_condition_metadata")
+
+        def column(name: str):
+            return [row[name] for row in condition_metadata]
+    else:
+        def column(name: str):
+            return list(condition_metadata[name])
+
+    assert column("parent_condition") == ["block", "block"]
+    assert column("child_condition") == ["stim/A", "stim/A"]
+    assert column("condition_path") == ["stim/A", "stim/A"]
 
     per_child = child.get_annotations_per_epoch()
     assert len(per_child) == 2

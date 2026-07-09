@@ -109,6 +109,125 @@ def test_epoch_after_epoch_uses_annotation_vocab_not_parent_epoch_labels(monkeyp
     assert [c.name for c in erp.conditions] == ["block"]
 
 
+def test_analysis_after_plain_nested_epoch_keeps_leaf_conditions(monkeypatch):
+    """Plain Epoch -> Epoch keeps leaf child event labels for downstream analysis."""
+    monkeypatch.setattr(
+        cr,
+        "resolve_load_data_selection",
+        _fake_resolve(
+            {
+                "ld1": [
+                    {"name": "block/A", "count": 2},
+                    {"name": "block/B", "count": 2},
+                    {"name": "sound/low", "count": 20},
+                    {"name": "sound/high", "count": 20},
+                ]
+            }
+        ),
+    )
+    graph = {
+        "nodes": [
+            {"id": "ld1", "type": "eeg/data/load", "params": {}},
+            {"id": "block_ep", "type": "eeg/epoch/segment", "params": {"conditions": ["block/A", "block/B"]}},
+            {
+                "id": "sound_ep",
+                "type": "eeg/epoch/segment",
+                "params": {"conditions": ["sound/low", "sound/high"], "split_by": "condition"},
+            },
+            {"id": "erp", "type": "eeg/analysis/erp", "params": {}},
+        ],
+        "links": [
+            {"from": {"node": "ld1"}, "to": {"node": "block_ep"}},
+            {"from": {"node": "block_ep"}, "to": {"node": "sound_ep"}},
+            {"from": {"node": "sound_ep"}, "to": {"node": "erp"}},
+        ],
+    }
+    res = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="erp")
+    assert {c.name for c in res.conditions} == {"sound/low", "sound/high"}
+
+
+def test_analysis_after_epoch_merge_sees_condition_paths(monkeypatch):
+    """Epoch Merge -> Epoch expands leaf child selections into parent / child condition paths."""
+    monkeypatch.setattr(
+        cr,
+        "resolve_load_data_selection",
+        _fake_resolve(
+            {
+                "ld1": [
+                    {"name": "block/A", "count": 2},
+                    {"name": "block/B", "count": 2},
+                    {"name": "sound/low", "count": 20},
+                    {"name": "sound/high", "count": 20},
+                ]
+            }
+        ),
+    )
+    graph = {
+        "nodes": [
+            {"id": "ld1", "type": "eeg/data/load", "params": {}},
+            {"id": "block_ep", "type": "eeg/epoch/segment", "params": {"conditions": ["block/A", "block/B"]}},
+            {"id": "merge", "type": "eeg/epoch/merge", "params": {"merge_scope": "source_recording"}},
+            {
+                "id": "sound_ep",
+                "type": "eeg/epoch/segment",
+                "params": {"conditions": ["sound/low", "sound/high"], "split_by": "condition"},
+            },
+            {"id": "erp", "type": "eeg/analysis/erp", "params": {}},
+        ],
+        "links": [
+            {"from": {"node": "ld1"}, "to": {"node": "block_ep"}},
+            {"from": {"node": "block_ep"}, "to": {"node": "merge"}},
+            {"from": {"node": "merge"}, "to": {"node": "sound_ep"}},
+            {"from": {"node": "sound_ep"}, "to": {"node": "erp"}},
+        ],
+    }
+    res = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="erp")
+    assert {c.name for c in res.conditions} == {
+        "block/A / sound/low",
+        "block/A / sound/high",
+        "block/B / sound/low",
+        "block/B / sound/high",
+    }
+
+
+def test_epoch_merge_preserves_parent_annotation_vocab(monkeypatch):
+    """LoadData → Epoch(block) → Epoch Merge → Epoch(sound)：Merge 不吞掉子事件候选。"""
+    monkeypatch.setattr(
+        cr,
+        "resolve_load_data_selection",
+        _fake_resolve(
+            {
+                "ld1": [
+                    {"name": "block/A", "count": 2},
+                    {"name": "block/B", "count": 2},
+                    {"name": "sound/low", "count": 20},
+                    {"name": "sound/high", "count": 20},
+                ]
+            }
+        ),
+    )
+    graph = {
+        "nodes": [
+            {"id": "ld1", "type": "eeg/data/load", "params": {}},
+            {"id": "block_ep", "type": "eeg/epoch/segment", "params": {"conditions": ["block/A", "block/B"]}},
+            {"id": "merge", "type": "eeg/epoch/merge", "params": {"merge_scope": "source_recording"}},
+            {"id": "sound_ep", "type": "eeg/epoch/segment", "params": {}},
+            {"id": "erp", "type": "eeg/analysis/erp", "params": {}},
+        ],
+        "links": [
+            {"from": {"node": "ld1"}, "to": {"node": "block_ep"}},
+            {"from": {"node": "block_ep"}, "to": {"node": "merge"}},
+            {"from": {"node": "merge"}, "to": {"node": "sound_ep"}},
+            {"from": {"node": "merge"}, "to": {"node": "erp"}},
+        ],
+    }
+    nested = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="sound_ep")
+    assert {c.name for c in nested.conditions} == {"block/A", "block/B", "sound/low", "sound/high"}
+
+    erp = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="erp")
+    assert {c.name for c in erp.conditions} == {"block/A", "block/B"}
+
+
 def test_multi_branch_no_crosstalk(monkeypatch):
     """两条独立分支：各 Epoch 只看到自己上游 LoadData 的事件，不串台。"""
     monkeypatch.setattr(
