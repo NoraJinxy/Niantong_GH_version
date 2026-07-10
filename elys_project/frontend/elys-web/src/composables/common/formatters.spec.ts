@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { formatDateTime } from './formatters'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { formatDateTime, formatRelativeTime, timestamp } from './formatters'
 
 describe('formatDateTime', () => {
   it('returns 暂无 for null/undefined/empty', () => {
@@ -16,4 +16,19 @@ describe('formatDateTime', () => {
     expect(out).not.toBe('2026-06-12T08:30:00Z')
     expect(out).toMatch(/2026/)
   })
+  it('treats backend ISO timestamps without timezone as UTC', () => {
+    const utc = timestamp('2026-07-10T02:42:00Z')
+    expect(timestamp('2026-07-10T02:42:00')).toBe(utc)
+    expect(timestamp('2026-07-10 02:42:00')).toBe(utc)
+    expect(timestamp('2026-07-10T10:42:00+08:00')).toBe(utc)
+  })
+  it('uses the same UTC parsing for relative dashboard time', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T02:43:10Z'))
+    expect(formatRelativeTime('2026-07-10T02:42:00')).toBe('1 分钟前')
+  })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })

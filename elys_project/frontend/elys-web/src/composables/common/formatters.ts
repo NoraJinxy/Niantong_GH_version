@@ -1,12 +1,28 @@
 // 通用展示格式化工具（与具体业务无关，多页共用）。
 // 业务专用的格式化在 composables/<feature>/<feature>Formatters.ts，别往这里堆。
 
+const ISO_DATETIME_WITHOUT_TZ_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/
+const TZ_SUFFIX_RE = /(?:[zZ]|[+-]\d{2}:?\d{2})$/
+
+// 后端数据库时间按 UTC 记录；部分 API 序列化为不带 Z 的 ISO 串。
+// 浏览器会把这种串当作本地时间解析，上海时区会偏 8 小时，因此这里统一补 UTC 语义。
+export function parseBackendDate(value?: string | null): Date | null {
+  if (!value) return null
+  const raw = value.trim()
+  if (!raw) return null
+  const normalized = ISO_DATETIME_WITHOUT_TZ_RE.test(raw) && !TZ_SUFFIX_RE.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 // 把后端 ISO 时间串渲染成 zh-CN 本地时间（年-月-日 时:分）。
 // 空值 → '暂无'；不可解析 → 原样返回。
 export function formatDateTime(value?: string | null): string {
   if (!value) return '暂无'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  const date = parseBackendDate(value)
+  if (!date) return value
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -19,8 +35,8 @@ export function formatDateTime(value?: string | null): string {
 // 短时间（月-日 时:分，不含年）。列表 / 卡片里省空间用。空值 → '暂无时间'。
 export function formatShortDate(value?: string | null): string {
   if (!value) return '暂无时间'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '暂无时间'
+  const date = parseBackendDate(value)
+  if (!date) return '暂无时间'
   return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
@@ -32,7 +48,8 @@ export function formatShortDate(value?: string | null): string {
 // 相对时间：刚刚 / N 分钟前 / N 小时前（仅当天）；更久或跨天回落到 formatShortDate。
 export function formatRelativeTime(value?: string | null): string {
   if (!value) return ''
-  const date = new Date(value)
+  const date = parseBackendDate(value)
+  if (!date) return ''
   const diffMs = Date.now() - date.getTime()
   if (!Number.isFinite(diffMs)) return ''
   const diffSec = Math.round(diffMs / 1000)
@@ -50,8 +67,8 @@ export function formatRelativeTime(value?: string | null): string {
 // 绝对时间（年-月-日 时:分:秒），用于 hover 的精确时间提示。
 export function formatAbsoluteTime(value?: string | null): string {
   if (!value) return ''
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return ''
+  const date = parseBackendDate(value)
+  if (!date) return ''
   const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dd = String(date.getDate()).padStart(2, '0')
@@ -64,8 +81,7 @@ export function formatAbsoluteTime(value?: string | null): string {
 // ISO 串 → 毫秒时间戳（排序用）；空 / 不可解析 → 0。
 export function timestamp(value?: string | null): number {
   if (!value) return 0
-  const time = new Date(value).getTime()
-  return Number.isNaN(time) ? 0 : time
+  return parseBackendDate(value)?.getTime() ?? 0
 }
 
 // 字节数 → 人类可读体积（含 GB 档）。真 0 字节 → '0 B'；空 / NaN → '未知大小'。

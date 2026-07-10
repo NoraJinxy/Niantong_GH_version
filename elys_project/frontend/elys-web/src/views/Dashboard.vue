@@ -691,9 +691,9 @@ function collapseDatasetImportBatches(items: ActivityItem[]): ActivityItem[] {
 
 function timeWithin(a: string | null, b: string | null, windowMs: number): boolean {
   if (!a || !b) return false
-  const ta = new Date(a).getTime()
-  const tb = new Date(b).getTime()
-  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false
+  const ta = timestamp(a)
+  const tb = timestamp(b)
+  if (ta <= 0 || tb <= 0) return false
   return Math.abs(ta - tb) <= windowMs
 }
 
