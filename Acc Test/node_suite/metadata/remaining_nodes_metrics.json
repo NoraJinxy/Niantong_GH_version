@@ -1,0 +1,862 @@
+{
+  "event_remap": {
+    "case": "event_remap",
+    "title": "Event Remap",
+    "node_types": [
+      "eeg/preproc/event_remap"
+    ],
+    "pipeline_name": "Acc Test - node event remap",
+    "status": "PASS",
+    "summary": "按规则重命名 S3、删除 S4；数据本体应不变，annotations 应完全一致。",
+    "metrics": [
+      {
+        "label": "Event Remap raw data",
+        "passed": true,
+        "shape": [
+          64,
+          310420
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.0002472447475860969,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Event Remap raw data channel_count",
+        "passed": true,
+        "common_channels": 64
+      },
+      {
+        "label": "Event Remap annotations",
+        "passed": true,
+        "reference_count": 61,
+        "server_count": 61,
+        "reference_label_counts": {
+          "New Segment/": 1,
+          "S  5": 30,
+          "ACC_S3": 30
+        },
+        "server_label_counts": {
+          "New Segment/": 1,
+          "S  5": 30,
+          "ACC_S3": 30
+        },
+        "max_onset_diff_sec": 0.0,
+        "max_duration_diff_sec": 0.0,
+        "onset_atol": 0.0001,
+        "duration_atol": 1e-06
+      }
+    ],
+    "params": {
+      "rules": [
+        {
+          "sources": [
+            "S  3"
+          ],
+          "target": "ACC_S3"
+        },
+        {
+          "sources": [
+            "S  4"
+          ],
+          "target": ""
+        }
+      ]
+    }
+  },
+  "event_manager": {
+    "case": "event_manager",
+    "title": "Event Manager",
+    "node_types": [
+      "eeg/preproc/event_manager"
+    ],
+    "pipeline_name": "Acc Test - node event manager rules",
+    "status": "PASS",
+    "summary": "按规则重命名 S4 并平移 S5；数据本体应不变，annotations 应完全一致。",
+    "metrics": [
+      {
+        "label": "Event Manager raw data",
+        "passed": true,
+        "shape": [
+          64,
+          310420
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.0002472447475860969,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Event Manager raw data channel_count",
+        "passed": true,
+        "common_channels": 64
+      },
+      {
+        "label": "Event Manager annotations",
+        "passed": true,
+        "reference_count": 91,
+        "server_count": 91,
+        "reference_label_counts": {
+          "New Segment/": 1,
+          "S  5": 30,
+          "ACC_S4": 30,
+          "S  3": 30
+        },
+        "server_label_counts": {
+          "New Segment/": 1,
+          "S  5": 30,
+          "ACC_S4": 30,
+          "S  3": 30
+        },
+        "max_onset_diff_sec": 1.0000000031595846e-05,
+        "max_duration_diff_sec": 0.0,
+        "onset_atol": 0.0001,
+        "duration_atol": 1e-06
+      }
+    ],
+    "params": {
+      "group_operations": [
+        {
+          "op": "rename",
+          "sources": [
+            "S  4"
+          ],
+          "target": "ACC_S4"
+        },
+        {
+          "op": "shift",
+          "sources": [
+            "S  5"
+          ],
+          "delta_s": 0.01
+        }
+      ],
+      "decision_version": 1
+    }
+  },
+  "artifact_mark": {
+    "case": "artifact_mark",
+    "title": "Artifact Mark",
+    "node_types": [
+      "eeg/preproc/artifact_mark"
+    ],
+    "pipeline_name": "Acc Test - node artifact mark",
+    "status": "PASS",
+    "summary": "坏段只写 BAD_ annotation，坏道只写 info['bads']，信号样本不应改变。",
+    "metrics": [
+      {
+        "label": "Artifact Mark raw data",
+        "passed": true,
+        "shape": [
+          64,
+          310420
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.0002472447475860969,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Artifact Mark raw data channel_count",
+        "passed": true,
+        "common_channels": 64
+      },
+      {
+        "label": "Artifact Mark annotations",
+        "passed": true,
+        "reference_count": 92,
+        "server_count": 92,
+        "reference_label_counts": {
+          "New Segment/": 1,
+          "BAD_acc_test": 1,
+          "S  5": 30,
+          "S  4": 30,
+          "S  3": 30
+        },
+        "server_label_counts": {
+          "New Segment/": 1,
+          "BAD_acc_test": 1,
+          "S  5": 30,
+          "S  4": 30,
+          "S  3": 30
+        },
+        "max_onset_diff_sec": 0.0,
+        "max_duration_diff_sec": 0.0,
+        "onset_atol": 0.0001,
+        "duration_atol": 1e-06
+      },
+      {
+        "label": "Artifact Mark bad channels",
+        "passed": true,
+        "reference": [
+          "Fp1"
+        ],
+        "server": [
+          "Fp1"
+        ]
+      }
+    ],
+    "params": {
+      "bad_segments": [
+        {
+          "onset": 1.0,
+          "duration": 0.25,
+          "source": "acc_test"
+        }
+      ],
+      "bad_channels": [
+        "Fp1"
+      ],
+      "channel_action": "mark",
+      "decision_version": 1
+    }
+  },
+  "epoch_reject": {
+    "case": "epoch_reject",
+    "title": "Reject Trials",
+    "node_types": [
+      "eeg/epoch/reject"
+    ],
+    "pipeline_name": "Acc Test - node epoch reject threshold",
+    "status": "PASS",
+    "summary": "Raw→Epoch 后按 MNE drop_bad 阈值法剔除；高阈值用来验证不误剔。",
+    "metrics": [
+      {
+        "label": "Reject Trials epochs",
+        "passed": true,
+        "shape": [
+          30,
+          64,
+          1001
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.00035758549694216336,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Reject Trials epochs event_id",
+        "passed": true,
+        "reference": [
+          "S  3"
+        ],
+        "server": [
+          "S  3"
+        ]
+      },
+      {
+        "label": "Reject Trials epochs channels",
+        "passed": true,
+        "common_channels": 64
+      }
+    ],
+    "params": {
+      "epoch": {
+        "conditions": [
+          {
+            "name": "S  3",
+            "pattern": "S\\s*0*3\\b",
+            "mode": "regex"
+          }
+        ],
+        "tmin": -0.2,
+        "tmax": 0.8,
+        "split_by": "none"
+      },
+      "reject": {
+        "method": "threshold",
+        "reject_peak_to_peak": 100000,
+        "flat": ""
+      }
+    }
+  },
+  "epoch_merge": {
+    "case": "epoch_merge",
+    "title": "Epoch Merge",
+    "node_types": [
+      "eeg/epoch/merge"
+    ],
+    "pipeline_name": "Acc Test - node epoch merge source recording",
+    "status": "PASS",
+    "summary": "按原始记录合并 S3/S4 条件切出的 Epochs；样本数据、事件类型和顺序应与本地 concatenate_epochs 一致。",
+    "metrics": [
+      {
+        "label": "Epoch Merge source_recording",
+        "passed": true,
+        "shape": [
+          60,
+          64,
+          1001
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.0002618254280108787,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Epoch Merge source_recording event_id",
+        "passed": true,
+        "reference": [
+          "S  3",
+          "S  4"
+        ],
+        "server": [
+          "S  3",
+          "S  4"
+        ]
+      },
+      {
+        "label": "Epoch Merge source_recording channels",
+        "passed": true,
+        "common_channels": 64
+      }
+    ],
+    "params": {
+      "epoch": {
+        "conditions": [
+          {
+            "name": "S  3",
+            "pattern": "S\\s*0*3\\b",
+            "mode": "regex"
+          },
+          {
+            "name": "S  4",
+            "pattern": "S\\s*0*4\\b",
+            "mode": "regex"
+          }
+        ],
+        "tmin": -0.2,
+        "tmax": 0.8,
+        "split_by": "condition"
+      },
+      "merge": {
+        "merge_scope": "source_recording"
+      }
+    }
+  },
+  "psd": {
+    "case": "psd",
+    "title": "PSD",
+    "node_types": [
+      "eeg/analysis/psd"
+    ],
+    "pipeline_name": "Acc Test - node PSD epochs",
+    "status": "PASS",
+    "summary": "按条件选择 Epochs 后调用 MNE compute_psd，并跨 epoch 求均值。",
+    "metrics": [
+      {
+        "label": "PSD Welch psds",
+        "passed": true,
+        "shape": [
+          63,
+          39
+        ],
+        "max_abs": 6.203854594147708e-25,
+        "rmse": 1.861581482483458e-26,
+        "relative_rmse": 1.80878802641549e-18,
+        "reference_std": 2.0647763496104412e-10,
+        "diff_std": 1.8613396629645482e-26,
+        "diff_std_over_reference_std": 9.014727737053579e-17,
+        "atol": 1e-18,
+        "rtol": 1e-08
+      },
+      {
+        "label": "PSD Welch freqs",
+        "passed": true,
+        "shape": [
+          39
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 11.243385292130622,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "PSD Welch channels",
+        "passed": true,
+        "common_channels": 63
+      }
+    ],
+    "params": {
+      "epoch": {
+        "conditions": [
+          {
+            "name": "S  3",
+            "pattern": "S\\s*0*3\\b",
+            "mode": "regex"
+          }
+        ],
+        "tmin": -0.2,
+        "tmax": 0.8,
+        "split_by": "none"
+      },
+      "psd": {
+        "condition": [
+          "S  3"
+        ],
+        "fmin": 1,
+        "fmax": 40,
+        "method": "welch",
+        "window_seconds": "",
+        "overlap": 0.5
+      }
+    }
+  },
+  "tfr": {
+    "case": "tfr",
+    "title": "TFR",
+    "node_types": [
+      "eeg/analysis/tfr"
+    ],
+    "pipeline_name": "Acc Test - node TFR morlet",
+    "status": "PASS",
+    "summary": "按条件选择 Epochs 后调用 MNE Morlet TFR，并应用同一基线校正。",
+    "metrics": [
+      {
+        "label": "TFR Morlet power",
+        "passed": true,
+        "shape": [
+          63,
+          8,
+          376
+        ],
+        "max_abs": 9.769962616701378e-15,
+        "rmse": 5.356840662510376e-16,
+        "relative_rmse": 1.544091449707466e-18,
+        "reference_std": 0.7155937477210198,
+        "diff_std": 5.354614029511132e-16,
+        "diff_std_over_reference_std": 7.482756866677758e-16,
+        "atol": 1e-12,
+        "rtol": 1e-08
+      },
+      {
+        "label": "TFR Morlet times",
+        "passed": true,
+        "shape": [
+          376
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 0.4341658669218482,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "TFR Morlet freqs",
+        "passed": true,
+        "shape": [
+          8
+        ],
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "relative_rmse": 0.0,
+        "reference_std": 5.237229365663818,
+        "diff_std": 0.0,
+        "diff_std_over_reference_std": 0.0,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "TFR Morlet channels",
+        "passed": true,
+        "common_channels": 63
+      }
+    ],
+    "params": {
+      "epoch": {
+        "conditions": [
+          {
+            "name": "S  3",
+            "pattern": "S\\s*0*3\\b",
+            "mode": "regex"
+          }
+        ],
+        "tmin": -0.5,
+        "tmax": 1.0,
+        "split_by": "none"
+      },
+      "tfr": {
+        "condition": [
+          "S  3"
+        ],
+        "fmin": 4,
+        "fmax": 20,
+        "n_freqs": 8,
+        "freq_scale": "linear",
+        "n_cycles_mode": "factor",
+        "n_cycles_factor": 0.5,
+        "decim": 4,
+        "baseline_mode": "logratio",
+        "baseline_tmin": "",
+        "baseline_tmax": 0
+      }
+    }
+  },
+  "iclabel": {
+    "case": "iclabel",
+    "title": "ICLabel",
+    "node_types": [
+      "eeg/ica/iclabel"
+    ],
+    "pipeline_name": "Acc Test - node ICLabel mark",
+    "status": "PASS",
+    "summary": "mark 模式校验 ICLabel 分类 metadata；该模式不改信号，后端可能复用上游 raw 文件而不产生新 FIF。",
+    "metrics": [
+      {
+        "label": "ICLabel node completed",
+        "passed": true,
+        "status": "completed",
+        "dataset_count": 1
+      },
+      {
+        "label": "ICLabel mode",
+        "passed": true,
+        "params_action": "mark",
+        "metadata_action": "mark"
+      },
+      {
+        "label": "ICLabel component count",
+        "passed": true,
+        "n_components": 10,
+        "components": 10
+      },
+      {
+        "label": "ICLabel excluded count",
+        "passed": true,
+        "n_excluded": 3,
+        "excluded": [
+          1,
+          2,
+          7
+        ]
+      }
+    ],
+    "params": {
+      "params": {
+        "action": "mark",
+        "prob_threshold": 0.8,
+        "remove_eye": true,
+        "remove_muscle": true,
+        "remove_heart": true,
+        "remove_line_noise": true,
+        "remove_channel_noise": true
+      },
+      "iclabel_metadata": {
+        "notes": [
+          "未检测到平均参考；ICLabel 训练于平均参考数据，建议上游先做平均参考（Re-reference 全选）以提升分类准确度。"
+        ],
+        "action": "mark",
+        "method": "iclabel",
+        "components": [
+          {
+            "index": 0,
+            "label": "other",
+            "category": "other",
+            "excluded": false,
+            "probability": 0.9783
+          },
+          {
+            "index": 1,
+            "label": "eye blink",
+            "category": "eye",
+            "excluded": true,
+            "probability": 0.8984
+          },
+          {
+            "index": 2,
+            "label": "eye blink",
+            "category": "eye",
+            "excluded": true,
+            "probability": 0.9834
+          },
+          {
+            "index": 3,
+            "label": "other",
+            "category": "other",
+            "excluded": false,
+            "probability": 0.5934
+          },
+          {
+            "index": 4,
+            "label": "eye blink",
+            "category": "eye",
+            "excluded": false,
+            "probability": 0.547
+          },
+          {
+            "index": 5,
+            "label": "eye blink",
+            "category": "eye",
+            "excluded": false,
+            "probability": 0.693
+          },
+          {
+            "index": 6,
+            "label": "other",
+            "category": "other",
+            "excluded": false,
+            "probability": 0.9565
+          },
+          {
+            "index": 7,
+            "label": "eye blink",
+            "category": "eye",
+            "excluded": true,
+            "probability": 0.997
+          },
+          {
+            "index": 8,
+            "label": "other",
+            "category": "other",
+            "excluded": false,
+            "probability": 0.5257
+          },
+          {
+            "index": 9,
+            "label": "channel noise",
+            "category": "channel_noise",
+            "excluded": false,
+            "probability": 0.4322
+          }
+        ],
+        "ica_method": "picard",
+        "n_excluded": 3,
+        "label_counts": {
+          "eye": 5,
+          "other": 4,
+          "channel_noise": 1
+        },
+        "n_components": 10,
+        "prob_threshold": 0.8,
+        "remove_categories": [
+          "channel_noise",
+          "eye",
+          "heart",
+          "line_noise",
+          "muscle"
+        ],
+        "excluded_components": [
+          1,
+          2,
+          7
+        ]
+      }
+    }
+  },
+  "group_average": {
+    "case": "group_average",
+    "title": "Group Merge + Grand Average",
+    "node_types": [
+      "eeg/group/merge",
+      "eeg/group/average"
+    ],
+    "pipeline_name": "Acc Test - node group merge average",
+    "status": "PASS",
+    "summary": "三名被试各自 Epoch→ERP 后按 subject 堆叠，再沿 unit 轴求均值。",
+    "metrics": [
+      {
+        "label": "Group Merge unit_stack",
+        "passed": true,
+        "shape": [
+          3,
+          63,
+          1001
+        ],
+        "max_abs": 2.324668495895521e-11,
+        "rmse": 1.4859108124825956e-12,
+        "relative_rmse": 6.137638339556105e-11,
+        "reference_std": 5.565944419026039e-05,
+        "diff_std": 1.485910757872313e-12,
+        "diff_std_over_reference_std": 2.669647136239866e-08,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Grand Average evoked mean",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "max_abs": 1.470735943513539e-11,
+        "rmse": 1.1683175435731142e-12,
+        "relative_rmse": 1.4970833901102127e-10,
+        "reference_std": 3.107511168164203e-05,
+        "diff_std": 1.168315293006526e-12,
+        "diff_std_over_reference_std": 3.759649538755226e-08,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Grand Average times",
+        "passed": true,
+        "shape": [
+          1001
+        ],
+        "max_abs": 2.9802322831784522e-09,
+        "rmse": 2.9802322398398266e-09,
+        "relative_rmse": 2.2614309427848547e-10,
+        "reference_std": 0.2889636655359978,
+        "diff_std": 3.512464780970458e-17,
+        "diff_std_over_reference_std": 1.215538560689005e-16,
+        "atol": 1e-08,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Group Average unit count",
+        "passed": true,
+        "server_units": 3
+      }
+    ],
+    "params": {
+      "epoch": {
+        "conditions": [
+          {
+            "name": "S  3",
+            "pattern": "S\\s*0*3\\b",
+            "mode": "regex"
+          }
+        ],
+        "tmin": -0.2,
+        "tmax": 0.8,
+        "split_by": "none"
+      },
+      "erp": {
+        "condition": [
+          "S  3"
+        ]
+      },
+      "group_merge": {
+        "group_label": "A"
+      },
+      "grand_average": {
+        "weighted": false
+      }
+    }
+  },
+  "group_compare": {
+    "case": "group_compare",
+    "title": "Group Compare",
+    "node_types": [
+      "eeg/group/compare"
+    ],
+    "pipeline_name": "Acc Test - node group compare paired",
+    "status": "PASS",
+    "summary": "A/B 两个 run 的 subject-level ERP unit_stack 进行配对逐点 t 检验。",
+    "metrics": [
+      {
+        "label": "Group Compare tmap",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "max_abs": 0.001116461757135312,
+        "rmse": 8.193691130048961e-06,
+        "relative_rmse": 6.82715912865651e-09,
+        "reference_std": 4.341271959871676,
+        "diff_std": 8.19369092624976e-06,
+        "diff_std_over_reference_std": 1.8873940637646572e-06,
+        "atol": 0.002,
+        "rtol": 1e-05
+      },
+      {
+        "label": "Group Compare pmap",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "max_abs": 7.846553643497955e-07,
+        "rmse": 3.692937984413577e-08,
+        "relative_rmse": 3.288415529799126e-10,
+        "reference_std": 0.2605785585323094,
+        "diff_std": 3.692906767571506e-08,
+        "diff_std_over_reference_std": 1.4171951784412143e-07,
+        "atol": 1e-06,
+        "rtol": 1e-06
+      },
+      {
+        "label": "Group Compare mean A",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "max_abs": 8.446174261291656e-12,
+        "rmse": 8.588747412561257e-13,
+        "relative_rmse": 1.1005630416088035e-10,
+        "reference_std": 3.107511168164203e-05,
+        "diff_std": 8.588746467766661e-13,
+        "diff_std_over_reference_std": 2.7638666453580465e-08,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Group Compare mean B",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "max_abs": 3.0751026928294532e-12,
+        "rmse": 4.348925956542108e-13,
+        "relative_rmse": 6.360041027951115e-11,
+        "reference_std": 1.7991909394458152e-05,
+        "diff_std": 4.3488434075398605e-13,
+        "diff_std_over_reference_std": 2.417110553524345e-08,
+        "atol": 1e-10,
+        "rtol": 1e-08
+      },
+      {
+        "label": "Group Compare sig mask",
+        "passed": true,
+        "shape": [
+          63,
+          1001
+        ],
+        "n_sig_reference": 5946,
+        "n_sig_server": 5946
+      }
+    ],
+    "params": {
+      "compare": {
+        "design": "paired",
+        "method": "pointwise",
+        "correction": "none",
+        "tail": "two-sided",
+        "alpha": 0.05,
+        "condition": "S  3",
+        "label_a": "run04",
+        "label_b": "run11"
+      }
+    }
+  }
+}
