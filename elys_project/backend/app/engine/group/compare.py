@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.group.stack import _assert_axis_match, align_and_stack, extract_block
 
 
@@ -26,12 +27,12 @@ _NO_CONDITION_KEY = "__all__"
 
 
 def _condition_key(value: Any) -> str:
-    text = " ".join(str(value or "").strip().split())
+    text = " ".join(normalize_marker_label(value).split())
     return text.lower()
 
 
 def _known_condition(value: Any) -> str:
-    text = str(value or "").strip()
+    text = normalize_marker_label(value)
     return "" if not text or text.lower() == "unknown" else text
 
 
@@ -114,7 +115,7 @@ def _pool_side_by_condition(
             list(bucket["blocks"]),
             params,
             label_key=label_key,
-            condition=str(bucket.get("condition") or ""),
+            condition=_known_condition(bucket.get("condition")),
         )
         for key, bucket in buckets.items()
     }
@@ -420,7 +421,7 @@ def run_group_compare(
             a_groups[key],
             b_groups[key],
             params,
-            condition=str(a_groups[key].get("condition") or b_groups[key].get("condition") or ""),
+            condition=_known_condition(a_groups[key].get("condition") or b_groups[key].get("condition")),
         )
         for key in condition_keys
     ]

@@ -1,42 +1,42 @@
 {
   "pipeline_name": "Acc Test - sub-009 bandpass 0.5-40",
-  "pipeline_id": 3,
-  "run_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-  "study_id": "202607000001",
+  "pipeline_id": 7,
+  "run_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+  "study_id": "202607000004",
   "base_url": "http://8.135.40.150/api/v1",
-  "data_base_url": "http://47.119.112.37/api/v1",
-  "elapsed_sec": 3.0863630771636963,
+  "data_base_url": "http://120.77.77.156/api/v1",
+  "elapsed_sec": 3.085099220275879,
   "recording": {
-    "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
-    "study_id": "202607000001",
-    "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
-    "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057",
-    "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+    "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
+    "study_id": "202607000004",
+    "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
+    "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a",
+    "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
     "file_role": "fif",
-    "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+    "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
     "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-    "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
-    "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+    "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
+    "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
     "mount_name": "primary",
-    "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
+    "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
     "subject": "sub-009",
     "bids_subject_id": "sub-009",
     "session": "ses-a",
     "task": "task-sensory",
     "run": "run-04",
     "source_format": "BRAINVISION",
-    "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+    "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
     "source_exists": true,
-    "fif_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+    "fif_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
     "fif_exists": true,
-    "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
+    "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
     "current_upload_seq": 27,
-    "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
+    "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
     "sidecar_paths": {
-      "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-      "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-      "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-      "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+      "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+      "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+      "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+      "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
     },
     "file_size": 39749762,
     "checksum": "0ee5dd0d8d29d536d811507aec7f24f559038dd30cc08fd9255f933211c200b0",
@@ -45,20 +45,20 @@
     "duration_seconds": 310.42,
     "n_events": 91,
     "qa_status": "converted",
-    "imported_at": "2026-07-08T08:01:20.083001",
-    "content_hash": "546eec2766f792f52a0518d757eaa2df497628d26d8fb6ed71c82e7bb5058ff8",
+    "imported_at": "2026-07-10T02:32:41.072559",
+    "content_hash": "1fa9470a01980642c2a881f4d5525dc78be2b55f9f4fcfcb34430dbd1310bcd7",
     "data_type": "raw",
     "event_labels": [
       "New Segment/",
-      "Stimulus/S  3",
-      "Stimulus/S  4",
-      "Stimulus/S  5"
+      "S  3",
+      "S  4",
+      "S  5"
     ],
     "event_counts": {
       "New Segment/": 1,
-      "Stimulus/S  5": 30,
-      "Stimulus/S  4": 30,
-      "Stimulus/S  3": 30
+      "S  5": 30,
+      "S  4": 30,
+      "S  3": 30
     },
     "condition_groups": [
       {
@@ -69,25 +69,25 @@
         "sample": "New Segment/"
       },
       {
-        "name": "Stimulus/S  3",
-        "pattern": "Stimulus/S  3",
+        "name": "S  3",
+        "pattern": "S  3",
         "mode": "exact",
         "count": 30,
-        "sample": "Stimulus/S  3"
+        "sample": "S  3"
       },
       {
-        "name": "Stimulus/S  4",
-        "pattern": "Stimulus/S  4",
+        "name": "S  4",
+        "pattern": "S  4",
         "mode": "exact",
         "count": 30,
-        "sample": "Stimulus/S  4"
+        "sample": "S  4"
       },
       {
-        "name": "Stimulus/S  5",
-        "pattern": "Stimulus/S  5",
+        "name": "S  5",
+        "pattern": "S  5",
         "mode": "exact",
         "count": 30,
-        "sample": "Stimulus/S  5"
+        "sample": "S  5"
       }
     ],
     "ch_names": [
@@ -171,7 +171,7 @@
           "params": {
             "selection_mode": "explicit",
             "dataset_ids": [
-              "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+              "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
             ],
             "dataset_filter": {}
           }
@@ -217,9 +217,9 @@
     "warnings": []
   },
   "run": {
-    "id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-    "study_id": "202607000001",
-    "pipeline_id": 3,
+    "id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+    "study_id": "202607000004",
+    "pipeline_id": 7,
     "pipeline_version": 1,
     "execution_seq": 1,
     "trigger": "manual",
@@ -249,7 +249,7 @@
             "title": "LoadData",
             "params": {
               "dataset_ids": [
-                "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+                "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
               ],
               "dataset_filter": {},
               "selection_mode": "explicit"
@@ -288,21 +288,21 @@
     },
     "manifest_json": {
       "status": "completed",
-      "logs_uri": "elys://studies/202607000001/executions/de7aa7fd-a897-47c9-8251-c34c24420ed8/logs",
+      "logs_uri": "elys://studies/202607000004/executions/f5b56f55-3250-4ca3-b2ab-7a08365c085c/logs",
       "job_count": 2,
-      "logs_path": "executions/de7aa7fd-a897-47c9-8251-c34c24420ed8/logs",
+      "logs_path": "executions/f5b56f55-3250-4ca3-b2ab-7a08365c085c/logs",
       "task_count": 1,
       "error_count": 0,
       "input_count": 2,
-      "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-      "generated_at": "2026-07-08T08:06:32Z",
-      "manifest_uri": "elys://studies/202607000001/executions/de7aa7fd-a897-47c9-8251-c34c24420ed8/execution_manifest.json",
-      "manifest_path": "executions/de7aa7fd-a897-47c9-8251-c34c24420ed8/execution_manifest.json",
+      "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+      "generated_at": "2026-07-10T02:40:47Z",
+      "manifest_uri": "elys://studies/202607000004/executions/f5b56f55-3250-4ca3-b2ab-7a08365c085c/execution_manifest.json",
+      "manifest_path": "executions/f5b56f55-3250-4ca3-b2ab-7a08365c085c/execution_manifest.json",
       "warning_count": 0,
       "artifact_count": 1,
       "dependency_count": 0,
       "manifest_version": "elys-execution-manifest-v1",
-      "definition_snapshot_hash": "52fa80c68562bdfbe769a318323fbedc9b902296d06e874dfe5a39c91c2078b1"
+      "definition_snapshot_hash": "9e19b23d62b377d1a9b124360c9b6745eff25340043844780dc65fc2c551a50f"
     },
     "result_json": {
       "mode": "celery",
@@ -336,21 +336,21 @@
           "dataset_count": 1
         }
       ],
-      "async_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
-      "celery_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
-      "execution_lock_id": "10ad3d6c-b30f-495d-b8ae-7a92d6914a6e",
+      "async_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
+      "celery_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
+      "execution_lock_id": "45438f1d-73f1-4a4e-bed4-f7d2ac526549",
       "data_infos_by_node": {
         "ld": [
           {
             "run": "run-04",
             "task": "task-sensory",
             "mount": {
-              "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+              "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
               "mount_name": "primary",
-              "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+              "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
             },
             "sfreq": 1000.0,
-            "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+            "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
             "session": "ses-a",
             "subject": "sub-009",
             "ch_names": [
@@ -420,71 +420,71 @@
               "Oz"
             ],
             "checksum": "0ee5dd0d8d29d536d811507aec7f24f559038dd30cc08fd9255f933211c200b0",
-            "fif_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-            "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+            "fif_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+            "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
             "n_events": 91,
-            "study_id": "202607000001",
+            "study_id": "202607000004",
             "data_type": "raw",
             "file_role": "fif",
             "file_size": 39749762,
             "qa_status": "converted",
-            "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+            "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
             "fif_exists": true,
             "mount_name": "primary",
             "n_channels": 64,
-            "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-            "imported_at": "2026-07-08T08:01:20.083001",
-            "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-            "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-            "content_hash": "546eec2766f792f52a0518d757eaa2df497628d26d8fb6ed71c82e7bb5058ff8",
+            "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+            "imported_at": "2026-07-10T02:32:41.072559",
+            "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+            "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+            "content_hash": "1fa9470a01980642c2a881f4d5525dc78be2b55f9f4fcfcb34430dbd1310bcd7",
             "dataset_file": {
-              "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-              "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+              "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+              "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
               "file_role": "fif",
-              "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
               "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+              "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
             },
             "event_counts": {
-              "New Segment/": 1,
-              "Stimulus/S  3": 30,
-              "Stimulus/S  4": 30,
-              "Stimulus/S  5": 30
+              "S  3": 30,
+              "S  4": 30,
+              "S  5": 30,
+              "New Segment/": 1
             },
             "event_labels": [
               "New Segment/",
-              "Stimulus/S  3",
-              "Stimulus/S  4",
-              "Stimulus/S  5"
+              "S  3",
+              "S  4",
+              "S  5"
             ],
             "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
             "file_snapshot": {
-              "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+              "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
               "file_role": "fif",
-              "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
               "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+              "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
             },
             "sidecar_paths": {
-              "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-              "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-              "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-              "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+              "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+              "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+              "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+              "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
             },
             "source_exists": true,
             "source_format": "BRAINVISION",
             "input_snapshot": {
-              "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+              "id": "fdf947ab-0454-4244-aa39-810bd8519508",
               "node_id": "ld",
-              "frozen_at": "2026-07-08T08:06:30.298833Z",
+              "frozen_at": "2026-07-10T02:40:45.008483Z",
               "node_type": "eeg/data/load",
               "input_kind": "dataset_file",
               "input_index": 1,
-              "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+              "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
             },
             "bids_subject_id": "sub-009",
-            "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
-            "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+            "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
+            "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
             "condition_groups": [
               {
                 "mode": "exact",
@@ -495,31 +495,31 @@
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  3",
+                "name": "S  3",
                 "count": 30,
-                "sample": "Stimulus/S  3",
-                "pattern": "Stimulus/S  3"
+                "sample": "S  3",
+                "pattern": "S  3"
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  4",
+                "name": "S  4",
                 "count": 30,
-                "sample": "Stimulus/S  4",
-                "pattern": "Stimulus/S  4"
+                "sample": "S  4",
+                "pattern": "S  4"
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  5",
+                "name": "S  5",
                 "count": 30,
-                "sample": "Stimulus/S  5",
-                "pattern": "Stimulus/S  5"
+                "sample": "S  5",
+                "pattern": "S  5"
               }
             ],
-            "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+            "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
             "duration_seconds": 310.42,
-            "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
+            "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
             "current_upload_seq": 27,
-            "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057"
+            "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a"
           }
         ],
         "flt": [
@@ -527,13 +527,13 @@
             "run": "run-04",
             "task": "task-sensory",
             "mount": {
-              "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+              "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
               "mount_name": "primary",
-              "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+              "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
             },
             "sfreq": 1000.0,
-            "job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
-            "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+            "job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
+            "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
             "lowpass": 40.0,
             "n_times": 310420,
             "session": "ses-a",
@@ -604,18 +604,18 @@
               "POz",
               "Oz"
             ],
-            "checksum": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
-            "fif_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "checksum": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
+            "fif_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
             "highpass": 0.5,
-            "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+            "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
             "n_events": 91,
-            "study_id": "202607000001",
+            "study_id": "202607000004",
             "data_type": "raw",
             "file_role": "pipeline_artifact",
-            "file_size": 79484869,
+            "file_size": 79484059,
             "last_samp": 310419,
             "qa_status": "converted",
-            "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+            "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
             "fif_exists": true,
             "first_samp": 0,
             "mount_name": "primary",
@@ -634,60 +634,60 @@
               "node_id": "flt",
               "node_type": "eeg/filter/apply"
             },
-            "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-            "artifact_id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-            "imported_at": "2026-07-08T08:01:20.083001",
-            "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-            "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-            "content_hash": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+            "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+            "artifact_id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+            "imported_at": "2026-07-10T02:32:41.072559",
+            "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+            "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "content_hash": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
             "dataset_file": {
-              "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-              "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+              "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+              "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
               "file_role": "fif",
-              "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
               "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+              "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
             },
             "event_counts": {
-              "New Segment/": 1,
-              "Stimulus/S  3": 30,
-              "Stimulus/S  4": 30,
-              "Stimulus/S  5": 30
+              "S  3": 30,
+              "S  4": 30,
+              "S  5": 30,
+              "New Segment/": 1
             },
             "event_labels": [
               "New Segment/",
-              "Stimulus/S  3",
-              "Stimulus/S  4",
-              "Stimulus/S  5"
+              "S  3",
+              "S  4",
+              "S  5"
             ],
-            "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-            "storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
             "file_snapshot": {
-              "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+              "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
               "file_role": "fif",
-              "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
               "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+              "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
             },
             "sidecar_paths": {
-              "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-              "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-              "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-              "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+              "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+              "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+              "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+              "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
             },
             "source_exists": true,
             "source_format": "BRAINVISION",
             "input_snapshot": {
-              "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+              "id": "fdf947ab-0454-4244-aa39-810bd8519508",
               "node_id": "ld",
-              "frozen_at": "2026-07-08T08:06:30.298833Z",
+              "frozen_at": "2026-07-10T02:40:45.008483Z",
               "node_type": "eeg/data/load",
               "input_kind": "dataset_file",
               "input_index": 1,
-              "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+              "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
             },
             "bids_subject_id": "sub-009",
-            "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
+            "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
             "dataset_file_id": null,
             "annotation_count": 91,
             "condition_groups": [
@@ -700,53 +700,53 @@
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  3",
+                "name": "S  3",
                 "count": 30,
-                "sample": "Stimulus/S  3",
-                "pattern": "Stimulus/S  3"
+                "sample": "S  3",
+                "pattern": "S  3"
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  4",
+                "name": "S  4",
                 "count": 30,
-                "sample": "Stimulus/S  4",
-                "pattern": "Stimulus/S  4"
+                "sample": "S  4",
+                "pattern": "S  4"
               },
               {
                 "mode": "exact",
-                "name": "Stimulus/S  5",
+                "name": "S  5",
                 "count": 30,
-                "sample": "Stimulus/S  5",
-                "pattern": "Stimulus/S  5"
+                "sample": "S  5",
+                "pattern": "S  5"
               }
             ],
-            "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+            "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
             "duration_seconds": 310.42,
-            "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
-            "source_dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+            "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
+            "source_dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
             "current_upload_seq": 27,
-            "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057",
-            "artifact_storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-            "artifact_storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-            "pipeline_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-            "source_dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+            "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a",
+            "artifact_storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "artifact_storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+            "pipeline_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+            "source_dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
           }
         ]
       },
       "selection_override": {},
-      "execution_lock_expires_at": "2026-07-08T08:16:30.272647"
+      "execution_lock_expires_at": "2026-07-10T02:50:44.974032"
     },
     "error_json": {},
     "started_by": "550e8400-e29b-41d4-a716-446655440000",
-    "started_at": "2026-07-08T08:06:30.277780",
-    "finished_at": "2026-07-08T08:06:32.474354",
+    "started_at": "2026-07-10T02:40:44.980878",
+    "finished_at": "2026-07-10T02:40:47.178391",
     "inputs": [
       {
-        "id": "477a32df-7faa-4a5b-bdb4-698f0e62f997",
-        "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-        "study_id": "202607000001",
-        "pipeline_id": 3,
-        "job_id": "e79d5165-8481-4b83-824d-304dbe31b261",
+        "id": "76e6555a-398c-4092-908f-9a0e4c224575",
+        "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+        "study_id": "202607000004",
+        "pipeline_id": 7,
+        "job_id": "ce2c919a-6532-4043-a922-75e895315b4a",
         "node_id": "ld",
         "node_type": "eeg/data/load",
         "input_slot": "ld:selector",
@@ -764,7 +764,7 @@
         "selector_json": {
           "params": {
             "dataset_ids": [
-              "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+              "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
             ],
             "dataset_filter": {},
             "selection_mode": "explicit"
@@ -773,13 +773,13 @@
           "node_type": "eeg/data/load",
           "base_params": {
             "dataset_ids": [
-              "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+              "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
             ],
             "dataset_filter": {},
             "selection_mode": "explicit"
           },
           "dataset_ids": [
-            "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+            "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
           ],
           "dataset_filter": {},
           "selection_mode": "explicit",
@@ -790,7 +790,7 @@
           "valid": true,
           "errors": [],
           "warnings": [],
-          "resolved_at": "2026-07-08T08:06:30.297149Z",
+          "resolved_at": "2026-07-10T02:40:45.006728Z",
           "dataset_count": 1,
           "selection_mode": "explicit",
           "resolved_filter": {
@@ -807,33 +807,33 @@
           },
           "missing_dataset_ids": []
         },
-        "sha256": "8be8b948ea5d3400568ff8d95665f3f88ba97f8d838cf470ed5d2f968f091e8d",
-        "created_at": "2026-07-08T08:06:30.300814"
+        "sha256": "a6b038ba5708e947778298e39f40848b5d0e5b2620b6b0f57f6bb29d088060a1",
+        "created_at": "2026-07-10T02:40:45.010456"
       },
       {
-        "id": "22b94c6a-7415-407d-8605-444207e1ed13",
-        "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-        "study_id": "202607000001",
-        "pipeline_id": 3,
-        "job_id": "e79d5165-8481-4b83-824d-304dbe31b261",
+        "id": "fdf947ab-0454-4244-aa39-810bd8519508",
+        "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+        "study_id": "202607000004",
+        "pipeline_id": 7,
+        "job_id": "ce2c919a-6532-4043-a922-75e895315b4a",
         "node_id": "ld",
         "node_type": "eeg/data/load",
         "input_slot": "ld:output",
         "input_index": 1,
         "input_kind": "dataset_file",
-        "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
-        "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
-        "dataset_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
-        "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+        "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
+        "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
+        "dataset_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
+        "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
         "file_role": "fif",
-        "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+        "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
         "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
         "upstream_execution_id": null,
         "upstream_dataset_id": null,
         "selector_json": {
           "params": {
             "dataset_ids": [
-              "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+              "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
             ],
             "dataset_filter": {},
             "selection_mode": "explicit"
@@ -842,13 +842,13 @@
           "node_type": "eeg/data/load",
           "base_params": {
             "dataset_ids": [
-              "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+              "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
             ],
             "dataset_filter": {},
             "selection_mode": "explicit"
           },
           "dataset_ids": [
-            "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+            "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
           ],
           "dataset_filter": {},
           "selection_mode": "explicit",
@@ -859,12 +859,12 @@
           "run": "run-04",
           "task": "task-sensory",
           "mount": {
-            "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+            "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
             "mount_name": "primary",
-            "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+            "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
           },
           "sfreq": 1000.0,
-          "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+          "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
           "session": "ses-a",
           "subject": "sub-009",
           "ch_names": [
@@ -934,68 +934,68 @@
             "Oz"
           ],
           "checksum": "0ee5dd0d8d29d536d811507aec7f24f559038dd30cc08fd9255f933211c200b0",
-          "fif_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-          "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+          "fif_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+          "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
           "n_events": 91,
-          "study_id": "202607000001",
+          "study_id": "202607000004",
           "data_type": "raw",
           "file_role": "fif",
           "file_size": 39749762,
           "qa_status": "converted",
-          "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+          "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
           "fif_exists": true,
           "mount_name": "primary",
           "n_channels": 64,
-          "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-          "imported_at": "2026-07-08T08:01:20.083001",
-          "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-          "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-          "content_hash": "546eec2766f792f52a0518d757eaa2df497628d26d8fb6ed71c82e7bb5058ff8",
+          "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+          "imported_at": "2026-07-10T02:32:41.072559",
+          "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+          "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+          "content_hash": "1fa9470a01980642c2a881f4d5525dc78be2b55f9f4fcfcb34430dbd1310bcd7",
           "dataset_file": {
-            "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-            "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+            "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+            "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
             "file_role": "fif",
-            "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+            "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
             "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-            "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+            "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
           },
           "event_counts": {
-            "New Segment/": 1,
-            "Stimulus/S  3": 30,
-            "Stimulus/S  4": 30,
-            "Stimulus/S  5": 30
+            "S  3": 30,
+            "S  4": 30,
+            "S  5": 30,
+            "New Segment/": 1
           },
           "event_labels": [
             "New Segment/",
-            "Stimulus/S  3",
-            "Stimulus/S  4",
-            "Stimulus/S  5"
+            "S  3",
+            "S  4",
+            "S  5"
           ],
           "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
           "file_snapshot": {
-            "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+            "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
             "file_role": "fif",
-            "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+            "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
             "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-            "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+            "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
           },
           "sidecar_paths": {
-            "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-            "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-            "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-            "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+            "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+            "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+            "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+            "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
           },
           "source_exists": true,
           "source_format": "BRAINVISION",
           "input_snapshot": {
             "node_id": "ld",
-            "frozen_at": "2026-07-08T08:06:30.298833Z",
+            "frozen_at": "2026-07-10T02:40:45.008483Z",
             "node_type": "eeg/data/load",
             "input_index": 1
           },
           "bids_subject_id": "sub-009",
-          "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
-          "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+          "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
+          "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
           "condition_groups": [
             {
               "mode": "exact",
@@ -1006,136 +1006,136 @@
             },
             {
               "mode": "exact",
-              "name": "Stimulus/S  3",
+              "name": "S  3",
               "count": 30,
-              "sample": "Stimulus/S  3",
-              "pattern": "Stimulus/S  3"
+              "sample": "S  3",
+              "pattern": "S  3"
             },
             {
               "mode": "exact",
-              "name": "Stimulus/S  4",
+              "name": "S  4",
               "count": 30,
-              "sample": "Stimulus/S  4",
-              "pattern": "Stimulus/S  4"
+              "sample": "S  4",
+              "pattern": "S  4"
             },
             {
               "mode": "exact",
-              "name": "Stimulus/S  5",
+              "name": "S  5",
               "count": 30,
-              "sample": "Stimulus/S  5",
-              "pattern": "Stimulus/S  5"
+              "sample": "S  5",
+              "pattern": "S  5"
             }
           ],
-          "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+          "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
           "duration_seconds": 310.42,
-          "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
+          "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
           "current_upload_seq": 27,
-          "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057"
+          "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a"
         },
-        "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
-        "created_at": "2026-07-08T08:06:30.300816"
+        "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
+        "created_at": "2026-07-10T02:40:45.010458"
       }
     ],
     "dependencies": [],
     "tasks": [
       {
-        "id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
-        "celery_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+        "id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
+        "celery_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
         "task_type": "pipeline_execution",
         "queue_name": "workflow.default",
         "status": "succeeded",
         "progress": 100.0,
-        "study_id": "202607000001",
+        "study_id": "202607000004",
         "resource_kind": "pipeline_execution",
-        "resource_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
+        "resource_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
         "payload_json": {
-          "lock_id": "10ad3d6c-b30f-495d-b8ae-7a92d6914a6e",
+          "lock_id": "45438f1d-73f1-4a4e-bed4-f7d2ac526549",
           "trigger": "manual",
-          "study_id": "202607000001",
-          "pipeline_id": 3,
-          "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
+          "study_id": "202607000004",
+          "pipeline_id": 7,
+          "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
           "execution_seq": 1,
-          "lock_expires_at": "2026-07-08T08:16:30.272647",
+          "lock_expires_at": "2026-07-10T02:50:44.974032",
           "pipeline_version": 1,
           "selection_override": {}
         },
         "result_json": {
-          "study_id": "202607000001",
-          "pipeline_id": 3,
-          "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
+          "study_id": "202607000004",
+          "pipeline_id": 7,
+          "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
           "execution_status": "completed"
         },
         "error_json": {},
         "idempotency_key": null,
         "created_by": "550e8400-e29b-41d4-a716-446655440000",
-        "created_at": "2026-07-08T08:06:30.281118",
-        "started_at": "2026-07-08T08:06:30.313917",
-        "finished_at": "2026-07-08T08:06:32.515947",
+        "created_at": "2026-07-10T02:40:44.984668",
+        "started_at": "2026-07-10T02:40:45.028933",
+        "finished_at": "2026-07-10T02:40:47.216292",
         "attempt": 1,
         "max_attempts": 1,
         "events": [
           {
-            "id": "ac99d8b0-2417-4373-a1bf-9e7a62acf082",
-            "task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+            "id": "b94bf906-4221-4ae4-a03e-25688792f842",
+            "task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
             "event_type": "created",
             "status": "queued",
             "progress": 0.0,
             "message": "Pipeline execution task created.",
             "payload_json": {
-              "pipeline_id": 3,
-              "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8"
+              "pipeline_id": 7,
+              "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c"
             },
-            "created_at": "2026-07-08T08:06:30.278921"
+            "created_at": "2026-07-10T02:40:44.982191"
           },
           {
-            "id": "728a9c1b-fd54-443e-90b8-48cb506a1851",
-            "task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+            "id": "2d47c6b0-57f9-48b0-96d5-d421a5fe835c",
+            "task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
             "event_type": "dispatched",
             "status": "queued",
             "progress": 0.0,
             "message": "Pipeline execution task dispatched to Celery.",
             "payload_json": {
               "queue": "workflow.default",
-              "celery_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc"
+              "celery_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2"
             },
-            "created_at": "2026-07-08T08:06:30.309753"
+            "created_at": "2026-07-10T02:40:45.022512"
           },
           {
-            "id": "c8c95f7c-884e-4502-babc-4643b5a48daa",
-            "task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+            "id": "011d5504-0032-4b81-ac15-b60297c36bd9",
+            "task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
             "event_type": "started",
             "status": "running",
             "progress": 5.0,
             "message": "Pipeline execution task started.",
             "payload_json": {
-              "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-              "celery_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc"
+              "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+              "celery_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2"
             },
-            "created_at": "2026-07-08T08:06:30.313917"
+            "created_at": "2026-07-10T02:40:45.028933"
           },
           {
-            "id": "c7988766-db47-4343-9788-6f1c47729d0e",
-            "task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+            "id": "e41bf408-aee0-4df7-853a-102bf2816112",
+            "task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
             "event_type": "completed",
             "status": "succeeded",
             "progress": 100.0,
             "message": "Pipeline execution finished with status: completed.",
             "payload_json": {
-              "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-              "celery_task_id": "80d9dc4b-4f11-4b93-86c5-389c1c32d0dc",
+              "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+              "celery_task_id": "f5ab781b-015a-4a50-9b1c-15d030c1abe2",
               "execution_status": "completed"
             },
-            "created_at": "2026-07-08T08:06:32.515947"
+            "created_at": "2026-07-10T02:40:47.216292"
           }
         ]
       }
     ],
     "jobs": [
       {
-        "id": "e79d5165-8481-4b83-824d-304dbe31b261",
-        "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-        "study_id": "202607000001",
-        "pipeline_id": 3,
+        "id": "ce2c919a-6532-4043-a922-75e895315b4a",
+        "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+        "study_id": "202607000004",
+        "pipeline_id": 7,
         "node_id": "ld",
         "node_type": "eeg/data/load",
         "node_title": "LoadData",
@@ -1143,7 +1143,7 @@
         "topo_index": 0,
         "params_json": {
           "dataset_ids": [
-            "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+            "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
           ],
           "dataset_filter": {},
           "selection_mode": "explicit"
@@ -1160,12 +1160,12 @@
                 "run": "run-04",
                 "task": "task-sensory",
                 "mount": {
-                  "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                  "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                   "mount_name": "primary",
-                  "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+                  "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
                 },
                 "sfreq": 1000.0,
-                "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                 "session": "ses-a",
                 "subject": "sub-009",
                 "ch_names": [
@@ -1235,71 +1235,71 @@
                   "Oz"
                 ],
                 "checksum": "0ee5dd0d8d29d536d811507aec7f24f559038dd30cc08fd9255f933211c200b0",
-                "fif_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                "fif_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                 "n_events": 91,
-                "study_id": "202607000001",
+                "study_id": "202607000004",
                 "data_type": "raw",
                 "file_role": "fif",
                 "file_size": 39749762,
                 "qa_status": "converted",
-                "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+                "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
                 "fif_exists": true,
                 "mount_name": "primary",
                 "n_channels": 64,
-                "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-                "imported_at": "2026-07-08T08:01:20.083001",
-                "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-                "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "content_hash": "546eec2766f792f52a0518d757eaa2df497628d26d8fb6ed71c82e7bb5058ff8",
+                "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+                "imported_at": "2026-07-10T02:32:41.072559",
+                "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+                "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "content_hash": "1fa9470a01980642c2a881f4d5525dc78be2b55f9f4fcfcb34430dbd1310bcd7",
                 "dataset_file": {
-                  "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-                  "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                  "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+                  "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                   "file_role": "fif",
-                  "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                  "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                   "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                  "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+                  "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
                 },
                 "event_counts": {
-                  "New Segment/": 1,
-                  "Stimulus/S  3": 30,
-                  "Stimulus/S  4": 30,
-                  "Stimulus/S  5": 30
+                  "S  3": 30,
+                  "S  4": 30,
+                  "S  5": 30,
+                  "New Segment/": 1
                 },
                 "event_labels": [
                   "New Segment/",
-                  "Stimulus/S  3",
-                  "Stimulus/S  4",
-                  "Stimulus/S  5"
+                  "S  3",
+                  "S  4",
+                  "S  5"
                 ],
                 "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                 "file_snapshot": {
-                  "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                  "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                   "file_role": "fif",
-                  "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                  "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                   "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                  "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                  "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
                 },
                 "sidecar_paths": {
-                  "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-                  "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-                  "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-                  "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+                  "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+                  "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+                  "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+                  "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
                 },
                 "source_exists": true,
                 "source_format": "BRAINVISION",
                 "input_snapshot": {
-                  "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+                  "id": "fdf947ab-0454-4244-aa39-810bd8519508",
                   "node_id": "ld",
-                  "frozen_at": "2026-07-08T08:06:30.298833Z",
+                  "frozen_at": "2026-07-10T02:40:45.008483Z",
                   "node_type": "eeg/data/load",
                   "input_kind": "dataset_file",
                   "input_index": 1,
-                  "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                  "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
                 },
                 "bids_subject_id": "sub-009",
-                "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
-                "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+                "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
+                "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
                 "condition_groups": [
                   {
                     "mode": "exact",
@@ -1310,31 +1310,31 @@
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  3",
+                    "name": "S  3",
                     "count": 30,
-                    "sample": "Stimulus/S  3",
-                    "pattern": "Stimulus/S  3"
+                    "sample": "S  3",
+                    "pattern": "S  3"
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  4",
+                    "name": "S  4",
                     "count": 30,
-                    "sample": "Stimulus/S  4",
-                    "pattern": "Stimulus/S  4"
+                    "sample": "S  4",
+                    "pattern": "S  4"
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  5",
+                    "name": "S  5",
                     "count": 30,
-                    "sample": "Stimulus/S  5",
-                    "pattern": "Stimulus/S  5"
+                    "sample": "S  5",
+                    "pattern": "S  5"
                   }
                 ],
-                "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+                "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
                 "duration_seconds": 310.42,
-                "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
+                "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
                 "current_upload_seq": 27,
-                "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057"
+                "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a"
               }
             ]
           },
@@ -1343,7 +1343,7 @@
             "input_snapshot": true,
             "selection_mode": "explicit",
             "missing_dataset_ids": [],
-            "selector_snapshot_id": "477a32df-7faa-4a5b-bdb4-698f0e62f997"
+            "selector_snapshot_id": "76e6555a-398c-4092-908f-9a0e4c224575"
           },
           "artifacts": [],
           "node_type": "eeg/data/load",
@@ -1352,12 +1352,12 @@
               "run": "run-04",
               "task": "task-sensory",
               "mount": {
-                "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                 "mount_name": "primary",
-                "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+                "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
               },
               "sfreq": 1000.0,
-              "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+              "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
               "session": "ses-a",
               "subject": "sub-009",
               "ch_names": [
@@ -1427,71 +1427,71 @@
                 "Oz"
               ],
               "checksum": "0ee5dd0d8d29d536d811507aec7f24f559038dd30cc08fd9255f933211c200b0",
-              "fif_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+              "fif_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
               "n_events": 91,
-              "study_id": "202607000001",
+              "study_id": "202607000004",
               "data_type": "raw",
               "file_role": "fif",
               "file_size": 39749762,
               "qa_status": "converted",
-              "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+              "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
               "fif_exists": true,
               "mount_name": "primary",
               "n_channels": 64,
-              "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-              "imported_at": "2026-07-08T08:01:20.083001",
-              "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-              "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-              "content_hash": "546eec2766f792f52a0518d757eaa2df497628d26d8fb6ed71c82e7bb5058ff8",
+              "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+              "imported_at": "2026-07-10T02:32:41.072559",
+              "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+              "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+              "content_hash": "1fa9470a01980642c2a881f4d5525dc78be2b55f9f4fcfcb34430dbd1310bcd7",
               "dataset_file": {
-                "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-                "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+                "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                 "file_role": "fif",
-                "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                 "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+                "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
               },
               "event_counts": {
-                "New Segment/": 1,
-                "Stimulus/S  3": 30,
-                "Stimulus/S  4": 30,
-                "Stimulus/S  5": 30
+                "S  3": 30,
+                "S  4": 30,
+                "S  5": 30,
+                "New Segment/": 1
               },
               "event_labels": [
                 "New Segment/",
-                "Stimulus/S  3",
-                "Stimulus/S  4",
-                "Stimulus/S  5"
+                "S  3",
+                "S  4",
+                "S  5"
               ],
               "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
               "file_snapshot": {
-                "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                 "file_role": "fif",
-                "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                 "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
               },
               "sidecar_paths": {
-                "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-                "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-                "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-                "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+                "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+                "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+                "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+                "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
               },
               "source_exists": true,
               "source_format": "BRAINVISION",
               "input_snapshot": {
-                "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+                "id": "fdf947ab-0454-4244-aa39-810bd8519508",
                 "node_id": "ld",
-                "frozen_at": "2026-07-08T08:06:30.298833Z",
+                "frozen_at": "2026-07-10T02:40:45.008483Z",
                 "node_type": "eeg/data/load",
                 "input_kind": "dataset_file",
                 "input_index": 1,
-                "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
               },
               "bids_subject_id": "sub-009",
-              "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
-              "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
+              "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
+              "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
               "condition_groups": [
                 {
                   "mode": "exact",
@@ -1502,49 +1502,49 @@
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  3",
+                  "name": "S  3",
                   "count": 30,
-                  "sample": "Stimulus/S  3",
-                  "pattern": "Stimulus/S  3"
+                  "sample": "S  3",
+                  "pattern": "S  3"
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  4",
+                  "name": "S  4",
                   "count": 30,
-                  "sample": "Stimulus/S  4",
-                  "pattern": "Stimulus/S  4"
+                  "sample": "S  4",
+                  "pattern": "S  4"
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  5",
+                  "name": "S  5",
                   "count": 30,
-                  "sample": "Stimulus/S  5",
-                  "pattern": "Stimulus/S  5"
+                  "sample": "S  5",
+                  "pattern": "S  5"
                 }
               ],
-              "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+              "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
               "duration_seconds": 310.42,
-              "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
+              "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
               "current_upload_seq": 27,
-              "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057"
+              "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a"
             }
           ]
         },
         "input_hash": "06f82e9602bf8c0417c456bf38113a58e1e327601e78be2635479f900696e35a",
-        "params_hash": "d21493b111d524afc45826914eb3a5dc8715e8b6ecde3b73800942a4f80c1a1c",
-        "node_hash": "d3ddef3b7e21e337f08c06b3e00b2d4fb628bbbe7bd1a6389a569eeb3b2772f6",
-        "trace_code": "eeg-data-load-d3ddef3b7e21e337",
+        "params_hash": "8905b542277506d1f8ae7cd18b05f4914944943ff61f81f90901419616840b90",
+        "node_hash": "b2e26ac4d5a04d98960909b2f67a37504d9e20d3bb3b039e8648045d24b88a53",
+        "trace_code": "eeg-data-load-b2e26ac4d5a04d98",
         "error_json": {},
         "log_tail": null,
-        "started_at": "2026-07-08T08:06:30.339097",
-        "finished_at": "2026-07-08T08:06:30.347106",
-        "duration_ms": 8
+        "started_at": "2026-07-10T02:40:45.067987",
+        "finished_at": "2026-07-10T02:40:45.079254",
+        "duration_ms": 11
       },
       {
-        "id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
-        "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-        "study_id": "202607000001",
-        "pipeline_id": 3,
+        "id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
+        "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+        "study_id": "202607000004",
+        "pipeline_id": 7,
         "node_id": "flt",
         "node_type": "eeg/filter/apply",
         "node_title": "Filter 0.5-40Hz",
@@ -1589,13 +1589,13 @@
                 "run": "run-04",
                 "task": "task-sensory",
                 "mount": {
-                  "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                  "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                   "mount_name": "primary",
-                  "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+                  "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
                 },
                 "sfreq": 1000.0,
-                "job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
-                "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+                "job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
+                "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
                 "lowpass": 40.0,
                 "n_times": 310420,
                 "session": "ses-a",
@@ -1666,18 +1666,18 @@
                   "POz",
                   "Oz"
                 ],
-                "checksum": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
-                "fif_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "checksum": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
+                "fif_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
                 "highpass": 0.5,
-                "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                 "n_events": 91,
-                "study_id": "202607000001",
+                "study_id": "202607000004",
                 "data_type": "raw",
                 "file_role": "pipeline_artifact",
-                "file_size": 79484869,
+                "file_size": 79484059,
                 "last_samp": 310419,
                 "qa_status": "converted",
-                "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+                "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
                 "fif_exists": true,
                 "first_samp": 0,
                 "mount_name": "primary",
@@ -1696,60 +1696,60 @@
                   "node_id": "flt",
                   "node_type": "eeg/filter/apply"
                 },
-                "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-                "artifact_id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-                "imported_at": "2026-07-08T08:01:20.083001",
-                "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-                "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-                "content_hash": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+                "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+                "artifact_id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+                "imported_at": "2026-07-10T02:32:41.072559",
+                "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+                "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "content_hash": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
                 "dataset_file": {
-                  "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-                  "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                  "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+                  "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                   "file_role": "fif",
-                  "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                  "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                   "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                  "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+                  "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
                 },
                 "event_counts": {
-                  "New Segment/": 1,
-                  "Stimulus/S  3": 30,
-                  "Stimulus/S  4": 30,
-                  "Stimulus/S  5": 30
+                  "S  3": 30,
+                  "S  4": 30,
+                  "S  5": 30,
+                  "New Segment/": 1
                 },
                 "event_labels": [
                   "New Segment/",
-                  "Stimulus/S  3",
-                  "Stimulus/S  4",
-                  "Stimulus/S  5"
+                  "S  3",
+                  "S  4",
+                  "S  5"
                 ],
-                "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-                "storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
                 "file_snapshot": {
-                  "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                  "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                   "file_role": "fif",
-                  "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                  "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                   "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                  "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                  "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
                 },
                 "sidecar_paths": {
-                  "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-                  "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-                  "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-                  "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+                  "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+                  "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+                  "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+                  "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
                 },
                 "source_exists": true,
                 "source_format": "BRAINVISION",
                 "input_snapshot": {
-                  "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+                  "id": "fdf947ab-0454-4244-aa39-810bd8519508",
                   "node_id": "ld",
-                  "frozen_at": "2026-07-08T08:06:30.298833Z",
+                  "frozen_at": "2026-07-10T02:40:45.008483Z",
                   "node_type": "eeg/data/load",
                   "input_kind": "dataset_file",
                   "input_index": 1,
-                  "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                  "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
                 },
                 "bids_subject_id": "sub-009",
-                "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
+                "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
                 "dataset_file_id": null,
                 "annotation_count": 91,
                 "condition_groups": [
@@ -1762,36 +1762,36 @@
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  3",
+                    "name": "S  3",
                     "count": 30,
-                    "sample": "Stimulus/S  3",
-                    "pattern": "Stimulus/S  3"
+                    "sample": "S  3",
+                    "pattern": "S  3"
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  4",
+                    "name": "S  4",
                     "count": 30,
-                    "sample": "Stimulus/S  4",
-                    "pattern": "Stimulus/S  4"
+                    "sample": "S  4",
+                    "pattern": "S  4"
                   },
                   {
                     "mode": "exact",
-                    "name": "Stimulus/S  5",
+                    "name": "S  5",
                     "count": 30,
-                    "sample": "Stimulus/S  5",
-                    "pattern": "Stimulus/S  5"
+                    "sample": "S  5",
+                    "pattern": "S  5"
                   }
                 ],
-                "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+                "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
                 "duration_seconds": 310.42,
-                "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
-                "source_dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+                "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
+                "source_dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
                 "current_upload_seq": 27,
-                "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057",
-                "artifact_storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-                "artifact_storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-                "pipeline_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-                "source_dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a",
+                "artifact_storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "artifact_storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+                "pipeline_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+                "source_dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
               }
             ]
           },
@@ -1807,25 +1807,25 @@
                 "step:filter"
               ],
               "task": "task-sensory",
-              "job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
-              "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+              "job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
+              "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
               "session": "ses-a",
-              "checksum": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
-              "study_id": "202607000001",
+              "checksum": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
+              "study_id": "202607000004",
               "condition": null,
               "data_type": "filtered_raw",
               "file_role": "canonical_fif",
-              "file_size": 79484869,
+              "file_size": 79484059,
               "mime_type": null,
               "run_label": "run-04",
-              "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-              "artifact_id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
+              "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+              "artifact_id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
               "description": null,
-              "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-              "content_hash": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+              "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "content_hash": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
               "display_name": "sub-009_ses-a_task-sensory_run-04_Filter_0p5_40Hz",
-              "execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-              "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+              "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
               "preview_json": {
                 "sfreq": 1000.0,
                 "lowpass": 40.0,
@@ -1970,7 +1970,7 @@
                 "annotation_count": 91,
                 "duration_seconds": 310.42
               },
-              "storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
               "artifact_type": "derivative",
               "metadata_json": {
                 "params": {
@@ -1988,9 +1988,9 @@
               },
               "cache_eligible": false,
               "bids_subject_id": "sub-009",
-              "study_output_id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-              "source_dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
-              "produced_by_job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
+              "study_output_id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+              "source_dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
+              "produced_by_job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
               "produced_by_params": {
                 "keep": true,
                 "phase": "zero",
@@ -2006,9 +2006,9 @@
               "upstream_dataset_ids": [],
               "produced_by_node_type": "eeg/filter/apply",
               "upstream_recording_ids": [
-                "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+                "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
               ],
-              "produced_by_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8"
+              "produced_by_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c"
             }
           ],
           "node_type": "eeg/filter/apply",
@@ -2017,13 +2017,13 @@
               "run": "run-04",
               "task": "task-sensory",
               "mount": {
-                "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+                "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
                 "mount_name": "primary",
-                "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a"
+                "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24"
               },
               "sfreq": 1000.0,
-              "job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
-              "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+              "job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
+              "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
               "lowpass": 40.0,
               "n_times": 310420,
               "session": "ses-a",
@@ -2094,18 +2094,18 @@
                 "POz",
                 "Oz"
               ],
-              "checksum": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
-              "fif_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "checksum": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
+              "fif_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
               "highpass": 0.5,
-              "mount_id": "622deec2-58e3-49ab-bcf2-52b4c9879244",
+              "mount_id": "567d92a6-64ca-4c8b-9edb-355f91ceaba3",
               "n_events": 91,
-              "study_id": "202607000001",
+              "study_id": "202607000004",
               "data_type": "raw",
               "file_role": "pipeline_artifact",
-              "file_size": 79484869,
+              "file_size": 79484059,
               "last_samp": 310419,
               "qa_status": "converted",
-              "dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+              "dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
               "fif_exists": true,
               "first_samp": 0,
               "mount_name": "primary",
@@ -2124,60 +2124,60 @@
                 "node_id": "flt",
                 "node_type": "eeg/filter/apply"
               },
-              "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
-              "artifact_id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-              "imported_at": "2026-07-08T08:01:20.083001",
-              "source_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
-              "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-              "content_hash": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+              "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
+              "artifact_id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+              "imported_at": "2026-07-10T02:32:41.072559",
+              "source_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/sourcedata/original_uploads/upload-027/sub009a_r04.vhdr",
+              "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "content_hash": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
               "dataset_file": {
-                "id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1",
-                "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                "id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106",
+                "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                 "file_role": "fif",
-                "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                 "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "relative_path": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
+                "relative_path": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif"
               },
               "event_counts": {
-                "New Segment/": 1,
-                "Stimulus/S  3": 30,
-                "Stimulus/S  4": 30,
-                "Stimulus/S  5": 30
+                "S  3": 30,
+                "S  4": 30,
+                "S  5": 30,
+                "New Segment/": 1
               },
               "event_labels": [
                 "New Segment/",
-                "Stimulus/S  3",
-                "Stimulus/S  4",
-                "Stimulus/S  5"
+                "S  3",
+                "S  4",
+                "S  5"
               ],
-              "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-              "storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
               "file_snapshot": {
-                "sha256": "bb74f3f47d939f71d04cbe70063437991fad63b1786c85988783d9ccf2f5a980",
+                "sha256": "d43733d54cbd3906c82807e16fa15787b6530d1708de1befe17977347e7afff6",
                 "file_role": "fif",
-                "storage_uri": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
+                "storage_uri": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
                 "logical_path": "BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.fif",
-                "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
               },
               "sidecar_paths": {
-                "eeg": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
-                "events": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
-                "channels": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
-                "provenance": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
+                "eeg": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_eeg.json",
+                "events": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_events.tsv",
+                "channels": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_channels.tsv",
+                "provenance": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg/sub-009_ses-a_task-sensory_run-04_provenance.json"
               },
               "source_exists": true,
               "source_format": "BRAINVISION",
               "input_snapshot": {
-                "id": "22b94c6a-7415-407d-8605-444207e1ed13",
+                "id": "fdf947ab-0454-4244-aa39-810bd8519508",
                 "node_id": "ld",
-                "frozen_at": "2026-07-08T08:06:30.298833Z",
+                "frozen_at": "2026-07-10T02:40:45.008483Z",
                 "node_type": "eeg/data/load",
                 "input_kind": "dataset_file",
                 "input_index": 1,
-                "dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+                "dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
               },
               "bids_subject_id": "sub-009",
-              "current_fif_dir": "elys://datasets/68a4b6cb-fe9b-4f15-a7d1-23847501373a/BIDSdata/sub-009/ses-a/eeg",
+              "current_fif_dir": "elys://datasets/04a0fc26-71df-4f4b-926c-e5d1ef194a24/BIDSdata/sub-009/ses-a/eeg",
               "dataset_file_id": null,
               "annotation_count": 91,
               "condition_groups": [
@@ -2190,56 +2190,56 @@
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  3",
+                  "name": "S  3",
                   "count": 30,
-                  "sample": "Stimulus/S  3",
-                  "pattern": "Stimulus/S  3"
+                  "sample": "S  3",
+                  "pattern": "S  3"
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  4",
+                  "name": "S  4",
                   "count": 30,
-                  "sample": "Stimulus/S  4",
-                  "pattern": "Stimulus/S  4"
+                  "sample": "S  4",
+                  "pattern": "S  4"
                 },
                 {
                   "mode": "exact",
-                  "name": "Stimulus/S  5",
+                  "name": "S  5",
                   "count": 30,
-                  "sample": "Stimulus/S  5",
-                  "pattern": "Stimulus/S  5"
+                  "sample": "S  5",
+                  "pattern": "S  5"
                 }
               ],
-              "dataset_asset_id": "68a4b6cb-fe9b-4f15-a7d1-23847501373a",
+              "dataset_asset_id": "04a0fc26-71df-4f4b-926c-e5d1ef194a24",
               "duration_seconds": 310.42,
-              "current_upload_id": "72a416a8-4847-4b6d-8179-40816c67c652",
-              "source_dataset_id": "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2",
+              "current_upload_id": "4ef74327-d3a7-429a-8257-9f44e17afb34",
+              "source_dataset_id": "182dc6e8-c6b1-4cef-bd50-dc8f7a878826",
               "current_upload_seq": 27,
-              "dataset_version_id": "21ea450b-10b9-4cf1-a876-830da667c057",
-              "artifact_storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-              "artifact_storage_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-              "pipeline_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-              "source_dataset_file_id": "38f80ab2-38a4-4810-a7b6-4e9ef1c7c1e1"
+              "dataset_version_id": "f742c71b-18bb-49f1-b01b-b5188dc28d8a",
+              "artifact_storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "artifact_storage_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+              "pipeline_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+              "source_dataset_file_id": "f15e43ca-2aae-4ef0-b9e9-d2a90ce80106"
             }
           ]
         },
-        "input_hash": "52ba076de4c0673f0cae0d675ae32b9c8584a2cba42b7aa40dc160ac0c311a08",
+        "input_hash": "cb12cce59ca35e0557281a96ab173e266dee1d88a3d9b7be3f978c19962c6e33",
         "params_hash": "a09d5aa6f5fe39dc4a57eb396489f62f08adcacb27aae4a18b2d1dd4bf7511f6",
-        "node_hash": "3214ddcb6712ad2dc144a6ea1e027a005045d4fe310c0bfd4f1868b41931bcf9",
-        "trace_code": "eeg-filter-apply-3214ddcb6712ad2d",
+        "node_hash": "39db3d16c643e049121a62d74df03aa3cd04cddaaf7cc075ab581837f590473d",
+        "trace_code": "eeg-filter-apply-39db3d16c643e049",
         "error_json": {},
         "log_tail": null,
-        "started_at": "2026-07-08T08:06:30.357681",
-        "finished_at": "2026-07-08T08:06:32.466833",
-        "duration_ms": 2109
+        "started_at": "2026-07-10T02:40:45.086105",
+        "finished_at": "2026-07-10T02:40:47.170578",
+        "duration_ms": 2084
       }
     ],
     "study_outputs": [
       {
-        "id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-        "study_id": "202607000001",
-        "produced_by_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-        "produced_by_job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
+        "id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+        "study_id": "202607000004",
+        "produced_by_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+        "produced_by_job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
         "produced_by_node_id": "flt",
         "produced_by_node_type": "eeg/filter/apply",
         "produced_by_params": {
@@ -2254,14 +2254,14 @@
         },
         "upstream_dataset_ids": [],
         "upstream_recording_ids": [
-          "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+          "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
         ],
         "pipeline_id": null,
         "pipeline_name": null,
         "pipeline_version": null,
         "execution_seq": null,
         "data_type": "filtered_raw",
-        "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
+        "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
         "bids_subject_id": "sub-009",
         "session": "ses-a",
         "task": "task-sensory",
@@ -2272,11 +2272,11 @@
         "tags": [
           "step:filter"
         ],
-        "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-        "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+        "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+        "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
         "file_role": "canonical_fif",
-        "file_size": 79484869,
-        "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+        "file_size": 79484059,
+        "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
         "mime_type": null,
         "keep": true,
         "cache_eligible": false,
@@ -2425,19 +2425,19 @@
           "annotation_count": 91,
           "duration_seconds": 310.42
         },
-        "created_at": "2026-07-08T08:06:32.255044",
+        "created_at": "2026-07-10T02:40:46.903654",
         "created_by": null,
-        "updated_at": "2026-07-08T08:06:32.255048",
+        "updated_at": "2026-07-10T02:40:46.903657",
         "deleted_at": null
       }
     ]
   },
   "outputs": [
     {
-      "id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-      "study_id": "202607000001",
-      "produced_by_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-      "produced_by_job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
+      "id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+      "study_id": "202607000004",
+      "produced_by_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+      "produced_by_job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
       "produced_by_node_id": "flt",
       "produced_by_node_type": "eeg/filter/apply",
       "produced_by_params": {
@@ -2452,14 +2452,14 @@
       },
       "upstream_dataset_ids": [],
       "upstream_recording_ids": [
-        "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+        "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
       ],
       "pipeline_id": null,
       "pipeline_name": null,
       "pipeline_version": null,
       "execution_seq": null,
       "data_type": "filtered_raw",
-      "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
+      "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
       "bids_subject_id": "sub-009",
       "session": "ses-a",
       "task": "task-sensory",
@@ -2470,11 +2470,11 @@
       "tags": [
         "step:filter"
       ],
-      "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-      "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+      "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+      "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
       "file_role": "canonical_fif",
-      "file_size": 79484869,
-      "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+      "file_size": 79484059,
+      "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
       "mime_type": null,
       "keep": true,
       "cache_eligible": false,
@@ -2623,17 +2623,17 @@
         "annotation_count": 91,
         "duration_seconds": 310.42
       },
-      "created_at": "2026-07-08T08:06:32.255044",
+      "created_at": "2026-07-10T02:40:46.903654",
       "created_by": null,
-      "updated_at": "2026-07-08T08:06:32.255048",
+      "updated_at": "2026-07-10T02:40:46.903657",
       "deleted_at": null
     }
   ],
   "selected_filter_output": {
-    "id": "c5edfb03-86b7-45a0-af4f-941eaa62acdf",
-    "study_id": "202607000001",
-    "produced_by_execution_id": "de7aa7fd-a897-47c9-8251-c34c24420ed8",
-    "produced_by_job_id": "7e1672a0-6d1a-492b-8947-fcbaac6b43e9",
+    "id": "02e55c77-1518-49e6-b622-3dd4f8a5477f",
+    "study_id": "202607000004",
+    "produced_by_execution_id": "f5b56f55-3250-4ca3-b2ab-7a08365c085c",
+    "produced_by_job_id": "4c8e620e-d82c-46a5-8080-7a0c2bca7d33",
     "produced_by_node_id": "flt",
     "produced_by_node_type": "eeg/filter/apply",
     "produced_by_params": {
@@ -2648,14 +2648,14 @@
     },
     "upstream_dataset_ids": [],
     "upstream_recording_ids": [
-      "dbd66c2f-6da1-4ed1-9104-8b88bcbf0ac2"
+      "182dc6e8-c6b1-4cef-bd50-dc8f7a878826"
     ],
     "pipeline_id": null,
     "pipeline_name": null,
     "pipeline_version": null,
     "execution_seq": null,
     "data_type": "filtered_raw",
-    "subject_id": "bd5dd087-470a-455d-9335-f1eae1143d37",
+    "subject_id": "2751dda4-895d-433d-bd42-47863ff326de",
     "bids_subject_id": "sub-009",
     "session": "ses-a",
     "task": "task-sensory",
@@ -2666,11 +2666,11 @@
     "tags": [
       "step:filter"
     ],
-    "storage_uri": "elys://studies/202607000001/outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
-    "logical_path": "outputs/ff/ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+    "storage_uri": "elys://studies/202607000004/outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
+    "logical_path": "outputs/9b/9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e/sub-009_ses-a_task-sensory_run-04_eeg_firfilt-raw.fif",
     "file_role": "canonical_fif",
-    "file_size": 79484869,
-    "sha256": "ff9a1f57978d3f8f7633a649e68d059c23d4ffb326e96842a2943c61ab4f8b13",
+    "file_size": 79484059,
+    "sha256": "9b78ccbb7d54db2a471408ed8bb3d0e9552a2d852f87e2f4a81bedfaeafa4c9e",
     "mime_type": null,
     "keep": true,
     "cache_eligible": false,
@@ -2819,9 +2819,9 @@
       "annotation_count": 91,
       "duration_seconds": 310.42
     },
-    "created_at": "2026-07-08T08:06:32.255044",
+    "created_at": "2026-07-10T02:40:46.903654",
     "created_by": null,
-    "updated_at": "2026-07-08T08:06:32.255048",
+    "updated_at": "2026-07-10T02:40:46.903657",
     "deleted_at": null
   },
   "raw_path": "E:\\JinXingyi\\gitee\\claude\\Acc Test\\sub009_bandpass_0p5_40\\server_outputs\\sub-009_ses-a_task-sensory_run-04_eeg.fif",

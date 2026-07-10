@@ -47,6 +47,7 @@ from app.pipeline.stat_view import build_stat_view
 from app.pipeline.tfr_view import build_tfr_cube, build_tfr_heatmap, build_tfr_topomap
 from app.pipeline.ica_inspect import build_ica_components, build_ica_component_detail, build_ica_labels, build_ica_preview
 from app.pipeline.save_settings import retention_expiry_after_user_action
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.services.audit_events import record_audit_event
 from app.services.execution_dependencies import ArtifactDependencyError, assert_artifact_can_be_deleted
 from app.routers.auth import get_current_user
@@ -102,7 +103,7 @@ def stat_map_sibling_outputs(db: Session, dataset: StudyOutput) -> list[dict[str
         n_total = int(preview.get("n_total") or 0)
         clusters = preview.get("clusters") if isinstance(preview.get("clusters"), list) else []
         n_significant_clusters = sum(1 for item in clusters if isinstance(item, dict) and bool(item.get("significant")))
-        condition = str(row.condition or preview.get("condition") or "")
+        condition = normalize_marker_label(row.condition or preview.get("condition"))
         contrast_label = str(preview.get("contrast_label") or row.display_name or condition or "")
         out.append(
             {

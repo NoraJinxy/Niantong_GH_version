@@ -6,6 +6,7 @@
 from app.engine.analysis.event_conditions import (
     build_remap_source_target,
     classify_descriptions,
+    normalize_marker_label,
     propose_condition_groups,
 )
 
@@ -24,8 +25,21 @@ def test_build_remap_source_target_ignores_malformed():
     assert build_remap_source_target([{"target": "x"}, "junk", {"sources": []}]) == {}
 
 
+def test_normalize_marker_label_strips_mne_marker_type_segments():
+    assert normalize_marker_label("Stimulus/S 61") == "S 61"
+    assert normalize_marker_label("Response/R 1") == "R 1"
+    assert normalize_marker_label("Stimulus/S 61 / Stimulus/S 1") == "S 61 / S 1"
+    assert normalize_marker_label("trial/cue") == "trial/cue"
+    assert normalize_marker_label("BAD_boundary") == "BAD_boundary"
+
+
 def test_classify_descriptions_exact_when_clean():
     assert classify_descriptions(["go", "nogo", "go"]) == ["go", "nogo", "go"]
+
+
+def test_condition_helpers_return_user_authored_marker_names():
+    assert classify_descriptions(["Stimulus/S 61", "Stimulus/S 62"]) == ["S 61", "S 62"]
+    assert [g["name"] for g in propose_condition_groups(["Stimulus/S 61", "Stimulus/S 61"])] == ["S 61"]
 
 
 def test_classify_descriptions_template_when_instance_laden():

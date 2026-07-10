@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.engine.analysis.event_conditions import classify_descriptions
+from app.engine.analysis.event_conditions import classify_descriptions, normalize_marker_label
 
 # 与 artifact_mark.BAD_ANNOTATION_PREFIX 对齐：本节点不碰任何以此开头的注解。
 BAD_ANNOTATION_PREFIX = "BAD_"
@@ -73,7 +73,7 @@ def parse_event_list(value: Any) -> list[dict[str, Any]]:
             duration = 0.0
         if onset < 0 or duration < 0:
             continue
-        desc = str(item.get("description") or "").strip()
+        desc = normalize_marker_label(item.get("description") or "")
         if not desc or desc.startswith(BAD_ANNOTATION_PREFIX):
             continue
         out.append({"onset": onset, "duration": duration, "description": desc})
@@ -107,9 +107,9 @@ def apply_group_operations(
             # 仅带 delta_s 而无 target 的视作平移。group_operations 即 event_remap_rules 的超集。
             kind = "shift" if ("delta_s" in op and "target" not in op) else "rename"
         if kind in ("rename", "merge", "relabel", "delete"):
-            target = "" if kind == "delete" else str(op.get("target") or "").strip()
+            target = "" if kind == "delete" else normalize_marker_label(op.get("target") or "")
             for s in sources:
-                nm = str(s).strip()
+                nm = normalize_marker_label(s)
                 if nm and nm not in rename:  # 首条规则优先
                     rename[nm] = target
         elif kind == "shift":
@@ -118,7 +118,7 @@ def apply_group_operations(
             except (TypeError, ValueError):
                 delta = 0.0
             for s in sources:
-                nm = str(s).strip()
+                nm = normalize_marker_label(s)
                 if nm:
                     shift[nm] = shift.get(nm, 0.0) + delta
 
@@ -151,7 +151,7 @@ def _split_annotations(annotations: Any) -> tuple[list[dict[str, Any]], list[dic
     for onset, duration, desc in zip(
         annotations.onset, annotations.duration, annotations.description
     ):
-        rec = {"onset": float(onset), "duration": float(duration), "description": str(desc)}
+        rec = {"onset": float(onset), "duration": float(duration), "description": normalize_marker_label(desc)}
         if rec["description"].startswith(BAD_ANNOTATION_PREFIX):
             preserved.append(rec)
         else:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.io import resolve_path_reference, load_unit_stack_npz
 
 
@@ -69,8 +70,8 @@ def run_group_average(data_info: dict[str, Any], params: dict[str, Any]) -> dict
         "sfreq": float(stk.get("sfreq") or 0.0),
         "n_units": n_units,
         "nave_total": int(unit_n.sum()) if unit_n.size else n_units,
-        "label": str(stk.get("label") or ""),
-        "condition": str(stk.get("condition") or stk.get("label") or ""),
+        "label": normalize_marker_label(stk.get("label")),
+        "condition": normalize_marker_label(stk.get("condition") or stk.get("label")),
         "group_label": str(stk.get("group_label") or ""),
         "unit_kind": str(stk.get("unit_kind") or "subject"),
         "subjects": subjects,
@@ -96,7 +97,7 @@ def build_grandavg_payload(
             "ch_names": result["ch_names"],
             "sfreq": result["sfreq"],
             "n_subjects": result["n_units"],
-            "label": result["label"],
+            "label": normalize_marker_label(result["label"]),
             "subjects": result["subjects"],
         }
         summary = summarize_psd_grandavg(payload)
@@ -136,7 +137,7 @@ def _build_evoked(result: dict[str, Any]) -> Any:
         info,
         tmin=tmin,
         nave=int(result.get("nave_total") or result["n_units"]),
-        comment=str(result.get("label") or "grandavg"),
+        comment=normalize_marker_label(result.get("label")) or "grandavg",
     )
 
 
@@ -151,7 +152,7 @@ def _build_tfr(result: dict[str, Any]) -> Any:
     times = np.asarray(result["times"], dtype=float)
     freqs = np.asarray(result["freqs"], dtype=float)
     nave = int(result.get("nave_total") or result["n_units"])
-    comment = str(result.get("label") or "grandavg")
+    comment = normalize_marker_label(result.get("label")) or "grandavg"
     # MNE 1.7+ 用 AverageTFRArray(从数组构造);老签名退回 AverageTFR 位置参数。
     array_cls = getattr(mne.time_frequency, "AverageTFRArray", None)
     if array_cls is not None:

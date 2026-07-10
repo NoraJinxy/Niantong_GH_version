@@ -13,6 +13,7 @@ from typing import Any
 from app.engine.analysis.event_conditions import (
     build_remap_source_target,
     classify_descriptions,
+    normalize_marker_label,
 )
 
 
@@ -29,7 +30,7 @@ def run_event_remap(raw: Any, params: dict[str, Any]) -> Any:
     if not mapping or annotations is None or len(annotations) == 0:
         return raw.copy()  # 没规则 / 没事件 = 透传（拷贝以不改输入）
 
-    descriptions = [str(d) for d in annotations.description]
+    descriptions = [normalize_marker_label(d) for d in annotations.description]
     group_names = classify_descriptions(descriptions)
 
     new_onset: list[float] = []
@@ -46,7 +47,7 @@ def run_event_remap(raw: Any, params: dict[str, Any]) -> Any:
                 continue  # 目标留空 = 丢弃
             new_description.append(target)
         else:
-            new_description.append(desc)  # 未命中 → 原样保留
+            new_description.append(normalize_marker_label(desc))  # 未命中 → 原样保留
         new_onset.append(float(onset))
         new_duration.append(float(duration))
 

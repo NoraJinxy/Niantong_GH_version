@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.services.storage import StorageService, StorageUriError
 
 from .study_output_store import StudyOutputStore
@@ -174,7 +175,7 @@ def _preview_raw(path: Path) -> dict[str, Any]:
     raw = mne.io.read_raw_fif(path, preload=False, verbose="ERROR")
     sfreq = float(raw.info["sfreq"])
     n_times = int(raw.n_times)
-    annotation_descriptions = [str(item) for item in getattr(raw.annotations, "description", [])]
+    annotation_descriptions = [normalize_marker_label(item) for item in getattr(raw.annotations, "description", [])]
     return {
         "_preview_version": PREVIEW_VERSION,
         "data_type": "raw",
@@ -199,7 +200,7 @@ def _preview_raw(path: Path) -> dict[str, Any]:
 def _preview_epochs(path: Path) -> dict[str, Any]:
     mne = _mne()
     epochs = mne.read_epochs(path, preload=False, verbose="ERROR")
-    inverse_event_id = {int(code): str(name) for name, code in epochs.event_id.items()}
+    inverse_event_id = {int(code): normalize_marker_label(name) for name, code in epochs.event_id.items()}
     event_codes = [int(item) for item in epochs.events[:, 2].tolist()] if len(epochs.events) else []
     event_counts = Counter(inverse_event_id.get(code, str(code)) for code in event_codes)
     return {
@@ -211,7 +212,11 @@ def _preview_epochs(path: Path) -> dict[str, Any]:
             "n_channels": len(epochs.ch_names),
             "tmin": float(epochs.tmin),
             "tmax": float(epochs.tmax),
-            "event_id": dict(epochs.event_id),
+            "event_id": {
+                normalize_marker_label(name): int(code)
+                for name, code in dict(epochs.event_id).items()
+                if normalize_marker_label(name)
+            },
             "event_counts": _counter_items(event_counts),
             "channel_summary": _channel_summary(epochs),
         },
@@ -231,7 +236,7 @@ def _preview_evoked(path: Path, *, sample_channels: int, sample_points: int) -> 
         )
 
     primary = evokeds[0]
-    event_names = [str(item.comment or f"evoked_{index}") for index, item in enumerate(evokeds)]
+    event_names = [normalize_marker_label(item.comment) or f"evoked_{index}" for index, item in enumerate(evokeds)]
     n_times = int(len(primary.times))
     return {
         "_preview_version": PREVIEW_VERSION,
@@ -254,7 +259,7 @@ def _preview_evoked(path: Path, *, sample_channels: int, sample_points: int) -> 
 def _evoked_condition_summary(evoked: Any) -> dict[str, Any]:
     n_times = int(len(evoked.times))
     return {
-        "name": str(evoked.comment or ""),
+        "name": normalize_marker_label(evoked.comment),
         "nave": int(evoked.nave),
         "time_range": {
             "tmin": float(evoked.times[0]) if n_times else None,

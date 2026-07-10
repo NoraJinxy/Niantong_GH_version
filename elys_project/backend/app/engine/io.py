@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.services.storage import StorageService, StorageUriError
 
 
@@ -31,7 +32,9 @@ DEFAULT_SUFFIX: dict[MneFifKind, str] = {
 def read_raw_from_data_info(data_info: Any, preload: bool = True):
     path = materialize_reference(data_info, ("storage_uri", "fif_abs_path", "fif_path"))
     mne = _mne()
-    return mne.io.read_raw_fif(path, preload=preload, verbose="ERROR")
+    raw = mne.io.read_raw_fif(path, preload=preload, verbose="ERROR")
+    normalize_raw_marker_names(raw)
+    return raw
 
 
 def read_epochs_from_data_info(data_info: Any, preload: bool = True):
@@ -40,7 +43,9 @@ def read_epochs_from_data_info(data_info: Any, preload: bool = True):
         ("storage_uri", "artifact_storage_uri", "fif_abs_path", "fif_path", "storage_path", "artifact_storage_path"),
     )
     mne = _mne()
-    return mne.read_epochs(path, preload=preload, verbose="ERROR")
+    epochs = mne.read_epochs(path, preload=preload, verbose="ERROR")
+    normalize_epochs_marker_names(epochs)
+    return epochs
 
 
 def read_ica_from_data_info(data_info: Any):
@@ -79,7 +84,9 @@ def read_evoked_from_data_info(data_info: Any):
             "read_evoked_from_data_info: %s 含 %d 个 evoked,按约定只取首条(一文件一 condition)。",
             path, len(evokeds),
         )
-    return evokeds[0]
+    evoked = evokeds[0]
+    normalize_condition_comment(evoked)
+    return evoked
 
 
 def read_tfr_from_data_info(data_info: Any):
@@ -103,12 +110,14 @@ def read_tfr_from_data_info(data_info: Any):
         obj = tfrs
     if obj is None:
         raise ValueError(f"read_tfr_from_data_info: 文件无 TFR: {path}")
+    normalize_condition_comment(obj)
     return obj
 
 
 def save_raw_fif(raw: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "raw")
     target.parent.mkdir(parents=True, exist_ok=True)
+    normalize_raw_marker_names(raw)
     raw.save(target, overwrite=overwrite, verbose="ERROR")
     return target
 
@@ -116,6 +125,7 @@ def save_raw_fif(raw: Any, path: str | Path, *, overwrite: bool = True) -> Path:
 def save_epochs_fif(epochs: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "epochs")
     target.parent.mkdir(parents=True, exist_ok=True)
+    normalize_epochs_marker_names(epochs)
     epochs.save(target, overwrite=overwrite, verbose="ERROR")
     return target
 
@@ -123,6 +133,7 @@ def save_epochs_fif(epochs: Any, path: str | Path, *, overwrite: bool = True) ->
 def save_evoked_fif(evoked: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     target = ensure_mne_fif_path(path, "evoked")
     target.parent.mkdir(parents=True, exist_ok=True)
+    normalize_condition_comment(evoked)
     evoked.save(target, overwrite=overwrite, verbose="ERROR")
     return target
 
@@ -138,6 +149,7 @@ def save_tfr_h5(tfr: Any, path: str | Path, *, overwrite: bool = True) -> Path:
     """把 AverageTFR 存成 MNE 的 HDF5(-tfr.h5)。TFR 不用 FIF(FIF 不支持时频立方)。"""
     target = ensure_tfr_h5_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    normalize_condition_comment(tfr)
     tfr.save(target, overwrite=overwrite, verbose="ERROR")
     return target
 
@@ -176,7 +188,120 @@ def summarize_epochs(epochs: Any) -> dict[str, Any]:
         "tmax": float(epochs.tmax),
         "event_id": dict(epochs.event_id),
         "metadata_columns": list(epochs.metadata.columns) if epochs.metadata is not None else [],
+}
+
+
+def normalize_raw_marker_names(raw: Any) -> int:
+    """Normalize raw annotation labels in-place and return the number changed."""
+    return _normalize_annotation_names(raw)
+
+
+def normalize_epochs_marker_names(epochs: Any) -> int:
+    """Normalize epoch event_id/metadata/annotation labels in-place."""
+    changed = _normalize_annotation_names(epochs)
+    changed += _normalize_epoch_event_id_names(epochs)
+    changed += _normalize_epoch_condition_metadata(epochs)
+    return changed
+
+
+def normalize_condition_comment(obj: Any) -> int:
+    """Normalize condition-like MNE comments in-place."""
+    if not hasattr(obj, "comment"):
+        return 0
+    old = str(getattr(obj, "comment", "") or "")
+    new = normalize_marker_label(old)
+    if old == new:
+        return 0
+    try:
+        obj.comment = new
+        return 1
+    except Exception:
+        return 0
+
+
+def _normalize_annotation_names(obj: Any) -> int:
+    annotations = getattr(obj, "annotations", None)
+    if annotations is None or len(annotations) == 0:
+        return 0
+    old_descriptions = [str(item) for item in getattr(annotations, "description", [])]
+    new_descriptions = [normalize_marker_label(item) for item in old_descriptions]
+    if old_descriptions == new_descriptions:
+        return 0
+    mne = _mne()
+    kwargs = {
+        "onset": list(getattr(annotations, "onset", [])),
+        "duration": list(getattr(annotations, "duration", [])),
+        "description": new_descriptions,
+        "orig_time": getattr(annotations, "orig_time", None),
     }
+    ch_names = getattr(annotations, "ch_names", None)
+    if ch_names is not None:
+        kwargs["ch_names"] = ch_names
+    try:
+        new_annotations = mne.Annotations(**kwargs)
+    except TypeError:
+        kwargs.pop("ch_names", None)
+        new_annotations = mne.Annotations(**kwargs)
+    obj.set_annotations(new_annotations)
+    return sum(1 for old, new in zip(old_descriptions, new_descriptions) if old != new)
+
+
+def _normalize_epoch_event_id_names(epochs: Any) -> int:
+    event_id = dict(getattr(epochs, "event_id", {}) or {})
+    if not event_id:
+        return 0
+    normalized_by_old = {str(name): normalize_marker_label(name) for name in event_id.keys()}
+    if all(old == new for old, new in normalized_by_old.items()):
+        return 0
+
+    new_event_id: dict[str, int] = {}
+    code_map: dict[int, int] = {}
+    for old_name, old_code in event_id.items():
+        normalized_name = normalize_marker_label(old_name) or str(old_name)
+        if normalized_name not in new_event_id:
+            new_event_id[normalized_name] = len(new_event_id) + 1
+        code_map[int(old_code)] = int(new_event_id[normalized_name])
+
+    events = getattr(epochs, "events", None)
+    if events is not None:
+        for row in events:
+            current = int(row[2])
+            if current in code_map:
+                row[2] = code_map[current]
+    epochs.event_id = new_event_id
+    return sum(1 for old, new in normalized_by_old.items() if old != new)
+
+
+def _normalize_epoch_condition_metadata(epochs: Any) -> int:
+    fields = ("condition", "parent_condition", "child_condition", "condition_path", "analysis_condition")
+    changed = 0
+    rows = getattr(epochs, "_elys_condition_metadata", None)
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for field in fields:
+                if field not in row:
+                    continue
+                old = str(row.get(field) or "")
+                new = normalize_marker_label(old)
+                if old != new:
+                    row[field] = new
+                    changed += 1
+
+    metadata = getattr(epochs, "metadata", None)
+    if metadata is not None:
+        try:
+            for field in fields:
+                if field not in metadata:
+                    continue
+                normalized = metadata[field].map(lambda value: normalize_marker_label(value) if value is not None else value)
+                if not normalized.equals(metadata[field]):
+                    metadata[field] = normalized
+                    changed += 1
+        except Exception:
+            pass
+    return changed
 
 
 def summarize_evoked(evoked: Any) -> dict[str, Any]:
@@ -193,7 +318,7 @@ def summarize_evoked(evoked: Any) -> dict[str, Any]:
         "tmin": float(evoked.times[0]) if n_times else None,
         "tmax": float(evoked.times[-1]) if n_times else None,
         "nave": int(evoked.nave),
-        "comment": evoked.comment,
+        "comment": normalize_marker_label(evoked.comment),
     }
 
 
@@ -219,7 +344,7 @@ def summarize_tfr(tfr: Any) -> dict[str, Any]:
         "tmin": float(times[0]) if times else None,
         "tmax": float(times[-1]) if times else None,
         "nave": int(getattr(tfr, "nave", 0) or 0),
-        "comment": getattr(tfr, "comment", None),
+        "comment": normalize_marker_label(getattr(tfr, "comment", None)),
         "method": str(getattr(tfr, "method", "") or ""),
         # n_cycles 生效诊断(引擎 run_tfr 挂在 _elys_n_cycles_diag):min/max + 被地板钳到 1 周期的频点数,
         # 让用户看到低频是否因 1 周期 Morlet 而频率定位不可靠。grandavg 等重建对象无此属性 → None。
@@ -340,7 +465,7 @@ def summarize_psd(result: dict[str, Any]) -> dict[str, Any]:
         # 相对功率分母口径(让 rel_power 分母可审计)+ 1/f 非周期斜率(质量/解释辅助,点数不足时为 None)
         "rel_power_basis": result.get("rel_power_basis"),
         "aperiodic": result.get("aperiodic"),
-        "comment": result.get("condition"),
+        "comment": normalize_marker_label(result.get("condition")),
     }
 
 
@@ -378,7 +503,7 @@ def save_psd_grandavg_npz(result: dict[str, Any], path: str | Path, *, overwrite
         psds_sem=np.asarray(result.get("psds_sem"), dtype=float),
         ch_names=np.asarray(list(result.get("ch_names") or []), dtype="U64"),
         sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
-        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
+        label=np.asarray(normalize_marker_label(result.get("label")), dtype="U256"),
         n_subjects=np.asarray(int(result.get("n_subjects") or 0), dtype=int),
     )
     return target
@@ -397,7 +522,7 @@ def summarize_psd_grandavg(result: dict[str, Any]) -> dict[str, Any]:
         "n_freqs": len(freqs),
         "fmin": float(freqs[0]) if freqs else None,
         "fmax": float(freqs[-1]) if freqs else None,
-        "label": str(result.get("label") or ""),
+        "label": normalize_marker_label(result.get("label")),
     }
 
 
@@ -430,6 +555,9 @@ def save_unit_stack_npz(result: dict[str, Any], path: str | Path, *, overwrite: 
     def _strings(name: str, default: str = "") -> list[str]:
         raw = result.get(name)
         values = [str(item) for item in list(raw)] if raw is not None else []
+        if name == "unit_conditions":
+            values = [normalize_marker_label(item) for item in values]
+            default = normalize_marker_label(default)
         return (values + [default] * n_units)[:n_units]
 
     def _floats(name: str, default: float = 0.0) -> list[float]:
@@ -448,16 +576,16 @@ def save_unit_stack_npz(result: dict[str, Any], path: str | Path, *, overwrite: 
         sfreq=np.asarray(float(result.get("sfreq") or 0.0), dtype=float),
         unit_labels=np.asarray(_strings("unit_labels"), dtype="U256"),
         unit_subjects=np.asarray(_strings("unit_subjects"), dtype="U256"),
-        unit_conditions=np.asarray(_strings("unit_conditions", str(result.get("condition") or "")), dtype="U256"),
+        unit_conditions=np.asarray(_strings("unit_conditions", normalize_marker_label(result.get("condition"))), dtype="U256"),
         unit_sessions=np.asarray(_strings("unit_sessions"), dtype="U128"),
         unit_runs=np.asarray(_strings("unit_runs"), dtype="U128"),
         unit_tasks=np.asarray(_strings("unit_tasks"), dtype="U128"),
         unit_n=np.asarray(_floats("unit_n"), dtype=float),
         unit_kind=np.asarray(str(result.get("unit_kind") or "unit"), dtype="U32"),
         input_level=np.asarray(str(result.get("input_level") or ""), dtype="U64"),
-        condition=np.asarray(str(result.get("condition") or result.get("label") or ""), dtype="U256"),
+        condition=np.asarray(normalize_marker_label(result.get("condition") or result.get("label")), dtype="U256"),
         group_label=np.asarray(str(result.get("group_label") or ""), dtype="U256"),
-        label=np.asarray(str(result.get("label") or ""), dtype="U256"),
+        label=np.asarray(normalize_marker_label(result.get("label")), dtype="U256"),
     )
     return target
 
@@ -491,8 +619,8 @@ def load_unit_stack_npz(path: str | Path) -> dict[str, Any]:
             values = [float(x) for x in data[name]]
             return (values + [default] * n_units)[:n_units]
 
-        label = _scalar("label", "")
-        condition = _scalar("condition", label)
+        label = normalize_marker_label(_scalar("label", ""))
+        condition = normalize_marker_label(_scalar("condition", label))
         return {
             "data": stacked,  # (n_units, n_channels, *feature)
             "base_type": _scalar("base_type", ""),
@@ -503,7 +631,7 @@ def load_unit_stack_npz(path: str | Path) -> dict[str, Any]:
             "sfreq": float(data["sfreq"]),
             "unit_labels": _strings("unit_labels"),
             "unit_subjects": _strings("unit_subjects"),
-            "unit_conditions": _strings("unit_conditions", condition or "unknown"),
+            "unit_conditions": [normalize_marker_label(item) for item in _strings("unit_conditions", condition or "unknown")],
             "unit_sessions": _strings("unit_sessions"),
             "unit_runs": _strings("unit_runs"),
             "unit_tasks": _strings("unit_tasks"),
@@ -532,12 +660,12 @@ def summarize_unit_stack(result: dict[str, Any]) -> dict[str, Any]:
         "n_units": n_units,
         "n_channels": len(ch_names),
         "ch_names": ch_names,
-        "condition": str(result.get("condition") or ""),
+        "condition": normalize_marker_label(result.get("condition")),
         "group_label": str(result.get("group_label") or ""),
         "label": str(result.get("label") or ""),
         "unit_labels": list(result.get("unit_labels") or []),
         "subjects": list(result.get("unit_subjects") or []),
-        "unit_conditions": list(result.get("unit_conditions") or []),
+        "unit_conditions": [normalize_marker_label(item) for item in list(result.get("unit_conditions") or [])],
         "unit_sessions": list(result.get("unit_sessions") or []),
         "unit_runs": list(result.get("unit_runs") or []),
         "unit_tasks": list(result.get("unit_tasks") or []),
@@ -606,7 +734,7 @@ def save_stat_map_npz(result: dict[str, Any], path: str | Path, *, overwrite: bo
         tail=np.asarray(str(result.get("tail") or "two-sided"), dtype="U16"),
         correction=np.asarray(str(result.get("correction") or "none"), dtype="U16"),
         alpha=np.asarray(float(result.get("alpha") or 0.05), dtype=float),
-        condition=np.asarray(str(result.get("condition") or ""), dtype="U256"),
+        condition=np.asarray(normalize_marker_label(result.get("condition")), dtype="U256"),
         contrast_label=np.asarray(str(result.get("contrast_label") or ""), dtype="U256"),
         n_a=np.asarray(int(result.get("n_a") or 0), dtype=int),
         n_b=np.asarray(int(result.get("n_b") or 0), dtype=int),
@@ -660,7 +788,7 @@ def load_stat_map_npz(path: str | Path) -> dict[str, Any]:
             "tail": str(data["tail"]),
             "correction": str(data["correction"]),
             "alpha": float(data["alpha"]),
-            "condition": _scalar("condition", ""),
+            "condition": normalize_marker_label(_scalar("condition", "")),
             "contrast_label": str(data["contrast_label"]),
             "n_a": int(data["n_a"]),
             "n_b": int(data["n_b"]),
@@ -694,7 +822,7 @@ def summarize_stat_map(result: dict[str, Any]) -> dict[str, Any]:
         "tail": str(result.get("tail") or "two-sided"),
         "correction": str(result.get("correction") or "none"),
         "alpha": float(result.get("alpha") or 0.05),
-        "condition": str(result.get("condition") or ""),
+        "condition": normalize_marker_label(result.get("condition")),
         "contrast_label": str(result.get("contrast_label") or ""),
         "n_channels": len(ch_names),
         "ch_names": ch_names,

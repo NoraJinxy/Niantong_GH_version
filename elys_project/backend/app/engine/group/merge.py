@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.group.stack import (
     align_and_stack,
     collapse_repeated_subject_units,
@@ -22,7 +23,7 @@ from app.engine.group.stack import (
 def _clean_text(value: Any, default: str = "") -> str:
     if value is None:
         return default
-    text = str(value).strip()
+    text = normalize_marker_label(value)
     return text or default
 
 
@@ -57,7 +58,7 @@ def _subset_block_units(block: dict[str, Any], indices: list[int]) -> dict[str, 
     ):
         values = list(source.get(key) or [])
         subset[key] = [values[index] for index in indices if index < len(values)]
-    unique_conditions = sorted({str(c) for c in subset.get("unit_conditions") or [] if c})
+    unique_conditions = sorted({normalize_marker_label(c) for c in subset.get("unit_conditions") or [] if normalize_marker_label(c)})
     if len(unique_conditions) == 1:
         subset["condition"] = unique_conditions[0]
     return subset

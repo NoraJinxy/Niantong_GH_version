@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.io import load_stat_map_npz
 
 from .montage_layout import channel_positions_2d
@@ -326,7 +327,7 @@ def build_stat_view(
         "base_type": base,
         "study_output_id": str(getattr(dataset, "id", "") or ""),
         "display_name": getattr(dataset, "display_name", None),
-        "condition": str(sm.get("condition") or ""),
+        "condition": normalize_marker_label(sm.get("condition")),
         "contrast_label": str(sm.get("contrast_label") or ""),
         "design": str(sm.get("design") or ""),
         "method": str(sm.get("method") or ""),

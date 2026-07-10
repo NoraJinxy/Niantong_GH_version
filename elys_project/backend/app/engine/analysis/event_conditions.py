@@ -16,6 +16,50 @@ from typing import Any, Sequence
 DEFAULT_MAX_CONDITIONS = 64
 
 _DIGITS = re.compile(r"\d+")
+_HIERARCHY_SEPARATOR = re.compile(r"\s+/\s+")
+
+# MNE reads BrainVision markers as "<marker type>/<marker description>", for
+# example "Stimulus/S 61". Users authored the marker description ("S 61"), so
+# the platform treats that description as the condition name.
+_MNE_MARKER_TYPE_PREFIXES = (
+    "Stimulus/",
+    "Response/",
+    "Optic/",
+    "Comment/",
+)
+
+
+def normalize_marker_label(label: Any) -> str:
+    """Return the user-authored marker name without reader-added type prefixes.
+
+    Hierarchical ELYS condition paths use " / " as the separator. Normalize each
+    path segment independently, so "Stimulus/S 61 / Stimulus/S 1" becomes
+    "S 61 / S 1" while a genuine marker like "trial/cue" remains untouched.
+    """
+    text = str(label or "").strip()
+    if not text:
+        return ""
+    if text.upper().startswith("BAD_"):
+        return text
+    parts = _HIERARCHY_SEPARATOR.split(text)
+    normalized = [_normalize_marker_segment(part) for part in parts]
+    return " / ".join(part for part in normalized if part)
+
+
+def normalize_marker_labels(labels: Sequence[Any]) -> list[str]:
+    return [normalize_marker_label(label) for label in labels]
+
+
+def _normalize_marker_segment(segment: Any) -> str:
+    text = str(segment or "").strip()
+    if not text or text.upper().startswith("BAD_"):
+        return text
+    for prefix in _MNE_MARKER_TYPE_PREFIXES:
+        if text.startswith(prefix):
+            rest = text[len(prefix):].strip()
+            if rest:
+                return rest
+    return text
 
 
 @dataclass(frozen=True)
@@ -27,16 +71,18 @@ class ConditionRule:
     mode: str = "contains"  # exact | contains | regex
 
     def matches(self, description: str) -> bool:
+        description = normalize_marker_label(description)
+        pattern = normalize_marker_label(self.pattern)
         if self.mode == "exact":
-            return description == self.pattern
+            return description == pattern
         if self.mode == "template":
-            return _DIGITS.sub("#", description) == _DIGITS.sub("#", self.pattern)
+            return _DIGITS.sub("#", description) == _DIGITS.sub("#", pattern)
         if self.mode == "regex":
             try:
-                return re.search(self.pattern, description) is not None
+                return re.search(pattern, description) is not None
             except re.error:
                 return False
-        return self.pattern in description  # contains(默认)
+        return pattern in description  # contains(默认)
 
 
 def match_conditions(
@@ -104,7 +150,7 @@ def summarize_event_vocabulary(
     判据:不同取值数超过 max_conditions,且(抹掉数字后模板数远小于唯一数 ——
     说明唯一性几乎全由内嵌序号制造;或唯一数 ≈ 事件总数)→ 疑似实例数据烧进标识符。
     """
-    texts = [str(d) for d in descriptions]
+    texts = normalize_marker_labels(descriptions)
     n_total = len(texts)
     uniques = set(texts)
     n_unique = len(uniques)
@@ -152,7 +198,7 @@ def propose_condition_groups(
     前缀不同的(mi/csp/rest 的 window)天然就是不同组,不改名、不撞名、不堆 `-2/-3`。
     前端展示与运行时(epoching)调同一函数,分组一致。
     """
-    texts = [str(d) for d in descriptions]
+    texts = normalize_marker_labels(descriptions)
     use_template = summarize_event_vocabulary(texts, max_conditions=max_conditions)["looks_instance_laden"]
 
     buckets: dict[str, dict[str, Any]] = {}
@@ -196,15 +242,15 @@ def rules_for_selection(
     pending_names: list[str] = []
     for item in items:
         if isinstance(item, dict):
-            name = str(item.get("name") or item.get("pattern") or "").strip()
-            pattern = str(item.get("pattern") or item.get("name") or "").strip()
+            name = normalize_marker_label(item.get("name") or item.get("pattern") or "")
+            pattern = normalize_marker_label(item.get("pattern") or item.get("name") or "")
             mode = str(item.get("mode") or "exact").strip().lower()
             if mode not in ("exact", "contains", "regex", "template"):
                 mode = "exact"
             if name and pattern:
                 rules.append(ConditionRule(name=name, pattern=pattern, mode=mode))
         else:
-            text = str(item).strip()
+            text = normalize_marker_label(item)
             if text:
                 pending_names.append(text)
     unknown_names: list[str] = []
@@ -248,12 +294,12 @@ def build_remap_source_target(raw_rules: Any) -> dict[str, str]:
     for rule in raw_rules:
         if not isinstance(rule, dict):
             continue
-        target = str(rule.get("target") or "").strip()
+        target = normalize_marker_label(rule.get("target") or "")
         sources = rule.get("sources")
         if not isinstance(sources, (list, tuple)):
             continue
         for s in sources:
-            name = str(s).strip()
+            name = normalize_marker_label(s)
             if name and name not in mapping:  # 首条规则优先
                 mapping[name] = target
     return mapping
@@ -264,7 +310,7 @@ def classify_descriptions(descriptions: Sequence[str]) -> list[str]:
     (instance_laden 时按抹数字模板归组、否则按原值),返回与输入等长的分组名列表。
     用于运行时把每条注释归到一个分组,再据 build_remap_source_target 决定改名/丢弃。
     """
-    texts = [str(d) for d in descriptions]
+    texts = normalize_marker_labels(descriptions)
     use_template = summarize_event_vocabulary(texts)["looks_instance_laden"]
     if not use_template:
         return texts

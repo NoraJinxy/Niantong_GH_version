@@ -25,6 +25,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
+from app.engine.analysis.event_conditions import normalize_marker_label
+from app.engine.io import normalize_raw_marker_names
 from app.engine.preprocess.montage_autobind import autobind_montage
 from app.services.storage import StorageService
 from app.models import (
@@ -993,7 +995,8 @@ def write_events_tsv(raw: Any, target: Path) -> int:
     count = 0
     if annotations:
         for onset, duration, description in zip(annotations.onset, annotations.duration, annotations.description):
-            lines.append(f"{float(onset):.6f}\t{float(duration):.6f}\t{description}")
+            label = normalize_marker_label(description)
+            lines.append(f"{float(onset):.6f}\t{float(duration):.6f}\t{label}")
             count += 1
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return count
@@ -1132,6 +1135,7 @@ def generate_canonical_fif(
     mne = get_mne_module()
 
     raw = load_raw_for_conversion(upload_kind, source_path)
+    normalized_marker_count = normalize_raw_marker_names(raw)
     # P2 (2026-06-10 Q3): 强制 PII 脱敏，必须在 raw.save() 之前 —— canonical FIF 出生即干净。
     anonymize_raw_for_import(raw)
     # 把设备元数据通道（CQ_/EQ_/时间戳/电量/标记等）重标为 misc，避免污染下游 EEG 分析。
@@ -1219,6 +1223,7 @@ def generate_canonical_fif(
                 "sfreq": sfreq,
                 "durationSeconds": duration,
                 "nEvents": n_events,
+                "normalizedMarkerNames": normalized_marker_count,
                 "retypedNonEegChannels": retyped_non_eeg,
                 "montageAutobind": montage_autobind,
             },

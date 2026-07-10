@@ -79,9 +79,10 @@ def _unit_stack(condition: str, offset: float) -> dict:
 def test_group_compare_pairs_multiple_condition_stacks(monkeypatch):
     monkeypatch.setattr(compare, "extract_block", lambda data_info: data_info)
 
-    conditions = ["Stimulus/S  3", "Stimulus/S  4", "Stimulus/S  5"]
-    a_infos = [_unit_stack(condition, index * 10.0) for index, condition in enumerate(conditions)]
-    b_infos = [_unit_stack(condition, index * 10.0 + 1.0) for index, condition in enumerate(conditions)]
+    raw_conditions = ["Stimulus/S  3", "Stimulus/S  4", "Stimulus/S  5"]
+    clean_conditions = ["S  3", "S  4", "S  5"]
+    a_infos = [_unit_stack(condition, index * 10.0) for index, condition in enumerate(raw_conditions)]
+    b_infos = [_unit_stack(condition, index * 10.0 + 1.0) for index, condition in enumerate(raw_conditions)]
 
     results = compare.run_group_compare(
         a_infos,
@@ -90,12 +91,12 @@ def test_group_compare_pairs_multiple_condition_stacks(monkeypatch):
     )
 
     assert isinstance(results, list)
-    assert [result["condition"] for result in results] == conditions
+    assert [result["condition"] for result in results] == clean_conditions
     assert [result["n_a"] for result in results] == [3, 3, 3]
     assert [result["n_b"] for result in results] == [3, 3, 3]
     assert results[0]["contrast_label"].startswith("A ")
     assert " B " in results[0]["contrast_label"]
-    assert results[0]["contrast_label"].endswith("Stimulus/S  3")
+    assert results[0]["contrast_label"].endswith("S  3")
 
 
 def test_group_compare_condition_selector_returns_one_stack(monkeypatch):
@@ -117,4 +118,4 @@ def test_group_compare_condition_selector_returns_one_stack(monkeypatch):
     )
 
     assert isinstance(result, dict)
-    assert result["condition"] == "Stimulus/S  4"
+    assert result["condition"] == "S  4"

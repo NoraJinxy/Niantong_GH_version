@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.engine.analysis.event_conditions import build_remap_source_target
+from app.engine.analysis.event_conditions import build_remap_source_target, normalize_marker_label
 from app.models import Study
 from app.pipeline.load_data import resolve_load_data_selection
 from app.schemas.pipeline import (
@@ -223,7 +223,7 @@ def resolve_node_conditions(
 def _aggregate(into: dict[str, dict[str, int]], groups: list[dict[str, Any]]) -> None:
     """把一份 condition_groups 累加进 name→{count,datasets} 聚合表。"""
     for g in groups or []:
-        name = str((g or {}).get("name") or "").strip()
+        name = normalize_marker_label((g or {}).get("name") or "")
         if not name:
             continue
         slot = into.setdefault(name, {"count": 0, "datasets": 0})
@@ -236,7 +236,10 @@ def _aggregate(into: dict[str, dict[str, int]], groups: list[dict[str, Any]]) ->
 
 def _merge(target: dict[str, dict[str, int]], other: dict[str, dict[str, int]]) -> None:
     for name, info in other.items():
-        slot = target.setdefault(name, {"count": 0, "datasets": 0})
+        clean_name = normalize_marker_label(name)
+        if not clean_name:
+            continue
+        slot = target.setdefault(clean_name, {"count": 0, "datasets": 0})
         slot["count"] += int(info.get("count") or 0)
         slot["datasets"] += int(info.get("datasets") or 0)
 
@@ -247,11 +250,11 @@ def _condition_path_vocab(
 ) -> dict[str, dict[str, int]]:
     result: dict[str, dict[str, int]] = {}
     for parent, parent_info in parent_vocab.items():
-        parent_name = str(parent or "").strip()
+        parent_name = normalize_marker_label(parent)
         if not parent_name:
             continue
         for child, child_info in child_vocab.items():
-            child_name = str(child or "").strip()
+            child_name = normalize_marker_label(child)
             if not child_name:
                 continue
             name = f"{parent_name} / {child_name}"
@@ -292,12 +295,15 @@ def _remap_vocab(
     mapping = build_remap_source_target(raw_rules)
     out: dict[str, dict[str, int]] = {}
     for name, info in input_vocab.items():
-        if name in mapping:
-            dest = mapping[name]
+        clean_name = normalize_marker_label(name)
+        if clean_name in mapping:
+            dest = mapping[clean_name]
             if not dest:
                 continue  # 目标空 = 丢弃
         else:
-            dest = name  # 未命中 → 原样保留
+            dest = clean_name  # 未命中 → 原样保留
+        if not dest:
+            continue
         slot = out.setdefault(dest, {"count": 0, "datasets": 0})
         slot["count"] += int(info.get("count") or 0)
         slot["datasets"] = max(slot["datasets"], int(info.get("datasets") or 0))
@@ -311,9 +317,9 @@ def _selected_condition_names(raw: Any) -> list[str]:
     names: list[str] = []
     for item in raw:
         if isinstance(item, dict):
-            name = str(item.get("name") or item.get("pattern") or "").strip()
+            name = normalize_marker_label(item.get("name") or item.get("pattern") or "")
         else:
-            name = str(item).strip()
+            name = normalize_marker_label(item)
         if name:
             names.append(name)
     return names

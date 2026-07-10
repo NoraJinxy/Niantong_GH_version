@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .erp import _normalize_event_labels
+from .erp import _normalize_event_labels, _normalized_event_id_map
 
 
 def run_psd(data: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -44,7 +44,7 @@ def run_psd(data: Any, params: dict[str, Any]) -> dict[str, Any]:
     if not labels:
         raise ValueError("PSD.condition is required.")
 
-    event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+    event_id_map = _normalized_event_id_map(epochs)
     available = set(event_id_map)
     missing = [label for label in labels if label not in available]
     if missing:

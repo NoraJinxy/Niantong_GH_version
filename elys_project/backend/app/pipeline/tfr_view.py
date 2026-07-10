@@ -12,6 +12,8 @@ import functools
 import os
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
+
 from .montage_layout import channel_positions_2d
 from .previews import (
     StudyOutputPreviewError,
@@ -141,7 +143,7 @@ def build_tfr_heatmap(
     return {
         "data_type": "tfr",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
-        "condition": getattr(dataset, "condition", None),
+        "condition": normalize_marker_label(getattr(dataset, "condition", None)),
         "subject": getattr(dataset, "bids_subject_id", None),
         "display_name": getattr(dataset, "display_name", None),
         "method": str(getattr(tfr, "method", "") or "morlet"),
@@ -240,7 +242,7 @@ def build_tfr_topomap(
     return {
         "data_type": "tfr_topo",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
-        "condition": getattr(dataset, "condition", None),
+        "condition": normalize_marker_label(getattr(dataset, "condition", None)),
         "unit": unit,
         "tmin": round(min(t_lo, t_hi), 4),
         "tmax": round(max(t_lo, t_hi), 4),
@@ -306,7 +308,7 @@ def build_tfr_cube(
     return {
         "data_type": "tfr_cube",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
-        "condition": getattr(dataset, "condition", None),
+        "condition": normalize_marker_label(getattr(dataset, "condition", None)),
         "unit": unit,
         "freqs": out_freqs,
         "times": out_times,

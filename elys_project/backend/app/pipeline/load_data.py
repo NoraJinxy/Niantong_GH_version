@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.models import DatasetFile, Recording, Study, StudyDatasetMount, StudySettings
 from app.schemas.pipeline import LoadDataDataInfo, LoadDataResolveResponse, PipelineValidationIssue
 from app.services.storage import StorageService, StorageUriError
-from app.engine.analysis.event_conditions import propose_condition_groups
+from app.engine.analysis.event_conditions import normalize_marker_label, propose_condition_groups
 
 
 BLOCKED_QA_STATUS = {"failed", "deleted", "rejected"}
@@ -144,7 +144,7 @@ def _read_dataset_event_labels(
             text = str(raw).strip()
             if not text or text in {"n/a", "N/A"}:
                 continue
-            label = text[:EVENT_LABEL_MAX_LENGTH]
+            label = normalize_marker_label(text)[:EVENT_LABEL_MAX_LENGTH]
             break
         if label is None:
             continue
@@ -186,7 +186,7 @@ def _read_dataset_condition_groups(study: Study, dataset: Recording) -> list[dic
             text = str(raw).strip()
             if not text or text in {"n/a", "N/A"}:
                 continue
-            labels.append(text)
+            labels.append(normalize_marker_label(text))
             break
     return propose_condition_groups(labels)
 

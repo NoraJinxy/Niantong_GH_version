@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.io import (
     load_psd_npz,
     load_unit_stack_npz,
@@ -66,14 +67,14 @@ def _subject_of(data_info: dict[str, Any]) -> str:
 
 
 def _condition_of(data_info: dict[str, Any]) -> str:
-    return _clean_text(
+    condition = normalize_marker_label(
         data_info.get("condition_path")
         or data_info.get("condition")
         or data_info.get("event_label")
         or data_info.get("comment")
-        or data_info.get("label"),
-        _UNKNOWN,
+        or data_info.get("label")
     )
+    return condition or _UNKNOWN
 
 
 def _session_of(data_info: dict[str, Any]) -> str:
@@ -125,7 +126,7 @@ def normalize_block_metadata(block: dict[str, Any]) -> dict[str, Any]:
 
     data = np.asarray(block.get("data"))
     n_units = int(block.get("n_units") or (data.shape[0] if data.ndim else 0))
-    condition = _clean_text(block.get("condition") or block.get("label"), _UNKNOWN)
+    condition = normalize_marker_label(block.get("condition") or block.get("label")) or _UNKNOWN
     block["n_units"] = n_units
     block["unit_labels"] = [
         _clean_text(item) for item in _fill_unit_list(block.get("unit_labels"), n_units, "")
@@ -134,7 +135,7 @@ def normalize_block_metadata(block: dict[str, Any]) -> dict[str, Any]:
         _clean_text(item) for item in _fill_unit_list(block.get("unit_subjects"), n_units, "")
     ]
     block["unit_conditions"] = [
-        _clean_text(item, condition) for item in _fill_unit_list(block.get("unit_conditions"), n_units, condition)
+        normalize_marker_label(item) or condition for item in _fill_unit_list(block.get("unit_conditions"), n_units, condition)
     ]
     block["unit_sessions"] = [
         _clean_text(item) for item in _fill_unit_list(block.get("unit_sessions"), n_units, "")
@@ -148,9 +149,8 @@ def normalize_block_metadata(block: dict[str, Any]) -> dict[str, Any]:
     block["unit_n"] = [
         float(item or 0.0) for item in _fill_unit_list(block.get("unit_n"), n_units, 0.0)
     ]
-    if "condition" not in block:
-        unique_conditions = sorted({c for c in block["unit_conditions"] if c})
-        block["condition"] = unique_conditions[0] if len(unique_conditions) == 1 else condition
+    unique_conditions = sorted({c for c in block["unit_conditions"] if c})
+    block["condition"] = unique_conditions[0] if len(unique_conditions) == 1 else condition
     return block
 
 
@@ -195,7 +195,9 @@ def extract_block(data_info: dict[str, Any]) -> dict[str, Any]:
     if dt == "evoked":
         ev = read_evoked_from_data_info(data_info)
         data = np.asarray(ev.data, dtype=float)
-        condition = _clean_text(data_info.get("condition_path") or data_info.get("condition") or getattr(ev, "comment", None), _UNKNOWN)
+        condition = normalize_marker_label(
+            data_info.get("condition_path") or data_info.get("condition") or getattr(ev, "comment", None)
+        ) or _UNKNOWN
         label = _clean_text(data_info.get("label") or getattr(ev, "comment", None), subject or condition)
         block = {
             "base_type": "evoked",
@@ -214,7 +216,9 @@ def extract_block(data_info: dict[str, Any]) -> dict[str, Any]:
     if dt == "tfr":
         tf = read_tfr_from_data_info(data_info)
         data = np.asarray(tf.data, dtype=float)
-        condition = _clean_text(data_info.get("condition_path") or data_info.get("condition") or getattr(tf, "comment", None), _UNKNOWN)
+        condition = normalize_marker_label(
+            data_info.get("condition_path") or data_info.get("condition") or getattr(tf, "comment", None)
+        ) or _UNKNOWN
         label = _clean_text(data_info.get("label") or getattr(tf, "comment", None), subject or condition)
         block = {
             "base_type": "tfr",
@@ -427,7 +431,7 @@ def collapse_repeated_subject_units(stack: dict[str, Any]) -> dict[str, Any]:
         subject = _join_unique(subjects, key)
         collapsed_subjects.append(subject)
         collapsed_labels.append(subject or _join_unique(labels, key))
-        collapsed_conditions.append(_join_unique(conditions, _clean_text(source.get("condition"), _UNKNOWN)))
+        collapsed_conditions.append(_join_unique(conditions, normalize_marker_label(source.get("condition")) or _UNKNOWN))
         collapsed_sessions.append(_join_unique(sessions))
         collapsed_runs.append(_join_unique(runs))
         collapsed_tasks.append(_join_unique(tasks))
@@ -502,7 +506,10 @@ def align_and_stack(blocks: list[dict[str, Any]], params: dict[str, Any]) -> dic
         m = int(arr.shape[0])
         unit_labels += [str(x) for x in _fill_unit_list(block.get("unit_labels"), m, "")]
         unit_subjects += [str(x) for x in _fill_unit_list(block.get("unit_subjects"), m, "")]
-        unit_conditions += [str(x) for x in _fill_unit_list(block.get("unit_conditions"), m, _UNKNOWN)]
+        unit_conditions += [
+            normalize_marker_label(x) or _UNKNOWN
+            for x in _fill_unit_list(block.get("unit_conditions"), m, _UNKNOWN)
+        ]
         unit_sessions += [str(x) for x in _fill_unit_list(block.get("unit_sessions"), m, "")]
         unit_runs += [str(x) for x in _fill_unit_list(block.get("unit_runs"), m, "")]
         unit_tasks += [str(x) for x in _fill_unit_list(block.get("unit_tasks"), m, "")]
@@ -520,7 +527,7 @@ def align_and_stack(blocks: list[dict[str, Any]], params: dict[str, Any]) -> dic
         policy=str(params.get("duplicate_unit_policy") or "error"),
     )
 
-    condition = _clean_text(params.get("condition"), _UNKNOWN)
+    condition = normalize_marker_label(params.get("condition")) or _UNKNOWN
     group_label = _clean_text(params.get("group_label") or params.get("label"))
     label = _clean_text(params.get("label"), condition if condition != _UNKNOWN else group_label)
 

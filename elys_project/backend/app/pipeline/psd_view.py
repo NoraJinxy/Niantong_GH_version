@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
+
 from .montage_layout import channel_positions_2d
 from .previews import (
     StudyOutputPreviewError,
@@ -118,7 +120,7 @@ def build_psd_lines(
     return {
         "data_type": "psd",
         "study_output_id": str(getattr(dataset, "id", "") or ""),
-        "condition": getattr(dataset, "condition", None),
+        "condition": normalize_marker_label(getattr(dataset, "condition", None)),
         "subject": getattr(dataset, "bids_subject_id", None),
         "display_name": getattr(dataset, "display_name", None),
         "method": "welch",

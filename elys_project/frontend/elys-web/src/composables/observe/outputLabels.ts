@@ -14,6 +14,7 @@ export interface OutputOptionMeta {
 }
 
 const BIDS_KEYS = ['sub', 'ses', 'task', 'run', 'acq', 'rec', 'proc', 'space', 'desc']
+const MARKER_TYPE_PREFIXES = ['Stimulus/', 'Response/', 'Optic/', 'Comment/']
 
 function parseBidsParts(label: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -53,6 +54,37 @@ function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function normalizeMarkerLabel(value: unknown): string {
+  const text = cleanText(value)
+  if (!text) return ''
+  if (text.toUpperCase().startsWith('BAD_')) return text
+  return text
+    .split(/\s+\/\s+/)
+    .map((part) => {
+      const segment = part.trim()
+      for (const prefix of MARKER_TYPE_PREFIXES) {
+        if (segment.startsWith(prefix)) {
+          return segment.slice(prefix.length).trim() || segment
+        }
+      }
+      return segment
+    })
+    .filter(Boolean)
+    .join(' / ')
+}
+
+function normalizeMarkerPrefixesInText(value: unknown): string {
+  let text = cleanText(value)
+  for (const prefix of MARKER_TYPE_PREFIXES) {
+    text = text.replace(new RegExp(`(^|[\\s_·|:-])${escapeRegExp(prefix)}`, 'g'), '$1')
+  }
+  return text
+}
+
 function previewString(data: StudyOutput, key: string): string {
   const preview = data.preview_json || {}
   const value = preview[key]
@@ -66,7 +98,7 @@ function grandAverageConditionFromName(label: string): string {
 }
 
 function conditionFromOutput(data: StudyOutput): string {
-  return (
+  return normalizeMarkerLabel(
     cleanText(data.condition)
     || previewString(data, 'condition')
     || previewString(data, 'comment')
@@ -77,6 +109,8 @@ function conditionFromOutput(data: StudyOutput): string {
 
 function stripCondition(label: string, condition: string): string {
   if (!label || !condition) return label
+  label = normalizeMarkerPrefixesInText(label)
+  condition = normalizeMarkerLabel(condition)
   const escaped = cleanText(condition)
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     .replace(/\s+/g, '\\s+')

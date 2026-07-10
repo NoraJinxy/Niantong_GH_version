@@ -578,17 +578,17 @@ def test_execute_epoch_merge_condition_scope_stays_within_subject(monkeypatch):
         for call in store.calls
     }
     assert pairs == {
-        ("sub-03", "Stimulus/S 61"),
-        ("sub-03", "Stimulus/S 62"),
-        ("sub-04", "Stimulus/S 61"),
-        ("sub-04", "Stimulus/S 62"),
+        ("sub-03", "S 61"),
+        ("sub-03", "S 62"),
+        ("sub-04", "S 61"),
+        ("sub-04", "S 62"),
     }
 
     sub03_s61 = next(
         call
         for call in store.calls
         if call["metadata"]["mne_summary"]["merge_subject"] == "sub-03"
-        and call["metadata"]["condition"] == "Stimulus/S 61"
+        and call["metadata"]["condition"] == "S 61"
     )
     assert sub03_s61["metadata"]["upstream_dataset_ids"] == ["ep-03-a", "ep-03-b"]
     assert sub03_s61["metadata"]["mne_summary"]["merged_input_count"] == 2
@@ -597,7 +597,7 @@ def test_execute_epoch_merge_condition_scope_stays_within_subject(monkeypatch):
         call
         for call in store.calls
         if call["metadata"]["mne_summary"]["merge_subject"] == "sub-04"
-        and call["metadata"]["condition"] == "Stimulus/S 61"
+        and call["metadata"]["condition"] == "S 61"
     )
     assert sub04_s61["metadata"]["upstream_dataset_ids"] == ["ep-04-a"]
     assert sub04_s61["metadata"]["mne_summary"]["merged_input_count"] == 1

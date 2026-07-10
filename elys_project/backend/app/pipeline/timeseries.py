@@ -14,6 +14,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from app.engine.analysis.event_conditions import normalize_marker_label
+
 from .montage_layout import channel_positions_2d
 from .previews import StudyOutputPreviewError, resolve_study_output_path, validate_study_output_file
 
@@ -280,7 +282,7 @@ def _raw_events(raw) -> list[dict[str, Any]]:
         return []
     events: list[dict[str, Any]] = []
     for onset, duration, description in zip(onsets, durations, descriptions):
-        label = str(description or "").strip()
+        label = normalize_marker_label(description)
         if not label or label.upper().startswith("BAD_"):
             continue
         try:
@@ -368,7 +370,7 @@ def _ts_epochs(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
     sub = dsel[:, idx].tolist()  # 一次性 numpy → list
     channels = [{"name": names[k], "values": sub[k]} for k in range(len(picks))]
 
-    inverse = {int(code): str(name) for name, code in epochs.event_id.items()}
+    inverse = {int(code): normalize_marker_label(name) for name, code in epochs.event_id.items()}
     segment_options: list[str] = []
     seen_labels: dict[str, int] = {}
     for ev in epochs.events:
@@ -430,7 +432,7 @@ def _ts_evoked(path: Path, tmin, tmax, index, max_points, max_channels, l_freq=N
     out_times = np.round(tsel[idx], 5).tolist()
     sub = dsel[:, idx].tolist()  # 一次性 numpy → list
     channels = [{"name": names[k], "values": sub[k]} for k in range(len(picks))]
-    options = [str(item.comment or f"evoked_{i}") for i, item in enumerate(evokeds)]
+    options = [normalize_marker_label(item.comment) or f"evoked_{i}" for i, item in enumerate(evokeds)]
 
     return {
         "data_type": "evoked",

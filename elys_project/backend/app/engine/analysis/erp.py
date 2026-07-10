@@ -7,13 +7,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from .event_conditions import normalize_marker_label
+
 
 def run_erp_average(epochs: Any, params: dict[str, Any]) -> Any:
     labels = _normalize_event_labels(params.get("condition"))
     if not labels:
         raise ValueError("ERP.condition is required.")
 
-    event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+    event_id_map = _normalized_event_id_map(epochs)
     available_conditions = set(event_id_map)
     missing = [label for label in labels if label not in available_conditions]
     if missing:
@@ -49,6 +51,17 @@ def run_erp_average(epochs: Any, params: dict[str, Any]) -> Any:
     return evoked
 
 
+def _normalized_event_id_map(epochs: Any) -> dict[str, int]:
+    """Return event_id keyed by user-authored marker labels."""
+    event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+    normalized: dict[str, int] = {}
+    for name, code in event_id_map.items():
+        label = normalize_marker_label(name)
+        if label and label not in normalized:
+            normalized[label] = int(code)
+    return normalized
+
+
 def _normalize_event_labels(raw: Any) -> list[str]:
     """Accept array / string / comma-separated string and return a clean list."""
     if raw is None:
@@ -66,7 +79,7 @@ def _normalize_event_labels(raw: Any) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for item in items:
-        text = str(item).strip()
+        text = normalize_marker_label(item)
         if not text or text in seen:
             continue
         seen.add(text)

@@ -103,7 +103,7 @@ def test_epoch_after_epoch_uses_annotation_vocab_not_parent_epoch_labels(monkeyp
         ],
     }
     nested = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="stim_ep")
-    assert {c.name for c in nested.conditions} == {"block", "Stimulus/S 3", "Stimulus/S 4"}
+    assert {c.name for c in nested.conditions} == {"block", "S 3", "S 4"}
 
     erp = cr.resolve_node_conditions(db=None, study=None, graph=graph, node_id="erp")
     assert [c.name for c in erp.conditions] == ["block"]

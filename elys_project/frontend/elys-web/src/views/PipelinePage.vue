@@ -871,15 +871,26 @@
                   </button>
                 </div>
 
-                <div v-if="availableEventLabels.length" class="chip-row chip-row--pool">
+                <div
+                  v-if="availableEventLabels.length"
+                  class="chip-row chip-row--pool event-select__pool"
+                  tabindex="0"
+                  role="listbox"
+                  aria-multiselectable="true"
+                  @keydown="handleEventIdKeydown($event, prop)"
+                >
                   <button
-                    v-for="entry in availableEventLabels"
+                    v-for="(entry, idx) in availableEventLabels"
                     :key="'eopt-' + entry.label"
                     type="button"
                     class="chip"
                     :class="{ 'chip--active': isEventIdSelected(prop, entry.label) }"
+                    role="option"
+                    :aria-selected="isEventIdSelected(prop, entry.label)"
                     :title="`${entry.count} 次出现 · ${entry.datasets} 个数据集`"
-                    @click="toggleEventId(prop, entry.label)"
+                    @mousedown="handleEventIdMouseDown($event, prop, idx)"
+                    @mouseenter="handleEventIdMouseEnter($event, prop, idx)"
+                    @click="handleEventIdClick($event, prop, idx, entry.label)"
                   >
                     {{ entry.label }}
                     <span class="chip__count">{{ entry.count }}</span>
@@ -904,15 +915,25 @@
                   <div v-for="(rule, idx) in getRemapRules(prop)" :key="'remap-' + idx" class="remap-rule">
                     <div class="remap-rule__row">
                       <span class="remap-rule__tag">源</span>
-                      <div class="chip-row chip-row--pool">
+                      <div
+                        class="chip-row chip-row--pool remap-rule__source-pool"
+                        tabindex="0"
+                        role="listbox"
+                        aria-multiselectable="true"
+                        @keydown="handleRemapRuleSourceKeydown($event, prop, idx)"
+                      >
                         <button
-                          v-for="entry in availableEventLabels"
+                          v-for="(entry, sourceIdx) in availableEventLabels"
                           :key="'rs-' + idx + '-' + entry.label"
                           type="button"
                           class="chip"
                           :class="{ 'chip--active': isRemapRuleSourceSelected(prop, idx, entry.label) }"
+                          role="option"
+                          :aria-selected="isRemapRuleSourceSelected(prop, idx, entry.label)"
                           :title="`${entry.count} 次出现 · ${entry.datasets} 个数据集`"
-                          @click="toggleRemapRuleSource(prop, idx, entry.label)"
+                          @mousedown="handleRemapRuleSourceMouseDown($event, prop, idx, sourceIdx)"
+                          @mouseenter="handleRemapRuleSourceMouseEnter($event, prop, idx, sourceIdx)"
+                          @click="handleRemapRuleSourceClick($event, prop, idx, sourceIdx, entry.label)"
                         >
                           {{ entry.label }}
                           <span class="chip__count">{{ entry.count }}</span>
@@ -1863,12 +1884,20 @@ const {
   isEventIdSelected,
   toggleEventId,
   clearEventIds,
+  handleEventIdMouseDown,
+  handleEventIdMouseEnter,
+  handleEventIdClick,
+  handleEventIdKeydown,
   getRemapRules,
   addRemapRule,
   removeRemapRule,
   toggleRemapRuleSource,
   isRemapRuleSourceSelected,
   setRemapRuleTarget,
+  handleRemapRuleSourceMouseDown,
+  handleRemapRuleSourceMouseEnter,
+  handleRemapRuleSourceClick,
+  handleRemapRuleSourceKeydown,
 } = useEventSelectEditor({
   selectedNode,
   definition,
@@ -5909,6 +5938,12 @@ function describeError(error: unknown, fallback: string) {
 .chip-row--pool .chip {
   width: 100%;
   justify-content: space-between;
+}
+
+.event-select__pool:focus-visible,
+.remap-rule__source-pool:focus-visible {
+  outline: 2px solid rgba(47, 95, 143, 0.28);
+  outline-offset: 2px;
 }
 
 .chip {

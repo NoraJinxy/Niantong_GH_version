@@ -36,7 +36,7 @@
       "label": "条件",
       "type": "string",
       "default": "",
-      "description": "留空时按 A/B 两侧共有 condition 自动逐条件输出；填写后只比较指定条件（如 \"Stimulus/S  3\"）。"
+      "description": "留空时按 A/B 两侧共有 condition 自动逐条件输出；填写后只比较指定条件（如 \"S  3\"）。"
     },
     {
       "name": "design",

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from app.engine.analysis.event_conditions import normalize_marker_label
 from app.engine.analysis.baseline import run_baseline
 from app.engine.analysis.epoching import run_epoch_segment
 from app.engine.analysis.erp import _normalize_event_labels, run_erp_average
@@ -99,7 +100,7 @@ def _normalise_epochs_for_concatenation(items: list[Any]) -> tuple[list[Any], li
     names: list[str] = []
     for epochs in items:
         for name in dict(getattr(epochs, "event_id", {}) or {}).keys():
-            text = str(name or "").strip()
+            text = normalize_marker_label(name)
             if text and text not in names:
                 names.append(text)
     if not names:
@@ -112,7 +113,10 @@ def _normalise_epochs_for_concatenation(items: list[Any]) -> tuple[list[Any], li
         per_epoch = epochs.get_annotations_per_epoch() if callable(getattr(epochs, "get_annotations_per_epoch", None)) else []
         annotations.extend([list(row) for row in per_epoch])
         copy = epochs.copy()
-        old_inverse = {int(code): str(name) for name, code in dict(getattr(copy, "event_id", {}) or {}).items()}
+        old_inverse = {
+            int(code): normalize_marker_label(name)
+            for name, code in dict(getattr(copy, "event_id", {}) or {}).items()
+        }
         if hasattr(copy, "events"):
             for row in copy.events:
                 label = old_inverse.get(int(row[2]))
@@ -141,7 +145,7 @@ def _restore_epoch_annotations(epochs: Any, per_epoch_annotations: list[list[tup
             for onset, duration, description in annotations:
                 onsets.append(event_onset + float(onset))
                 durations.append(float(duration))
-                descriptions.append(str(description))
+                descriptions.append(normalize_marker_label(description))
         if onsets:
             epochs.set_annotations(mne.Annotations(onset=onsets, duration=durations, description=descriptions))
     except Exception:
@@ -859,11 +863,18 @@ class NodeDispatcher:
                 epochs, context_summary = self._rewrite_epoch_annotations_with_parent_context(epochs, data_info)
                 if merge_scope == "condition":
                     event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+                    event_id_key_by_label = {
+                        normalize_marker_label(name): str(name)
+                        for name in event_id_map.keys()
+                        if normalize_marker_label(name)
+                    }
                     labels = self._epochs_condition_names(epochs, data_info) or sorted(event_id_map.keys()) or ["unknown"]
                     subject_key = self._condition_merge_subject_key(data_info, index)
                     for label in labels:
-                        selector = label if label in event_id_map else str(data_info.get("child_condition") or "")
-                        sub_epochs = epochs[selector] if selector in event_id_map else epochs
+                        label = self._clean_condition_text(label) or "unknown"
+                        selector = event_id_key_by_label.get(label) or self._clean_condition_text(data_info.get("child_condition")) or ""
+                        selector_key = event_id_key_by_label.get(selector) or selector
+                        sub_epochs = epochs[selector_key] if selector_key in event_id_map else epochs
                         self._attach_condition_metadata_subset(epochs, sub_epochs, selector or label)
                         key = ("condition", subject_key, label)
                         group = ensure_group(key, label=label, condition=label, subject_key=subject_key)
@@ -1185,9 +1196,9 @@ class NodeDispatcher:
                 summary = summarize_unit_stack(result)
                 base_type = str(result.get("base_type") or "")
                 subjects = list(result.get("unit_subjects") or [])
-                condition = str(result.get("condition") or result.get("label") or "")
+                condition = normalize_marker_label(result.get("condition") or result.get("label"))
                 label = str(result.get("label") or condition or "group")
-                group_label = str(result.get("group_label") or "")
+                group_label = normalize_marker_label(result.get("group_label"))
 
                 coverage = result.get("coverage") if isinstance(result, dict) else None
                 if isinstance(coverage, dict):
@@ -1470,7 +1481,7 @@ class NodeDispatcher:
             for index, result in enumerate(results):
                 summary = summarize_stat_map(result)
                 contrast = str(result.get("contrast_label") or "")
-                condition = str(result.get("condition") or "")
+                condition = normalize_marker_label(result.get("condition"))
                 base_type = str(result.get("base_type") or base_type or "")
                 contrasts.append(contrast)
 
@@ -1766,9 +1777,14 @@ class NodeDispatcher:
 
                 if split_mode in {"condition", "child_condition"}:
                     event_id_map = dict(getattr(epochs, "event_id", {}) or {})
+                    normalized_event_keys = [
+                        (normalize_marker_label(name), str(name))
+                        for name in event_id_map.keys()
+                        if normalize_marker_label(name)
+                    ]
                     source_key = self._condition_group_source_key(data_info, index)
-                    for condition_label in sorted(event_id_map.keys()):
-                        sub_epochs = epochs[condition_label]
+                    for condition_label, event_key in sorted(normalized_event_keys):
+                        sub_epochs = epochs[event_key]
                         self._attach_condition_metadata_subset(epochs, sub_epochs, condition_label)
                         if len(sub_epochs) == 0:
                             continue
@@ -1783,7 +1799,7 @@ class NodeDispatcher:
                             if len(item_epochs) == 0:
                                 continue
                             if split_mode == "child_condition" and source_is_epochs:
-                                group_condition = str(item.get("condition") or condition_label)
+                                group_condition = self._clean_condition_text(item.get("condition")) or condition_label
                                 group_key = (source_key, group_condition)
                                 if group_key not in condition_split_groups:
                                     condition_split_groups[group_key] = {
@@ -1807,7 +1823,7 @@ class NodeDispatcher:
                                     artifacts=artifacts,
                                     save_descriptor=save_descriptor,
                                     index=len(output_data_infos),
-                                    condition=str(item.get("condition") or condition_label),
+                                    condition=self._clean_condition_text(item.get("condition")) or condition_label,
                                     node_id=node_id,
                                     node_type=node_type,
                                     parent_conditions=item.get("parent_conditions") or [],
@@ -1846,7 +1862,7 @@ class NodeDispatcher:
                 parent_conditions = self._unique_texts(group.get("parent_conditions") or [])
                 data_infos = [item for item in group.get("data_infos") or [] if isinstance(item, dict)]
                 representative = data_infos[0] if data_infos else {}
-                condition_label = str(group.get("condition") or "")
+                condition_label = self._clean_condition_text(group.get("condition")) or ""
                 info = self._save_epochs_dataset(
                     context=context,
                     data_info=representative,
@@ -1920,7 +1936,7 @@ class NodeDispatcher:
 
     @staticmethod
     def _clean_condition_text(value: Any) -> str | None:
-        text = str(value or "").strip()
+        text = normalize_marker_label(value)
         return text or None
 
     @staticmethod
@@ -1972,8 +1988,8 @@ class NodeDispatcher:
             return epochs, {"context_annotation_count": 0, "context_parent_conditions": []}
 
         event_id_map = dict(getattr(epochs, "event_id", {}) or {})
-        parent_by_code = {int(code): str(name) for name, code in event_id_map.items()}
-        parent_labels = {str(name).strip() for name in event_id_map.keys() if str(name).strip()}
+        parent_by_code = {int(code): normalize_marker_label(name) for name, code in event_id_map.items()}
+        parent_labels = {normalize_marker_label(name) for name in event_id_map.keys() if normalize_marker_label(name)}
         fallback_parent = self._clean_condition_text(data_info.get("condition_path") or data_info.get("condition"))
         if fallback_parent:
             parent_labels.add(fallback_parent)
@@ -1994,7 +2010,7 @@ class NodeDispatcher:
                     used_parents.append(parent)
                 event_onset = float(event[0]) / sfreq
                 for onset, duration, description in annotations:
-                    old_desc = str(description)
+                    old_desc = normalize_marker_label(description)
                     new_desc = self._contextual_annotation_label(parent, old_desc, parent_labels)
                     if new_desc != old_desc:
                         rewritten_count += 1
@@ -2079,7 +2095,7 @@ class NodeDispatcher:
         source_is_epochs: bool,
     ) -> list[dict[str, Any]]:
         """Return save groups for one event label, preserving parent/child condition paths."""
-        condition_label = str(condition_label or "").strip()
+        condition_label = self._clean_condition_text(condition_label) or ""
         parent_conditions = self._parent_conditions_for_epochs(epochs, data_info) if source_is_epochs else []
 
         if source_is_epochs:
@@ -2172,8 +2188,8 @@ class NodeDispatcher:
         """
         summary = summarize_epochs(epochs)
         parent_conditions = self._unique_texts(parent_conditions or [])
-        condition = str(condition or "").strip() or None
-        child_condition = str(child_condition or "").strip() or None
+        condition = self._clean_condition_text(condition)
+        child_condition = self._clean_condition_text(child_condition)
         effective_condition = condition
         condition_hierarchy: dict[str, Any] = {}
         if parent_conditions and child_condition:
@@ -2328,6 +2344,7 @@ class NodeDispatcher:
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         outer_break = False
         for index, data_info in enumerate(input_data_infos):
@@ -2364,12 +2381,29 @@ class NodeDispatcher:
 
             artifact_index_in_data_info = 0
             for item in condition_plan:
-                select_condition = str(item.get("select_condition") or "")
-                output_condition = str(item.get("output_condition") or select_condition)
+                select_condition = self._clean_condition_text(item.get("select_condition")) or ""
+                output_condition = self._clean_condition_text(item.get("output_condition")) or select_condition
                 condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
+                actual_condition = self._resolve_epochs_condition_label(
+                    epochs,
+                    select_condition=select_condition,
+                    output_condition=output_condition,
+                )
+                if not actual_condition:
+                    warnings.append(
+                        self._analysis_condition_skipped_issue(
+                            node_id=node_id,
+                            node_type=node_type,
+                            data_info=data_info,
+                            index=index,
+                            output_condition=output_condition,
+                            select_condition=select_condition,
+                        )
+                    )
+                    continue
                 evoked = None
                 try:
-                    erp_params: dict[str, Any] = {**context.params, "condition": select_condition}
+                    erp_params: dict[str, Any] = {**context.params, "condition": actual_condition}
                     evoked = processor(epochs, erp_params)
                     summary = {
                         **summarize_evoked(evoked),
@@ -2405,7 +2439,7 @@ class NodeDispatcher:
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
                             "condition": output_condition,
-                            "analysis_condition": select_condition,
+                            "analysis_condition": actual_condition,
                             **condition_hierarchy,
                             **save_meta,
                         },
@@ -2421,7 +2455,7 @@ class NodeDispatcher:
                         summary=summary,
                     )
                     info["condition"] = output_condition
-                    info["analysis_condition"] = select_condition
+                    info["analysis_condition"] = actual_condition
                     info.update(condition_hierarchy)
                     output_data_infos.append(info)
                     artifact_index_in_data_info += 1
@@ -2446,6 +2480,19 @@ class NodeDispatcher:
             import gc  # noqa: PLC0415
             gc.collect()
 
+        if not errors and not output_data_infos:
+            errors.append(
+                self._issue(
+                    code="PIPELINE_NODE_NO_OUTPUT",
+                    message=(
+                        "ERP node produced no outputs: none of the selected conditions were present "
+                        "in the input epochs files."
+                    ),
+                    node_id=node_id,
+                    node_type=node_type,
+                )
+            )
+
         emitted_data_infos = [] if errors else output_data_infos
         output = NodeOutput(
             node_id=node_id,
@@ -2457,6 +2504,7 @@ class NodeDispatcher:
                 "dataset_count": len(output_data_infos),
                 "input_dataset_count": len(input_data_infos),
                 "save_descriptor": save_descriptor,
+                "skipped_condition_count": len(warnings),
             },
         )
         return NodeDispatchResult(
@@ -2465,6 +2513,7 @@ class NodeDispatcher:
             dataset_count=len(emitted_data_infos),
             output_ports=["output"],
             errors=errors,
+            warnings=warnings,
         )
 
     def _execute_tfr_output(
@@ -2495,6 +2544,7 @@ class NodeDispatcher:
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         outer_break = False
         for index, data_info in enumerate(input_data_infos):
@@ -2530,12 +2580,29 @@ class NodeDispatcher:
 
             artifact_index_in_data_info = 0
             for item in condition_plan:
-                select_condition = str(item.get("select_condition") or "")
-                output_condition = str(item.get("output_condition") or select_condition)
+                select_condition = self._clean_condition_text(item.get("select_condition")) or ""
+                output_condition = self._clean_condition_text(item.get("output_condition")) or select_condition
                 condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
+                actual_condition = self._resolve_epochs_condition_label(
+                    epochs,
+                    select_condition=select_condition,
+                    output_condition=output_condition,
+                )
+                if not actual_condition:
+                    warnings.append(
+                        self._analysis_condition_skipped_issue(
+                            node_id=node_id,
+                            node_type=node_type,
+                            data_info=data_info,
+                            index=index,
+                            output_condition=output_condition,
+                            select_condition=select_condition,
+                        )
+                    )
+                    continue
                 power = None
                 try:
-                    tfr_params: dict[str, Any] = {**context.params, "condition": select_condition}
+                    tfr_params: dict[str, Any] = {**context.params, "condition": actual_condition}
                     power = processor(epochs, tfr_params)
                     summary = {
                         **summarize_tfr(power),
@@ -2571,7 +2638,7 @@ class NodeDispatcher:
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
                             "condition": output_condition,
-                            "analysis_condition": select_condition,
+                            "analysis_condition": actual_condition,
                             **condition_hierarchy,
                             **save_meta,
                         },
@@ -2587,7 +2654,7 @@ class NodeDispatcher:
                         summary=summary,
                     )
                     info["condition"] = output_condition
-                    info["analysis_condition"] = select_condition
+                    info["analysis_condition"] = actual_condition
                     info.update(condition_hierarchy)
                     output_data_infos.append(info)
                     artifact_index_in_data_info += 1
@@ -2610,6 +2677,19 @@ class NodeDispatcher:
             import gc  # noqa: PLC0415
             gc.collect()
 
+        if not errors and not output_data_infos:
+            errors.append(
+                self._issue(
+                    code="PIPELINE_NODE_NO_OUTPUT",
+                    message=(
+                        "TFR node produced no outputs: none of the selected conditions were present "
+                        "in the input epochs files."
+                    ),
+                    node_id=node_id,
+                    node_type=node_type,
+                )
+            )
+
         emitted_data_infos = [] if errors else output_data_infos
         output = NodeOutput(
             node_id=node_id,
@@ -2621,6 +2701,7 @@ class NodeDispatcher:
                 "dataset_count": len(output_data_infos),
                 "input_dataset_count": len(input_data_infos),
                 "save_descriptor": save_descriptor,
+                "skipped_condition_count": len(warnings),
             },
         )
         return NodeDispatchResult(
@@ -2629,6 +2710,7 @@ class NodeDispatcher:
             dataset_count=len(emitted_data_infos),
             output_ports=["output"],
             errors=errors,
+            warnings=warnings,
         )
 
     def _execute_psd_output(
@@ -2659,6 +2741,7 @@ class NodeDispatcher:
         output_data_infos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         outer_break = False
         for index, data_info in enumerate(input_data_infos):
@@ -2751,12 +2834,29 @@ class NodeDispatcher:
 
             artifact_index_in_data_info = 0
             for item in condition_plan:
-                select_condition = str(item.get("select_condition") or "")
-                output_condition = str(item.get("output_condition") or select_condition)
+                select_condition = self._clean_condition_text(item.get("select_condition")) or ""
+                output_condition = self._clean_condition_text(item.get("output_condition")) or select_condition
                 condition_hierarchy = item.get("hierarchy") if isinstance(item.get("hierarchy"), dict) else {}
+                actual_condition = self._resolve_epochs_condition_label(
+                    epochs,
+                    select_condition=select_condition,
+                    output_condition=output_condition,
+                )
+                if not actual_condition:
+                    warnings.append(
+                        self._analysis_condition_skipped_issue(
+                            node_id=node_id,
+                            node_type=node_type,
+                            data_info=data_info,
+                            index=index,
+                            output_condition=output_condition,
+                            select_condition=select_condition,
+                        )
+                    )
+                    continue
                 spectrum = None
                 try:
-                    psd_params: dict[str, Any] = {**context.params, "condition": select_condition}
+                    psd_params: dict[str, Any] = {**context.params, "condition": actual_condition}
                     spectrum = processor(epochs, psd_params)
                     summary = {
                         **summarize_psd(spectrum),
@@ -2790,7 +2890,7 @@ class NodeDispatcher:
                             "upstream_dataset_ids": upstream_dataset_ids,
                             "upstream_recording_ids": upstream_recording_ids,
                             "condition": output_condition,
-                            "analysis_condition": select_condition,
+                            "analysis_condition": actual_condition,
                             **condition_hierarchy,
                             **save_meta,
                         },
@@ -2806,7 +2906,7 @@ class NodeDispatcher:
                         summary=summary,
                     )
                     info["condition"] = output_condition
-                    info["analysis_condition"] = select_condition
+                    info["analysis_condition"] = actual_condition
                     info.update(condition_hierarchy)
                     output_data_infos.append(info)
                     artifact_index_in_data_info += 1
@@ -2829,6 +2929,19 @@ class NodeDispatcher:
             import gc  # noqa: PLC0415
             gc.collect()
 
+        if not errors and not output_data_infos:
+            errors.append(
+                self._issue(
+                    code="PIPELINE_NODE_NO_OUTPUT",
+                    message=(
+                        "PSD node produced no outputs: none of the selected conditions were present "
+                        "in the input epochs files."
+                    ),
+                    node_id=node_id,
+                    node_type=node_type,
+                )
+            )
+
         emitted_data_infos = [] if errors else output_data_infos
         output = NodeOutput(
             node_id=node_id,
@@ -2840,6 +2953,7 @@ class NodeDispatcher:
                 "dataset_count": len(output_data_infos),
                 "input_dataset_count": len(input_data_infos),
                 "save_descriptor": save_descriptor,
+                "skipped_condition_count": len(warnings),
             },
         )
         return NodeDispatchResult(
@@ -2848,12 +2962,55 @@ class NodeDispatcher:
             dataset_count=len(emitted_data_infos),
             output_ports=["output"],
             errors=errors,
+            warnings=warnings,
         )
 
     @staticmethod
     def _input_data_infos(context: NodeExecutionContext, port: str) -> list[dict[str, Any]]:
         node_input = context.inputs.get(port)
         return list(node_input.data_infos) if node_input else []
+
+    @staticmethod
+    def _resolve_epochs_condition_label(
+        epochs: Any,
+        *,
+        select_condition: str,
+        output_condition: str,
+    ) -> str | None:
+        event_id_map = {
+            normalize_marker_label(name): normalize_marker_label(name)
+            for name in dict(getattr(epochs, "event_id", {}) or {}).keys()
+            if normalize_marker_label(name)
+        }
+        for value in (select_condition, output_condition):
+            label = normalize_marker_label(value)
+            if label and label in event_id_map:
+                return label
+        return None
+
+    def _analysis_condition_skipped_issue(
+        self,
+        *,
+        node_id: str,
+        node_type: str,
+        data_info: dict[str, Any],
+        index: int,
+        output_condition: str,
+        select_condition: str,
+    ) -> dict[str, Any]:
+        label = repr(output_condition)
+        if select_condition and select_condition != output_condition:
+            label = f"{label} (selected as {select_condition!r})"
+        return self._issue(
+            code="PIPELINE_NODE_CONDITION_SKIPPED",
+            message=(
+                f"Recording {self._source_dataset_id(data_info) or index} condition={label} "
+                f"skipped in {node_type}: selected condition is not present in this epochs file."
+            ),
+            node_id=node_id,
+            node_type=node_type,
+            severity="warning",
+        )
 
     @staticmethod
     def _data_info_is_epochs(data_info: dict[str, Any]) -> bool:
@@ -2880,7 +3037,7 @@ class NodeDispatcher:
         out: list[str] = []
         seen: set[str] = set()
         for value in values or []:
-            text = str(value or "").strip()
+            text = normalize_marker_label(value)
             if not text or text in seen:
                 continue
             seen.add(text)
@@ -2909,16 +3066,16 @@ class NodeDispatcher:
         rows = getattr(source_epochs, "_elys_condition_metadata", None)
         if not isinstance(rows, list):
             return
-        label = str(condition_label or "").strip()
+        label = NodeDispatcher._clean_condition_text(condition_label) or ""
         leaf = NodeDispatcher._condition_leaf(label)
         subset = [
             row
             for row in rows
             if isinstance(row, dict)
             and (
-                str(row.get("condition_path") or "").strip() == label
-                or str(row.get("child_condition") or "").strip() == label
-                or (leaf and str(row.get("child_condition") or "").strip() == leaf)
+                NodeDispatcher._clean_condition_text(row.get("condition_path")) == label
+                or NodeDispatcher._clean_condition_text(row.get("child_condition")) == label
+                or (leaf and NodeDispatcher._clean_condition_text(row.get("child_condition")) == leaf)
             )
         ]
         if subset:
@@ -2933,26 +3090,31 @@ class NodeDispatcher:
         if isinstance(raw_list, (list, tuple, set)):
             return NodeDispatcher._unique_texts(raw_list)
         raw = data_info.get("parent_condition")
-        if isinstance(raw, str) and raw.strip():
-            return [raw.strip()]
+        raw_text = NodeDispatcher._clean_condition_text(raw)
+        if raw_text:
+            return [raw_text]
         raw_path = data_info.get("condition_path") or data_info.get("condition")
         child = data_info.get("child_condition")
         if isinstance(raw_path, str) and isinstance(child, str):
-            suffix = f" / {child.strip()}"
-            if raw_path.strip().endswith(suffix):
-                parent = raw_path.strip()[: -len(suffix)].strip()
+            raw_path_text = NodeDispatcher._clean_condition_text(raw_path) or ""
+            child_text = NodeDispatcher._clean_condition_text(child) or ""
+            suffix = f" / {child_text}"
+            if raw_path_text.endswith(suffix):
+                parent = raw_path_text[: -len(suffix)].strip()
                 if parent:
                     return [parent]
         raw = data_info.get("condition")
-        if isinstance(raw, str) and raw.strip():
-            return [raw.strip()]
+        raw_text = NodeDispatcher._clean_condition_text(raw)
+        if raw_text:
+            return [raw_text]
         return []
 
     @staticmethod
     def _epochs_condition_names(epochs: Any, data_info: dict[str, Any]) -> list[str]:
         raw = data_info.get("condition_path") or data_info.get("condition")
-        if isinstance(raw, str) and raw.strip():
-            return [raw.strip()]
+        raw_text = NodeDispatcher._clean_condition_text(raw)
+        if raw_text:
+            return [raw_text]
         raw_list = data_info.get("conditions") or data_info.get("merged_conditions")
         if isinstance(raw_list, (list, tuple, set)):
             return NodeDispatcher._unique_texts(raw_list)

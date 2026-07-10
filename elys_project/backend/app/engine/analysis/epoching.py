@@ -9,6 +9,7 @@ from typing import Any
 
 from .event_conditions import (
     match_conditions,
+    normalize_marker_label,
     rules_for_selection,
     summarize_event_vocabulary,
 )
@@ -122,7 +123,7 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
     for parent_index, annotations in enumerate(per_parent):
         for ann in annotations:
             onset = float(ann[0])
-            desc = str(ann[2])
+            desc = normalize_marker_label(ann[2])
             center = int(round((onset - parent_tmin) * sfreq))
             if center < 0 or center >= parent_n_times:
                 continue
@@ -177,7 +178,10 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
     parent_data = _epochs_data(parent_epochs)
     n_child_times = int(round((tmax - tmin) * sfreq)) + 1
     start_offset = int(round(tmin * sfreq))
-    parent_code_to_name = {int(code): name for name, code in getattr(parent_epochs, "event_id", {}).items()}
+    parent_code_to_name = {
+        int(code): normalize_marker_label(name)
+        for name, code in getattr(parent_epochs, "event_id", {}).items()
+    }
     child_blocks: list[Any] = []
     child_events: list[list[int]] = []
     dropped_outside_parent = 0
@@ -226,7 +230,7 @@ def _run_epoch_segment_from_epochs(parent_epochs: Any, params: dict[str, Any]) -
                 continue
             annotation_onsets.append((child_sample / sfreq) + rel_onset)
             annotation_durations.append(float(ann[1]))
-            annotation_descriptions.append(str(ann[2]))
+            annotation_descriptions.append(normalize_marker_label(ann[2]))
 
     if not child_blocks:
         raise ValueError(
@@ -285,21 +289,21 @@ def _epochs_data(epochs: Any) -> Any:
 
 
 def _condition_leaf(label: Any) -> str:
-    text = str(label or "").strip()
+    text = normalize_marker_label(label)
     if " / " not in text:
         return text
     return text.split(" / ")[-1].strip()
 
 
 def _condition_parent(label: Any) -> str:
-    text = str(label or "").strip()
+    text = normalize_marker_label(label)
     if " / " not in text:
         return ""
     return " / ".join(part.strip() for part in text.split(" / ")[:-1] if part.strip())
 
 
 def _match_context_condition(description: str, rules: Any) -> str | None:
-    candidates = [str(description or "").strip()]
+    candidates = [normalize_marker_label(description)]
     leaf = _condition_leaf(description)
     if leaf and leaf not in candidates:
         candidates.append(leaf)

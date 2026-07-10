@@ -64,6 +64,8 @@
                   'is-selected': currentIncludes.has(item),
                   'is-disabled': currentExcludes.has(item),
                 }"
+                @mousedown="handleListMouseDown($event, 'include', idx)"
+                @mouseenter="handleListMouseEnter($event, 'include', idx)"
                 @click="handleListClick($event, 'include', idx, item)"
               >
                 {{ item }}
@@ -100,6 +102,8 @@
                   'is-selected': currentExcludes.has(item),
                   'is-disabled': currentIncludes.has(item),
                 }"
+                @mousedown="handleListMouseDown($event, 'exclude', idx)"
+                @mouseenter="handleListMouseEnter($event, 'exclude', idx)"
                 @click="handleListClick($event, 'exclude', idx, item)"
               >
                 {{ item }}
@@ -143,6 +147,8 @@
                     'is-in-selected': selectedFileIds.includes(file.id),
                     'is-flat': groupByMode === 'none',
                   }"
+                  @mousedown="handleFileListMouseDown($event, getFlatIndex(file.id))"
+                  @mouseenter="handleFileListMouseEnter($event, getFlatIndex(file.id))"
                   @click="handleFileListClick($event, file.id)"
                 >
                   {{ file.name }}
@@ -222,6 +228,8 @@
             :key="'s-' + file.id"
             class="ldp-selected-item"
             :class="{ 'is-selected': selectedListSelected.has(file.id) }"
+            @mousedown="handleSelectedListMouseDown($event, idx)"
+            @mouseenter="handleSelectedListMouseEnter($event, idx)"
             @click="handleSelectedListClick($event, idx, file.id)"
           >
             <span class="ldp-selected-idx">{{ String(idx + 1).padStart(3, ' ') }}</span>
@@ -231,14 +239,14 @@
       </div>
 
       <p class="ldp-hint">
-        单击切换 · Shift+单击范围选 · Ctrl+单击切换 · Ctrl+A 全选 · Delete 移除已选
+        单击切换 · 拖动范围选 · Shift+单击范围选 · Ctrl+单击切换 · Ctrl+A 全选 · Delete 移除已选
       </p>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import IconLine from './IconLine.vue'
 import type { Recording } from '@/types'
 
@@ -319,6 +327,22 @@ let lastExcludeIndex = -1
 let lastFileListIndex = -1
 let lastSelectedListIndex = -1
 let suspendEmit = false
+
+let ruleDragKind: 'include' | 'exclude' | '' = ''
+let ruleDragStart = -1
+let ruleDragBase: Set<string> | null = null
+let ruleDragMoved = false
+let suppressRuleClick = false
+
+let fileDragStart = -1
+let fileDragBase: Set<string> | null = null
+let fileDragMoved = false
+let suppressFileClick = false
+
+let selectedDragStart = -1
+let selectedDragBase: Set<string> | null = null
+let selectedDragMoved = false
+let suppressSelectedClick = false
 
 // === 候选项 ===
 const candidatesBySubject = computed<string[]>(() => {
@@ -488,12 +512,67 @@ function ruleCount(tab: TabKey): number {
 }
 
 // === 规则 listbox 多选 ===
+function applyListDragRange(kind: 'include' | 'exclude', idx: number) {
+  if (ruleDragStart < 0) return
+  const targetSet = kind === 'include' ? currentIncludes.value : currentExcludes.value
+  const otherSet = kind === 'include' ? currentExcludes.value : currentIncludes.value
+  targetSet.clear()
+  for (const id of ruleDragBase ?? []) targetSet.add(id)
+  const [start, end] = [Math.min(ruleDragStart, idx), Math.max(ruleDragStart, idx)]
+  for (let i = start; i <= end; i++) {
+    const itemId = visibleCandidates.value[i]
+    if (!itemId || otherSet.has(itemId)) continue
+    targetSet.add(itemId)
+  }
+  if (kind === 'include') lastIncludeIndex = idx
+  else lastExcludeIndex = idx
+  triggerSetMutation()
+  emitChange()
+}
+
+function endListDrag() {
+  const moved = ruleDragMoved
+  ruleDragKind = ''
+  ruleDragStart = -1
+  ruleDragBase = null
+  ruleDragMoved = false
+  window.removeEventListener('mouseup', endListDrag)
+  if (moved) window.setTimeout(() => { suppressRuleClick = false }, 0)
+}
+
+function handleListMouseDown(e: MouseEvent, kind: 'include' | 'exclude', idx: number) {
+  if (e.button !== 0) return
+  const targetSet = kind === 'include' ? currentIncludes.value : currentExcludes.value
+  const listEl = kind === 'include' ? includeListRef.value : excludeListRef.value
+  listEl?.focus()
+  ruleDragKind = kind
+  ruleDragStart = idx
+  ruleDragBase = new Set(targetSet)
+  ruleDragMoved = false
+  suppressRuleClick = false
+  if (kind === 'include') lastIncludeIndex = idx
+  else lastExcludeIndex = idx
+  window.addEventListener('mouseup', endListDrag)
+  e.preventDefault()
+}
+
+function handleListMouseEnter(e: MouseEvent, kind: 'include' | 'exclude', idx: number) {
+  if (!ruleDragKind || ruleDragKind !== kind || ruleDragStart < 0 || e.buttons !== 1) return
+  if (idx !== ruleDragStart) ruleDragMoved = true
+  suppressRuleClick = ruleDragMoved
+  applyListDragRange(kind, idx)
+}
+
 function handleListClick(
   e: MouseEvent,
   kind: 'include' | 'exclude',
   idx: number,
   id: string,
 ) {
+  if (suppressRuleClick) {
+    suppressRuleClick = false
+    return
+  }
   const targetSet = kind === 'include' ? currentIncludes.value : currentExcludes.value
   const otherSet = kind === 'include' ? currentExcludes.value : currentIncludes.value
   if (otherSet.has(id)) return
@@ -558,7 +637,51 @@ function clearExclude() {
 }
 
 // === 文件列表多选 ===
+function applyFileDragRange(idx: number) {
+  if (fileDragStart < 0) return
+  const next = new Set(fileDragBase ?? [])
+  const [start, end] = [Math.min(fileDragStart, idx), Math.max(fileDragStart, idx)]
+  for (let i = start; i <= end; i++) {
+    const id = flatFileIds.value[i]
+    if (id) next.add(id)
+  }
+  lastFileListIndex = idx
+  fileListSelected.value = next
+}
+
+function endFileDrag() {
+  const moved = fileDragMoved
+  fileDragStart = -1
+  fileDragBase = null
+  fileDragMoved = false
+  window.removeEventListener('mouseup', endFileDrag)
+  if (moved) window.setTimeout(() => { suppressFileClick = false }, 0)
+}
+
+function handleFileListMouseDown(e: MouseEvent, idx: number) {
+  if (e.button !== 0 || idx < 0) return
+  fileListRef.value?.focus()
+  fileDragStart = idx
+  fileDragBase = (e.ctrlKey || e.metaKey) ? new Set(fileListSelected.value) : new Set<string>()
+  fileDragMoved = false
+  suppressFileClick = false
+  lastFileListIndex = idx
+  window.addEventListener('mouseup', endFileDrag)
+  e.preventDefault()
+}
+
+function handleFileListMouseEnter(e: MouseEvent, idx: number) {
+  if (fileDragStart < 0 || idx < 0 || e.buttons !== 1) return
+  if (idx !== fileDragStart) fileDragMoved = true
+  suppressFileClick = fileDragMoved
+  applyFileDragRange(idx)
+}
+
 function handleFileListClick(e: MouseEvent, id: string) {
+  if (suppressFileClick) {
+    suppressFileClick = false
+    return
+  }
   fileListRef.value?.focus()
   const idx = getFlatIndex(id)
 
@@ -611,7 +734,51 @@ function addAllHitToSelected() {
 }
 
 // === Selected 列表多选 ===
+function applySelectedDragRange(idx: number) {
+  if (selectedDragStart < 0) return
+  const next = new Set(selectedDragBase ?? [])
+  const [start, end] = [Math.min(selectedDragStart, idx), Math.max(selectedDragStart, idx)]
+  for (let i = start; i <= end; i++) {
+    const id = selectedFileIds.value[i]
+    if (id) next.add(id)
+  }
+  lastSelectedListIndex = idx
+  selectedListSelected.value = next
+}
+
+function endSelectedDrag() {
+  const moved = selectedDragMoved
+  selectedDragStart = -1
+  selectedDragBase = null
+  selectedDragMoved = false
+  window.removeEventListener('mouseup', endSelectedDrag)
+  if (moved) window.setTimeout(() => { suppressSelectedClick = false }, 0)
+}
+
+function handleSelectedListMouseDown(e: MouseEvent, idx: number) {
+  if (e.button !== 0 || idx < 0) return
+  selectedListRef.value?.focus()
+  selectedDragStart = idx
+  selectedDragBase = (e.ctrlKey || e.metaKey) ? new Set(selectedListSelected.value) : new Set<string>()
+  selectedDragMoved = false
+  suppressSelectedClick = false
+  lastSelectedListIndex = idx
+  window.addEventListener('mouseup', endSelectedDrag)
+  e.preventDefault()
+}
+
+function handleSelectedListMouseEnter(e: MouseEvent, idx: number) {
+  if (selectedDragStart < 0 || idx < 0 || e.buttons !== 1) return
+  if (idx !== selectedDragStart) selectedDragMoved = true
+  suppressSelectedClick = selectedDragMoved
+  applySelectedDragRange(idx)
+}
+
 function handleSelectedListClick(e: MouseEvent, idx: number, id: string) {
+  if (suppressSelectedClick) {
+    suppressSelectedClick = false
+    return
+  }
   selectedListRef.value?.focus()
   if (e.shiftKey && lastSelectedListIndex >= 0) {
     const [start, end] = [Math.min(lastSelectedListIndex, idx), Math.max(lastSelectedListIndex, idx)]
@@ -638,6 +805,12 @@ function handleSelectedListKeydown(e: KeyboardEvent) {
     deleteSelectedItems()
   }
 }
+
+onUnmounted(() => {
+  window.removeEventListener('mouseup', endListDrag)
+  window.removeEventListener('mouseup', endFileDrag)
+  window.removeEventListener('mouseup', endSelectedDrag)
+})
 
 function moveSelectedUp() {
   if (!selectedListSelected.value.size) return
