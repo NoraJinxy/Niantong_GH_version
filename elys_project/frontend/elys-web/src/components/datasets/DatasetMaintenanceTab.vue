@@ -34,6 +34,24 @@
         <span class="dmt-health__text">全部记录就绪</span>
       </div>
 
+      <div class="dmt-signal-summary" aria-label="当前数据集信号概览">
+        <div class="dmt-signal-summary__card">
+          <span>通道</span>
+          <strong>{{ datasetChannelSummaryLabel }}</strong>
+          <small>{{ datasetChannelPreview }}</small>
+        </div>
+        <div class="dmt-signal-summary__card">
+          <span>采样率</span>
+          <strong>{{ datasetSfreqSummaryLabel }}</strong>
+          <small>{{ datasetDurationSummaryLabel }}</small>
+        </div>
+        <div class="dmt-signal-summary__card">
+          <span>Trigger</span>
+          <strong>{{ datasetEventSummaryLabel }}</strong>
+          <small>{{ datasetEventPreview }}</small>
+        </div>
+      </div>
+
       <!-- 工具栏 -->
       <div class="dmt-toolbar">
         <strong class="dmt-toolbar__title">采集记录 · {{ selectedAssetRecordings.length }}</strong>
@@ -175,6 +193,47 @@
               </button>
             </div>
           </form>
+
+          <div class="dmt-drawer__label">信号概览</div>
+          <div class="dmt-signal-grid">
+            <div>
+              <span>通道</span>
+              <strong>{{ formatNullableCount(selectedRecording.nChannels) }}</strong>
+            </div>
+            <div>
+              <span>采样率</span>
+              <strong>{{ formatSfreq(selectedRecording.sfreq) }}</strong>
+            </div>
+            <div>
+              <span>时长</span>
+              <strong>{{ formatDurationSeconds(selectedRecording.durationSeconds) }}</strong>
+            </div>
+            <div>
+              <span>Trigger</span>
+              <strong>{{ formatNullableCount(selectedRecording.nEvents) }}</strong>
+            </div>
+          </div>
+
+          <div class="dmt-drawer__label dmt-label-row">
+            <span>通道列表</span>
+            <span>{{ selectedRecording.channelNames.length }} 个</span>
+          </div>
+          <div v-if="selectedRecording.channelNames.length" class="dmt-token-list" aria-label="通道列表">
+            <span v-for="name in selectedRecording.channelNames" :key="name" class="dmt-token">{{ name }}</span>
+          </div>
+          <p v-else class="dmt-empty">暂无通道名。</p>
+
+          <div class="dmt-drawer__label dmt-label-row">
+            <span>Trigger 列表</span>
+            <span>{{ selectedEventRows.length }} 类</span>
+          </div>
+          <div v-if="selectedEventRows.length" class="dmt-token-list dmt-token-list--events" aria-label="Trigger 列表">
+            <span v-for="event in selectedEventRows" :key="event.label" class="dmt-event-token">
+              <span>{{ event.label }}</span>
+              <b>{{ formatEventCount(event.count) }}</b>
+            </span>
+          </div>
+          <p v-else class="dmt-empty">暂无 Trigger。</p>
 
           <!-- 原始数据：你上传的，按第几次上传存档、不可改 -->
           <div class="dmt-drawer__label">原始数据（你上传的）· 存档不可改</div>
@@ -463,6 +522,49 @@ const selectedBuckets = computed(() =>
 const selectedVersions = computed(() =>
   selectedRecordingId.value ? recordingVersionsById.value[selectedRecordingId.value] || [] : [],
 )
+const datasetChannelNames = computed(() => uniqueStrings(selectedAssetRecordings.value.flatMap((recording) => recording.channelNames)))
+const datasetChannelCounts = computed(() =>
+  uniqueNumbers(selectedAssetRecordings.value.map((recording) => (recording.nChannels ?? recording.channelNames.length) || null)),
+)
+const datasetSfreqs = computed(() => uniqueNumbers(selectedAssetRecordings.value.map((recording) => recording.sfreq)))
+const datasetTotalDuration = computed(() =>
+  selectedAssetRecordings.value.reduce((total, recording) => total + (recording.durationSeconds || 0), 0),
+)
+const datasetEventCounts = computed(() => {
+  const out: Record<string, number> = {}
+  for (const recording of selectedAssetRecordings.value) {
+    for (const [label, count] of Object.entries(recording.eventCounts)) {
+      out[label] = (out[label] || 0) + count
+    }
+    if (!Object.keys(recording.eventCounts).length) {
+      for (const label of recording.eventLabels) out[label] = out[label] || 0
+    }
+  }
+  return out
+})
+const datasetChannelSummaryLabel = computed(() => formatNumberSet(datasetChannelCounts.value, 'ch'))
+const datasetSfreqSummaryLabel = computed(() => formatNumberSet(datasetSfreqs.value, 'Hz'))
+const datasetDurationSummaryLabel = computed(() => `累计 ${formatDurationSeconds(datasetTotalDuration.value)}`)
+const datasetEventSummaryLabel = computed(() => {
+  const labels = Object.keys(datasetEventCounts.value)
+  const total = Object.values(datasetEventCounts.value).reduce((sum, count) => sum + count, 0)
+  if (!labels.length) return '—'
+  return total > 0 ? `${labels.length} 类 · ${total} 次` : `${labels.length} 类`
+})
+const datasetChannelPreview = computed(() => previewList(datasetChannelNames.value))
+const datasetEventPreview = computed(() => previewList(Object.keys(datasetEventCounts.value).sort(labelSort)))
+const selectedEventRows = computed(() => {
+  const rec = selectedRecording.value
+  if (!rec) return []
+  const entries = Object.entries(rec.eventCounts)
+  if (entries.length) {
+    return entries
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => labelSort(a.label, b.label))
+  }
+  return rec.eventLabels.map((label) => ({ label, count: null })).sort((a, b) => labelSort(a.label, b.label))
+})
+
 // source_files 是相对路径，抽屉里只显文件名
 function baseName(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path
@@ -476,6 +578,62 @@ function selectRecording(rec: DatasetRecordingRow) {
   void loadRecordingFiles(rec)
   void loadRecordingVersions(rec)
   void loadRecordingQa(rec)
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(labelSort)
+}
+
+function uniqueNumbers(values: Array<number | null | undefined>) {
+  return Array.from(
+    new Set(values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))),
+  ).sort((a, b) => a - b)
+}
+
+function formatNumberSet(values: number[], unit: string) {
+  if (!values.length) return '—'
+  const fmt = (value: number) => formatCompactNumber(value)
+  if (values.length === 1) return `${fmt(values[0])} ${unit}`
+  if (values.length <= 3) return values.map((value) => `${fmt(value)} ${unit}`).join(' / ')
+  return `${fmt(values[0])}-${fmt(values[values.length - 1])} ${unit}`
+}
+
+function formatNullableCount(value: number | null | undefined) {
+  return value == null ? '—' : String(value)
+}
+
+function formatEventCount(value: number | null) {
+  return value == null ? '—' : String(value)
+}
+
+function formatSfreq(value: number | null | undefined) {
+  return value == null ? '—' : `${formatCompactNumber(value)} Hz`
+}
+
+function formatDurationSeconds(value: number | null | undefined) {
+  if (!value || value <= 0) return '—'
+  if (value < 60) return `${formatCompactNumber(value)} s`
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.round(value % 60)
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return remainMinutes ? `${hours}h ${remainMinutes}m` : `${hours}h`
+}
+
+function formatCompactNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+function previewList(values: string[]) {
+  if (!values.length) return '暂无'
+  const head = values.slice(0, 10).join('、')
+  const rest = values.length - 10
+  return rest > 0 ? `${head} 等 ${rest} 个` : head
+}
+
+function labelSort(a: string, b: string) {
+  return a.localeCompare(b, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' })
 }
 
 // 「调整归类」：抽屉内联改 BIDS 标签

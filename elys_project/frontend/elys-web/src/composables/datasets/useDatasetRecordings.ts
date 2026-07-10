@@ -35,6 +35,13 @@ export interface DatasetRecordingRow {
   currentVersionSeq: number | null
   hasCanonicalFif: boolean
   channelEventLabel: string
+  nChannels: number | null
+  sfreq: number | null
+  durationSeconds: number | null
+  nEvents: number | null
+  channelNames: string[]
+  eventLabels: string[]
+  eventCounts: Record<string, number>
   qaStatus: string | null
   updatedAt: string | null
   fileSize: number | null
@@ -119,6 +126,13 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
   }))
 
   function normalizeRecording(recording: Recording): DatasetRecordingRow {
+    const channelNames = normalizeStringList(recording.ch_names)
+    const eventCounts = normalizeCountMap(recording.event_counts)
+    const eventLabels = normalizeStringList(recording.event_labels).length
+      ? normalizeStringList(recording.event_labels)
+      : Object.keys(eventCounts)
+    const nChannels = recording.n_channels ?? (channelNames.length || null)
+    const nEvents = recording.n_events ?? (sumCounts(eventCounts) || null)
     return {
       id: recording.id,
       subject: recording.bids_subject_id || recording.subject_id || '-',
@@ -129,12 +143,39 @@ export function useDatasetRecordings(options: DatasetRecordingsOptions) {
       currentVersionLabel: getCurrentVersionLabel(recording),
       currentVersionSeq: recording.current_version_seq ?? null,
       hasCanonicalFif: Boolean(recording.fif_path || recording.current_version_id),
-      channelEventLabel: formatChannelEvent(recording.n_channels, recording.n_events),
+      channelEventLabel: formatChannelEvent(nChannels, nEvents),
+      nChannels,
+      sfreq: recording.sfreq ?? null,
+      durationSeconds: recording.duration_seconds ?? null,
+      nEvents,
+      channelNames,
+      eventLabels,
+      eventCounts,
       qaStatus: recording.qa_status || null,
       updatedAt: getRecordingUpdatedAt(recording),
       fileSize: recording.file_size || null,
       datasetAssetId: recording.dataset_asset_id || null,
     }
+  }
+
+  function normalizeStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return []
+    return value.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+
+  function normalizeCountMap(value: unknown): Record<string, number> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    const out: Record<string, number> = {}
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      const label = String(key || '').trim()
+      const count = Number(raw)
+      if (label && Number.isFinite(count) && count > 0) out[label] = Math.round(count)
+    }
+    return out
+  }
+
+  function sumCounts(value: Record<string, number>) {
+    return Object.values(value).reduce((total, count) => total + count, 0)
   }
 
   async function loadSelectedAssetRecordings() {

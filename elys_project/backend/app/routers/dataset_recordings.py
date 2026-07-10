@@ -53,6 +53,7 @@ from app.services.recordings import (
     list_recording_versions_for_study,
     list_recordings_for_study,
 )
+from app.services.recording_metadata import read_recording_channel_names, read_recording_event_counts
 from app.services.file_browser import resolve_dataset_file_path
 from app.routers._dataset_shared import (
     require_system_permission,
@@ -296,7 +297,19 @@ def list_recordings(
         dataset_asset_id=resolved_asset_id,
         mounted_dataset_asset_ids=None if has_asset_filter else active_study_dataset_asset_ids(db, study=study),
     )
-    return RecordingListResponse(recordings=[recording_to_response(recording) for recording in recordings])
+    responses: list[RecordingResponse] = []
+    for recording in recordings:
+        event_labels, event_counts = read_recording_event_counts(study, recording)
+        ch_names = read_recording_channel_names(study, recording)
+        responses.append(
+            recording_to_response(
+                recording,
+                ch_names=ch_names,
+                event_labels=event_labels,
+                event_counts=event_counts,
+            )
+        )
+    return RecordingListResponse(recordings=responses)
 
 
 @recording_router.get("/{recording_id}/versions", response_model=RecordingVersionListResponse)

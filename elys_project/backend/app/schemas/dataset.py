@@ -322,6 +322,9 @@ class RecordingResponse(BaseModel):
     sfreq: Optional[float] = None
     duration_seconds: Optional[float] = None
     n_events: Optional[int] = None
+    ch_names: list[str] = Field(default_factory=list)
+    event_labels: list[str] = Field(default_factory=list)
+    event_counts: dict[str, int] = Field(default_factory=dict)
     qa_status: Optional[str] = None
     qa_report: Optional[dict[str, Any]] = None
     imported_by: Optional[str] = None

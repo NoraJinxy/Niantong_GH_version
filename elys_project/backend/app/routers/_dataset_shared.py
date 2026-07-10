@@ -128,7 +128,13 @@ def require_system_permission(user: User, permission_code: str, message: str) ->
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
 
 
-def recording_to_response(recording: Recording) -> RecordingResponse:
+def recording_to_response(
+    recording: Recording,
+    *,
+    ch_names: list[str] | None = None,
+    event_labels: list[str] | None = None,
+    event_counts: dict[str, int] | None = None,
+) -> RecordingResponse:
     return RecordingResponse(
         id=str(recording.id),
         study_id=recording.study_id,
@@ -149,6 +155,9 @@ def recording_to_response(recording: Recording) -> RecordingResponse:
         sfreq=recording.sfreq,
         duration_seconds=recording.duration_seconds,
         n_events=recording.n_events,
+        ch_names=ch_names or [],
+        event_labels=event_labels or [],
+        event_counts=event_counts or {},
         qa_status=recording.qa_status,
         qa_report=recording.qa_report,
         imported_by=str(recording.imported_by) if recording.imported_by else None,

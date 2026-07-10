@@ -753,6 +753,9 @@ export interface Recording {
   sfreq?: number | null
   duration_seconds?: number | null
   n_events?: number | null
+  ch_names?: string[]
+  event_labels?: string[]
+  event_counts?: Record<string, number>
   qa_status?: string | null
   qa_report?: DatasetQaReport | Record<string, unknown> | null
   imported_by?: string | null
