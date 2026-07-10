@@ -4217,9 +4217,14 @@ function finalizeNodeWidgets(graphNode: LiteGraphNode, spec: NodeSpec | null) {
     type: 'elys_fact_panel',
     name: '',
     value: null,
+    // 这块只是节点摘要的自绘面板，不是真控件。标 disabled 让 LiteGraph 的
+    // processNodeWidgets 跳过鼠标命中，否则点在面板内会被 widget 吞掉，节点无法被拖动。
+    disabled: true,
     computeSize: (w: number) => [w, panelH],
     draw: (ctx: CanvasRenderingContext2D, _node: unknown, w: number, y: number, _h: number) => {
       ctx.save()
+      // LiteGraph 会把 disabled widget 默认画成半透明；这里恢复摘要面板的正常可读外观。
+      ctx.globalAlpha = Number(liteGraphCanvas?.editor_alpha ?? 1)
       const px = PANEL_INSET_X
       const pw = w - PANEL_INSET_X * 2
       ctx.fillStyle = panelTint
