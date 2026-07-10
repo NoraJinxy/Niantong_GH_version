@@ -1,10 +1,41 @@
 import { describe, it, expect } from 'vitest'
-import { computeFlowLayout } from './litegraphUtils'
+import { LITEGRAPH_NODE_ID_PROP } from './pipelineConstants'
+import { computeFlowLayout, ensureUniqueLiteGraphNodeIds, getLiteGraphNodeId } from './litegraphUtils'
+import type { LiteGraphNode } from './litegraphUtils'
 
 // 用 100×100 的等距网格 + aspect=1，让「行数=令网格宽高比最接近画布」可手算（同分取更少行）。
 const GRID = { gapX: 100, gapY: 100, aspect: 1, marginX: 0, marginY: 0 }
 const chain = (...ids: string[]) =>
   ids.slice(1).map((to, i) => ({ from: { node: ids[i] }, to: { node: to } }))
+
+describe('ensureUniqueLiteGraphNodeIds', () => {
+  it('为复制粘贴出来的重复 ELYS 节点 id 重新编号', () => {
+    const nodes = [
+      { id: 1, elysNodeId: 'n_source', properties: { [LITEGRAPH_NODE_ID_PROP]: 'n_source' } },
+      { id: 2, elysNodeId: 'n_source', properties: { [LITEGRAPH_NODE_ID_PROP]: 'n_source' } },
+    ] as unknown as LiteGraphNode[]
+
+    const changed = ensureUniqueLiteGraphNodeIds(nodes, () => 'n_copy')
+
+    expect(changed).toBe(true)
+    expect(getLiteGraphNodeId(nodes[0])).toBe('n_source')
+    expect(getLiteGraphNodeId(nodes[1])).toBe('n_copy')
+    expect(nodes[1].properties[LITEGRAPH_NODE_ID_PROP]).toBe('n_copy')
+  })
+
+  it('生成新 id 时避开已存在的节点 id', () => {
+    const nodes = [
+      { id: 1, elysNodeId: 'n_a', properties: { [LITEGRAPH_NODE_ID_PROP]: 'n_a' } },
+      { id: 2, elysNodeId: 'n_b', properties: { [LITEGRAPH_NODE_ID_PROP]: 'n_b' } },
+      { id: 3, elysNodeId: 'n_a', properties: { [LITEGRAPH_NODE_ID_PROP]: 'n_a' } },
+    ] as unknown as LiteGraphNode[]
+    const candidates = ['n_b', 'n_c']
+
+    ensureUniqueLiteGraphNodeIds(nodes, () => candidates.shift() || 'n_fallback')
+
+    expect(getLiteGraphNodeId(nodes[2])).toBe('n_c')
+  })
+})
 
 describe('computeFlowLayout', () => {
   it('空图返回空 Map', () => {

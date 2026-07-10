@@ -1327,6 +1327,7 @@ import { GROUP_MERGE_NODE_TYPE, allowsMultipleInputLinks, canonicalInputPortName
 import {
   getLiteGraphNodeId,
   setLiteGraphNodeId,
+  ensureUniqueLiteGraphNodeIds,
   liteGraphNodes,
   liteGraphReachableFromLoadData,
   drawNodeAccentBar,
@@ -1769,6 +1770,9 @@ let resizeObserver: ResizeObserver | null = null
 let syncingGraph = false
 let pendingGraphSync = 0
 let pendingGraphSyncDirty = false
+function nextPipelineNodeId(): string {
+  return `n_${Date.now().toString(36)}_${++nodeCounter}`
+}
 // litegraph 节点类型注册 + 自绘类（ElysPipelineNode）见 composables/pipeline/useLiteGraphNodeTypes
 // getLiteGraph 注入 liteGraph 实例 getter（自绘里判 LoadData 可达性用）；registerLiteGraphNodeSpecs 由下方 init/createLiteGraphNode 调。
 const { registerLiteGraphNodeSpecs } = useLiteGraphNodeTypes({
@@ -3872,7 +3876,7 @@ function duplicatePipelineNode(nodeId: string) {
   if (!source) return
   const node: PipelineGraphNode = normalizeNode({
     ...source,
-    id: `n_${Date.now().toString(36)}_${++nodeCounter}`,
+    id: nextPipelineNodeId(),
     title: source.title,
     position: [Number(source.position?.[0] || 80) + 32, Number(source.position?.[1] || 80) + 32],
     params: clonePlainObject(source.params || {}),
@@ -4030,16 +4034,25 @@ function scheduleLiteGraphSync(markAsDirty: boolean) {
 function syncDefinitionFromLiteGraph(markAsDirty = true) {
   if (!liteGraph || syncingGraph) return
 
-  const nodes = liteGraphNodes(liteGraph).map((node) => liteGraphNodeToDefinition(node))
+  const graphNodes = liteGraphNodes(liteGraph)
+  ensureUniqueLiteGraphNodeIds(graphNodes, nextPipelineNodeId)
+  const selectedGraphNodeId = firstSelectedLiteGraphNodeId()
+  const nodes = graphNodes.map((node) => liteGraphNodeToDefinition(node))
   const links = liteGraphLinksToDefinition()
   definition.value = {
     ...definition.value,
     graph: { nodes, links },
   }
+  if (selectedGraphNodeId) selectedNodeId.value = selectedGraphNodeId
   if (selectedNodeId.value && !nodes.some((node) => node.id === selectedNodeId.value)) {
     selectedNodeId.value = nodes[0]?.id || ''
   }
   if (markAsDirty) markDirty()
+}
+
+function firstSelectedLiteGraphNodeId(): string {
+  const selected = Object.values(liteGraphCanvas?.selected_nodes || {}) as LiteGraphNode[]
+  return getLiteGraphNodeId(selected[0]).trim()
 }
 
 function liteGraphNodeToDefinition(node: LiteGraphNode): PipelineGraphNode {
@@ -4888,7 +4901,7 @@ function handlePipelineChange(event: Event) {
 function addNode(spec: NodeSpec) {
   const index = definition.value.graph.nodes.length
   const node: PipelineGraphNode = {
-    id: `n_${Date.now().toString(36)}_${++nodeCounter}`,
+    id: nextPipelineNodeId(),
     type: spec.type,
     title: spec.title,
     position: nextNodePosition(index),
@@ -4937,7 +4950,7 @@ function handleCanvasDrop(event: DragEvent) {
 
 function addNodeAt(spec: NodeSpec, position: [number, number]) {
   const node: PipelineGraphNode = {
-    id: `n_${Date.now().toString(36)}_${++nodeCounter}`,
+    id: nextPipelineNodeId(),
     type: spec.type,
     title: spec.title,
     position,

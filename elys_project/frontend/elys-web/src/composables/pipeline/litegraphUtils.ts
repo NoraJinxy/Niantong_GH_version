@@ -46,6 +46,28 @@ export function setLiteGraphNodeId(node: LiteGraphNode, id: string) {
   }
 }
 
+/** 去重 ELYS 业务节点 id：LiteGraph 粘贴会复制 properties，需要在同步回定义前修正。 */
+export function ensureUniqueLiteGraphNodeIds(nodes: LiteGraphNode[], makeId: () => string): boolean {
+  const seen = new Set<string>()
+  let changed = false
+  for (const node of nodes) {
+    const current = getLiteGraphNodeId(node).trim()
+    if (!current || seen.has(current)) {
+      let next = ''
+      do {
+        next = makeId().trim()
+      } while (!next || seen.has(next))
+      setLiteGraphNodeId(node, next)
+      seen.add(next)
+      changed = true
+      continue
+    }
+    setLiteGraphNodeId(node, current)
+    seen.add(current)
+  }
+  return changed
+}
+
 /** 取 litegraph 图里的全部节点（读内部 _nodes，做了 null/类型兜底）。 */
 export function liteGraphNodes(graph: LGraph | null | undefined): LiteGraphNode[] {
   return ((graph as unknown as LooseLiteGraph | null | undefined)?._nodes || []) as LiteGraphNode[]
