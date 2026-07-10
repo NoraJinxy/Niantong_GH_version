@@ -9,7 +9,6 @@ converter (used by both Pipelines-CRUD and Executions), and the StudyOutput resp
 """
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Iterable
 
 from fastapi import HTTPException, status
@@ -228,14 +227,15 @@ def execution_scoped_outputs(
 ) -> list[tuple[StudyOutput, str | None]]:
     """列出「某次执行产出或复用」的 study_outputs（经 execution_outputs 关联表）。
 
-    返回 [(StudyOutput, job_id_str | None)]，每条 output 去重保留一条边（优先 created，
-    即首产者那条），job_id 为该边对应的 job —— 供「某次执行视角」按 job 统计/分组。
+    返回 [(StudyOutput, job_id_str | None)]，每条 execution_outputs 边保留一条记录。
+    同一个 study_output 可能因为 content-addressed 去重被多个 job 复用；这些 job 必须都能
+    在「某次执行视角」拿到自己的输出，否则复制节点 / 缓存命中节点会显示成功但双击打不开结果。
 
     与按 produced_by_execution_id 直查的区别：去重命中 / 缓存命中而被复用的输出，其
     produced_by_execution_id 指向首产执行，本表却为本次执行也记了 reused 边，故这里能查到。
     """
     rows = (
-        db.query(StudyOutput, ExecutionOutput.job_id, ExecutionOutput.relation)
+        db.query(StudyOutput, ExecutionOutput.job_id)
         .join(ExecutionOutput, ExecutionOutput.study_output_id == StudyOutput.id)
         .filter(
             ExecutionOutput.execution_id == execution_id,
@@ -244,16 +244,6 @@ def execution_scoped_outputs(
     )
     if not include_deleted:
         rows = rows.filter(StudyOutput.deleted_at.is_(None))
-    # relation 升序让 'created' 排在 'reused' 前，去重时优先保留首产者那条边的 job 归属
-    rows = rows.order_by(ExecutionOutput.relation.asc(), ExecutionOutput.created_at.asc()).all()
+    rows = rows.order_by(StudyOutput.created_at.asc(), ExecutionOutput.created_at.asc(), ExecutionOutput.id.asc()).all()
 
-    seen: set[Any] = set()
-    picked: list[tuple[StudyOutput, str | None]] = []
-    for output, job_id, _relation in rows:
-        if output.id in seen:
-            continue
-        seen.add(output.id)
-        picked.append((output, str(job_id) if job_id else None))
-    # 展示顺序按 output 产出时间，稳定可读
-    picked.sort(key=lambda pair: (pair[0].created_at or datetime.min, str(pair[0].id)))
-    return picked
+    return [(output, str(job_id) if job_id else None) for output, job_id in rows]

@@ -25,6 +25,7 @@ from app.services.study_locks import refresh_study_lock
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PIPELINES_ROUTER = BACKEND_DIR / "app" / "routers" / "pipelines.py"
+PIPELINE_SHARED = BACKEND_DIR / "app" / "routers" / "_pipeline_shared.py"
 PIPELINE_BACKGROUND = BACKEND_DIR / "app" / "pipeline" / "background.py"
 FILE_TASKS = BACKEND_DIR / "app" / "tasks" / "file_tasks.py"
 
@@ -35,6 +36,10 @@ def load_router_tree() -> ast.Module:
 
 def load_router_source() -> str:
     return PIPELINES_ROUTER.read_text(encoding="utf-8-sig")
+
+
+def load_pipeline_shared_source() -> str:
+    return PIPELINE_SHARED.read_text(encoding="utf-8-sig")
 
 
 def load_background_source() -> str:
@@ -75,6 +80,15 @@ def router_function_source(function_name: str) -> str:
     tree = load_router_tree()
     functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
     segment = ast.get_source_segment(load_router_source(), functions[function_name])
+    assert segment is not None
+    return segment
+
+
+def shared_function_source(function_name: str) -> str:
+    source = load_pipeline_shared_source()
+    tree = ast.parse(source)
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    segment = ast.get_source_segment(source, functions[function_name])
     assert segment is not None
     return segment
 
@@ -409,6 +423,15 @@ def test_pipeline_execution_lineage_aggregates_inputs_artifacts_dependencies_and
     assert "add_lineage_graph_edge" in segment
     assert "graph_nodes=list(graph_nodes.values())" in segment
     assert "graph_edges=list(graph_edges.values())" in segment
+
+
+def test_execution_scoped_outputs_keeps_per_job_edges_for_reused_outputs() -> None:
+    segment = shared_function_source("execution_scoped_outputs")
+
+    assert "db.query(StudyOutput, ExecutionOutput.job_id)" in segment
+    assert "ExecutionOutput.relation" not in segment
+    assert "seen" not in segment
+    assert "return [(output, str(job_id) if job_id else None) for output, job_id in rows]" in segment
 
 
 def test_study_output_retention_patch_shares_delete_blocker() -> None:
